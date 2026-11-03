@@ -382,7 +382,7 @@ function SavedReleaseCard({ release }: { release: SavedReleaseResponse }) {
                 {index > 0 ? ' · ' : null}
                 <Link
                   href={`/artists/${artist.slug || artist.id}`}
-                  className="text-link transition-colors hover:underline"
+                  className="text-link hover:underline"
                 >
                   {artist.name}
                 </Link>

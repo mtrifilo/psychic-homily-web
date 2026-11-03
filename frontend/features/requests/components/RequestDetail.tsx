@@ -359,7 +359,7 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
                     <div className="mt-4">
                       <Link
                         href={proposedEntityUrl}
-                        className="inline-flex items-center gap-1.5 text-sm text-link hover:underline transition-colors"
+                        className="inline-flex items-center gap-1.5 text-sm text-link hover:underline"
                       >
                         <ExternalLink className="h-3.5 w-3.5" />
                         View{' '}
@@ -420,7 +420,7 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
                       {proposedEntityUrl && (
                         <Link
                           href={proposedEntityUrl}
-                          className="mt-2 inline-flex items-center gap-1.5 text-sm text-link transition-colors hover:underline"
+                          className="mt-2 inline-flex items-center gap-1.5 text-sm text-link hover:underline"
                           data-testid="review-panel-proposed-entity-link"
                         >
                           <ExternalLink className="h-3.5 w-3.5" />

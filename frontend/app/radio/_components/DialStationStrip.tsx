@@ -125,7 +125,8 @@ export function DialStationStrip({ station }: DialStationStripProps) {
           <BracketLink
             label={playlistAction.label}
             href={playlistAction.href}
-            className="font-data text-xs text-link hover:text-link hover:underline"
+            variant="accent"
+            className="font-data text-xs"
           />
         )}
       </div>
@@ -376,7 +377,8 @@ function DialChannelRow({
           label="listen"
           href={channelWebsiteHref}
           external
-          className="font-data text-xs text-link hover:text-link hover:underline"
+          variant="accent"
+          className="font-data text-xs"
           // Names the channel: this row repeats per channel and again per
           // station, so a bare "listen" would announce identically down the
           // whole dial with nothing to tell the streams apart.

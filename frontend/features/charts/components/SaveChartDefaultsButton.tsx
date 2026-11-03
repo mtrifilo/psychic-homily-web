@@ -71,7 +71,7 @@ export function SaveChartDefaultsButton({
       <button
         type="button"
         onClick={handleSave}
-        className="text-xs text-link hover:underline underline-offset-2 transition-colors self-center whitespace-nowrap"
+        className="text-xs text-link hover:underline underline-offset-2 self-center whitespace-nowrap"
       >
         Save as default
       </button>

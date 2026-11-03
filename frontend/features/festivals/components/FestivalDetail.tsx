@@ -380,7 +380,7 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
                   href={websiteHref}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 text-link hover:underline transition-colors text-sm"
+                  className="flex items-center gap-2 text-link hover:underline text-sm"
                 >
                   <Globe className="h-4 w-4" />
                   Official Website
@@ -394,7 +394,7 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
                     sponsored: offer.sponsored,
                     ugc: offer.ugc,
                   })}
-                  className="flex items-center gap-2 text-link hover:underline transition-colors text-sm"
+                  className="flex items-center gap-2 text-link hover:underline text-sm"
                 >
                   <Ticket className="h-4 w-4" />
                   Buy Tickets

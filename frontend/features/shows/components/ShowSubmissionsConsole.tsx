@@ -352,7 +352,7 @@ function SubmissionShowCard({
               (venue.slug ? (
                 <Link
                   href={`/venues/${venue.slug}`}
-                  className="font-medium text-link transition-colors hover:underline"
+                  className="font-medium text-link hover:underline"
                 >
                   {venue.name}
                 </Link>
@@ -383,7 +383,7 @@ function SubmissionShowCard({
                 <span>&nbsp;•&nbsp;</span>
                 <Link
                   href={`/shows/${show.slug || show.id}`}
-                  className="text-link underline underline-offset-2 transition-colors"
+                  className="text-link underline underline-offset-2"
                 >
                   Details
                 </Link>

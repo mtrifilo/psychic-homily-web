@@ -98,7 +98,8 @@ export function EpisodeArchiveTable({
               external
               // text-xs beats BracketLink's text-sm base; the enclosing
               // <td> already supplies font-data.
-              className="text-xs text-link hover:text-link hover:underline"
+              variant="accent"
+              className="text-xs"
               // Dates the row, because every row's bracket reads "mp3";
               // the new-tab half is BracketLink's to append.
               ariaLabel={`Listen to the ${cellDate} archive`}
@@ -113,7 +114,7 @@ export function EpisodeArchiveTable({
               <td role="cell" className="col-start-1 row-start-1 whitespace-nowrap">
                 <MaybeLink
                   href={episodeUrl}
-                  linkedClassName="font-data text-xs uppercase text-link hover:underline transition-colors"
+                  linkedClassName="font-data text-xs uppercase text-link hover:underline"
                   plainClassName="font-data text-xs uppercase text-muted-foreground"
                 >
                   <AirDateCellContent
@@ -131,7 +132,7 @@ export function EpisodeArchiveTable({
                 {episode.title ? (
                   <MaybeLink
                     href={episodeUrl}
-                    linkedClassName="text-link hover:underline transition-colors"
+                    linkedClassName="text-link hover:underline"
                     plainClassName="text-muted-foreground"
                   >
                     {episode.title}

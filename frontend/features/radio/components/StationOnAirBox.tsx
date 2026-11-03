@@ -143,7 +143,7 @@ export function StationOnAirBox({ station }: StationOnAirBoxProps) {
           <BracketLink
             label="Open latest playlist →"
             href={playlistUrl}
-            className="text-link hover:text-link hover:underline"
+            variant="accent"
           />
           {latestDate && (
             <span className="font-data text-xs text-muted-foreground">

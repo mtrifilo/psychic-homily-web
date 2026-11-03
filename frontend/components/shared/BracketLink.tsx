@@ -133,8 +133,12 @@ export interface BracketLinkProps
    * `sponsored`, and the same `external` gate.
    */
   ugc?: boolean
-  /** Visual variant. `danger` is red for destructive actions like [Remove] / [Delete] / [X]. */
-  variant?: 'default' | 'danger'
+  /**
+   * Visual variant. `danger` is red for destructive actions like [Remove] / [Delete] / [X].
+   * `accent` is the orange link register: the link token at rest and on hover,
+   * underline on hover.
+   */
+  variant?: 'default' | 'danger' | 'accent'
   /**
    * ARIA label override (defaults to the visible label). Use it for CONTEXT the
    * visible label leaves out — the room name behind a bare `[site ↗]` repeated
@@ -166,6 +170,7 @@ export interface BracketLinkProps
  *   <BracketLink label="Following" active onClick={handleUnfollow} />
  *   <BracketLink label="View history" href={`/artists/${slug}/history`} />
  *   <BracketLink label="X" variant="danger" onClick={handleRemove} title="Remove" />
+ *   <BracketLink label="latest playlist" variant="accent" href={playlistUrl} />
  *   <BracketLink label="site ↗" href={room.website} external ariaLabel={`${room.name} website`} />
  *
  * That last line is the whole outbound split: the optional glyph rides in
@@ -258,6 +263,7 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
         'text-muted-foreground hover:text-foreground',
       variant === 'default' && active && 'text-foreground font-medium',
       variant === 'danger' && 'text-destructive hover:text-destructive/80',
+      variant === 'accent' && 'text-link hover:underline',
       // LOAD-BEARING: `pointer-events-none` must stay. FollowButton's
       // pre-hydration safety argument is that its disabled loading bracket
       // cannot receive a click at all — a styling change here would silently

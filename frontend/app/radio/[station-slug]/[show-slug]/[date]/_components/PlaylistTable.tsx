@@ -126,7 +126,7 @@ export function PlaylistTable({ plays, live = false }: PlaylistTableProps) {
                       {play.artist_slug ? (
                         <Link
                           href={`/artists/${play.artist_slug}`}
-                          className="font-medium text-link hover:underline transition-colors"
+                          className="font-medium text-link hover:underline"
                         >
                           {play.artist_name}
                         </Link>

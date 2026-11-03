@@ -58,6 +58,15 @@ describe('BracketLink', () => {
     expect(button.className).toContain('text-destructive')
   })
 
+  it('draws the accent variant in the link token with an underline on hover', () => {
+    render(<BracketLink label="latest playlist" variant="accent" href="/radio/x" />)
+    const tokens = screen.getByRole('link').className.split(' ')
+    expect(tokens).toContain('text-link')
+    expect(tokens).toContain('hover:underline')
+    expect(tokens.some(t => t.startsWith('hover:text-'))).toBe(false)
+    expect(tokens).not.toContain('text-primary')
+  })
+
   describe('pointer cursor', () => {
     // Tailwind preflight resets <button> to `cursor: default`, so the button
     // branch needs an explicit cursor-pointer to read as interactive.

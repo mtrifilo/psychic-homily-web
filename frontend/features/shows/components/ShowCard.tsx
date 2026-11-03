@@ -282,7 +282,7 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
                       {venue.slug ? (
                         <Link
                           href={`/venues/${venue.slug}`}
-                          className="text-link hover:underline font-medium transition-colors"
+                          className="text-link hover:underline font-medium"
                         >
                           {venue.name}
                         </Link>
@@ -482,7 +482,7 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
                     {venue.slug ? (
                       <Link
                         href={`/venues/${venue.slug}`}
-                        className="text-link hover:underline font-medium transition-colors"
+                        className="text-link hover:underline font-medium"
                       >
                         {venue.name}
                       </Link>

@@ -89,7 +89,7 @@ function VenueLine({ venue }: { venue: CompactShowVenue | null | undefined }) {
       {venue.slug ? (
         <Link
           href={`/venues/${venue.slug}`}
-          className="text-link hover:underline font-medium transition-colors"
+          className="text-link hover:underline font-medium"
         >
           {venue.name}
         </Link>
@@ -202,7 +202,7 @@ export function CompactShowRow({
               <div className="mt-0.5">
                 <Link
                   href={detailsHref}
-                  className="text-link underline underline-offset-2 transition-colors"
+                  className="text-link underline underline-offset-2"
                 >
                   Details
                 </Link>

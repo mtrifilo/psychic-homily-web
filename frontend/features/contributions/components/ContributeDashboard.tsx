@@ -253,7 +253,7 @@ function CategoryItems({ category, entityType }: { category: string; entityType:
         </span>
         <Link
           href={browseUrl}
-          className="text-sm text-link hover:underline flex items-center gap-1 transition-colors"
+          className="text-sm text-link hover:underline flex items-center gap-1"
         >
           Browse all {formatEntityType(entityType).toLowerCase()}
           <ArrowRight className="h-3.5 w-3.5" />
