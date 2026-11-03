@@ -71,6 +71,23 @@ function renderedOrder() {
   return screen.queryAllByTestId('section').map(node => node.textContent)
 }
 
+function customizeButtons() {
+  return screen.queryAllByRole('button', { name: 'Customize home →' })
+}
+
+/** Whether `a` comes before `b` in document order. */
+function precedes(a: Node, b: Node) {
+  return !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
+}
+
+function section(name: string) {
+  const node = screen
+    .getAllByTestId('section')
+    .find(candidate => candidate.textContent === name)
+  if (!node) throw new Error(`section ${name} is not rendered`)
+  return node
+}
+
 beforeEach(() => {
   layout = resolveHomeLayout(null)
   hasWriteFailed = false
@@ -88,42 +105,88 @@ describe('HomeLayoutRuntime', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Home' })).toHaveFocus()
   })
 
-  it('places the passkey offer under the toolbar and above the first section, even with saved shows hidden', () => {
+  it('places the passkey offer under the saved-shows module, not above the sections', () => {
+    render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
+
+    const offer = screen.getByTestId('passkey-offer')
+    expect(precedes(section('saved_shows'), offer)).toBe(true)
+    expect(precedes(offer, section('nearby_shows'))).toBe(true)
+  })
+
+  it('follows the saved-shows module wherever the viewer moved it', () => {
+    layout = moveHomeSection(
+      moveHomeSection(resolveHomeLayout(null), 'saved_shows', 'down')!,
+      'saved_shows',
+      'down'
+    )!
+    render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
+
+    const offer = screen.getByTestId('passkey-offer')
+    expect(renderedOrder().slice(0, 3)).toEqual([
+      'nearby_shows',
+      'community_stats',
+      'saved_shows',
+    ])
+    expect(precedes(section('saved_shows'), offer)).toBe(true)
+    expect(precedes(offer, section('radio_shows'))).toBe(true)
+  })
+
+  it('places the passkey offer under the first visible section when saved shows is hidden', () => {
     layout = setHomeSectionVisibility(resolveHomeLayout(null), 'saved_shows', false)
     render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
 
-    const toolbarButton = screen.getByRole('button', { name: /customize home/i })
     const offer = screen.getByTestId('passkey-offer')
-    const firstSection = screen.getAllByTestId('section')[0]
-    expect(firstSection).toHaveTextContent('nearby_shows')
-    expect(
-      toolbarButton.compareDocumentPosition(offer) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy()
-    expect(
-      offer.compareDocumentPosition(firstSection) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy()
+    expect(renderedOrder()[0]).toBe('nearby_shows')
+    expect(precedes(section('nearby_shows'), offer)).toBe(true)
+    expect(precedes(offer, section('community_stats'))).toBe(true)
   })
 
-  it('renders the toolbar and the shipped order', () => {
+  it('places the passkey offer under the empty-state line when every section is hidden', () => {
+    layout = resolveHomeLayout(null).map(section => ({
+      ...section,
+      visible: false,
+    }))
     render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
 
+    const offer = screen.getByTestId('passkey-offer')
     expect(
-      screen.getByText('Home · 5 sections · Your layout')
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: /customize home/i })
-    ).toBeInTheDocument()
+      precedes(screen.getByText('You have hidden every section.'), offer)
+    ).toBe(true)
+    expect(precedes(offer, customizeButtons()[0])).toBe(true)
+  })
+
+  it('renders the shipped order with one Customize link after the last section and no kicker', () => {
+    render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
+
     expect(renderedOrder()).toEqual([
       'saved_shows',
       'nearby_shows',
       'community_stats',
-      'city_graph',
       'radio_shows',
+      'city_graph',
     ])
+    expect(screen.queryByText(/sections · Your layout/)).not.toBeInTheDocument()
+    expect(customizeButtons()).toHaveLength(1)
+    expect(precedes(section('city_graph'), customizeButtons()[0])).toBe(true)
+  })
+
+  it('opens the Customize popover from the page-end link', async () => {
+    const user = userEvent.setup()
+    render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
+
+    await user.click(customizeButtons()[0])
+
+    expect(
+      screen.getByRole('dialog', { name: 'Customize home' })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('checkbox', { name: 'Community stats' })
+    ).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'All settings →' })).toBeInTheDocument()
   })
 
   it('renders a custom order on the FIRST paint, with no reflow', () => {
-    layout = moveHomeSection(resolveHomeLayout(null), 'radio_shows', 'up')!
+    layout = moveHomeSection(resolveHomeLayout(null), 'city_graph', 'up')!
 
     render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
 
@@ -131,8 +194,8 @@ describe('HomeLayoutRuntime', () => {
       'saved_shows',
       'nearby_shows',
       'community_stats',
-      'radio_shows',
       'city_graph',
+      'radio_shows',
     ])
   })
 
@@ -148,12 +211,12 @@ describe('HomeLayoutRuntime', () => {
     expect(renderedOrder()).toEqual([
       'saved_shows',
       'nearby_shows',
-      'city_graph',
       'radio_shows',
+      'city_graph',
     ])
   })
 
-  it('keeps the toolbar and shows one line when every section is hidden', () => {
+  it('shows one line and exactly one Customize control when every section is hidden', () => {
     layout = resolveHomeLayout(null).map(section => ({
       ...section,
       visible: false,
@@ -166,19 +229,17 @@ describe('HomeLayoutRuntime', () => {
       screen.getByText(/You have hidden every section\./)
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: 'Customize home →' })
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: /^Customize home$/i })
-    ).toBeInTheDocument()
+      screen.getAllByRole('button', { name: /customize home/i })
+    ).toHaveLength(1)
+    expect(customizeButtons()).toHaveLength(1)
   })
 
-  it('carries the city link on the toolbar only when both carriers are hidden', () => {
+  it('carries the city link on the page-end row only when both carriers are hidden', () => {
     render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
     expect(screen.queryByTestId('relocated-city-link')).not.toBeInTheDocument()
   })
 
-  it('moves the city link to the toolbar when saved and nearby are hidden', () => {
+  it('moves the city link to the page-end row, above Customize, when saved and nearby are hidden', () => {
     layout = setHomeSectionVisibility(
       setHomeSectionVisibility(resolveHomeLayout(null), 'nearby_shows', false),
       'saved_shows',
@@ -187,7 +248,9 @@ describe('HomeLayoutRuntime', () => {
 
     render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
 
-    expect(screen.getByTestId('relocated-city-link')).toBeInTheDocument()
+    const cityLink = screen.getByTestId('relocated-city-link')
+    expect(precedes(section('city_graph'), cityLink)).toBe(true)
+    expect(precedes(cityLink, customizeButtons()[0])).toBe(true)
   })
 
   // The empty state is read off what is RENDERED, not off the layout. Reading
@@ -199,7 +262,7 @@ describe('HomeLayoutRuntime', () => {
     const user = userEvent.setup()
     render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
 
-    await user.click(screen.getByRole('button', { name: /customize home/i }))
+    await user.click(customizeButtons()[0])
     for (const section of resolveHomeLayout(null)) {
       layout = setHomeSectionVisibility(layout, section.id, false)
     }
@@ -213,6 +276,10 @@ describe('HomeLayoutRuntime', () => {
       screen.getByText(/You have hidden every section\./)
     ).toBeInTheDocument()
     expect(renderedOrder()).toEqual([])
+    // The popover's anchor survived the page emptying, so it is still open.
+    expect(
+      screen.getByRole('dialog', { name: 'Customize home' })
+    ).toBeInTheDocument()
   })
 
   // The page's h1 lives on the shell, not in a section, because every section
@@ -239,13 +306,14 @@ describe('HomeLayoutRuntime', () => {
 
   // The write outlives the popover, so the failure has to be reported by
   // something the popover closing cannot unmount.
-  it('reports a failed write on the toolbar row, outside the popover', () => {
+  it('reports a failed write beside the Customize link, outside the popover', () => {
     hasWriteFailed = true
     render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
 
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      'Could not save your layout. Try again.'
-    )
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent('Could not save your layout. Try again.')
+    expect(precedes(customizeButtons()[0], alert)).toBe(true)
+    expect(precedes(section('city_graph'), alert)).toBe(true)
     // The popover is closed; the line is on the page regardless.
     expect(
       screen.queryByRole('checkbox', { name: 'Community stats' })

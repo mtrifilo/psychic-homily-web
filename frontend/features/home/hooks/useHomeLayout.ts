@@ -221,7 +221,7 @@ export function useWriteHomeLayout() {
  *
  * The popover unmounts when it closes, taking its observer with it, but the
  * request outlives it. Reading the cache is what lets the always-present
- * toolbar report a failure the viewer would otherwise only see as their change
+ * page-end row report a failure the viewer would otherwise only see as their change
  * silently undoing itself.
  */
 export function useHomeLayoutWriteFailed(): boolean {

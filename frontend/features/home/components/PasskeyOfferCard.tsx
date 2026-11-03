@@ -44,9 +44,11 @@ export function profileOffersPasskey(
 }
 
 /**
- * The signed-in home's offer to add a passkey, between the toolbar and the
- * first section. A card in the page, never a modal: the viewer is not stopped
- * on the way to their home.
+ * The signed-in home's offer to add a passkey, under the saved-shows module
+ * (or the first visible section; see `HomeLayoutRuntime`). A card in the page,
+ * never a modal: the viewer is not stopped on the way to their home.
+ *
+ * It carries only its top margin: the slot it renders in owns the gap below.
  *
  * It shows on every home visit while the account qualifies, until "Not now"
  * dismisses it for good for this account on this browser, or the account
@@ -102,7 +104,7 @@ function PasskeyOffer({
   return (
     <section
       aria-labelledby="passkey-offer-title"
-      className="mb-10 mt-10 flex flex-col gap-3.5 rounded-lg border border-border bg-card px-4 py-4 text-card-foreground sm:px-5"
+      className="mt-10 flex flex-col gap-3.5 rounded-lg border border-border bg-card px-4 py-4 text-card-foreground sm:px-5"
     >
       <div className="flex flex-col gap-3.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className="flex min-w-0 items-start gap-3.5">

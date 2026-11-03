@@ -207,9 +207,10 @@ test.describe('Homepage (signed in)', () => {
     await expect(
       authenticatedPage.getByRole('link', { name: 'Find a show' })
     ).toBeVisible()
+    // Nothing saved, so no Library pointer in the header.
     await expect(
-      authenticatedPage.getByRole('link', { name: /view all in library/i })
-    ).toBeVisible()
+      authenticatedPage.getByRole('link', { name: /in library/i })
+    ).toHaveCount(0)
 
     // Zero-saves prompt row.
     await expect(
@@ -269,7 +270,10 @@ test.describe('Homepage (signed in)', () => {
     await expect(
       nearby.getByRole('article', { name: savedTitle!, exact: true })
     ).toHaveCount(0)
-    await expect(savedModule.getByText(/1 saved/)).toBeVisible()
+    await expect(savedModule.getByText('1 saved · soonest first')).toBeVisible()
+    await expect(
+      savedModule.getByRole('link', { name: 'All 1 saved show in Library →' })
+    ).toHaveAttribute('href', '/library')
 
     // Unsave from the module: the row leaves it and returns to the nearby list.
     await savedRow
@@ -357,17 +361,20 @@ test.describe('Homepage (signed in)', () => {
     const sectionRows = page
       .getByRole('list', { name: 'Home sections' })
       .getByRole('listitem')
-    const toolbar = page.getByRole('button', { name: 'Customize home' })
-    await expect(toolbar).toBeVisible()
-    await expect(page.getByText(/HOME · 5 SECTIONS · YOUR LAYOUT/i)).toBeVisible()
+    const customize = page.getByRole('button', { name: /customize home/i })
+    await expect(customize).toHaveCount(1)
+    await expect(customize).toHaveText('Customize home →')
+    await expect(page.getByText(/your layout/i)).toHaveCount(0)
 
-    await toolbar.click()
+    await customize.click()
     // Asserted, not assumed. If a previous run left this worker's user
     // customized, fail HERE naming the reason, rather than three assertions
     // later in a way that reads as a product bug.
     await expect(sectionRows).toHaveCount(5)
     await expect(sectionRows.nth(0)).toContainText('Your upcoming shows')
     await expect(sectionRows.nth(1)).toContainText('Shows near you this week')
+    await expect(sectionRows.nth(3)).toContainText('Latest radio shows')
+    await expect(sectionRows.nth(4)).toContainText('Scene graph')
     await expect(
       page.getByRole('button', { name: 'Reset to default' })
     ).toBeDisabled()
@@ -397,7 +404,7 @@ test.describe('Homepage (signed in)', () => {
     // Persisted on the account, not in this tab.
     await page.reload()
     await expect(radioHeading).toHaveCount(0)
-    await page.getByRole('button', { name: 'Customize home' }).click()
+    await customize.click()
     await expect(
       page.getByRole('checkbox', { name: 'Latest radio shows' })
     ).not.toBeChecked()
@@ -450,7 +457,7 @@ test.describe('Homepage (signed in)', () => {
         response.request().method() === 'PUT' &&
         response.ok()
     )
-    await page.getByRole('button', { name: 'Customize home' }).click()
+    await page.getByRole('button', { name: /customize home/i }).click()
     await page
       .getByRole('checkbox', { name: 'Shows near you this week' })
       .uncheck()
@@ -462,5 +469,74 @@ test.describe('Homepage (signed in)', () => {
     // The relocated row is the same five working links.
     await discoverIn(savedModule).getByRole('link', { name: 'Artists' }).click()
     await expect(page).toHaveURL(/\/artists$/)
+  })
+
+  // Hiding both carriers sends the city link and the Discover row to the
+  // row after the last section, above the one Customize control; hiding the
+  // rest leaves the empty-state line and still exactly one control, whose
+  // popover stays open and on screen while the page collapses under it. The
+  // afterEach DELETE restores the shipped layout.
+  test('carries the link rows to the page end and keeps one Customize control when every section is hidden', async ({
+    authenticatedPage: page,
+    cleanBetweenRetries: _cleanup,
+  }) => {
+    const hide = async (name: string) => {
+      const written = page.waitForResponse(
+        response =>
+          response.url().includes('/auth/preferences/home-layout') &&
+          response.request().method() === 'PUT' &&
+          response.ok()
+      )
+      await page.getByRole('checkbox', { name }).uncheck()
+      await written
+    }
+
+    await page.goto('/')
+
+    const customize = page.getByRole('button', { name: /customize home/i })
+    // The trigger's own row: the city link and the Discover row land beside it.
+    const pageEnd = customize.locator('xpath=..')
+    const popover = page.getByRole('dialog', { name: 'Customize home' })
+    await expect(customize).toHaveCount(1)
+    await expect(
+      pageEnd.getByRole('link', { name: /all upcoming shows/i })
+    ).toHaveCount(0)
+
+    await customize.click()
+    await expect(page.getByRole('list', { name: 'Home sections' })).toBeVisible()
+
+    await hide('Shows near you this week')
+    await hide('Your upcoming shows')
+    await expect(
+      pageEnd.getByRole('link', { name: /all upcoming shows/i })
+    ).toBeVisible()
+    await expect(
+      pageEnd.getByRole('navigation', { name: 'Discover' })
+    ).toBeVisible()
+    await expect(
+      page.getByRole('link', { name: /all upcoming shows/i })
+    ).toHaveCount(1)
+
+    await hide('Community stats')
+    await hide('Latest radio shows')
+    await hide('Scene graph')
+    await expect(page.getByText('You have hidden every section.')).toBeVisible()
+    await expect(customize).toHaveCount(1)
+    await expect(popover).toBeVisible()
+
+    // The shortest page, at phone size: the popover must fit the viewport.
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.keyboard.press('Escape')
+    await expect(popover).toHaveCount(0)
+    await customize.click()
+    await expect(popover).toBeVisible()
+    const box = await popover.boundingBox()
+    expect(box).not.toBeNull()
+    expect(box!.y).toBeGreaterThanOrEqual(0)
+    expect(box!.y + box!.height).toBeLessThanOrEqual(844)
+    // No Discover row below `sm`, wherever it would sit.
+    await expect(
+      page.getByRole('main').getByRole('navigation', { name: 'Discover' })
+    ).toBeHidden()
   })
 })

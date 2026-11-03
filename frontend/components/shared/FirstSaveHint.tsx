@@ -11,18 +11,11 @@ import {
   useFloating,
 } from '@floating-ui/react-dom'
 import { useStampFirstSaveHint } from '@/features/shows/hooks/useFirstSaveHint'
+import { bottomTabBarHeight } from '@/components/layout/nav/bottomTabBarHeight'
 
 // Minimum distance between the hint and either edge of the viewport. The
 // hint's max width below (100vw - 2rem) is this gutter on both sides.
 const VIEWPORT_GUTTER_PX = 16
-
-/** Height of the fixed mobile tab bar, or 0 where it is not rendered (it is
- *  display:none from `xl`, which measures as 0). Read at each positioning so
- *  a viewport resize across `xl` is honoured. */
-function bottomTabBarHeight(): number {
-  const bar = document.querySelector<HTMLElement>('[data-bottom-tab-bar]')
-  return bar?.getBoundingClientRect().height ?? 0
-}
 
 interface FirstSaveHintProps {
   /** The Save control's wrapper. The hint positions against it; when focus

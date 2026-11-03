@@ -56,22 +56,28 @@ test.describe('Google sign-up for a new identity', () => {
       timeout: 10_000,
     })
 
-    // The first signed-in home greets a new account and offers a passkey.
+    // The first signed-in home offers a passkey, under the saved-shows module.
     expect(new URL(page.url()).pathname).toBe('/')
-    await expect(page.getByText('Welcome', { exact: true })).toBeVisible()
     const offer = page.getByRole('region', { name: PASSKEY_OFFER_TITLE })
     await expect(offer).toBeVisible()
+    const savedHeading = page.getByRole('heading', {
+      name: 'Your upcoming shows',
+      level: 2,
+    })
+    expect((await offer.boundingBox())!.y).toBeGreaterThan(
+      (await savedHeading.boundingBox())!.y
+    )
 
     await offer.getByRole('button', { name: 'Not now' }).click()
     await expect(offer).toHaveCount(0)
 
-    // The dismissal is final for this browser. The card and the eyebrow both
-    // settle one commit after hydration, so they are read only once the home
-    // has hydrated: the Customize home popover opening proves the shell that
-    // renders the card is live. A click that lands before hydration does
-    // nothing, so the click repeats only while the popover is still closed.
+    // The dismissal is final for this browser. The card settles one commit
+    // after hydration, so it is read only once the home has hydrated: the
+    // Customize home popover opening proves the shell that renders the card is
+    // live. A click that lands before hydration does nothing, so the click
+    // repeats only while the popover is still closed.
     await page.reload()
-    const customize = page.getByRole('button', { name: 'Customize home' })
+    const customize = page.getByRole('button', { name: /customize home/i })
     const sectionList = page.getByRole('list', { name: 'Home sections' })
     await expect(async () => {
       if (!(await sectionList.isVisible())) await customize.click()
@@ -80,7 +86,5 @@ test.describe('Google sign-up for a new identity', () => {
     await page.keyboard.press('Escape')
     await expect(sectionList).toHaveCount(0)
     await expect(page.getByRole('region', { name: PASSKEY_OFFER_TITLE })).toHaveCount(0)
-    // The marker was read once, so the hydrated home greets a returning account.
-    await expect(page.getByText('Welcome back', { exact: true })).toBeVisible()
   })
 })

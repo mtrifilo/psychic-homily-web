@@ -117,15 +117,49 @@ describe('SavedShowsModule', () => {
     // The read is the full page; only the collapsed count is painted.
     expect(screen.getAllByRole('article')).toHaveLength(4)
     // The cap is 4 rows; the subline must still report every save.
-    expect(screen.getByText(/9 saved/)).toBeInTheDocument()
-    expect(screen.getByText(/soonest first/)).toBeInTheDocument()
+    expect(screen.getByText('9 saved · soonest first')).toBeInTheDocument()
     expect(screen.getByRole('article', { name: 'Show 1' })).toBeInTheDocument()
     expect(
-      screen.getByRole('link', { name: 'View all in Library →' })
-    ).toBeInTheDocument()
+      screen.getByRole('link', { name: 'All 9 saved shows in Library →' })
+    ).toHaveAttribute('href', '/library')
+  })
+
+  it('carries no call to action and no greeting in the header of a viewer with saves', () => {
+    mockUseSavedShows.mockReturnValue({
+      data: { shows: [savedShow(1)], total: 1 },
+      isPending: false,
+      error: null,
+    })
+
+    render(<SavedShowsModule nearbySectionId="nearby" />)
+
+    expect(screen.queryByRole('button')).toHaveTextContent('save-1')
     expect(
-      screen.getByText('Past saved shows move to Library → Past automatically')
-    ).toBeInTheDocument()
+      screen.getByRole('link', { name: 'All 1 saved show in Library →' })
+    ).toHaveAttribute('href', '/library')
+    expect(
+      screen.queryByRole('link', { name: 'Find a show' })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: /View all in Library/ })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Welcome/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/venue-local/)).not.toBeInTheDocument()
+  })
+
+  it('keeps only the calendar link in the footer', () => {
+    mockUseSavedShows.mockReturnValue({
+      data: { shows: [savedShow(1)], total: 1 },
+      isPending: false,
+      error: null,
+    })
+
+    render(<SavedShowsModule nearbySectionId="nearby" />)
+
+    expect(
+      screen.getByRole('link', { name: 'Subscribe to calendar →' })
+    ).toHaveAttribute('href', '/library#calendar-feed')
+    expect(screen.queryByText(/Past saved shows move/)).not.toBeInTheDocument()
   })
 
   it('reads exactly the rows it paints, soonest-first, scoped to the viewer', () => {
@@ -145,7 +179,7 @@ describe('SavedShowsModule', () => {
     })
   })
 
-  it('shows the prompt row and keeps the past-shows footer when nothing is saved', () => {
+  it('shows the prompt row and a Find a show button when nothing is saved', () => {
     mockUseSavedShows.mockReturnValue({
       data: { shows: [], total: 0 },
       isPending: false,
@@ -163,10 +197,20 @@ describe('SavedShowsModule', () => {
     expect(
       screen.getByRole('link', { name: 'Pick from this week ↓' })
     ).toHaveAttribute('href', '#nearby')
-    // The zero-state viewer is exactly the one asking where past saves went.
+    const findAShow = screen.getByRole('link', { name: 'Find a show' })
+    expect(findAShow).toHaveAttribute('href', '/shows')
+    // Full width on a phone, content-sized from `sm` up.
+    expect(findAShow).toHaveClass('w-full', 'sm:w-auto')
     expect(
-      screen.getByText('Past saved shows move to Library → Past automatically')
-    ).toBeInTheDocument()
+      findAShow.compareDocumentPosition(
+        screen.getByText('Save a show and it shows up here.')
+      ) & Node.DOCUMENT_POSITION_PRECEDING
+    ).toBeTruthy()
+    // No Library pointer and no footer: there is nothing saved to point at.
+    expect(screen.queryByRole('link', { name: /^All / })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'Subscribe to calendar →' })
+    ).not.toBeInTheDocument()
   })
 
   it('claims nothing about the viewer while the read is unresolved', () => {
@@ -283,7 +327,7 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
     const { container } = render(<SavedShowsModule nearbySectionId="nearby" />)
 
     // Not a skeleton: an `enabled: false` query is pending forever, and a
-    // signed-out viewer must not be left under "Welcome back".
+    // signed-out viewer must not be left under "Your upcoming shows".
     expect(container).toBeEmptyDOMElement()
   })
 
@@ -422,6 +466,8 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
       expect(row).toHaveTextContent(
         'Discover:Shows in any city·Artists·Freeform Radio·Record Labels·Graph Observatory'
       )
+      // Omitted below `sm` on the signed-in home.
+      expect(row).toHaveClass('hidden', 'sm:flex')
       // Below the city link, as the module's last child.
       expect(container.querySelector('section')?.lastElementChild).toBe(row)
       const cityLink = screen.getByRole('link', {
@@ -449,7 +495,7 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
       ).toBeInTheDocument()
     })
 
-    it.each(['nearby', 'toolbar', 'empty'] as const)(
+    it.each(['nearby', 'pageEnd', 'empty'] as const)(
       'renders nothing for the row when the %s slot owns it',
       slot => {
         mockDiscoverLinksSlot.mockReturnValue(slot)
@@ -468,33 +514,18 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
     )
   })
 
-  describe('the eyebrow', () => {
-    beforeEach(() => {
-      mockUseSavedShows.mockReturnValue({
-        data: { shows: [], total: 0 },
-        isPending: false,
-        error: null,
-      })
+  // No greeting in any state, whether or not a sign-up in this tab created
+  // the account.
+  it('greets nobody, a just-created account included', () => {
+    mockUseSavedShows.mockReturnValue({
+      data: { shows: [], total: 0 },
+      isPending: false,
+      error: null,
     })
+    markAccountCreatedThisSession(42)
 
-    it('welcomes back an account that was not created in this tab', () => {
-      render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule nearbySectionId="nearby" />)
 
-      expect(screen.getByText('Welcome back')).toBeInTheDocument()
-      expect(screen.queryByText('Welcome')).not.toBeInTheDocument()
-    })
-
-    it('welcomes an account a sign-up in this tab just created, for the rest of the page', () => {
-      markAccountCreatedThisSession(42)
-      const { unmount } = render(<SavedShowsModule nearbySectionId="nearby" />)
-
-      expect(screen.getByText('Welcome')).toBeInTheDocument()
-      expect(screen.queryByText('Welcome back')).not.toBeInTheDocument()
-      // Read once: storage is cleared, and the answer holds for this page.
-      expect(window.sessionStorage.length).toBe(0)
-      unmount()
-      render(<SavedShowsModule nearbySectionId="nearby" />)
-      expect(screen.getByText('Welcome')).toBeInTheDocument()
-    })
+    expect(screen.queryByText(/^Welcome/)).not.toBeInTheDocument()
   })
 })

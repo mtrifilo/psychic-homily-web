@@ -11,32 +11,27 @@ import {
 } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthContext } from '@/lib/context/AuthContext'
-// Concrete module path, not the `@/components/shared` barrel: this component
-// is reachable from the home route. See features/sharedChunkBarrelGuard.test.ts.
-import { InlineErrorBanner } from '@/components/shared/InlineErrorBanner'
 import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 import { animateSlotHeight, useFlipReorder } from '../homeLayoutMotion'
-import { useHomeLayout, useHomeLayoutWriteFailed } from '../hooks/useHomeLayout'
+import { useHomeLayout } from '../hooks/useHomeLayout'
 import {
   resolveHomeLinkSlots,
   type HomeLayoutDocument,
   type HomeSectionId,
+  type ResolvedHomeSection,
 } from '../sections'
-import { CustomizeHomeToolbar } from './CustomizeHomeToolbar'
 import { HomeDiscoverLinks } from './HomeDiscoverLinks'
 import { HomeLinkSlotsProvider } from './HomeLinkSlots'
+import { HomePageEndRow } from './HomePageEndRow'
 import { PasskeyOfferCard } from './PasskeyOfferCard'
-import {
-  SAVE_FAILED_MESSAGE,
-  type HomeVisibilityChange,
-} from './HomeSectionList'
+import type { HomeVisibilityChange } from './HomeSectionList'
 
 /** A section mid-show or mid-hide, and which way it is going. */
 type SlotTransition = 'collapse' | 'expand'
 
 /**
- * The signed-in home's client shell: the toolbar, and the sections in this
- * viewer's order.
+ * The signed-in home's client shell: the sections in this viewer's order, then
+ * the page-end row that carries "Customize home →".
  *
  * `sections` arrives already rendered by the SERVER component above, one entry
  * per registry id. Every section is handed over whether or not it is visible,
@@ -57,8 +52,6 @@ export function HomeLayoutRuntime({
   const { authStatus } = useAuthContext()
   const router = useRouter()
   const { sections: layout } = useHomeLayout(initialLayout)
-  const hasWriteFailed = useHomeLayoutWriteFailed()
-  const [isPopoverOpen, setPopoverOpen] = useState(false)
   const headingRef = useRef<HTMLHeadingElement>(null)
   // Counts the passkey offer's exits. Focus moves in an effect, after the
   // commit that removed the card: a modal the card opened still traps focus
@@ -72,8 +65,8 @@ export function HomeLayoutRuntime({
   // without navigating leaves it mounted. This guard lives HERE, on the shell
   // that is always present, rather than inside a section a viewer can hide:
   // parked in the saved-shows module it disappeared with that section, and a
-  // viewer who had hidden it kept the signed-in page, the toolbar, and the
-  // previous account's layout after signing out.
+  // viewer who had hidden it kept the signed-in page, the Customize control,
+  // and the previous account's layout after signing out.
   useEffect(() => {
     if (authStatus === 'anonymous') router.refresh()
   }, [authStatus, router])
@@ -149,6 +142,12 @@ export function HomeLayoutRuntime({
     () => ({ cityLink, discoverLinks }),
     [cityLink, discoverLinks]
   )
+  const offerAfter = passkeyOfferSlot(rendered)
+  // Focus goes to the page heading when the card leaves, so a keyboard viewer
+  // continues from the top of the home, not from the document.
+  const passkeyOffer = (
+    <PasskeyOfferCard onLeave={() => setOfferExits(count => count + 1)} />
+  )
 
   // Say nothing rather than address a viewer who is no longer there. The
   // effect above has already asked the server for the anonymous page.
@@ -164,42 +163,15 @@ export function HomeLayoutRuntime({
           Home
         </h1>
 
-        <CustomizeHomeToolbar
-          open={isPopoverOpen}
-          onOpenChange={setPopoverOpen}
-          initialLayout={initialLayout}
-          onBeforeChange={handleBeforeChange}
-        />
-
-        {/* The failure line lives on the ALWAYS-present toolbar row, not only
-            inside the popover: the write outlives the popover, so a viewer who
-            closed it would otherwise watch their change silently undo itself
-            with no explanation anywhere. */}
-        {hasWriteFailed && (
-          <div className="mt-3">
-            <InlineErrorBanner>{SAVE_FAILED_MESSAGE}</InlineErrorBanner>
-          </div>
-        )}
-
-        {/* Above every section, not inside one: the sections are hideable and
-            reorderable, and the offer must not move or vanish with them. */}
-        {/* Focus goes to the page heading when the card leaves, so a keyboard
-            viewer continues from the top of the home, not from the document. */}
-        <PasskeyOfferCard onLeave={() => setOfferExits(count => count + 1)} />
-
         {allHidden ? (
           <div className="mt-6 flex flex-col gap-2">
             <p className="text-sm text-muted-foreground">
-              You have hidden every section.{' '}
-              <button
-                type="button"
-                onClick={() => setPopoverOpen(true)}
-                className="font-medium text-link transition-colors hover:underline underline-offset-4"
-              >
-                Customize home →
-              </button>
+              You have hidden every section.
             </p>
-            {discoverLinks === 'empty' && <HomeDiscoverLinks />}
+            {discoverLinks === 'empty' && (
+              <HomeDiscoverLinks className="hidden sm:flex" />
+            )}
+            {passkeyOffer}
           </div>
         ) : (
           // The gap rides INSIDE each slot rather than on the container: on
@@ -217,12 +189,21 @@ export function HomeLayoutRuntime({
                 transition={transitions.get(section.id)}
                 isLast={index === rendered.length - 1}
                 onSettled={settleTransition}
+                after={section.id === offerAfter ? passkeyOffer : null}
               >
                 {sections[section.id]}
               </HomeSectionSlot>
             ))}
           </div>
         )}
+
+        {/* After the conditional, never inside either branch: the popover it
+            anchors must survive the page emptying while it is open. */}
+        <HomePageEndRow
+          initialLayout={initialLayout}
+          onBeforeChange={handleBeforeChange}
+          className={allHidden ? 'mt-6' : 'mt-12'}
+        />
       </div>
     </HomeLinkSlotsProvider>
   )
@@ -242,6 +223,7 @@ function HomeSectionSlot({
   transition,
   isLast,
   onSettled,
+  after,
   children,
 }: {
   id: HomeSectionId
@@ -249,6 +231,9 @@ function HomeSectionSlot({
   transition: SlotTransition | undefined
   isLast: boolean
   onSettled: (id: HomeSectionId, direction: SlotTransition) => void
+  /** Rendered under the section, inside the slot, so it moves and collapses
+   *  with it. */
+  after?: ReactNode
   children: ReactNode
 }) {
   const node = useRef<HTMLDivElement | null>(null)
@@ -290,7 +275,29 @@ function HomeSectionSlot({
       className="w-full"
     >
       {/* The spacer is a CHILD so the slot's height animation encloses it. */}
-      <div className={isLast ? undefined : 'pb-14'}>{children}</div>
+      <div className={isLast ? undefined : 'pb-14'}>
+        {children}
+        {after}
+      </div>
     </div>
   )
+}
+
+/**
+ * The section the passkey offer renders under: saved shows while it is
+ * visible, otherwise the first visible section, so the offer never sits above
+ * the viewer's own shows and never above every section. `null` while the last
+ * sections are collapsing toward the empty state, which places the offer
+ * itself.
+ *
+ * Read from VISIBILITY, not from what is on screen: a section mid-collapse is
+ * leaving, and an offer parked under it would collapse out of sight with it.
+ */
+function passkeyOfferSlot(
+  rendered: readonly ResolvedHomeSection[]
+): HomeSectionId | null {
+  const anchor =
+    rendered.find(section => section.id === 'saved_shows' && section.visible) ??
+    rendered.find(section => section.visible)
+  return anchor?.id ?? null
 }

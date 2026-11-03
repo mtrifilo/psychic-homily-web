@@ -67,7 +67,7 @@ describe('HomeSectionList', () => {
       screen.getByRole('button', { name: 'Move Your upcoming shows down' })
     ).toBeEnabled()
     expect(
-      screen.getByRole('button', { name: 'Move Latest radio shows down' })
+      screen.getByRole('button', { name: 'Move Scene graph down' })
     ).toBeDisabled()
   })
 
@@ -86,8 +86,8 @@ describe('HomeSectionList', () => {
         { id: 'saved_shows', visible: true },
         { id: 'community_stats', visible: true },
         { id: 'nearby_shows', visible: true },
-        { id: 'city_graph', visible: true },
         { id: 'radio_shows', visible: true },
+        { id: 'city_graph', visible: true },
       ],
     })
   })
@@ -246,7 +246,7 @@ describe('HomeSectionList', () => {
 
   // The write outlives the popover this list sits in, so the HOST renders the
   // failure line. Two owners would fire two live-region alerts for one
-  // failure; see HomeLayoutRuntime and the Settings card.
+  // failure; see HomePageEndRow and the Settings card.
   it('leaves the write-failure line to whoever hosts it', () => {
     render(<HomeSectionList />)
 

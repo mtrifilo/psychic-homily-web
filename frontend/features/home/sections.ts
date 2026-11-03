@@ -66,15 +66,15 @@ export const HOME_SECTIONS: readonly HomeSectionDefinition[] = [
     defaultVisible: true,
   },
   {
-    id: 'city_graph',
-    title: 'Scene graph',
-    description: 'The scene, mapped. Click a node to explore.',
-    defaultVisible: true,
-  },
-  {
     id: 'radio_shows',
     title: 'Latest radio shows',
     description: 'Live freeform stations and what they are playing.',
+    defaultVisible: true,
+  },
+  {
+    id: 'city_graph',
+    title: 'Scene graph',
+    description: 'The scene, mapped. Click a node to explore.',
     defaultVisible: true,
   },
 ]
@@ -211,10 +211,11 @@ export function setHomeSectionVisibility(
  *
  * The link lives on the nearby section's header. Hiding that section would
  * take the only path from the home page to the full show list with it, so it
- * falls back to the saved-shows footer and then to the toolbar row, which is
- * always present for a signed-in viewer.
+ * falls back to the saved-shows footer and then to the page-end row (the one
+ * carrying "Customize home →"), which is always present for a signed-in
+ * viewer.
  */
-export type HomeCityLinkSlot = 'nearby' | 'saved' | 'toolbar'
+export type HomeCityLinkSlot = 'nearby' | 'saved' | 'pageEnd'
 
 export function resolveCityLinkSlot(
   sections: readonly ResolvedHomeSection[]
@@ -223,13 +224,13 @@ export function resolveCityLinkSlot(
     sections.some(section => section.id === id && section.visible)
   if (isVisible('nearby_shows')) return 'nearby'
   if (isVisible('saved_shows')) return 'saved'
-  return 'toolbar'
+  return 'pageEnd'
 }
 
 /**
  * Where the Discover links row renders. It takes the city link's slot, with
  * one stop further: when no section renders at all, it sits under the
- * empty-state line rather than in the toolbar row.
+ * empty-state line rather than in the page-end row.
  */
 export type HomeDiscoverLinksSlot = HomeCityLinkSlot | 'empty'
 
@@ -251,7 +252,7 @@ export interface HomeLinkSlots {
  * section is hidden while some are still painted. For that window the Discover
  * row stays exactly where it was just before that hide: the slot the layout
  * gives when `lastStaged`, the only section visible before it, is counted as
- * visible. It neither stops in the toolbar on its way to the empty-state line
+ * visible. It neither stops in the page-end row on its way to the empty-state line
  * nor moves between sections that are collapsing together.
  */
 export function resolveHomeLinkSlots(

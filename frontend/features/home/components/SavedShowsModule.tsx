@@ -18,9 +18,9 @@ import {
   useSavedShows,
   useShowSaveCountBatch,
 } from '@/features/shows/hooks/useSavedShows'
-import { useAccountCreatedThisSession } from '@/features/auth/accountCreatedMarker'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { ResolvedHomeCityShowsLink } from './HomeCityShowsLink'
+import { cn } from '@/lib/utils'
+import { HOME_ACCENT_LINK_CLASS, ResolvedHomeCityShowsLink } from './HomeCityShowsLink'
 import { HomeDiscoverLinks } from './HomeDiscoverLinks'
 import { useHomeCityLinkSlot, useHomeDiscoverLinksSlot } from './HomeLinkSlots'
 
@@ -67,7 +67,6 @@ export function SavedShowsModule({
 }) {
   const { user, authStatus } = useAuthContext()
   const isAuthenticated = authStatus === 'authenticated'
-  const isNewAccount = useAccountCreatedThisSession(user?.id)
   // Takes the city link and the Discover row only when the nearby section that
   // normally carries them is hidden. The footer is where they go, next to the
   // other lines that point off this module.
@@ -114,9 +113,8 @@ export function SavedShowsModule({
           ? 'empty'
           : 'rows'
   const isStale = state === 'rows' && !!error
-  // Shown in the zero state too: it is the only line that explains where a
-  // viewer's past saves went, and that viewer is the one asking.
-  const showsFooter = state === 'rows' || state === 'empty'
+  // A calendar feed is worth offering only to a viewer with saves to put in it.
+  const showsFooter = state === 'rows'
 
   // The server picked this variant from the viewer's cookie; a viewer who signs
   // out without navigating leaves it mounted. Say nothing rather than address
@@ -128,47 +126,41 @@ export function SavedShowsModule({
       aria-labelledby="signed-in-home-heading"
       className="flex w-full flex-col gap-4 pt-2"
     >
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0">
-          <p className="font-data text-[11px] uppercase tracking-wider text-muted-foreground">
-            {isNewAccount ? 'Welcome' : 'Welcome back'}
+      {/* No call to action here: a viewer with saves is pointed at Library,
+          and only the zero state offers "Find a show", under its prompt row. */}
+      <div className="min-w-0">
+        {/* h2, not h1: this section is hideable, and the page's h1 lives on
+            the layout shell so the document outline survives hiding it. */}
+        <h2
+          id="signed-in-home-heading"
+          className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl"
+        >
+          Your upcoming shows
+        </h2>
+        {state === 'rows' && (
+          <div className="mt-1.5 flex items-baseline justify-between gap-x-4">
+            <p className="min-w-0 text-sm text-muted-foreground">
+              {total} saved · soonest first
+            </p>
+            <Link href="/library" className={cn(HOME_ACCENT_LINK_CLASS, 'shrink-0')}>
+              All {total}{' '}
+              <span className="sr-only">
+                {total === 1 ? 'saved show' : 'saved shows'} in Library
+              </span>{' '}
+              →
+            </Link>
+          </div>
+        )}
+        {state === 'empty' && (
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            Nothing saved yet · tap ♡ on any show and it lands here
           </p>
-          {/* h2, not h1: this section is hideable, and the page's h1 lives on
-              the layout shell so the document outline survives hiding it. */}
-          <h2
-            id="signed-in-home-heading"
-            className="mt-1 text-3xl font-semibold tracking-tight text-foreground sm:text-4xl"
-          >
-            Your upcoming shows
-          </h2>
-          {state === 'rows' && (
-            <p className="mt-1.5 text-sm text-muted-foreground">
-              {total} saved · soonest first · times are venue-local
-            </p>
-          )}
-          {state === 'empty' && (
-            <p className="mt-1.5 text-sm text-muted-foreground">
-              Nothing saved yet · tap ♡ on any show and it lands here
-            </p>
-          )}
-          {state === 'loading' && (
-            // Reserves the subline's line box so the settled copy does not
-            // push the rows down when it arrives.
-            <Skeleton className="mt-2 h-4 w-64" aria-hidden />
-          )}
-        </div>
-
-        <div className="flex shrink-0 items-center gap-4">
-          <Link
-            href="/library"
-            className="text-sm font-medium text-muted-foreground transition-colors hover:text-link hover:underline underline-offset-4"
-          >
-            View all in Library →
-          </Link>
-          <Button asChild size="lg">
-            <Link href="/shows">Find a show</Link>
-          </Button>
-        </div>
+        )}
+        {state === 'loading' && (
+          // Reserves the subline's line box so the settled copy does not
+          // push the rows down when it arrives.
+          <Skeleton className="mt-2 h-4 w-64" aria-hidden />
+        )}
       </div>
 
       {state === 'error' && (
@@ -222,6 +214,12 @@ export function SavedShowsModule({
         </div>
       )}
 
+      {state === 'empty' && (
+        <Button asChild size="lg" className="w-full sm:w-auto sm:self-start">
+          <Link href="/shows">Find a show</Link>
+        </Button>
+      )}
+
       {state === 'rows' && (
         <div className="flex flex-col">
           {shows.map(show => (
@@ -257,31 +255,24 @@ export function SavedShowsModule({
       )}
 
       {(showsFooter || ownsCityLink) && (
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 font-data text-[11px] text-muted-foreground">
-          {showsFooter && (
-            <span>Past saved shows move to Library → Past automatically</span>
+        <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1 font-data text-[11px]">
+          {ownsCityLink && (
+            <ResolvedHomeCityShowsLink className="font-data text-[11px] text-link transition-colors hover:underline underline-offset-4" />
           )}
-          {/* ml-auto, not justify-between alone: the left line is absent when
-              this row exists only to carry the relocated city link. */}
-          <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1">
-            {ownsCityLink && (
-              <ResolvedHomeCityShowsLink className="font-data text-[11px] text-link transition-colors hover:underline underline-offset-4" />
-            )}
-            {showsFooter && (
-              <Link
-                href="/library#calendar-feed"
-                className="text-link transition-colors hover:underline underline-offset-4"
-              >
-                Subscribe to calendar →
-              </Link>
-            )}
-          </div>
+          {showsFooter && (
+            <Link
+              href="/library#calendar-feed"
+              className="text-muted-foreground transition-colors hover:text-link hover:underline underline-offset-4"
+            >
+              Subscribe to calendar →
+            </Link>
+          )}
         </div>
       )}
 
       {/* The footer's last line, in every module state, loading and error
           included: while this slot owns the row, no other surface renders it. */}
-      {ownsDiscoverLinks && <HomeDiscoverLinks />}
+      {ownsDiscoverLinks && <HomeDiscoverLinks className="hidden sm:flex" />}
     </section>
   )
 }

@@ -14,7 +14,7 @@ import {
   type ResolvedHomeSection,
 } from '../sections'
 
-// The real runtime, toolbar, saved-shows module and nearby section, so every
+// The real runtime, page-end row, saved-shows module and nearby section, so every
 // surface that can carry a link row reads the one slot value the runtime
 // provides. Stubbed: the data hooks, the router, the slot animation, the
 // nearby list and save button, and the three sections that carry no row.
@@ -146,7 +146,7 @@ function discoverRowSlot(): HomeDiscoverLinksSlot | 'unknown' {
     return 'saved'
   }
   const surface = row.parentElement?.textContent ?? ''
-  if (surface.includes('Your layout')) return 'toolbar'
+  if (surface.includes('Customize home →')) return 'pageEnd'
   if (surface.includes('You have hidden every section.')) return 'empty'
   return 'unknown'
 }
@@ -175,7 +175,7 @@ function layoutShowing(visible: readonly HomeSectionId[]) {
 function expectedSlot(visible: readonly HomeSectionId[]): HomeDiscoverLinksSlot {
   if (visible.includes('nearby_shows')) return 'nearby'
   if (visible.includes('saved_shows')) return 'saved'
-  if (visible.length > 0) return 'toolbar'
+  if (visible.length > 0) return 'pageEnd'
   return 'empty'
 }
 
@@ -194,6 +194,14 @@ describe('the relocating link rows across every layout', () => {
 
       expect(discoverRowSlot()).toBe(expectedSlot(visible as HomeSectionId[]))
       expect(cityLinkCount()).toBe(1)
+      // Omitted below `sm` in every slot; jsdom applies no stylesheet, so the
+      // classes are the observable contract.
+      expect(
+        screen.getByRole('navigation', { name: 'Discover', hidden: true })
+      ).toHaveClass('hidden', 'sm:flex')
+      expect(
+        screen.getAllByRole('button', { name: 'Customize home →' })
+      ).toHaveLength(1)
     }
   )
 
@@ -205,9 +213,9 @@ describe('the relocating link rows across every layout', () => {
 
     const steps: [HomeSectionId, HomeDiscoverLinksSlot][] = [
       ['nearby_shows', 'saved'],
-      ['saved_shows', 'toolbar'],
-      ['community_stats', 'toolbar'],
-      ['city_graph', 'toolbar'],
+      ['saved_shows', 'pageEnd'],
+      ['community_stats', 'pageEnd'],
+      ['city_graph', 'pageEnd'],
       ['radio_shows', 'empty'],
     ]
     for (const [id, slot] of steps) {
@@ -230,7 +238,7 @@ describe('the relocating link rows across every layout', () => {
     render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
     expect(discoverRowSlot()).toBe('nearby')
 
-    await user.click(screen.getByRole('button', { name: /^Customize home$/ }))
+    await user.click(screen.getByRole('button', { name: 'Customize home →' }))
     layout = setHomeSectionVisibility(layout, 'nearby_shows', false)
     await user.click(
       screen.getByRole('checkbox', { name: 'Shows near you this week' })
@@ -251,20 +259,20 @@ describe('the relocating link rows across every layout', () => {
     render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
     expect(discoverRowSlot()).toBe('nearby')
 
-    await user.click(screen.getByRole('button', { name: /^Customize home$/ }))
+    await user.click(screen.getByRole('button', { name: 'Customize home →' }))
     layout = layoutShowing(['radio_shows'])
     await user.click(
       screen.getByRole('checkbox', { name: 'Shows near you this week' })
     )
-    expect(discoverRowSlot()).toBe('toolbar')
+    expect(discoverRowSlot()).toBe('pageEnd')
 
     layout = layoutShowing([])
     await user.click(screen.getByRole('checkbox', { name: 'Latest radio shows' }))
-    expect(discoverRowSlot()).toBe('toolbar')
+    expect(discoverRowSlot()).toBe('pageEnd')
 
     // The nearby collapse settles first; the radio one is still in flight.
     finishCollapses(1)
-    expect(discoverRowSlot()).toBe('toolbar')
+    expect(discoverRowSlot()).toBe('pageEnd')
 
     finishCollapses()
     expect(discoverRowSlot()).toBe('empty')
@@ -273,10 +281,10 @@ describe('the relocating link rows across every layout', () => {
 
   // The empty state waits for the last section's collapse to finish. Until it
   // renders, the row stays where it was before that hide (it never stops in
-  // the toolbar on its way from a section to the empty-state line), and it
+  // the page-end row on its way from a section to the empty-state line), and it
   // moves there once the collapse settles.
   it.each([
-    ['radio_shows', 'Latest radio shows', 'toolbar'],
+    ['radio_shows', 'Latest radio shows', 'pageEnd'],
     ['nearby_shows', 'Shows near you this week', 'nearby'],
     ['saved_shows', 'Your upcoming shows', 'saved'],
   ] as const)(
@@ -288,7 +296,7 @@ describe('the relocating link rows across every layout', () => {
       render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
       expect(discoverRowSlot()).toBe(slot)
 
-      await user.click(screen.getByRole('button', { name: /^Customize home$/ }))
+      await user.click(screen.getByRole('button', { name: 'Customize home →' }))
       layout = layoutShowing([])
       await user.click(screen.getByRole('checkbox', { name: title }))
 

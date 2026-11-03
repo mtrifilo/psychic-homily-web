@@ -100,7 +100,7 @@ export function NearbyShowsSection({ id }: { id: string }) {
         excludedLabel={cityCount > 0 ? cityNames : undefined}
       />
 
-      {ownsDiscoverLinks && <HomeDiscoverLinks className="pt-2" />}
+      {ownsDiscoverLinks && <HomeDiscoverLinks className="hidden pt-2 sm:flex" />}
     </section>
   )
 }
