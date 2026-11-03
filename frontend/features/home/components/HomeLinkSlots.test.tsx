@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { HomeLayoutRuntime } from './HomeLayoutRuntime'
 import { NearbyShowsSection } from './NearbyShowsSection'
@@ -145,8 +145,8 @@ function discoverRowSlot(): HomeDiscoverLinksSlot | 'unknown' {
   if (row.closest('section[aria-labelledby="signed-in-home-heading"]')) {
     return 'saved'
   }
+  if (row.closest('[data-testid="home-page-end"]')) return 'pageEnd'
   const surface = row.parentElement?.textContent ?? ''
-  if (surface.includes('Customize home →')) return 'pageEnd'
   if (surface.includes('You have hidden every section.')) return 'empty'
   return 'unknown'
 }
@@ -204,6 +204,24 @@ describe('the relocating link rows across every layout', () => {
       ).toHaveLength(1)
     }
   )
+
+  it('renders the city link above the Discover row in the page-end row', () => {
+    layout = layoutShowing(['community_stats'])
+
+    render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
+
+    const pageEnd = screen.getByTestId('home-page-end')
+    const cityLink = within(pageEnd).getByRole('link', {
+      name: /All upcoming shows/,
+    })
+    const discover = within(pageEnd).getByRole('navigation', {
+      name: 'Discover',
+    })
+    expect(
+      cityLink.compareDocumentPosition(discover) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
 
   it('moves the row live as sections are hidden one by one', () => {
     const { rerender } = render(

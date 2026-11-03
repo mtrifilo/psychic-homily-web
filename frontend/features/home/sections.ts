@@ -276,18 +276,17 @@ export function resolveHomeLinkSlots(
  * The section the passkey offer renders under: saved shows while it is
  * visible, otherwise the first visible section, so the offer never sits above
  * the viewer's own shows and never above every section. `null` when no
- * rendered section is visible (every one hidden or still collapsing toward the
- * empty state, which places the offer itself).
+ * section in `sections` is visible; the caller then places the offer after
+ * them.
  *
- * `rendered` is what is on screen, in order. Visibility, not presence, picks
- * the section: one mid-collapse is leaving, and an offer parked under it would
- * collapse out of sight with it.
+ * `sections` is what is on screen, in order, with the visibility the caller
+ * wants the offer to follow.
  */
 export function resolvePasskeyOfferSlot(
-  rendered: readonly ResolvedHomeSection[]
+  sections: readonly ResolvedHomeSection[]
 ): HomeSectionId | null {
   const anchor =
-    rendered.find(section => section.id === 'saved_shows' && section.visible) ??
-    rendered.find(section => section.visible)
+    sections.find(section => section.id === 'saved_shows' && section.visible) ??
+    sections.find(section => section.visible)
   return anchor?.id ?? null
 }

@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { HomeLayoutRuntime } from './HomeLayoutRuntime'
+import { animateSlotHeight } from '../homeLayoutMotion'
 import {
   moveHomeSection,
   resolveHomeLayout,
@@ -28,6 +29,13 @@ vi.mock('../hooks/useHomeLayout', () => ({
   }),
 }))
 
+// jsdom has no Web Animations, so the real helper answers null (settle now);
+// the stand-in does the same unless a test holds a collapse in flight.
+vi.mock('../homeLayoutMotion', async importOriginal => ({
+  ...(await importOriginal<object>()),
+  animateSlotHeight: vi.fn(() => null),
+}))
+
 const mockRefresh = vi.fn()
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: mockRefresh, push: vi.fn() }),
@@ -50,14 +58,27 @@ vi.mock('./HomeCityShowsLink', async importOriginal => ({
 }))
 
 // The card's own eligibility is PasskeyOfferCard.test.tsx's; here it stands
-// in so the test can place it.
-vi.mock('./PasskeyOfferCard', () => ({
-  PasskeyOfferCard: ({ onLeave }: { onLeave?: () => void }) => (
-    <button type="button" data-testid="passkey-offer" onClick={onLeave}>
-      Not now
-    </button>
-  ),
-}))
+// in so the test can place it. Each MOUNT takes a new instance number, so a
+// test can tell a card that moved from one that was rebuilt (and lost state).
+let offerMounts = 0
+vi.mock('./PasskeyOfferCard', async () => {
+  const { useState } = await import('react')
+  return {
+    PasskeyOfferCard: ({ onLeave }: { onLeave?: () => void }) => {
+      const [instance] = useState(() => ++offerMounts)
+      return (
+        <button
+          type="button"
+          data-testid="passkey-offer"
+          data-instance={instance}
+          onClick={onLeave}
+        >
+          Not now
+        </button>
+      )
+    },
+  }
+})
 
 const SECTIONS = {
   saved_shows: <div data-testid="section">saved_shows</div>,
@@ -89,6 +110,7 @@ function section(name: string) {
 }
 
 beforeEach(() => {
+  vi.mocked(animateSlotHeight).mockImplementation(() => null)
   layout = resolveHomeLayout(null)
   hasWriteFailed = false
   authStatus = 'authenticated'
@@ -129,6 +151,64 @@ describe('HomeLayoutRuntime', () => {
     ])
     expect(precedes(section('saved_shows'), offer)).toBe(true)
     expect(precedes(offer, section('radio_shows'))).toBe(true)
+  })
+
+  // The card holds state a remount would drop: a passkey just added (which
+  // retires it before the profile refetch lands) and an error on screen.
+  it('moves the passkey offer without remounting it as the layout changes', () => {
+    const { rerender } = render(
+      <HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />
+    )
+    const instance = screen
+      .getByTestId('passkey-offer')
+      .getAttribute('data-instance')
+
+    layout = setHomeSectionVisibility(layout, 'saved_shows', false)
+    rerender(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
+    expect(precedes(section('nearby_shows'), screen.getByTestId('passkey-offer'))).toBe(true)
+
+    layout = moveHomeSection(layout, 'community_stats', 'up')!
+    rerender(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
+
+    layout = layout.map(entry => ({ ...entry, visible: false }))
+    rerender(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
+    expect(screen.getByText('You have hidden every section.')).toBeInTheDocument()
+
+    layout = resolveHomeLayout(null)
+    rerender(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
+
+    expect(
+      screen.getByTestId('passkey-offer').getAttribute('data-instance')
+    ).toBe(instance)
+  })
+
+  // Moving the card in the commit that starts a collapse would shift the page
+  // below by the card's height on the first frame, popover anchor included.
+  it('keeps the passkey offer in place until a show or hide settles', async () => {
+    const user = userEvent.setup()
+    const finishers: Array<() => void> = []
+    vi.mocked(animateSlotHeight).mockImplementation(
+      (_node, _direction, _reducedMotion, onFinish) => {
+        finishers.push(onFinish)
+        return { cancel: vi.fn() } as unknown as Animation
+      }
+    )
+    render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
+
+    await user.click(customizeButtons()[0])
+    layout = setHomeSectionVisibility(layout, 'saved_shows', false)
+    await user.click(
+      screen.getByRole('checkbox', { name: 'Your upcoming shows' })
+    )
+
+    // Still collapsing: the offer stays under it.
+    const offer = screen.getByTestId('passkey-offer')
+    expect(precedes(offer, section('nearby_shows'))).toBe(true)
+
+    act(() => finishers.splice(0).forEach(finish => finish()))
+    expect(
+      precedes(section('nearby_shows'), screen.getByTestId('passkey-offer'))
+    ).toBe(true)
   })
 
   it('places the passkey offer under the first visible section when saved shows is hidden', () => {

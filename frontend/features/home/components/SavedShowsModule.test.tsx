@@ -2,10 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import Link from 'next/link'
 import { SavedShowsModule } from './SavedShowsModule'
-import {
-  markAccountCreatedThisSession,
-  forgetAccountCreatedThisSession,
-} from '@/features/auth/accountCreatedMarker'
 import type { SavedShowResponse } from '@/features/shows/types'
 import type { HomeCityLinkSlot, HomeDiscoverLinksSlot } from '../sections'
 
@@ -89,8 +85,6 @@ function savedShow(
 }
 
 beforeEach(() => {
-  window.sessionStorage.clear()
-  forgetAccountCreatedThisSession()
   mockAuthStatus.mockReturnValue('authenticated')
   mockUseShowSaveCountBatch.mockReturnValue({ data: undefined })
   mockCityLinkSlot.mockReturnValue('nearby')
@@ -133,7 +127,10 @@ describe('SavedShowsModule', () => {
 
     render(<SavedShowsModule nearbySectionId="nearby" />)
 
-    expect(screen.queryByRole('button')).toHaveTextContent('save-1')
+    // The only button in the module is the row's own save control.
+    expect(
+      screen.getAllByRole('button').map(button => button.textContent)
+    ).toEqual(['save-1'])
     expect(
       screen.getByRole('link', { name: 'All 1 saved show in Library →' })
     ).toHaveAttribute('href', '/library')
@@ -514,15 +511,12 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
     )
   })
 
-  // No greeting in any state, whether or not a sign-up in this tab created
-  // the account.
-  it('greets nobody, a just-created account included', () => {
+  it('greets nobody in the zero state either', () => {
     mockUseSavedShows.mockReturnValue({
       data: { shows: [], total: 0 },
       isPending: false,
       error: null,
     })
-    markAccountCreatedThisSession(42)
 
     render(<SavedShowsModule nearbySectionId="nearby" />)
 

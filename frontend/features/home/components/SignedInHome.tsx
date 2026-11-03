@@ -11,9 +11,11 @@ const NEARBY_SECTION_ID = 'home-shows-near-you'
 
 /**
  * The signed-in home: the viewer's saved shows in place of the
- * logged-out wordmark hero, with the general "Upcoming shows" section dropped
- * — /shows stays one click away via "Find a show" and the nearby section's
- * city link.
+ * logged-out wordmark hero, with the general "Upcoming shows" section dropped.
+ * /shows stays one click away through the city link, which cascades from the
+ * nearby section to the saved-shows footer to the page-end row so some
+ * surface always carries it, and through "Find a show" in the zero-saves
+ * state.
  *
  * It holds the map from registry id to component, which is the one thing the
  * isomorphic registry (`../sections`) must not carry. Order and visibility

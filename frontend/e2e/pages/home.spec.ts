@@ -488,8 +488,7 @@ test.describe('Homepage (signed in)', () => {
     await page.goto('/')
 
     const customize = page.getByRole('button', { name: /customize home/i })
-    // The trigger's own row: the city link and the Discover row land beside it.
-    const pageEnd = customize.locator('xpath=..')
+    const pageEnd = page.getByTestId('home-page-end')
     const popover = page.getByRole('dialog', { name: 'Customize home' })
     await expect(customize).toHaveCount(1)
     await expect(
@@ -532,5 +531,32 @@ test.describe('Homepage (signed in)', () => {
     await expect(
       page.getByRole('main').getByRole('navigation', { name: 'Discover' })
     ).toBeHidden()
+  })
+
+  // With the link near the top of a phone screen the popover opens downward,
+  // and its footer must clear the fixed tab bar, which Radix cannot see.
+  test('keeps the Customize popover above the phone tab bar when it opens downward', async ({
+    authenticatedPage: page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/')
+
+    const customize = page.getByRole('button', { name: /customize home/i })
+    await customize.evaluate(node => {
+      node.scrollIntoView({ block: 'start' })
+      // Clear the sticky top bar so the link sits just under it.
+      window.scrollBy(0, -80)
+    })
+    await customize.click()
+
+    const popover = page.getByRole('dialog', { name: 'Customize home' })
+    await expect(popover).toBeVisible()
+    const popoverBox = await popover.boundingBox()
+    const linkBox = await customize.boundingBox()
+    const tabBarBox = await page.locator('[data-bottom-tab-bar]').boundingBox()
+    expect(popoverBox && linkBox && tabBarBox).toBeTruthy()
+    // Below the link, and ending above the bar.
+    expect(popoverBox!.y).toBeGreaterThan(linkBox!.y)
+    expect(popoverBox!.y + popoverBox!.height).toBeLessThanOrEqual(tabBarBox!.y)
   })
 })

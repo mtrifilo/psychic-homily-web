@@ -64,8 +64,9 @@ export function HomeLayoutSettings() {
  */
 export function HomeLayoutSettingsList() {
   // The host renders the failure line, not the list: on the home page the host
-  // is the toolbar row, which outlives the popover. Two hosts rendering it at
-  // once would fire two live-region alerts for one failure.
+  // is the row carrying "Customize home →" (HomePageEndRow), which outlives the
+  // popover. Two hosts rendering it at once would fire two live-region alerts
+  // for one failure.
   const hasWriteFailed = useHomeLayoutWriteFailed()
 
   return (

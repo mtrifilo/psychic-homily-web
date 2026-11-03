@@ -66,11 +66,15 @@ export function HomePageEndRow({
   // outlives the popover, so a viewer who closed it would otherwise watch their
   // change silently undo itself with no explanation anywhere.
   const hasWriteFailed = useHomeLayoutWriteFailed()
-  // Measured as the popover opens, not at mount: the bar is absent from `xl`,
-  // and the viewport may have crossed it since.
+  // Measured each time the popover opens, not at mount: the bar is absent from
+  // `xl`, and the viewport may have crossed it since. A resize across `xl`
+  // while the popover stays open keeps the inset it opened with.
   const [tabBarInset, setTabBarInset] = useState(0)
   return (
-    <div className={cn('flex flex-col items-start gap-3', className)}>
+    <div
+      data-testid="home-page-end"
+      className={cn('flex flex-col items-start gap-3', className)}
+    >
       {withCityLink && <ResolvedHomeCityShowsLink />}
       {withDiscoverLinks && <SignedInHomeDiscoverLinks />}
 

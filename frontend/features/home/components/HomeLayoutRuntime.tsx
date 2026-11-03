@@ -142,12 +142,68 @@ export function HomeLayoutRuntime({
     () => ({ cityLink, discoverLinks }),
     [cityLink, discoverLinks]
   )
-  const offerAfter = resolvePasskeyOfferSlot(rendered)
-  // Focus goes to the page heading when the card leaves, so a keyboard viewer
-  // continues from the top of the home, not from the document.
-  const passkeyOffer = (
-    <PasskeyOfferCard onLeave={() => setOfferExits(count => count + 1)} />
+  // Placed by each section's visibility BEFORE its in-flight show or hide: the
+  // offer moves only once the height animation settles. Moving it in the same
+  // commit that starts the animation would shift everything below by the
+  // card's height on the first frame, the Customize link and its open popover
+  // included; moving it at the settle passes it over one section only, so
+  // nothing below that section moves.
+  const offerAfter = resolvePasskeyOfferSlot(
+    rendered.map(section => {
+      const transition = transitions.get(section.id)
+      return transition
+        ? { ...section, visible: transition === 'collapse' }
+        : section
+    })
   )
+  const offerIndex = offerAfter
+    ? rendered.findIndex(section => section.id === offerAfter)
+    : rendered.length - 1
+  // The offer is followed by a section unless it sits at the end of the
+  // column, and takes its gap from whichever side has no slot spacer.
+  const isOfferLast = allHidden || offerIndex === rendered.length - 1
+
+  // ONE keyed list for the sections, the offer and the empty-state line, so
+  // the offer is the same element wherever it lands: it moves between
+  // positions without remounting, and keeps its state (a passkey just added,
+  // an error on screen) when the viewer hides or reorders the section above.
+  const column: ReactNode[] = []
+  const offer = (
+    <div key="passkey-offer" ref={register('passkey-offer')}>
+      {/* Focus goes to the page heading when the card leaves, so a keyboard
+          viewer continues from the top of the home, not from the document. */}
+      <PasskeyOfferCard
+        className={isOfferLast ? 'mt-14' : 'mb-14'}
+        onLeave={() => setOfferExits(count => count + 1)}
+      />
+    </div>
+  )
+  if (allHidden) {
+    column.push(
+      <div key="empty" className="mt-2 flex flex-col gap-2">
+        <p className="text-sm text-muted-foreground">
+          You have hidden every section.
+        </p>
+        {discoverLinks === 'empty' && <SignedInHomeDiscoverLinks />}
+      </div>
+    )
+  }
+  rendered.forEach((section, index) => {
+    column.push(
+      <HomeSectionSlot
+        key={section.id}
+        id={section.id}
+        registerRef={register(section.id)}
+        transition={transitions.get(section.id)}
+        isLast={index === rendered.length - 1}
+        onSettled={settleTransition}
+      >
+        {sections[section.id]}
+      </HomeSectionSlot>
+    )
+    if (index === offerIndex) column.push(offer)
+  })
+  if (allHidden) column.push(offer)
 
   // Say nothing rather than address a viewer who is no longer there. The
   // effect above has already asked the server for the anonymous page.
@@ -163,40 +219,17 @@ export function HomeLayoutRuntime({
           Home
         </h1>
 
-        {allHidden ? (
-          <div className="mt-6 flex flex-col gap-2">
-            <p className="text-sm text-muted-foreground">
-              You have hidden every section.
-            </p>
-            {discoverLinks === 'empty' && <SignedInHomeDiscoverLinks />}
-            {passkeyOffer}
-          </div>
-        ) : (
-          // The gap rides INSIDE each slot rather than on the container: on
-          // the container it survives the height animation and vanishes at
-          // unmount, snapping everything below up by its full height. It also
-          // cannot be padding on the slot itself, because padding floors a
-          // border-box element's rendered height, so the slot would stop 56px
-          // short of collapsing and drop that at unmount instead.
-          <div className="mt-4 flex w-full flex-col">
-            {rendered.map((section, index) => (
-              <HomeSectionSlot
-                key={section.id}
-                id={section.id}
-                registerRef={register(section.id)}
-                transition={transitions.get(section.id)}
-                isLast={index === rendered.length - 1}
-                onSettled={settleTransition}
-                after={section.id === offerAfter ? passkeyOffer : null}
-              >
-                {sections[section.id]}
-              </HomeSectionSlot>
-            ))}
-          </div>
-        )}
+        {/* The gap between sections rides INSIDE each slot rather than on this
+            container: on the container it survives the height animation and
+            vanishes at unmount, snapping everything below up by its full
+            height. It also cannot be padding on the slot itself, because
+            padding floors a border-box element's rendered height, so the slot
+            would stop 56px short of collapsing and drop that at unmount
+            instead. */}
+        <div className="mt-4 flex w-full flex-col">{column}</div>
 
-        {/* After the conditional, never inside either branch: the popover it
-            anchors must survive the page emptying while it is open. */}
+        {/* Outside the column and never conditional: the popover it anchors
+            must survive the page emptying while it is open. */}
         <HomePageEndRow
           initialLayout={initialLayout}
           onBeforeChange={handleBeforeChange}
@@ -221,7 +254,6 @@ function HomeSectionSlot({
   transition,
   isLast,
   onSettled,
-  after,
   children,
 }: {
   id: HomeSectionId
@@ -229,9 +261,6 @@ function HomeSectionSlot({
   transition: SlotTransition | undefined
   isLast: boolean
   onSettled: (id: HomeSectionId, direction: SlotTransition) => void
-  /** Rendered under the section, inside the slot, so it moves and collapses
-   *  with it. */
-  after?: ReactNode
   children: ReactNode
 }) {
   const node = useRef<HTMLDivElement | null>(null)
@@ -273,10 +302,7 @@ function HomeSectionSlot({
       className="w-full"
     >
       {/* The spacer is a CHILD so the slot's height animation encloses it. */}
-      <div className={isLast ? undefined : 'pb-14'}>
-        {children}
-        {after}
-      </div>
+      <div className={isLast ? undefined : 'pb-14'}>{children}</div>
     </div>
   )
 }
