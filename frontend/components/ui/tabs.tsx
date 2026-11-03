@@ -44,8 +44,10 @@ function TabsTrigger({
   // same height.
   // border-b-primary must stay after border-muted-foreground: tailwind-merge
   // drops an earlier one-side colour when a later all-sides colour shares
-  // its variant. Keyboard focus always lands on the selected trigger, so the
-  // focus border is stacked on the active state to outrank its colours.
+  // its variant. Under automatic activation keyboard focus moves selection
+  // with it, so the focus border is also stacked on the active state to
+  // outrank the selected colours; the unstacked one covers a focused trigger
+  // that is not yet selected.
   return (
     <TabsPrimitive.Trigger
       data-slot="tabs-trigger"
