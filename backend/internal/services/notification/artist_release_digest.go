@@ -23,87 +23,36 @@ import (
 	"psychic-homily-backend/internal/services/shared"
 )
 
-// Artist new-release weekly roundups (PSY-1897).
+// Artist new-release weekly roundups: a coalesced alert loop whose batch is
+// keyed on the RECIPIENT rather than on a catalogue entity.
 //
-// This is the fourth follow-driven alert loop, the second COALESCED one, and the
-// first whose batch is keyed on the RECIPIENT rather than on a catalogue entity.
+// Accrual is per (artist, release), in services/catalog
+// (enqueueArtistReleaseAlerts), and resolves nothing. Delivery is per
+// (user, week): one flush pass over a closed week resolves followers,
+// preferences and the message once across every artist in it.
 //
-// # The grain, and why it is not per artist
+// The bucket is the schedule. A week is flushed only once it is over (the week
+// hold is measured from the bucket's Monday, not from its last member), because
+// the claim is per (user, week) and an early flush would never email what landed
+// later in the week.
 //
-// The owner decision (PSY-1892, refined 2026-08-26) is releases WEEKLY, one
-// roundup per USER per week covering every artist they follow. Somebody
-// following forty bands in a week when six of them put something out is owed one
-// message, not six — and the per-artist shape would have produced six even
-// though each was individually correct.
+// The flush re-resolves already-delivered weeks when a late member joins, so the
+// inbox row can grow. The UNIQUE claim (uq_notification_log_artist_release_digest
+// with ON CONFLICT DO NOTHING) is the exactly-once guarantee, and the loser of a
+// concurrent tick claims and sends nothing. dispatched_at is bookkeeping.
 //
-// That splits the work along a different seam from its siblings:
+// No cross-system dedup: nothing else notifies about a release. If something
+// does, build a shared predicate like notifiedAboutShow; never add this
+// discriminator to showAlertEntityTypes, because its entity_id is a USER id.
 //
-//   - ACCRUAL is per (artist, release), because that is the shape of the
-//     OBSERVATION. It lives in services/catalog (enqueueArtistReleaseAlerts),
-//     inside the single release create funnel, and resolves nothing.
-//   - DELIVERY is per (user, week). The USER dimension enters only here, at
-//     flush, where one pass over a week resolves followers, preferences and the
-//     message once across every artist in it.
+// No self-exclusion: releases have no submitted_by and the create endpoint is
+// admin-only.
 //
-// Resolving at accrual time would mean deciding "who should hear about this" for
-// every release in a label ingest and then trying to fold two hundred answers
-// back into one message, which is the same work with a race in it.
+// No scope axis for releases: engagement.followAlertHasScopeAxis("artist",
+// "releases") is false, and this file must not invent one.
 //
-// # Why the schedule is a WEEK and not a quiet window
-//
-// The venue sibling flushes when a batch goes quiet, because its bucket is a day
-// and the reader wants the drop while it is news. Here the bucket IS the
-// schedule: a week's roundup is only a week's roundup once the week is over.
-// Flushing on quiet would mail Monday's record on Monday and then, because the
-// claim is per (user, week), silently NEVER mail Wednesday's — it would reach the
-// inbox row and no further. releaseDigestWeekHold is therefore measured from the
-// bucket's own start, not from its last member.
-//
-// # Exactly once, across re-runs that are DESIGNED to happen
-//
-// The flush deliberately re-resolves weeks it has already delivered: a release
-// accrued after the roundup went out joins the same week, and the whole week is
-// re-read so the inbox row can grow. Every such re-run reaches the delivery
-// claim.
-//
-// What makes that silent is uq_notification_log_artist_release_digest, a partial
-// UNIQUE on (user_id, entity_id, alert_bucket, channel) claimed with ON CONFLICT
-// DO NOTHING. A second flush finds RowsAffected == 0 and sends nothing. It is
-// also what makes two concurrent ticks safe: the loser of the race sends no
-// email, because the email is sent only when the claim succeeded.
-//
-// dispatched_at is bookkeeping, not the guard.
-//
-// # No cross-system dedup, and that is not an omission
-//
-// The show loops consult showsAlreadyNotified because three systems can tell one
-// user about one show. NOTHING ELSE in the product notifies anyone about a
-// release, so there is no second teller to defer to and no predicate to consult.
-// If one ever ships, it and this loop need a shared "already told about this
-// release" predicate built the way notifiedAboutShow is — do not add this
-// discriminator to showAlertEntityTypes to get there. Its entity_id is a USER
-// id.
-//
-// # No self-exclusion
-//
-// The show passes drop the submitter of a show from its own alert. `releases`
-// has no submitted_by column and no self-serve create path at all — the create
-// endpoint is admin-only — so there is no submitter to exclude.
-//
-// # No scope axis
-//
-// engagement.followAlertHasScopeAxis("artist", "releases") is false and this
-// file must not invent one. A record has no location; "near me" has nothing to
-// mean for it. A scope stored on a release subscription by some future client is
-// stale data the resolver already ignores.
-//
-// # No backfill
-//
-// Starting this on a deploy cannot alert anyone about the existing catalogue:
-// artist_release_alert_batch ships EMPTY and only accrual writes to it. On top of
-// that structural guarantee, accrual and this flush both fence on
-// catalogm.ReleaseAnnounceable, which is what keeps a label back-catalogue ingest
-// from being announced as new music.
+// Accrual and the flush both fence on catalogm.ReleaseAnnounceable, which keeps
+// a back-catalogue ingest from being announced as new music.
 
 // ──────────────────────────────────────────────
 // Types
@@ -156,9 +105,9 @@ func (w *releaseDigestWeek) artistIDs() []uint {
 	return out
 }
 
-// artistReleaseFollowerRow is one artist follow. Unlike the venue pass there are
-// MANY rows per user in a week — one per followed artist that released something
-// — which is exactly the fan-in this alert exists to collapse.
+// artistReleaseFollowerRow is one artist follow. A user has one row per followed
+// artist that released something in the week; resolveReleaseDigestRecipients
+// collapses them.
 type artistReleaseFollowerRow struct {
 	UserID   uint             `gorm:"column:user_id"`
 	ArtistID uint             `gorm:"column:artist_id"`
@@ -179,9 +128,8 @@ func (r releaseDigestRecipient) delivers() bool {
 	return len(r.releases) > 0 && (r.inApp || r.email)
 }
 
-// releaseDigestArtistGroup is one artist's records inside a roundup. The email
-// renders one of these per artist, because a flat list of nine records from six
-// bands reads as noise while the same nine grouped read as six pieces of news.
+// releaseDigestArtistGroup is one artist's records inside a roundup; the email
+// renders one group per artist.
 type releaseDigestArtistGroup struct {
 	ArtistName string
 	Releases   []releaseDigestRelease
@@ -190,11 +138,6 @@ type releaseDigestArtistGroup struct {
 // groupReleasesByArtist folds a recipient's releases into per-artist groups,
 // preserving the caller's ordering for both the groups and the records inside
 // them.
-//
-// A release credited to TWO artists the reader follows appears ONCE, under the
-// first of them in the caller's order. Listing it twice would make the headline
-// count disagree with the list beneath it, and "you follow both of these" is not
-// worth a reader wondering whether they are being told about two records.
 func groupReleasesByArtist(releases []releaseDigestRelease) []releaseDigestArtistGroup {
 	groups := make([]releaseDigestArtistGroup, 0, len(releases))
 	index := make(map[uint]int, len(releases))
@@ -215,17 +158,12 @@ func groupReleasesByArtist(releases []releaseDigestRelease) []releaseDigestArtis
 // ──────────────────────────────────────────────
 
 // FlushArtistReleaseDigests resolves and delivers every week that has closed,
-// returning how many weeks it dispatched.
+// returning how many weeks it retired.
 //
-// Exported so the poller (and tests) can drive one pass without owning any of
-// the resolution logic.
-//
-// ctx is honoured BETWEEN weeks. A week is one SYNCHRONOUS provider request per
-// email recipient, which the per-user daily cap does not bound — a popular week
-// is an unbounded number of sequential sends, and Stop() blocks on the in-flight
-// tick. Bailing is FREE here because nothing is claimed at week level: the rows
-// stay undispatched and the next tick re-resolves them, silently, through the
-// delivery claim.
+// ctx is honoured between weeks: a week can be an unbounded number of
+// sequential sends and Stop() blocks on the in-flight tick. Bailing is free
+// because nothing is claimed at week level; the rows stay undispatched and the
+// next tick re-resolves them silently through the delivery claim.
 func (s *NotificationFilterService) FlushArtistReleaseDigests(
 	ctx context.Context,
 	limit int,
@@ -241,10 +179,8 @@ func (s *NotificationFilterService) FlushArtistReleaseDigests(
 		return 0
 	}
 
-	// retired counts weeks this tick RESOLVED, which is not the same as weeks
-	// that reached a reader: a week whose members all turned out to be
-	// unannounceable, and one whose artists have all lost their followers, both
-	// resolve to "nothing to send" and are retired.
+	// retired counts weeks this tick resolved, including weeks that resolved to
+	// nothing to send.
 	retired, processed := 0, 0
 	for i, week := range weeks {
 		if ctx.Err() != nil {
@@ -264,30 +200,18 @@ func (s *NotificationFilterService) FlushArtistReleaseDigests(
 	return retired
 }
 
-// releaseDigestWeeksReadyToFlush finds the week buckets that have closed.
-//
-// ONE bound, and it is a calendar bound rather than a quiet-window heuristic:
-// a week is ready when its Monday is at least weekHold old, which at the default
-// of 168 hours means "the week is over". There is deliberately no MAX HOLD
-// sibling here — the venue loop needs one because a venue with a continuous
-// trickle never goes quiet, and a bucket that closes on the calendar cannot be
-// starved by a trickle.
-//
-// The bound is on the BUCKET, not on the rows. Bounding it on MAX(created_at)
-// would mail a Monday release on Monday and then never mail Wednesday's at all,
-// because the delivery claim is per (user, week) and the week's one email would
-// already have gone.
-//
-// Ordered oldest-first so a backlog drains in the order it arrived.
+// releaseDigestWeeksReadyToFlush finds the week buckets that have closed: a week
+// is ready when its Monday is at least weekHold old. The bound is on the
+// BUCKET, not on MAX(created_at), so a trickle cannot starve a week and no max
+// hold is needed. Oldest first, so a backlog drains in arrival order.
 func (s *NotificationFilterService) releaseDigestWeeksReadyToFlush(
 	limit int,
 	weekHold time.Duration,
 ) ([]string, error) {
 	cutoff := time.Now().UTC().Add(-weekHold).Format(alertWeekLayout)
 	var weeks []string
-	// alert_week comes back as TEXT, not as a time.Time, for the same reason it
-	// goes in as one: a DATE scanned into time.Time is a midnight whose zone
-	// depends on the driver, and this value is only ever used as a day.
+	// alert_week comes back as TEXT: it is only ever used as a day, and a DATE
+	// scanned into time.Time carries a driver-dependent zone.
 	err := s.db.Raw(`
 		SELECT to_char(alert_week, 'YYYY-MM-DD') AS alert_week
 		FROM artist_release_alert_batch
@@ -306,9 +230,8 @@ func (s *NotificationFilterService) releaseDigestWeeksReadyToFlush(
 // flushReleaseDigestWeek resolves and delivers one week, then marks the rows it
 // RESOLVED dispatched. Reports whether the week was retired.
 //
-// The rows are marked AFTER delivery, never before. A crash in between costs a
-// re-run, and a re-run is silent by construction (the delivery claim). Marking
-// first would make a crash cost the roundup entirely.
+// Rows are marked after delivery, never before: a crash in between costs a
+// silent re-run, whereas marking first would lose the roundup.
 func (s *NotificationFilterService) flushReleaseDigestWeek(
 	ctx context.Context,
 	week string,
@@ -322,26 +245,22 @@ func (s *NotificationFilterService) flushReleaseDigestWeek(
 	}
 
 	if len(batch.releases) == 0 {
-		// Nothing in what we read is announceable: every member was deleted, is no
-		// longer credited to its artist, or has aged out of ReleaseAnnounceable.
-		// Retire exactly what we READ rather than re-examining it forever; a week
-		// that has closed only gets further from announceable.
+		// Nothing read is announceable. Retire exactly what was read; a closed
+		// week only gets further from announceable.
 		s.markReleaseDigestWeekDispatched(week, batch.resolved)
 		s.clearReleaseDigestFailure(week)
 		return true
 	}
 
 	if err := s.deliverReleaseDigestWeek(ctx, batch); err != nil {
-		// A CANCELLED tick is a deploy, not a failure. It must not advance the
-		// poison-pill bound: doing so would let the single most common operational
-		// event abandon a pending roundup, which is the opposite of what the
-		// cancellation check was added for.
+		// A cancelled tick is a deploy, not a failure, and must not advance the
+		// poison-pill bound.
 		if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			log.Printf("release-digest flush: canceled mid-week for %s, left for the next tick", week)
 			return false
 		}
-		// Leave the rows undispatched so the next tick retries. Every step is
-		// idempotent, so a retry costs work rather than duplicate mail.
+		// Leave the rows undispatched so the next tick retries; every step is
+		// idempotent.
 		log.Printf("release-digest flush: %v", err)
 		s.noteReleaseDigestFailure(week, maxAge, err)
 		return false
@@ -353,30 +272,14 @@ func (s *NotificationFilterService) flushReleaseDigestWeek(
 }
 
 // noteReleaseDigestFailure records that a week's flush failed, and abandons it
-// once it has been failing for longer than maxAge.
+// once it has been failing for longer than maxAge. Without a bound, a week that
+// fails deterministically sits at the head of the oldest-first selection and
+// re-occupies a slot every tick.
 //
-// # Why a bound is needed at all
-//
-// releaseDigestWeeksReadyToFlush orders oldest-first and takes the first `limit`,
-// so a week whose delivery errors deterministically is by definition at the HEAD
-// of that ordering and re-occupies a slot on every tick. Enough of them and the
-// release loop stops delivering platform-wide, with nothing but a repeating log
-// line to show for it.
-//
-// # Why it measures FAILURE DURATION and not bucket age
-//
-// The obvious implementation — retire a week older than maxAge — is catastrophic
-// HERE in a way it merely would have been wrong for the venue loop. A release
-// week is ALWAYS at least seven days old by the time it is eligible, so a bound
-// on bucket age would abandon every roundup on its first transient error,
-// forever. Bucket age answers "how long has this been waiting"; the question is
-// "how long has this been broken".
-//
-// State is in memory rather than a column, deliberately: a restart forgets the
-// failure history and a week gets a fresh maxAge, which errs toward RETRYING
-// rather than abandoning, and abandoning is the destructive direction. The map
-// holds only weeks that are currently failing and every entry is removed on
-// success or on retirement.
+// It measures FAILURE DURATION, not bucket age: every eligible week is already
+// at least seven days old, so a bucket-age bound would abandon every roundup on
+// its first transient error. State is in memory, so a restart errs toward
+// retrying; entries are removed on success or retirement.
 func (s *NotificationFilterService) noteReleaseDigestFailure(
 	week string,
 	maxAge time.Duration,
@@ -407,9 +310,7 @@ func (s *NotificationFilterService) noteReleaseDigestFailure(
 		"its followers will not be told about that week's releases. last error: %v",
 		week, failingFor.Round(time.Second), cause)
 
-	// Stamps the WHOLE week (nil member set), unlike a normal dispatch. The point
-	// is to make the week stop being selected at all; bounding it to what was read
-	// would leave the newest rows behind to re-select it immediately.
+	// Stamps the whole week (nil member set) so it stops being selected at all.
 	s.markReleaseDigestWeekDispatched(week, nil)
 	s.clearReleaseDigestFailure(week)
 }
@@ -425,17 +326,11 @@ func (s *NotificationFilterService) clearReleaseDigestFailure(week string) {
 // loadReleaseDigestWeek reads a week's members and the ones still worth
 // announcing.
 func (s *NotificationFilterService) loadReleaseDigestWeek(week string) (*releaseDigestWeek, error) {
-	// Every member row in the week, with its release and its artist.
-	//
-	// Read WITHOUT any time bound, and the dispatch stamp is bounded by the pairs
-	// this returns rather than by a clock. A clock bound looks equivalent and is
-	// not: accrual stamps created_at from the Go process before its INSERT
-	// commits, so a row can become visible AFTER a later watermark was taken while
-	// carrying an EARLIER created_at. Such a row would be stamped dispatched by a
-	// flush that never read it — and since the week is then never re-selected,
-	// that record is silently never announced to anyone. During a bulk label
-	// ingest, which is this feature's whole workload, concurrent accruals against
-	// one week make that the common case rather than a rare race.
+	// Every member row in the week, read without a time bound: the dispatch
+	// stamp is bounded by the resolved member set, never by a clock. Accrual
+	// stamps created_at before its INSERT commits, so a row can become visible
+	// after a watermark while carrying an earlier created_at, and a clock bound
+	// would retire it unread.
 	var rows []struct {
 		ArtistID    uint    `gorm:"column:artist_id"`
 		ArtistName  string  `gorm:"column:artist_name"`
@@ -468,16 +363,12 @@ func (s *NotificationFilterService) loadReleaseDigestWeek(week string) (*release
 		return nil, fmt.Errorf("release digest members for week %s: %w", week, err)
 	}
 
-	// Re-check announceability at DELIVERY time with the SAME predicate accrual
-	// used. release_date and release_year are both editable, and the window
-	// between accrual and flush here is up to a WEEK — far wider than the venue
-	// loop's minutes — so a record can genuinely age out or be corrected into
-	// back catalogue in between.
+	// Re-check announceability with the predicate accrual used: release_date and
+	// release_year are editable during the week between accrual and flush.
 	now := time.Now()
 	members := make([]releaseDigestRelease, 0, len(rows))
-	// resolved is EVERY member row this flush read, announceable or not. It must
-	// include the ones being skipped: they were considered and rejected, so
-	// leaving them undispatched would re-select the week forever.
+	// resolved is every member row read, announceable or not; leaving rejected
+	// rows undispatched would re-select the week forever.
 	resolved := make([]releaseDigestMember, 0, len(rows))
 	for _, row := range rows {
 		resolved = append(resolved, releaseDigestMember{ArtistID: row.ArtistID, ReleaseID: row.ReleaseID})
@@ -505,9 +396,8 @@ func (s *NotificationFilterService) loadReleaseDigestWeek(week string) (*release
 		})
 	}
 
-	// There is deliberately NO post-load sort. The query's ORDER BY is the
-	// reading order — artist name, then newest record first — and re-sorting in
-	// Go would put a second definition of it somewhere a reviewer has to find.
+	// No post-load sort: the query's ORDER BY (artist name, then newest record)
+	// is the one definition of reading order.
 
 	return &releaseDigestWeek{week: week, releases: members, resolved: resolved}, nil
 }
@@ -517,11 +407,8 @@ func (s *NotificationFilterService) loadReleaseDigestWeek(week string) (*release
 // ──────────────────────────────────────────────
 
 // deliverReleaseDigestWeek resolves this week's recipients and delivers to each.
-//
-// A per-recipient failure is collected and returned rather than swallowed, so
-// the caller leaves the week undispatched and the next tick retries. Retrying is
-// safe by construction: every claim is ON CONFLICT DO NOTHING, so the recipients
-// who already got through no-op on the second pass.
+// A per-recipient failure is returned so the caller leaves the week
+// undispatched; the retry is safe because every claim is ON CONFLICT DO NOTHING.
 func (s *NotificationFilterService) deliverReleaseDigestWeek(
 	ctx context.Context,
 	batch *releaseDigestWeek,
@@ -554,11 +441,9 @@ func (s *NotificationFilterService) deliverReleaseDigestWeek(
 	now := time.Now().UTC()
 	var failed int
 	for i, r := range recipients {
-		// ctx is honoured between RECIPIENTS as well as between weeks, because one
-		// week can be an unbounded number of sequential provider requests and that
-		// is precisely what would overrun a shutdown. Returning an error leaves the
-		// week undispatched, so the next tick finishes the list and the claim keeps
-		// the already-delivered recipients silent.
+		// ctx is honoured between recipients too, since one week can be an
+		// unbounded number of sends. The error leaves the week undispatched and
+		// the claim keeps already-delivered recipients silent on the next tick.
 		if ctx.Err() != nil {
 			return fmt.Errorf("release digest delivery for week %s canceled after %d of %d recipients: %w",
 				batch.week, i, len(recipients), ctx.Err())
@@ -575,21 +460,16 @@ func (s *NotificationFilterService) deliverReleaseDigestWeek(
 	return nil
 }
 
-// artistReleaseFollowers returns every follow of every artist in this week.
-//
-// One query for the whole week rather than one per artist: a week's roundup can
-// span dozens of artists, and this runs on a poller tick shared with every other
-// pending week.
+// artistReleaseFollowers returns every follow of every artist in this week, in
+// one query.
 func (s *NotificationFilterService) artistReleaseFollowers(artistIDs []uint) ([]artistReleaseFollowerRow, error) {
 	if len(artistIDs) == 0 {
 		return nil, nil
 	}
 	var rows []artistReleaseFollowerRow
-	// = ANY(array) rather than IN ?, which GORM expands into one bind parameter
-	// PER ELEMENT. A week's artist list is unbounded (a label ingest week can
-	// carry hundreds), so that expansion walks toward Postgres's 65535-parameter
-	// ceiling — and a week that fails is a week retried at the head of the queue
-	// forever.
+	// = ANY(array) rather than IN, which GORM expands into one bind parameter per
+	// element: a week's artist list is unbounded, and Postgres caps a statement
+	// at 65535 parameters.
 	err := s.db.Raw(`
 		SELECT b.user_id, b.entity_id AS artist_id, b.settings
 		FROM user_bookmarks b
@@ -605,22 +485,12 @@ func (s *NotificationFilterService) artistReleaseFollowers(artistIDs []uint) ([]
 }
 
 // resolveReleaseDigestRecipients turns the week's followers into the roundups
-// they will receive.
+// they will receive: many follower rows per user, one recipient per user.
 //
-// The fan-in that makes this alert what it is happens here: a user with six
-// qualifying follows in one week produces SIX follower rows and ONE recipient.
-//
-// Channels are OR-ed across a user's follows, which is the opposite of the
-// artist show alert's per-lane attribution — and the difference is the message,
-// not a change of mind. That alert names ONE artist in its body, so a channel
-// enabled for the opener must not send a mail that claims to be about the
-// headliner. This one names EVERY artist it covers, so a user who switched email
-// on for one of six bands gets an email that truthfully says why, and the other
-// five records are in it because they are also records by bands they follow. The
-// alternative would be a roundup that silently omits five sixths of the week.
-//
-// Pure, and takes everything it needs as arguments, so the batching rules can be
-// tested without a database.
+// Channels are OR-ed across a user's follows, unlike the artist show alert's
+// per-lane attribution, because this message names every artist it covers: a
+// user who enabled email for one of six bands gets an email that truthfully says
+// why. Pure, so the batching rules are testable without a database.
 func resolveReleaseDigestRecipients(
 	followers []artistReleaseFollowerRow,
 	prefs map[uint]recipientAlertPrefs,
@@ -650,10 +520,8 @@ func resolveReleaseDigestRecipients(
 			artistReleaseFollowEntityType, f.ArtistID, f.Settings,
 			authm.ResolveAccountAlertDefaults(account.AlertDefaults),
 		)
-		// Releases is a POINTER on FollowAlertSettings and is nil for entity types
-		// that never emit releases. Artists always do, so this is defence rather
-		// than a live branch — but a nil deref on a poller tick would take the
-		// whole loop down for every user.
+		// Releases is a pointer, nil for entity types that never emit releases.
+		// Artists always do; the guard keeps a nil deref from killing the tick.
 		if resolved.Releases == nil {
 			continue
 		}
@@ -663,10 +531,8 @@ func resolveReleaseDigestRecipients(
 			continue
 		}
 
-		// NO SCOPE CHECK, deliberately. Release alerts have no scope axis
-		// (engagement.followAlertHasScopeAxis returns false for them), so
-		// pref.Scope is empty and comparing it against near-me would silence every
-		// release follower on the planet.
+		// No scope check: release alerts have no scope axis, so pref.Scope is
+		// empty and comparing it against near-me would silence every follower.
 
 		state := byUser[f.UserID]
 		if state == nil {
@@ -682,9 +548,8 @@ func resolveReleaseDigestRecipients(
 	out := make([]releaseDigestRecipient, 0, len(order))
 	for _, userID := range order {
 		state := byUser[userID]
-		// The week's releases, in the week's order, narrowed to the artists THIS
-		// user subscribed to with the release alert on. Filtering the shared slice
-		// rather than rebuilding it keeps every reader's roundup in the same order.
+		// The week's releases, in the week's order, narrowed to the artists this
+		// user subscribed to with the release alert on.
 		mine := make([]releaseDigestRelease, 0, len(releases))
 		for _, rel := range releases {
 			if _, ok := state.artists[rel.ArtistID]; !ok {
@@ -708,29 +573,23 @@ func resolveReleaseDigestRecipients(
 
 // releaseDigestEmailLaneEnabled is the build-time gate on the digest's email
 // lane. While it is false a flush never claims an email-lane row and never
-// sends, whatever the reader's release-alert email preference says, so the
-// in-app row is the whole delivery. The email template has no approved design
-// yet; enabling the lane is a deliberate code change, not a configuration one.
+// sends, whatever the reader's email preference says, so the in-app row is the
+// whole delivery and the email code below is unreachable. Enabling it is a
+// deliberate code change; TestReleaseDigestEmailLaneIsGatedOff pins it off.
 const releaseDigestEmailLaneEnabled = false
 
 // deliverReleaseDigest writes this recipient's rows and, when the email lane is
-// on and its row was newly claimed, sends the email.
+// on and its row was newly claimed, sends the email. Ordering mirrors
+// deliverVenueAlert:
 //
-// The structure mirrors deliverVenueAlert exactly, including the three orderings
-// that each took a paragraph to justify there:
+//   - the in-app row first, and its result does not gate the email;
+//   - the daily email budget before the claim, because a claim is permanent and
+//     a lane claimed then refused can never be sent;
+//   - the claim before the send, because a crash between them loses an email
+//     whereas claiming after risks sending two.
 //
-//   - the in-app row is written FIRST and its result does not gate the email, so
-//     a user with in-app off still gets the email they asked for;
-//   - the daily email budget is checked BEFORE the lane is claimed, because a
-//     claim is PERMANENT and a lane claimed then refused is an email that can
-//     never be sent;
-//   - the lane is claimed BEFORE the send, because a crash between them loses an
-//     email whereas claiming after risks sending two.
-//
-// A failed CLAIM is returned rather than logged-and-forgotten, so the caller can
-// leave the week undispatched and retry. A failed SEND is not: the row is already
-// claimed and claiming is permanent, so retrying could never send that email
-// again and reporting it would only strand the whole week.
+// A failed claim is returned so the week is retried. A failed send is not: the
+// row is already claimed, so a retry could never send it.
 func (s *NotificationFilterService) deliverReleaseDigest(
 	r releaseDigestRecipient,
 	batch *releaseDigestWeek,
@@ -772,17 +631,12 @@ func (s *NotificationFilterService) deliverReleaseDigest(
 }
 
 // claimReleaseDigestRow inserts one lane's row, reporting whether THIS call
-// created it. A false with no error means the lane was already claimed — by an
-// earlier flush of the same week, or by a concurrent one.
+// created it. False with no error means the lane was already claimed, by an
+// earlier or concurrent flush of the same week.
 //
-// entity_id is the USER id. That is not a placeholder: a roundup is about the
-// reader's whole follow set, so there is no artist or release it could name
-// without lying about the rest. See NotificationEntityArtistReleaseDigest.
-//
-// Raw SQL rather than GORM's Create for one reason: alert_bucket is a DATE and
-// the week is a STRING with an explicit ::date cast, so the value cannot be
-// re-interpreted through the session time zone. It is also what keeps ON CONFLICT
-// DO NOTHING honest about RowsAffected.
+// entity_id is the reader's USER id (see NotificationEntityArtistReleaseDigest).
+// Raw SQL so the week goes in as a string with an explicit ::date cast and
+// RowsAffected reflects ON CONFLICT DO NOTHING.
 func (s *NotificationFilterService) claimReleaseDigestRow(
 	userID uint,
 	week string,
@@ -804,16 +658,10 @@ func (s *NotificationFilterService) claimReleaseDigestRow(
 // markReleaseDigestWeekDispatched stamps the rows this flush RESOLVED, so the
 // week stops being selected until a new member joins it.
 //
-// Bounded by the exact (artist, release) pairs that were read, never by a clock.
-// A row that became visible after the read keeps dispatched_at NULL and
-// re-selects the week on the next tick, where it is resolved properly — the
-// delivery claim makes that re-run silent. A time bound cannot do this: accrual
-// stamps created_at before its INSERT commits, so a row can appear late while
-// carrying an early timestamp, and it would be retired by a flush that never saw
-// it.
-//
-// A nil pair set means "the whole week", which is what retirement wants: the
-// point there is to make the week stop being selected at all.
+// Bounded by the exact (artist, release) pairs that were read, never by a
+// clock: a row that became visible after the read keeps dispatched_at NULL and
+// re-selects the week, where the claim makes the re-run silent. A nil pair set
+// means the whole week, which is what retirement wants.
 func (s *NotificationFilterService) markReleaseDigestWeekDispatched(
 	week string,
 	resolved []releaseDigestMember,
@@ -822,14 +670,12 @@ func (s *NotificationFilterService) markReleaseDigestWeekDispatched(
 		Where("alert_week = ?::date AND dispatched_at IS NULL", week)
 	if resolved != nil {
 		if len(resolved) == 0 {
-			// Read the week and found nothing in it. There is nothing to stamp, and
-			// stamping the week would be stamping rows that arrived since.
+			// Nothing was read; stamping the week would retire rows that arrived
+			// since.
 			return
 		}
-		// Matched as PAIRS, not as two independent id lists. A week holds many
-		// artists and many releases, and an id-list predicate would stamp the cross
-		// product — retiring a row this flush never read whenever some other
-		// artist in the week happened to share a release id with it.
+		// Matched as pairs, not two independent id lists, which would stamp the
+		// cross product and retire rows this flush never read.
 		artistIDs := make([]uint, 0, len(resolved))
 		releaseIDs := make([]uint, 0, len(resolved))
 		for _, m := range resolved {
@@ -852,23 +698,10 @@ func (s *NotificationFilterService) markReleaseDigestWeekDispatched(
 // sendArtistReleaseDigestEmail renders and sends the roundup. The caller has
 // already checked the daily budget and claimed the email lane.
 //
-// # No edited-after-accrual guard, and the reason is evidence rather than taste
-//
-// The venue digest drops members whose show row was written after accrual,
-// because a submitter can edit their own approved show with no re-review and the
-// digest ships from the platform's DKIM-aligned sender. That risk does not exist
-// here: there is NO self-serve release create or edit path. POST /releases is
-// registered on the admin router, the community request fulfiller runs only
-// after an admin approves, and the pending-edit allowlist for releases is
-// admin-reviewed. Every title reaching this template was written by an admin, a
-// CLI operator, or MusicBrainz.
-//
-// Applying the guard anyway would be actively harmful. releases.updated_at moves
-// for ANY write to the row, and this feature's window is a WEEK during which the
-// cover-art sweep, the link-enrichment sweep and the MBID stamper all touch
-// exactly these rows as a matter of routine. The fence would drop most of the
-// roundup most weeks — trading a risk that is not present for a broad silent
-// loss.
+// No edited-after-accrual guard, unlike the venue digest: releases have no
+// self-serve create or edit path (POST /releases is admin-only), and
+// releases.updated_at moves on routine enrichment writes, so such a guard would
+// drop most of a week's roundup.
 func (s *NotificationFilterService) sendArtistReleaseDigestEmail(
 	r releaseDigestRecipient,
 	batch *releaseDigestWeek,
@@ -879,18 +712,9 @@ func (s *NotificationFilterService) sendArtistReleaseDigestEmail(
 		return
 	}
 
-	// Its OWN scope, unlike the venue digest which shares the artist show alert's.
-	//
-	// The rule both decisions follow is one-mutation-one-name. Venue and artist
-	// SHOW alerts share a scope because they share a mutation: alert_defaults
-	// carries a single `shows` key covering both, so one setter genuinely stops
-	// both streams and a second name for it would be two URLs doing one thing.
-	// Release alerts are the other case: `releases` is a SEPARATE key with a
-	// SEPARATE setter, so reusing UnsubscribeScopeArtistShowAlerts would silence
-	// the reader's SHOW alerts when they asked to stop release emails, and leave
-	// the release emails coming. An unsubscribe that unsubscribes the wrong stream
-	// is worse than no link at all.
-	// TestReleaseDigestUsesItsOwnUnsubscribeScope pins this.
+	// Its own scope: `releases` is a separate alert_defaults key with its own
+	// setter, so reusing UnsubscribeScopeArtistShowAlerts would stop the wrong
+	// stream. TestReleaseDigestUsesItsOwnUnsubscribeScope pins this.
 	unsubscribeURL := engagement.GenerateScopedUnsubscribeURL(
 		s.backendURL,
 		r.userID,
@@ -901,12 +725,8 @@ func (s *NotificationFilterService) sendArtistReleaseDigestEmail(
 
 	html := buildArtistReleaseDigestEmailHTML(r.releases, s.frontendURL, unsubscribeURL, manageURL)
 
-	// The subject is a HEADER. An artist name on an ingest-created row is scraped
-	// third-party text, and HTML escaping does nothing for headers: a CR or LF in
-	// the name is how a header is split and another one injected. Bounded as well
-	// as sanitized, because an unfolded multi-kilobyte subject is
-	// provider-dependent behaviour ranging from truncation to outright rejection,
-	// and a rejected send is logged and swallowed below.
+	// The subject is a header carrying scraped artist text, so it must be free
+	// of CR/LF (header injection) and bounded in length.
 	subject := releaseDigestSubject(r.releases)
 
 	if err := s.sendEmail(email, subject, html, unsubscribeURL); err != nil {
@@ -919,9 +739,8 @@ func (s *NotificationFilterService) sendArtistReleaseDigestEmail(
 	}
 }
 
-// releaseDigestCountPhrase renders the count the way both the subject line and
-// the headline need it. One function so the two can never disagree about whether
-// a roundup of one is "1 new release".
+// releaseDigestCountPhrase renders the count for both the subject line and the
+// headline, so the two cannot disagree.
 func releaseDigestCountPhrase(n int) string {
 	if n == 1 {
 		return "New release"
@@ -929,12 +748,9 @@ func releaseDigestCountPhrase(n int) string {
 	return fmt.Sprintf("%d new releases", n)
 }
 
-// releaseDigestSubject builds the Subject header.
-//
-// A roundup of ONE names the artist, because that is the most useful thing an
-// inbox line can say and there is no ambiguity about which one. A roundup of
-// several does NOT name any of them: picking one would imply the message is
-// about that band, and listing six would overflow every inbox preview.
+// releaseDigestSubject builds the Subject header. A roundup of one names the
+// artist; a roundup of several names none, since picking one would misdescribe
+// the message.
 func releaseDigestSubject(releases []releaseDigestRelease) string {
 	if len(releases) == 1 {
 		return fmt.Sprintf("New release from %s",
@@ -968,21 +784,12 @@ func releaseDigestArtistPhrase(groups []releaseDigestArtistGroup) string {
 // sentence names before it switches to a count.
 const releaseDigestWhyArtistLimit = 3
 
-// buildArtistReleaseDigestEmailHTML renders the roundup in the shared
-// direction-A layout (PSY-1902), so it reads as the same publication as its show
-// siblings rather than as a third house style. Figma: node 1584:2.
+// buildArtistReleaseDigestEmailHTML renders the roundup in the shared email
+// layout, as one emailSectionLabel + emailListRows pair per artist.
 //
-// The one thing it does that no sibling does is GROUP. A venue digest's records
-// all share a venue, so a flat hairline-ruled list is the whole story. A release
-// roundup spans artists, and a flat list of nine records from six bands is a
-// wall — the reader's actual question is "which of my bands put something out",
-// which the grouping answers before they read a single title. So it is one
-// emailSectionLabel + emailListRows pair per artist.
-//
-// Every string reaching this is escaped by the builders. That matters here for
-// the same reason it matters in the venue digest: an ingest-created release is
-// scraped third-party text, and this message ships from the platform's own
-// DKIM-aligned sender.
+// Every string reaching this is escaped by the builders: an ingest-created
+// release is scraped third-party text, and the message ships from the
+// platform's own DKIM-aligned sender.
 func buildArtistReleaseDigestEmailHTML(
 	releases []releaseDigestRelease,
 	frontendURL string,
@@ -1002,37 +809,27 @@ func buildArtistReleaseDigestEmailHTML(
 				Label:  releaseTypeLabel(rel.ReleaseType),
 				Title:  rel.Title,
 				Detail: releaseDateLine(rel),
-				// Each row is its own destination, which is the difference between a
-				// roundup a reader can act on and one they have to go looking from.
-				// The venue digest has a single CTA because all its shows are at one
-				// venue; here every record has its own page.
+				// Each record links to its own page.
 				Href: rel.URL,
 			})
 		}
 		body.WriteString(emailListRows(rows))
 	}
 
-	// The "why this arrived, and why only one of it" sentence. A coalesced alert
-	// invites exactly that question, and no other surface answers it at the moment
-	// the reader is asking. Capability-true: it promises grouping, not
-	// completeness, because a record accrued after this was sent joins the inbox
-	// row without triggering a second email.
+	// Promises grouping, not completeness: a record accrued after this was sent
+	// joins the inbox row without a second email.
 	body.WriteString(emailParagraph(fmt.Sprintf(
 		"You follow %s. New releases from artists you follow are grouped into one roundup a week, so a run of records reaches you as one message instead of one per release.",
 		releaseDigestArtistPhrase(groups))))
 
-	// The CTA is the reader's own follow list rather than a catalogue page: this
-	// message is about their subscriptions, and /library is where they are managed
-	// and where the rest of what they follow lives.
+	// The CTA is the reader's follows (/library), not a catalogue page: the
+	// message is about their subscriptions.
 	body.WriteString(emailButton(fmt.Sprintf("%s/library", frontendURL), "View your follows"))
 
 	body.WriteString(emailFineprintWithLinks(
 		[]string{"You are getting this because you follow these artists with email alerts on."},
 		[]emailFineprintLink{
-			// "release alerts", precisely: unlike the show alerts' shared link, this
-			// button stops ONLY this stream, and a label promising more than the
-			// button does is how a recipient ends up at Report Spam when their show
-			// alerts keep arriving.
+			// "release alerts", precisely: this link stops only this stream.
 			{Href: unsubscribeURL, Label: "Unsubscribe from release alerts"},
 			{Href: manageURL, Label: "Manage alerts in Settings"},
 		},
@@ -1041,12 +838,9 @@ func buildArtistReleaseDigestEmailHTML(
 	return emailShell("RELEASE ALERT · NEW MUSIC", body.String())
 }
 
-// releaseTypeLabel renders a release type for the list's mono left column.
-//
-// Upper-cased rather than title-cased because the column is monospace and reads
-// as a tag, and because the stored values are lowercase enum tokens that would
-// otherwise render as "lp". An unknown value passes through upper-cased rather
-// than being blanked: a type this build has not heard of is still information.
+// releaseTypeLabel renders a release type for the list's mono left column:
+// upper-cased, since stored values are lowercase enum tokens. An unknown value
+// passes through upper-cased rather than blanked.
 func releaseTypeLabel(releaseType string) string {
 	if strings.TrimSpace(releaseType) == "" {
 		return "RELEASE"
@@ -1054,12 +848,8 @@ func releaseTypeLabel(releaseType string) string {
 	return strings.ToUpper(releaseType)
 }
 
-// releaseDateLine renders the secondary line under a release title.
-//
-// Three cases, because the data has three: a full date, a year only, and — for a
-// record that reached this template on the year branch of ReleaseAnnounceable —
-// nothing more precise to say. An empty string renders no line at all rather
-// than an empty one, so the row simply reads as title-only.
+// releaseDateLine renders the secondary line under a release title: a full
+// date, a year only, or empty (which renders no line).
 func releaseDateLine(rel releaseDigestRelease) string {
 	if rel.ReleaseDate != nil && *rel.ReleaseDate != "" {
 		if day, err := time.Parse(alertWeekLayout, *rel.ReleaseDate); err == nil {
@@ -1073,31 +863,19 @@ func releaseDateLine(rel releaseDigestRelease) string {
 }
 
 // artistReleaseFollowEntityType is the bookmark entity type these roundups
-// subscribe on. Read from the model rather than spelled as a literal, matching
-// the show loops: it is half of the WHERE clause that finds the followers AND the
-// value engagement's resolver compares against.
+// subscribe on, read from the model so the follower WHERE clause and
+// engagement's resolver compare the same value.
 var artistReleaseFollowEntityType = string(engagementm.BookmarkEntityArtist)
 
-// alertWeekLayout is how a week bucket is spelled everywhere it crosses the
-// Go/SQL boundary.
-//
-// Weeks are passed to Postgres as STRINGS with an explicit ::date cast, never as
-// a time.Time: a time.Time parameter arrives as a timestamptz and is cast to
-// date using the SESSION time zone, so the same instant would land on different
-// days depending on a setting this package does not control.
-//
-// Spelled again here rather than imported from the accrual half in
-// services/catalog, deliberately: importing it would make the delivery package
-// depend on the catalogue service package for a five-character format string.
-// TestAccrualAndFlushAgreeOnTheWeekLayout pins the two together instead.
+// alertWeekLayout is how a week bucket is spelled where it crosses the Go/SQL
+// boundary: passed as a string with an explicit ::date cast, never as a
+// time.Time, which Postgres would cast to date in the SESSION time zone. Must
+// match alertWeekLayout in services/catalog; it is duplicated so this package
+// does not import the catalogue service package for a format string.
 const alertWeekLayout = "2006-01-02"
 
 // ArtistReleaseAlertsEnabled reports whether the release-roundup loop is on.
-//
-// Read by BOTH halves — accrual in services/catalog and this flush — through the
-// one flag NAME in models/notification. Two readers of one constant, rather than
-// one reader imported across a package boundary, for the same reason
-// alertWeekLayout is: the flag is the shared thing, not the function.
+// Accrual in services/catalog reads the same flag name from models/notification.
 func ArtistReleaseAlertsEnabled() bool {
 	return !shared.EnvServiceDisabled(notificationm.ArtistReleaseAlertsDisableFlag)
 }
@@ -1106,55 +884,27 @@ func ArtistReleaseAlertsEnabled() bool {
 // Inbox enrichment
 // ──────────────────────────────────────────────
 
-// releaseDigestSummaryLimit caps how many artists an inbox row names. A week's
-// roundup is unbounded and an inbox row is one or two lines; the full count is
-// reported separately, so the row says "and 12 more" rather than misstating the
-// size.
+// releaseDigestSummaryLimit caps how many artist names an inbox row carries in
+// AlertReleaseArtists; AlertReleaseArtistCount carries the full count.
 const releaseDigestSummaryLimit = 3
 
-// enrichArtistReleaseDigestNotifications populates the release count, preview
-// and (for a roundup of one) the link on artist_release_digest rows (PSY-1897).
+// enrichArtistReleaseDigestNotifications fills AlertReleaseCount,
+// AlertReleaseArtistCount, AlertReleaseArtists and (for a one-release week)
+// AlertReleaseURL on artist_release_digest rows.
 //
-// The releases are resolved from artist_release_alert_batch AT READ TIME rather
-// than stamped onto the row when it was created, and that is the deliberate half
-// of this design: a release accrued later in the week joins the batch, so the
-// row a reader is looking at grows to include it without a second notification
-// ever having been sent. A snapshot taken at write time could not do that.
+// Members are read from artist_release_alert_batch at read time, so a release
+// accrued after delivery grows the row without a second notification. Because
+// the read is live, the query re-applies the delivery rules:
 //
-// # The member query re-applies the DELIVERY rules, and must
+//   - announceability, through catalogm.ReleaseAnnounceableBounds, since only a
+//     deleted release leaves the batch;
+//   - the credit, by re-joining artist_releases, as the flush does;
+//   - the reader's own current follow of each artist.
 //
-// Reading the batch live is what lets the row grow, but it also means this query
-// is the ONLY thing standing between a member and the reader. Three filters
-// mirror what the flush already decided, and each closes a real hole:
-//
-//   - ANNOUNCEABILITY. Only a deleted release leaves the batch (the foreign key
-//     cascades), so without this fence a record whose date is later corrected to
-//     1998 would keep rendering in every follower's inbox as new music.
-//   - THE CREDIT. artist_releases is re-joined, so a record no longer credited to
-//     the artist that accrued it drops out — the same join the flush makes.
-//   - THE READER'S OWN SUBSCRIPTION. Only artists this reader currently follows
-//     contribute, so a row cannot name records from a week's membership that were
-//     never this reader's to hear about.
-//
-// Degrades rather than disappearing: a week whose members were all deleted
-// leaves a count of zero and the frontend renders the row bare. The notification
-// still happened, and a row that vanished from history would be a worse lie.
-//
-// # Two bounds it deliberately does NOT have
-//
-// The venue enrichment freezes its dedup at own.sent_at because its count is
-// computed against a log that keeps growing. There is no cross-system dedup
-// here — nothing else in the product notifies anyone about a release — so
-// nothing can shrink retroactively for that reason.
-//
-// It CAN shrink if the reader unfollows an artist, and that is an accepted
-// limit rather than an oversight: user_bookmarks records when a follow was
-// created and not when it was removed, so the follow set as it stood at delivery
-// cannot be reconstructed. The row then reads as a smaller, still-true roundup of
-// the bands they still follow. Nor does it filter on the release-alert
-// PREFERENCE, unlike the flush: a reader who has since switched the alert off
-// keeps seeing the row they already received, because the switch governs future
-// alerts rather than editing history.
+// A week whose members are all gone leaves the counts at zero rather than
+// hiding the row. The row can shrink if the reader unfollows an artist
+// (user_bookmarks keeps no unfollow history), and it deliberately ignores the
+// current release-alert preference, which governs future alerts only.
 func (s *NotificationFilterService) enrichArtistReleaseDigestNotifications(
 	userID uint,
 	entries []contracts.NotificationLogEntry,
@@ -1186,9 +936,9 @@ func (s *NotificationFilterService) enrichArtistReleaseDigestNotifications(
 		ArtistID   uint    `gorm:"column:artist_id"`
 		ArtistName string  `gorm:"column:artist_name"`
 	}
-	// The announceability window is bound from catalogm.ReleaseAnnounceableBounds,
-	// the same day bounds ReleaseAnnounceable applies, so the SQL restatement of
-	// the predicate cannot disagree with it on a boundary day.
+	// Whole UTC days from catalogm.ReleaseAnnounceableBounds, the bounds
+	// ReleaseAnnounceable applies, so this SQL restatement agrees with the Go
+	// predicate on boundary days.
 	oldest, latest, minYear := catalogm.ReleaseAnnounceableBounds(time.Now())
 	if err := s.db.Raw(`
 		SELECT to_char(b.alert_week, 'YYYY-MM-DD') AS alert_week,

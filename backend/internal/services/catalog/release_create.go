@@ -51,10 +51,9 @@ func createReleaseTx(tx *gorm.DB, req *contracts.CreateReleaseRequest, apply fun
 
 	// Create artist_releases entries
 	//
-	// The credited ids are collected as we go, for the release-alert accrual
-	// below. De-duplicated because artist_releases is keyed on
-	// (artist_id, release_id, ROLE), so one artist credited as both main and
-	// producer is two rows here and must still be one accrual.
+	// The credited ids feed the release-alert accrual below, de-duplicated
+	// because artist_releases is keyed on (artist_id, release_id, role): one
+	// artist credited in two roles must still be one accrual.
 	creditedArtistIDs := make([]uint, 0, len(req.Artists))
 	seenArtist := make(map[uint]struct{}, len(req.Artists))
 	for i, artistEntry := range req.Artists {
@@ -114,16 +113,15 @@ func createReleaseTx(tx *gorm.DB, req *contracts.CreateReleaseRequest, apply fun
 	// see enqueueImageEnrich).
 	enqueueImageEnrich(tx, catalogm.ImageEnrichEntityRelease, release.ID)
 
-	// PSY-1897: record this release in each followed, credited artist's weekly
-	// roundup. Runs AFTER the artist_releases writes, because it is the credited
-	// set that decides whether anyone is subscribed; runs on the same tx, in a
-	// SAVEPOINT, so it can never fail the create (see enqueueArtistReleaseAlerts).
+	// Record this release in each followed, credited artist's weekly roundup.
+	// Runs after the artist_releases writes because the credited set decides who
+	// is subscribed; same tx, in a SAVEPOINT, so it never fails the create (see
+	// enqueueArtistReleaseAlerts).
 	//
-	// This is the ONE hook for the whole feature. A release has no visibility
-	// transition to trigger on — insert is publication — so the accrual is placed
-	// at the single create funnel that every API, CLI and importer write passes
-	// through. Adding a second release-creating path without an accrual call here
-	// is how this feature silently stops covering it.
+	// This is the feature's only accrual hook: a release has no visibility
+	// transition (insert is publication), so accrual sits in the shared create
+	// funnel. A release-creating path that bypasses createReleaseTx is not
+	// covered.
 	enqueueArtistReleaseAlerts(tx, release, creditedArtistIDs)
 
 	return release, nil

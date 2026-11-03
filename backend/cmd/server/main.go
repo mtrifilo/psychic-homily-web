@@ -500,17 +500,11 @@ func main() {
 
 	// Start the release-digest flush poller: delivers the weekly per-user roundup
 	// of new releases by followed artists once a week bucket has closed. Accrual
-	// runs inside the release create funnel; without this loop the rows
-	// accumulate and nobody is told.
+	// runs inside the release create funnel.
 	//
-	// ON by default with a DISABLE_* flag, and the flag gates accrual too, so
-	// turning it off stops rows being written rather than queueing a burst. Read
-	// per PROCESS: an ingest CLI run elsewhere needs the flag in its own
-	// environment to stop accruing.
-	//
-	// Starting this cannot alert anyone about the existing catalogue:
-	// artist_release_alert_batch ships empty and only release creation writes
-	// to it.
+	// ON by default; the DISABLE_* flag gates accrual too, so turning it off
+	// stops rows being written rather than queueing a burst. The flag is read per
+	// process: an ingest CLI run elsewhere needs it in its own environment.
 	if notification.ArtistReleaseAlertsEnabled() {
 		var releaseDigestFlushCtx context.Context
 		releaseDigestFlushCtx, releaseDigestFlushCancel = context.WithCancel(context.Background())

@@ -2,23 +2,14 @@ package notification
 
 import "time"
 
-// ArtistReleaseAlertBatchItem is one release's membership in one week's roundup
-// (PSY-1897).
+// ArtistReleaseAlertBatchItem is one release's membership in one week's roundup.
+// There is no batch record: a week's batch is the set of rows sharing AlertWeek.
 //
-// There is no batch record and no batch id. A WEEK's batch is the set of rows
-// sharing AlertWeek — this type is a MEMBERSHIP, and every query against it
-// works on groups rather than on single rows.
-//
-// The key is (ArtistID, ReleaseID) and NOT (week, artist, release). A pair
-// accrues once, EVER, which is what makes "an enrichment re-run does not
-// re-notify" a property of the schema rather than of a guard someone has to
-// remember to write. AlertWeek is a payload column fixed at first observation.
-//
-// GORM has no composite-primary-key struct tag story worth relying on here, so
-// this type is used for READS and for a hand-written ON CONFLICT DO NOTHING
-// insert. Do not add an ID field: the table has no surrogate key, and a phantom
-// one would silently produce `INSERT ... RETURNING id` against a column that
-// does not exist.
+// The key is (ArtistID, ReleaseID), not (week, artist, release), so a pair
+// accrues once ever and an enrichment re-run cannot re-notify. Used for reads
+// and a hand-written ON CONFLICT DO NOTHING insert. Do not add an ID field: the
+// table has no surrogate key, and GORM would emit RETURNING id against a column
+// that does not exist.
 type ArtistReleaseAlertBatchItem struct {
 	// ArtistID is the credited, followed artist. Half of the accrual key.
 	ArtistID uint `gorm:"column:artist_id" json:"artist_id"`
@@ -27,30 +18,21 @@ type ArtistReleaseAlertBatchItem struct {
 	ReleaseID uint `gorm:"column:release_id" json:"release_id"`
 
 	// AlertWeek is the Monday, in UTC, of the ISO week this observation belongs
-	// to. It is the notification's bucket, not part of its accrual key.
-	//
-	// UTC rather than a local zone because a release has no location: the artist
-	// may be in Oslo and the follower in Phoenix, and there is no third clock
-	// that is more correct than the one both can name. A week is also 168 hours
-	// wide, so an offset can move at most one of them across the boundary — the
-	// venue alert's 24-hour day is why the same offset was load-bearing there.
+	// to: the notification's bucket, fixed at first observation and not part of
+	// the accrual key. UTC because a release has no location.
 	AlertWeek time.Time `gorm:"column:alert_week" json:"alert_week"`
 
-	// CreatedAt is when this RELEASE was accrued, not when the week opened. The
-	// flush needs to know how long a week has been sitting undispatched, which is
-	// a question about individual rows.
+	// CreatedAt is when this release was accrued, not when the week opened; the
+	// flush measures how long a week has sat undispatched from it.
 	CreatedAt time.Time `gorm:"column:created_at" json:"created_at"`
 
-	// DispatchedAt marks that a flush has resolved the week this row belongs to.
-	// Per row, so a late arrival can be recorded and then marked without anything
-	// having to reopen a closed week.
+	// DispatchedAt marks that a flush has resolved this row's week. Per row, so a
+	// late arrival can be marked without reopening a closed week.
 	//
-	// It is NOT the exactly-once guard. A late member makes the flush re-resolve
-	// a week that already delivered, so the flush WILL reach the delivery claim
-	// again; what makes that silent is
-	// uq_notification_log_artist_release_digest. Reading this column as "already
-	// sent, skip" would be wrong in both directions: it would drop the late
-	// release from the inbox row, and it would not by itself prevent anything.
+	// It is bookkeeping, NOT the exactly-once guard: a late member makes the
+	// flush re-resolve a delivered week and reach the claim again, and
+	// uq_notification_log_artist_release_digest makes that silent. Do not read
+	// it as "already sent, skip".
 	DispatchedAt *time.Time `gorm:"column:dispatched_at" json:"dispatched_at,omitempty"`
 }
 
@@ -63,11 +45,8 @@ func (ArtistReleaseAlertBatchItem) TableName() string {
 // loop: accrual inside the release create funnel and the flush poller that
 // delivers.
 //
-// Spelled once, here in models, because BOTH halves must read the same name and
-// they live in different packages (services/catalog accrues, services/notification
-// delivers). Gating only one side is a trap in either direction — gating only the
-// flush accrues rows that fan out in one burst when the flag clears, and gating
-// only accrual leaves a poller spinning on a table nothing writes to. This
-// mirrors VenueShowAlertsDisableFlag and catalogm.ShowNotifyOutboxDisableFlag,
-// which exist for exactly the same reason.
+// Spelled once, here in models, because both halves read it from different
+// packages (services/catalog accrues, services/notification delivers). Gating
+// only the flush would accrue rows that fan out in one burst when the flag
+// clears. Mirrors VenueShowAlertsDisableFlag.
 const ArtistReleaseAlertsDisableFlag = "DISABLE_ARTIST_RELEASE_ALERTS"

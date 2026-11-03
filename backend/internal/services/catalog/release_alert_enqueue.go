@@ -13,62 +13,29 @@ import (
 	"psychic-homily-backend/internal/services/shared"
 )
 
-// Accrual for the artist new-release weekly roundup (PSY-1897).
+// Accrual for the artist new-release weekly roundup.
 //
-// # Why this lives here and not in services/notification
+// Releases have no visibility transition (insert is publication), so the hook is
+// the insert itself, inside createReleaseTx. Its callers, CreateRelease and
+// FindOrCreateReleaseByReleaseGroupMBID, are the only service-layer release
+// creators; the seed commands and e2e fixtures bypass it and correctly accrue
+// nothing, so an integration test must go through the funnel.
 //
-// The venue sibling accrues inside MatchAndNotify because shows have a
-// visibility TRANSITION to hang a hook on, and MatchAndNotify already runs from
-// both routes that decide a show is announceable. Releases have no such
-// transition — there is no status column on `releases` and the public read path
-// carries no visibility predicate, so a release is world-readable the instant
-// its row is INSERTed.
-//
-// The hook therefore has to be the INSERT, and the insert has exactly one
-// funnel: createReleaseTx. Every API, CLI and importer write reaches it —
-// ReleaseService.CreateRelease and FindOrCreateReleaseByReleaseGroupMBID are its
-// only callers, and they are in turn the only things in the codebase that create
-// a release outside seeds and test fixtures. Hooking one function is what makes
-// "no write path can be missed" a property of the call graph rather than a claim
-// in a comment.
-//
-// enqueueImageEnrich already sits in that same funnel doing the same kind of
-// thing, so the shape is precedented rather than invented.
-//
-// # What the seed and fixture paths do, and why that is right
-//
-// cmd/seed, cmd/seed/exemplars and frontend/e2e/setup-db.sh insert releases with
-// raw statements that bypass createReleaseTx entirely. They therefore accrue
-// nothing, which is the correct outcome: a dev seed is not an announcement. It
-// also means an integration test has to go through the funnel to exercise this.
-//
-// # No backfill, structurally
-//
-// Starting this on a deploy cannot alert anyone about the existing catalogue:
-// artist_release_alert_batch ships EMPTY and the only thing that writes to it is
-// this function, which runs when a release is created. A merge can move rows but
-// never manufacture one.
+// No backfill: artist_release_alert_batch ships empty and only this function
+// writes to it. A merge can move rows but never manufacture one.
 
 // artistReleaseFollowEntityType is the bookmark entity type these alerts
-// subscribe on. Read from the model rather than spelled as a literal, matching
-// the artist and venue alert loops: it is half of the WHERE clause that finds
-// the followers AND the value engagement's resolver compares against.
+// subscribe on, read from the model so the follower WHERE clause and
+// engagement's resolver compare the same value.
 var artistReleaseFollowEntityType = string(engagementm.BookmarkEntityArtist)
 
-// alertWeekLayout is how a week bucket is spelled everywhere it crosses the
-// Go/SQL boundary.
-//
-// Weeks are passed to Postgres as STRINGS with an explicit ::date cast, never as
-// a time.Time. A time.Time parameter arrives as a timestamptz and is cast to
-// date using the SESSION time zone, so the same instant would land on different
-// days depending on a setting this package does not control. A literal
-// 'YYYY-MM-DD' has no such dependency.
+// alertWeekLayout is how a week bucket is spelled where it crosses the Go/SQL
+// boundary. Weeks are passed as strings with an explicit ::date cast, never as a
+// time.Time, which Postgres would cast to date in the SESSION time zone.
 const alertWeekLayout = "2006-01-02"
 
 // ArtistReleaseAlertsEnabled reports whether the release-roundup loop is on.
-//
-// Read by BOTH halves — this accrual and the flush poller in
-// services/notification — through the one flag name in models/notification.
+// Accrual and the flush poller read the same flag name from models/notification.
 func ArtistReleaseAlertsEnabled() bool {
 	return !shared.EnvServiceDisabled(notificationm.ArtistReleaseAlertsDisableFlag)
 }
@@ -76,11 +43,8 @@ func ArtistReleaseAlertsEnabled() bool {
 // AlertWeekStart returns the Monday, at midnight UTC, of the ISO week containing
 // t.
 //
-// Exported because the flush, the inbox enrichment and the tests all have to
-// agree with accrual about where a week begins, and three copies of a weekday
-// calculation is three chances to be off by one. Monday because that is what
-// date_trunc('week', ...) means in Postgres, so the Go and SQL halves of this
-// feature name the same day.
+// Monday because that is what date_trunc('week', ...) means in Postgres, so the
+// Go and SQL halves name the same day.
 func AlertWeekStart(t time.Time) time.Time {
 	utc := t.UTC()
 	// time.Weekday is Sunday=0; shift so Monday=0 and Sunday=6.
@@ -92,34 +56,21 @@ func AlertWeekStart(t time.Time) time.Time {
 // enqueueArtistReleaseAlerts records this release's membership in each credited,
 // FOLLOWED artist's roundup for the current week.
 //
-// Best-effort, and that is enforced structurally rather than by discipline: the
-// insert runs in a nested tx.Transaction, which GORM emits as a SAVEPOINT when
-// the receiver is already a transaction. Postgres aborts the WHOLE transaction
-// on any failed statement, so without the savepoint a failing insert here would
-// poison the caller's tx and turn the release create into a phantom success —
-// non-nil release, nil error, no row. With it, a failure rolls back only the
-// savepoint. This is the same reasoning enqueueImageEnrich documents, and the
-// same reasoning FindOrCreateReleaseByReleaseGroupMBID's step 3 relies on.
+// Best-effort by construction: the insert runs in a nested tx.Transaction, which
+// GORM emits as a SAVEPOINT. Postgres aborts the whole transaction on any failed
+// statement, so without the savepoint a failing insert would poison the
+// caller's tx and make the release create a phantom success. Same reasoning as
+// enqueueImageEnrich.
 //
-// Two write-side bounds, and they do different jobs:
+// Two write-side bounds:
 //
-//   - ONLY FOLLOWED ARTISTS ACCRUE. This bounds a table that is deliberately
-//     never pruned (the inbox row reads its members live, so deleting them would
-//     blank delivered history). Be precise about what it does NOT do: it gates
-//     on whether the artist has ANY follower, and the flush resolves the
-//     recipient list with no created_at filter. So someone who follows the band
-//     later that same week receives that week's whole roundup including records
-//     accrued before they subscribed — intended, since they have just declared
-//     interest in exactly that artist. But an artist with NO follower at insert
-//     time accrues nothing at all, so their FIRST follower gets nothing for a
-//     drop that landed before they arrived. That is the price of the bound.
-//
-//   - ONLY ANNOUNCEABLE RELEASES ACCRUE. This is the back-catalogue fence, and
-//     it is the reason a `ph submit-release` pass over a label's twenty-year
-//     discography does not mail every follower of every artist on that label.
-//     See catalogm.ReleaseAnnounceable for the definition and for why an undated
-//     release fails closed. The flush re-checks with the same predicate, because
-//     release_date is editable between accrual and delivery.
+//   - Only artists with at least one follower accrue, which bounds a table that
+//     is never pruned. The flush resolves recipients without a follow-date
+//     filter, so a reader who follows mid-week gets that week's whole roundup;
+//     an artist with no follower at insert time accrues nothing at all.
+//   - Only announceable releases accrue (catalogm.ReleaseAnnounceable): the
+//     back-catalogue fence. The flush re-checks, because release_date is
+//     editable between accrual and delivery.
 func enqueueArtistReleaseAlerts(tx *gorm.DB, release *catalogm.Release, artistIDs []uint) {
 	if release == nil || len(artistIDs) == 0 {
 		return
@@ -137,17 +88,10 @@ func enqueueArtistReleaseAlerts(tx *gorm.DB, release *catalogm.Release, artistID
 
 	week := AlertWeekStart(now).Format(alertWeekLayout)
 
-	// One statement for every credited artist rather than a loop of inserts. A
-	// release can credit a dozen artists on a compilation, this runs inside the
-	// create transaction of a bulk ingest, and the follower check is the same
-	// EXISTS for all of them.
-	//
-	// ON CONFLICT DO NOTHING against the (artist_id, release_id) primary key is
-	// the whole re-notify story: a re-import, an enrichment pass or a metadata
-	// correction that reaches this funnel again finds the pair already recorded
-	// and writes nothing. It also settles the concurrent-create race without a
-	// separate guard, which the venue sibling needed because its natural key
-	// included the day.
+	// One statement for every credited artist. ON CONFLICT DO NOTHING against
+	// the (artist_id, release_id) primary key means a re-import or correction
+	// that reaches this funnel again writes nothing, and settles the
+	// concurrent-create race.
 	//
 	// The SQL carries no comments: GORM binds every literal question mark in
 	// the text, a comment's included.

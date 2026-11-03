@@ -33,22 +33,17 @@ const (
 	UnsubscribeScopeArtistShowAlerts = "artist-show-alerts"
 
 	// UnsubscribeScopeArtistReleaseAlerts opts a recipient out of the weekly
-	// roundup of new releases from artists they follow (PSY-1897).
+	// roundup of new releases from artists they follow.
 	//
-	// Its OWN scope, where the venue show digest deliberately REUSED
-	// UnsubscribeScopeArtistShowAlerts. Both decisions follow the same rule —
-	// one mutation, one name — and land on opposite answers because the mutations
-	// differ. Venue and artist show alerts share the single `shows` key in
-	// alert_defaults, so one setter genuinely stops both and a second URL would
-	// have been two names for one action. Releases have their own `releases` key
-	// and their own setter, so reusing the show scope would silence the reader's
-	// SHOW alerts while their release emails kept arriving — an unsubscribe that
-	// unsubscribes the wrong stream, which is strictly worse than no link.
+	// One mutation, one scope name. The venue show digest reuses
+	// UnsubscribeScopeArtistShowAlerts because both share the `shows` key in
+	// alert_defaults; releases have their own `releases` key and setter, so
+	// reusing the show scope would silence show alerts while release emails kept
+	// arriving.
 	//
-	// Signed on the USER for the same reason its sibling is: "unsubscribe" on a
-	// mailbox provider's native button means stop this stream, not mute one band.
-	// The IN-APP roundup is untouched — an email opt-out is not a request to stop
-	// being notified in the product.
+	// Signed on the USER like its sibling: a mailbox provider's native
+	// unsubscribe means stop this stream, not mute one band. The in-app roundup is
+	// untouched.
 	UnsubscribeScopeArtistReleaseAlerts = "artist-release-alerts"
 )
 

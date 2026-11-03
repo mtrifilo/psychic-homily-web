@@ -179,8 +179,7 @@ func currentAlertWeek() string {
 	return catalog.AlertWeekStart(time.Now()).Format(alertWeekLayout)
 }
 
-// createRelease runs the real create funnel, the one every API, CLI and
-// importer write reaches.
+// createRelease runs the real create funnel, where accrual is hooked.
 func (s *NotificationFilterSuite) createRelease(title string, date *string, year *int, artistIDs ...uint) uint {
 	entries := make([]contracts.CreateReleaseArtistEntry, 0, len(artistIDs))
 	for _, id := range artistIDs {

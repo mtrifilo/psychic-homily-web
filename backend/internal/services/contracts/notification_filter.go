@@ -145,15 +145,10 @@ type NotificationLogEntry struct {
 	// hundreds of entries long.
 	AlertShowSummary string `json:"alert_show_summary,omitempty"`
 
-	// Artist release-digest enrichment fields (populated only for
-	// artist_release_digest rows; entity_id holds the USER id and
-	// subject_entity_id is NULL). The releases are resolved from
-	// artist_release_alert_batch at READ time rather than stamped on the row,
-	// which is what lets a release accrued later in the week appear in a row that
-	// was already delivered. PSY-1897.
-	//
-	// AlertReleaseURL is absolute and same-origin-relativized by the frontend
-	// before use, like every other deep link on this contract.
+	// Artist release-digest enrichment fields, populated only for
+	// artist_release_digest rows (entity_id holds the USER id). Resolved from
+	// artist_release_alert_batch at read time rather than stamped on the row, so
+	// a release accrued later in the week appears in an already-delivered row.
 	//
 	// AlertReleaseCount is the number of distinct releases in the roundup for
 	// this reader.
@@ -165,10 +160,10 @@ type NotificationLogEntry struct {
 	// ("Dan Deacon, Primitive Man, Russian Circles") and capped server-side,
 	// ending in "and N more" when it names fewer than AlertReleaseArtistCount.
 	AlertReleaseArtists string `json:"alert_release_artists,omitempty"`
-	// AlertReleaseURL is where the row links. Set ONLY when the roundup covers
-	// exactly one record, in which case that record's page is the honest
-	// destination. A multi-record roundup has no single page, and the frontend
-	// falls back to the reader's follow list rather than picking one of them.
+	// AlertReleaseURL is where the row links: absolute (the frontend relativizes
+	// same-origin links), and set ONLY when the roundup covers exactly one
+	// record. A multi-record roundup has no single page, so it is left empty and
+	// the frontend uses its own fallback.
 	AlertReleaseURL string `json:"alert_release_url,omitempty"`
 }
 

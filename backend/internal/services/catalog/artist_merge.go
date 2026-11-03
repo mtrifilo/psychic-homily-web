@@ -78,15 +78,11 @@ import (
 //     Re-pointing it would additionally have to re-normalize the
 //     artist_a_id < artist_b_id CHECK and fold the two rows' counters, which is
 //     a recomputation dressed as a merge step.
-//
-//   - artist_release_alert_batch — re-pointed by reassignArtistFKRefs, with a
-//     collision delete first (PSY-1897). It CASCADES, so leaving it out would
-//     silently destroy the losing artist's accrued release observations, and the
-//     visible damage would be an already-delivered weekly roundup whose inbox row
-//     stopped naming half its records. It also must NOT simply be moved: the pair
-//     (artist_id, release_id) is the primary key, and a release credited to BOTH
-//     artists — the ordinary case for a merge, since a duplicate artist is a
-//     duplicate discography — would violate it and abort the whole merge.
+//   - artist_release_alert_batch: re-pointed by reassignArtistFKRefs, with a
+//     collision delete first. It CASCADES, so leaving it out would silently
+//     drop the losing artist's accrued releases from delivered inbox rows. A
+//     bare UPDATE would violate the (artist_id, release_id) primary key for any
+//     release credited to both artists and abort the merge.
 //
 // TestArtistForeignKeysAreAllHandled fails if a migration adds another.
 var artistFKColumns = []string{
@@ -367,23 +363,13 @@ func reassignArtistFKRefs(tx *gorm.DB, canonicalID, mergeFromID uint) error {
 		return fmt.Errorf("failed to move radio_plays rows: %w", err)
 	}
 
-	// artist_release_alert_batch (PSY-1897). ON DELETE CASCADE, so an unhandled
-	// table would lose the losing artist's accrued release observations without a
-	// sound — and the visible damage arrives later, as an already-delivered weekly
-	// roundup whose inbox row silently stops naming half its records (the row
-	// resolves its list from this table live, which is what lets it grow).
+	// artist_release_alert_batch: ON DELETE CASCADE, and delivered inbox rows
+	// read their release list from it live, so it must be re-pointed.
 	//
-	// The collision delete is MANDATORY, not defensive. (artist_id, release_id) is
-	// the primary key, and a duplicate artist is by definition a duplicate
-	// discography — the two artists sharing a release is the ordinary case here,
-	// not the edge one. A bare UPDATE would trip the key and abort the whole merge.
-	//
-	// The CANONICAL artist's row wins, and the loser's is dropped rather than
-	// merged. Nothing is lost that a reader can see: both rows stand for the same
-	// record in the same week, and after the merge they would render as one line
-	// naming one artist either way. The surviving row keeps the canonical artist's
-	// alert_week and dispatched_at, so a week already delivered stays delivered
-	// rather than re-opening.
+	// The collision delete is mandatory: (artist_id, release_id) is the primary
+	// key, and a duplicate artist usually shares releases with the canonical one.
+	// The canonical artist's row wins and keeps its alert_week and dispatched_at,
+	// so a delivered week stays delivered.
 	if err := tx.Exec(`
 		DELETE FROM artist_release_alert_batch l
 		WHERE l.artist_id = ?

@@ -1087,10 +1087,10 @@ func (s *ArtistMergeIntegrationSuite) TestMergeRepointsReleaseAlertMemberships()
 	s.Require().NoError(err)
 
 	var rows []struct {
-		ArtistID     uint
-		ReleaseID    uint
-		AlertWeek    string
-		Dispatched   bool
+		ArtistID   uint
+		ReleaseID  uint
+		AlertWeek  string
+		Dispatched bool
 	}
 	s.Require().NoError(s.db.Raw(`
 		SELECT artist_id, release_id, to_char(alert_week, 'YYYY-MM-DD') AS alert_week,

@@ -2,69 +2,31 @@ package catalog
 
 import "time"
 
-// ReleaseAnnounceable is the ONE predicate for "this release is NEW MUSIC worth
-// telling a follower about" (PSY-1897). It is consulted at accrual, again at
-// flush, and again when the inbox row renders, so that three surfaces cannot
-// drift into disagreeing about what the alert covers — the same role
-// ShowAnnounceable plays for the show loops.
+// ReleaseAnnounceable is the one predicate for "this release is new music worth
+// telling a follower about". Accrual, the flush and the inbox enrichment SQL all
+// apply it (the SQL through ReleaseAnnounceableBounds), so those surfaces cannot
+// disagree about what the alert covers; ShowAnnounceable plays the same role for
+// the show loops.
 //
-// # Why a predicate is needed at all, when shows get theirs for free
+// A release has no visibility transition (insert is publication), and its
+// created_at is when the catalogue first saw it, not when the world did: a
+// discography import stamps today on a 1998 LP. So "new" is defined from the
+// release's own date:
 //
-// A show has a visibility transition: it sits in a status until moderation or
-// ingest approves it, and ShowAnnounceable reads that status. A RELEASE HAS NO
-// SUCH TRANSITION. There is no status column, no approved flag and no soft
-// delete on `releases`; the public list and detail queries carry no visibility
-// predicate whatsoever, so a release is readable by the world the instant its
-// row is INSERTed. Insert IS publication.
-//
-// That removes the obvious trigger and leaves a real hazard in its place. The
-// row's created_at is the moment Psychic Homily first SAW the record, not the
-// moment the world got it — the discography importer stamps today's created_at
-// on a 1998 LP, and a `ph submit-release` pass over a label's back catalogue
-// mints hundreds of them inside a few minutes. Keyed naively on "a row appeared",
-// the weekly roundup's first real ingest run would mail a band's followers a
-// digest of twenty years of records described as new.
-//
-// So "new" is defined from the WORLD date the release carries, not from when we
-// noticed it.
-//
-// # The rule
-//
-//	release_date present  -> announceable when it is no more than
-//	                         ReleaseRecencyWindow old, and not absurdly far ahead
+//	release_date present  -> announceable when no more than ReleaseRecencyWindow
+//	                         old and no more than ReleaseFutureWindow ahead
 //	release_date absent,
-//	release_year present  -> announceable when the year is the CURRENT year
+//	release_year present  -> announceable when the year is the current UTC year
 //	                         or later
 //	neither present       -> NOT announceable
 //
-// Each branch, and why it fails the way it does:
+// Future dates are announceable because the alert is about the announcement
+// (unlike the charts "new releases" module, which answers "what is out now").
+// Year-only cannot take the day window, so it requires the current year and
+// errs toward dropping. Undated fails closed: bulk label-discography runs are
+// exactly the rows that omit both fields.
 //
-//   - FUTURE DATES ARE ANNOUNCEABLE. A record announced today for release in
-//     three months is news to somebody who follows the band, and the alert is
-//     about the ANNOUNCEMENT — the same framing the venue alert uses when it
-//     keys on announcement day rather than event date. (Note this deliberately
-//     differs from the charts "new releases" module, which hides a future-dated
-//     release until its day. That module answers "what is out now"; this one
-//     answers "what is new".) Bounded by ReleaseFutureWindow so a data-entry
-//     typo of the year 9999 cannot mail anyone.
-//
-//   - YEAR-ONLY IS THE CURRENT YEAR ONLY. A year is a twelve-month smear, so the
-//     recency window cannot be applied to it without picking an arbitrary day
-//     inside it. Requiring the current year is the crisp version of the same
-//     intent, and it errs in the safe direction: in January it drops records
-//     stamped with only last December's year, which costs a narrow slice of real
-//     alerts rather than risking a back-catalogue blast.
-//
-//   - UNDATED IS NEVER ANNOUNCEABLE, and this is the load-bearing one. With
-//     neither field set there is no way to tell a record released yesterday from
-//     one released in 1998, and the ingest paths that omit both are precisely
-//     the bulk label-discography runs this predicate exists to survive. Failing
-//     closed loses some genuine alerts; failing open mails a band's entire
-//     following about a catalogue nobody described as new. Only one of those is
-//     recoverable.
-//
-// Returns a reason string alongside the verdict, matching ShowAnnounceable, so a
-// caller can log WHY a release was skipped rather than logging that it was.
+// The reason string lets a caller log why a release was skipped.
 func ReleaseAnnounceable(release *Release, now time.Time) (bool, string) {
 	if release == nil {
 		return false, NotAnnounceableGone
@@ -121,21 +83,13 @@ func ReleaseAnnounceableBounds(now time.Time) (oldest, latest string, minYear in
 const releaseDateLayout = "2006-01-02"
 
 // ReleaseRecencyWindow is how old a dated release may be and still count as new.
-//
-// Six months, chosen to absorb ingest lag rather than to describe a release
-// cycle. A record genuinely reaches the catalogue weeks or months after it came
-// out — a label pass runs when someone runs it, not on release day — and a
-// window shorter than that would silently drop the ordinary case this feature
-// exists for. It is long enough that being wrong costs a reader a mildly stale
-// line in a roundup, and short enough that no back catalogue fits through it.
+// Sized to absorb ingest lag (records reach the catalogue weeks or months after
+// release) while keeping back catalogue out.
 const ReleaseRecencyWindow = 180 * 24 * time.Hour
 
-// ReleaseFutureWindow bounds how far ahead a release date may sit.
-//
-// Not a product rule about pre-orders — those are wanted, and a year is more
-// than any of them need. It is a guard against a typo'd or provider-mangled year
-// turning into an alert that can never be superseded, since accrual records a
-// pair once ever.
+// ReleaseFutureWindow bounds how far ahead a release date may sit. Pre-orders are
+// wanted; this guards against a mangled year becoming an alert that can never be
+// superseded, since accrual records a pair once ever.
 const ReleaseFutureWindow = 365 * 24 * time.Hour
 
 // Reasons a release is not announceable. NotAnnounceableGone is shared with the

@@ -211,28 +211,18 @@ func (s *UserService) UnsubscribeArtistShowAlertEmails(userID uint) error {
 
 // UnsubscribeArtistReleaseAlertEmails stops the weekly new-release roundup
 // EMAILS for a user, and is what the RFC 8058 one-click link behind that email
-// calls (PSY-1897).
+// calls.
 //
-// The same two-write shape as UnsubscribeArtistShowAlertEmails, for the same
-// reason — the preference is resolved from two layers and either one alone can
-// keep the mail flowing — and with the same failure ordering: the account write
-// lands first, so a crash before the override sweep leaves the majority of
-// follows already silenced and the endpoint reports an error rather than
-// reporting success with the account default still on.
+// The same two-write shape and ordering as UnsubscribeArtistShowAlertEmails:
+// the preference resolves from two layers and either alone keeps the mail
+// flowing, and the account write lands first so a failed override sweep
+// reports an error rather than success with the default still on.
 //
-// Two things it does NOT share with its show sibling, both deliberate:
-//
-//   - It writes the `releases` key, not `shows`. They are separate keys in
-//     alert_defaults with separate resolvers, so this cannot be folded into the
-//     other setter without one unsubscribe silencing a stream the reader did not
-//     refuse. That separation is also why release alerts have their own
-//     unsubscribe scope.
-//   - It sweeps ARTIST follows only. followAlertsSupportsReleases is true for
-//     artists and false for everything else, so a venue follow has no `releases`
-//     preference to clear and DisableFollowAlertEmailChannel would reject the
-//     combination. Sweeping it anyway would be a write that can only fail.
-//
-// The IN-APP roundup is untouched: the user refused an email, not the product.
+// It writes the `releases` key, not `shows` (separate keys, separate
+// unsubscribe scope), and sweeps ARTIST follows only, because
+// followAlertsSupportsReleases is false for every other entity type and
+// DisableFollowAlertEmailChannel would reject them. The in-app roundup is
+// untouched.
 func (s *UserService) UnsubscribeArtistReleaseAlertEmails(userID uint) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")

@@ -101,26 +101,19 @@ func (h *UserPreferencesHandler) UnsubscribeArtistShowAlertsPageHandler(w http.R
 }
 
 // UnsubscribeArtistReleaseAlertsPageHandler serves
-// /unsubscribe/artist-release-alerts (PSY-1897).
+// /unsubscribe/artist-release-alerts. Its own route because its setter writes
+// the `releases` key in alert_defaults, which the show-alert setter must not
+// touch.
 //
-// Its own route rather than a second label on the show-alert one: the setter
-// behind it writes the `releases` key in alert_defaults, which the show-alert
-// setter does not touch and must not. Sharing a route would mean one link
-// silencing whichever stream the handler happened to be wired to.
-//
-// confirmOnGet for the same reason its show sibling has it: the setter rewrites
-// every artist follow carrying an explicit email override, and a corporate mail
-// scanner following links without a human would silently destroy per-follow
-// opt-ins the user chose. The RFC 8058 POST that mailbox providers actually use
-// is unaffected and stays one click.
+// confirmOnGet like its show sibling: the setter rewrites every artist follow's
+// explicit email override, so a mail scanner following the link must not
+// trigger it. The RFC 8058 POST stays one click.
 func (h *UserPreferencesHandler) UnsubscribeArtistReleaseAlertsPageHandler(w http.ResponseWriter, r *http.Request) {
 	h.handleScopedUnsubscribe(w, r, scopedUnsubscribeConfig{
 		scope:   engagement.UnsubscribeScopeArtistReleaseAlerts,
 		setPref: func(uid uint) error { return h.userService.UnsubscribeArtistReleaseAlertEmails(uid) },
-		// "release-alert emails", and unlike the show-alert noun this one is not
-		// wider than it looks: alert_defaults keeps releases in their own key, so
-		// this button stops exactly the stream it names and leaves show alerts
-		// arriving.
+		// Exactly the stream it names: alert_defaults keeps releases in their own
+		// key, so show alerts keep arriving.
 		noun:         "release-alert emails",
 		logSuffix:    "artist_release_alerts",
 		confirmOnGet: true,
