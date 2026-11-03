@@ -78,7 +78,7 @@ export function FestivalCard({
             <div className="flex items-center gap-2 flex-wrap mt-2">
               <Badge
                 variant={getFestivalStatusVariant(festival.status)}
-                className="text-xs px-1.5 py-0"
+                className="px-1.5 py-0"
               >
                 {getFestivalStatusLabel(festival.status)}
               </Badge>
@@ -137,7 +137,7 @@ export function FestivalCard({
           <div className="flex items-center gap-2 flex-wrap mt-1">
             <Badge
               variant={getFestivalStatusVariant(festival.status)}
-              className="text-xs px-1.5 py-0"
+              className="px-1.5 py-0"
             >
               {getFestivalStatusLabel(festival.status)}
             </Badge>

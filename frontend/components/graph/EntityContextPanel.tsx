@@ -153,7 +153,6 @@ export function EntityContextPanel({
   className,
   panelRef,
 }: EntityContextPanelProps) {
-  const typeLabel = ENTITY_TYPE_LABEL[entityType]
   const pageHref = `/${ENTITY_TYPE_PATH[entityType]}/${encodeURIComponent(slug)}`
   const hasContent = primary != null || facts.length > 0
 
@@ -166,7 +165,7 @@ export function EntityContextPanel({
       className={cn('max-h-[85%] p-4 space-y-2.5', className)}
       header={
         <div className="space-y-0.5">
-          <FieldLabel>{typeLabel}</FieldLabel>
+          <FieldLabel>{ENTITY_TYPE_LABEL[entityType]}</FieldLabel>
           <h3 className="text-base font-semibold leading-tight text-foreground">
             {name}
           </h3>

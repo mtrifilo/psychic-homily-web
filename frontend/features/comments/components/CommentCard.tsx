@@ -182,7 +182,7 @@ export function CommentCard({
           {formatRelativeTime(comment.created_at)}
         </span>
         {comment.is_edited && (
-          <Badge variant="secondary" className="text-xs px-1.5 py-0">
+          <Badge variant="secondary" className="px-1.5 py-0">
             Edited
           </Badge>
         )}
@@ -193,7 +193,7 @@ export function CommentCard({
         {comment.visibility === 'pending_review' && isOwner && (
           <Badge
             variant="outline"
-            className="text-xs px-1.5 py-0 gap-1 border-pending-foreground text-pending-foreground"
+            className="px-1.5 py-0 gap-1 border-pending-foreground text-pending-foreground"
             data-testid="pending-review-badge"
           >
             <Clock className="h-2.5 w-2.5" />
@@ -207,7 +207,7 @@ export function CommentCard({
           ] && (
             <Badge
               variant="outline"
-              className="text-xs px-1.5 py-0 gap-1"
+              className="px-1.5 py-0 gap-1"
               data-testid="reply-permission-badge"
             >
               <Lock className="h-2.5 w-2.5" />

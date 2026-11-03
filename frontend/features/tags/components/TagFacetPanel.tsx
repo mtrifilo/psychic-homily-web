@@ -383,7 +383,7 @@ function TagChip({ tag, selected, onToggle, disabled = false }: TagChipProps) {
       )}
     >
       <span>{tag.name}</span>
-      <span className={cn('text-xs font-normal opacity-70')}>
+      <span className="text-xs font-normal opacity-70">
         {tag.usage_count}
       </span>
     </button>

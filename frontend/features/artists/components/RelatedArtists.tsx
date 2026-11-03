@@ -1450,7 +1450,7 @@ function RelatedArtistRow({
             <Badge
               key={badge.type}
               variant="outline"
-              className="text-xs px-1.5 py-0.5"
+              className="px-1.5 py-0.5"
             >
               {badge.label}
             </Badge>

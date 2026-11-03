@@ -346,7 +346,7 @@ function FreshlyAddedTicker({ items }: { items: FreshlyAddedItem[] }) {
             <Link href={tickerHref(item)} className={linkClass}>
               {item.name}
             </Link>{' '}
-            <span className="text-xs">({item.entity_type})</span>
+            <span>({item.entity_type})</span>
           </span>
         ))}
       </p>
@@ -803,7 +803,7 @@ export function ChartsPage({
                     {artist.name}
                   </Link>
                   {artist.is_new ? (
-                    <Badge variant="accent" className="px-1 py-0 text-xs">
+                    <Badge variant="accent" className="px-1 py-0">
                       New
                     </Badge>
                   ) : null}

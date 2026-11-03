@@ -171,20 +171,20 @@ export function CollectionCard({ collection }: CollectionCardProps) {
               collection.new_since_last_visit > 0 && (
                 <Badge
                   variant="default"
-                  className="text-xs px-1.5 py-0"
+                  className="px-1.5 py-0"
                   aria-label={`${collection.new_since_last_visit} new since your last visit`}
                 >
                   {collection.new_since_last_visit} new
                 </Badge>
               )}
             {collection.is_featured && (
-              <Badge variant="default" className="text-xs px-1.5 py-0">
+              <Badge variant="default" className="px-1.5 py-0">
                 <Star className="h-2.5 w-2.5 mr-0.5" />
                 Featured
               </Badge>
             )}
             {collection.collaborative && (
-              <Badge variant="secondary" className="text-xs px-1.5 py-0">
+              <Badge variant="secondary" className="px-1.5 py-0">
                 Collaborative
               </Badge>
             )}
@@ -192,7 +192,7 @@ export function CollectionCard({ collection }: CollectionCardProps) {
               <Badge
                 key={type}
                 variant="outline"
-                className="text-xs px-1.5 py-0 font-normal"
+                className="px-1.5 py-0 font-normal"
               >
                 {count} {getEntityTypeLabel(type).toLowerCase()}
                 {count === 1 ? '' : 's'}

@@ -94,7 +94,7 @@ export function ReleaseCard({
             ? `${artistDisplay} — ${release.title}`
             : release.title}
         </Link>
-        <Badge variant="secondary" className="text-xs shrink-0">
+        <Badge variant="secondary" className="shrink-0">
           {typeLabel}
         </Badge>
         {release.release_year != null && (
@@ -214,7 +214,7 @@ export function ReleaseCard({
           )}
 
           <div className="flex items-center gap-2 flex-wrap mt-1">
-            <Badge variant="secondary" className="text-xs px-1.5 py-0">
+            <Badge variant="secondary" className="px-1.5 py-0">
               {typeLabel}
             </Badge>
             {release.release_year != null && (

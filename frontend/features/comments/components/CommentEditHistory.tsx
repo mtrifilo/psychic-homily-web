@@ -102,7 +102,7 @@ export function EditHistoryBody({ data }: { data: CommentEditHistoryResponse }) 
         <section data-testid="edit-history-current">
           <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
             Current body
-            <Badge variant="outline" className="text-xs px-1.5 py-0">
+            <Badge variant="outline" className="px-1.5 py-0">
               now
             </Badge>
           </h3>
@@ -139,7 +139,7 @@ export function EditHistoryBody({ data }: { data: CommentEditHistoryResponse }) 
       <section data-testid="edit-history-current">
         <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
           Current body
-          <Badge variant="outline" className="text-xs px-1.5 py-0">
+          <Badge variant="outline" className="px-1.5 py-0">
             {editCount} edit{editCount !== 1 ? 's' : ''}
           </Badge>
         </h3>

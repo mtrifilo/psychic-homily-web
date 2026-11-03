@@ -1475,7 +1475,7 @@ function SearchResultRow({
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium truncate">{row.name}</span>
-          <Badge variant="secondary" className="text-xs px-1.5 py-0 shrink-0">
+          <Badge variant="secondary" className="px-1.5 py-0 shrink-0">
             {getEntityTypeLabel(row.entityType)}
           </Badge>
         </div>
@@ -1708,7 +1708,7 @@ function PastePreviewRow({
               {row.item?.name ?? row.raw}
             </span>
             {row.item && (
-              <Badge variant="secondary" className="text-xs px-1.5 py-0 shrink-0">
+              <Badge variant="secondary" className="px-1.5 py-0 shrink-0">
                 {getEntityTypeLabel(row.item.entityType)}
               </Badge>
             )}
@@ -1732,7 +1732,7 @@ function PastePreviewRow({
           <>
             <Badge
               variant="secondary"
-              className="text-xs px-1.5 py-0 shrink-0 bg-success text-success-foreground motion-safe:animate-in motion-safe:fade-in"
+              className="px-1.5 py-0 shrink-0 bg-success text-success-foreground motion-safe:animate-in motion-safe:fade-in"
             >
               <Check className="h-3 w-3 mr-0.5" />
               MATCH
@@ -1760,14 +1760,14 @@ function PastePreviewRow({
           // decision, not an error.
           <Badge
             variant="secondary"
-            className="text-xs px-1.5 py-0 shrink-0 bg-pending text-pending-foreground motion-safe:animate-in motion-safe:fade-in"
+            className="px-1.5 py-0 shrink-0 bg-pending text-pending-foreground motion-safe:animate-in motion-safe:fade-in"
           >
             <AlertTriangle className="h-3 w-3 mr-0.5" />
             PICK
           </Badge>
         )}
         {row.status === 'queuing' && (
-          <Badge variant="secondary" className="text-xs px-1.5 py-0 shrink-0">
+          <Badge variant="secondary" className="px-1.5 py-0 shrink-0">
             <Loader2 className="h-3 w-3 mr-0.5 animate-spin" />
             Queuing…
           </Badge>
@@ -1779,7 +1779,7 @@ function PastePreviewRow({
           <>
             <Badge
               variant="secondary"
-              className="text-xs px-1.5 py-0 shrink-0 bg-pending text-pending-foreground motion-safe:animate-in motion-safe:fade-in"
+              className="px-1.5 py-0 shrink-0 bg-pending text-pending-foreground motion-safe:animate-in motion-safe:fade-in"
               data-testid="add-items-picker-paste-row-queued"
               title={row.replaced ? REPLACED_REQUEST_EXPLANATION : undefined}
             >
@@ -1808,7 +1808,7 @@ function PastePreviewRow({
           </>
         )}
         {row.status === 'withdrawing' && (
-          <Badge variant="secondary" className="text-xs px-1.5 py-0 shrink-0">
+          <Badge variant="secondary" className="px-1.5 py-0 shrink-0">
             <Loader2 className="h-3 w-3 mr-0.5 animate-spin" />
             Withdrawing…
           </Badge>
@@ -1818,7 +1818,7 @@ function PastePreviewRow({
         {row.status === 'withdrawn' && (
           <Badge
             variant="secondary"
-            className="text-xs px-1.5 py-0 shrink-0 motion-safe:animate-in motion-safe:fade-in"
+            className="px-1.5 py-0 shrink-0 motion-safe:animate-in motion-safe:fade-in"
             data-testid="add-items-picker-paste-row-withdrawn"
           >
             <Undo2 className="h-3 w-3 mr-0.5" />
@@ -1842,7 +1842,7 @@ function PastePreviewRow({
         {row.status === 'queue_refused' && (
           <Badge
             variant="secondary"
-            className="text-xs px-1.5 py-0 shrink-0 bg-destructive/10 text-destructive motion-safe:animate-in motion-safe:fade-in"
+            className="px-1.5 py-0 shrink-0 bg-destructive/10 text-destructive motion-safe:animate-in motion-safe:fade-in"
             data-testid="add-items-picker-paste-row-refused"
           >
             <AlertCircle className="h-3 w-3 mr-0.5" />
@@ -1852,7 +1852,7 @@ function PastePreviewRow({
         {row.status === 'unresolved' && (
           <Badge
             variant="secondary"
-            className="text-xs px-1.5 py-0 shrink-0 bg-destructive/10 text-destructive motion-safe:animate-in motion-safe:fade-in"
+            className="px-1.5 py-0 shrink-0 bg-destructive/10 text-destructive motion-safe:animate-in motion-safe:fade-in"
           >
             <AlertCircle className="h-3 w-3 mr-0.5" />
             NO MATCH
@@ -2047,7 +2047,7 @@ function StagedRow({
           <span className="text-muted-foreground"> — {item.subtitle}</span>
         )}
       </span>
-      <Badge variant="secondary" className="text-xs px-1.5 py-0 shrink-0">
+      <Badge variant="secondary" className="px-1.5 py-0 shrink-0">
         {getEntityTypeLabel(item.entityType)}
       </Badge>
       <Button
