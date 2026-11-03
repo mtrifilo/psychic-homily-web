@@ -2,7 +2,7 @@ import type { ChartRankModule, ChartWindow } from './types'
 
 /**
  * Figma-approved module phrases for the entity-page rank badge (node 996:16).
- * Keep these lowercase — they sit after the mono "No. N" prefix.
+ * Keep these lowercase — they sit after the data-face "No. N" prefix.
  */
 export const CHART_RANK_MODULE_COPY: Record<ChartRankModule, string> = {
   'most-anticipated': 'most-saved upcoming show',

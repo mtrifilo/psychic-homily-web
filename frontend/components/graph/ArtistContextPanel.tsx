@@ -56,7 +56,7 @@ export interface ArtistContextPanelProps {
   panelRef?: Ref<HTMLElement>
 }
 
-/** Mono-caps field label, matching the mock's NEXT SHOW / LABEL rows. */
+/** Data-face caps field label, matching the mock's NEXT SHOW / LABEL rows. */
 function FieldLabel({ children, className }: { children: string; className?: string }) {
   return (
     <div className={cn('font-data text-[10px] uppercase tracking-wider text-muted-foreground', className)}>

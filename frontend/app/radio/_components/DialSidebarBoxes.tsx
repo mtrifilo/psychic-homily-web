@@ -9,7 +9,7 @@ import type { RadioNewReleaseRadarEntry, RadioStats } from '@/features/radio'
 
 /**
  * Sidebar boxes for The Dial hub (PSY-1049): hairline-bordered Gazelle-style
- * stat boxes with mono headers. Presentational — the hub owns the fetches.
+ * stat boxes with data-face headers. Presentational — the hub owns the fetches.
  */
 
 function SidebarBox({

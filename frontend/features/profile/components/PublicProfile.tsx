@@ -242,7 +242,7 @@ export function PublicProfile({ username }: PublicProfileProps) {
 
   return (
     <div className="container max-w-6xl mx-auto px-4 py-10">
-      {/* Identity header (board A/C: large avatar, display-scale name, mono
+      {/* Identity header (board A/C: large avatar, display-scale name, data-face
           meta line; owner gets Edit profile + Share, visitors get Follow +
           Share). */}
       <header className="mb-8 border-b border-border/60 pb-6">
@@ -283,7 +283,7 @@ export function PublicProfile({ username }: PublicProfileProps) {
               <UserTierBadge tier={profile.user_tier} />
             </div>
 
-            {/* Meta line (mono, board A) — populated segments only */}
+            {/* Meta line (data face, board A) — populated segments only */}
             <p className="mt-2 font-data text-xs text-muted-foreground">
               {[
                 profile.location?.trim() || null,

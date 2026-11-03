@@ -63,7 +63,7 @@ describe('ProfileSectionsEditor', () => {
       expect(screen.queryByText('Custom sections')).not.toBeInTheDocument()
     })
 
-    it('renders mono counter with section count out of MAX_SECTIONS (3)', () => {
+    it('renders data-face counter with section count out of MAX_SECTIONS (3)', () => {
       renderWithProviders(<ProfileSectionsEditor />)
       expect(screen.getByText('2 / 3 used')).toBeInTheDocument()
     })

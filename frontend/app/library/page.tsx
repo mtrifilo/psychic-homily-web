@@ -70,7 +70,7 @@ function isLibraryTab(value: string | null): value is LibraryTab {
 // ---------------------------------------------------------------------------
 
 // Dense editorial empty state (Library board D): left-aligned title + one-line
-// muted hint + a small outline browse CTA, with optional bracket-style mono
+// muted hint + a small outline browse CTA, with optional bracket-style data-face
 // discovery links. No giant centered icon.
 function EmptyState({
   title,

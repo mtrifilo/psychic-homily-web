@@ -554,7 +554,7 @@ const CATEGORY_CHIP_TOKENS: Record<TagCategory, CategoryChipTokens> = {
   genre: { bg: 'bg-chart-6/10', text: 'text-chart-6', border: 'border-chart-6/20' },
   locale: { bg: 'bg-chart-8/10', text: 'text-chart-8', border: 'border-chart-8/20' },
   other: { bg: 'bg-muted', text: 'text-muted-foreground', border: 'border-border' },
-  // Figma `1402:789`: an unfilled hairline square on the border token, mono
+  // Figma `1402:789`: an unfilled hairline square on the border token, data-face
   // uppercase on muted-foreground. Font SIZE is absent on purpose, so each
   // surface keeps its own density.
   crew: {

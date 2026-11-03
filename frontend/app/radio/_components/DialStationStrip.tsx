@@ -171,7 +171,7 @@ function playlistActionFor(
 /**
  * Header label + show identity shared by the strip's main ON AIR line and
  * the channel sub-rows: "● ON AIR" only when the backend confirmed a live
- * broadcast; the latest-archive fallback gets a mono "latest playlist"
+ * broadcast; the latest-archive fallback gets a data-face "latest playlist"
  * prefix instead of the dot — same dense register, honest labeling.
  * Unmatched shows (PSY-1073) render `show_name` as plain text, not a link.
  */

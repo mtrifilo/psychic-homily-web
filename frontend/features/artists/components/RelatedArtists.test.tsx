@@ -231,7 +231,7 @@ describe('ArtistSimilarSidebar', () => {
       expect(line.className).toContain('flex-wrap')
     })
 
-    it('draws the chips as untinted outline badges and the score in muted mono', () => {
+    it('draws the chips as untinted outline badges and the score in the muted data face', () => {
       renderWithProviders(
         <ArtistSimilarSidebar artistId={1} artistSlug="gatecreeper" onOpenGraph={() => {}} />
       )

@@ -612,7 +612,7 @@ function railShowDate(
   const year = showYearInZone(eventDate, state, timezone)
   const currentYear = showYearInZone(now.toISOString(), state, timezone)
   // Apostrophe, not a bare `27`: `SEP 04 27` reads as a date range in an
-  // uppercase mono column.
+  // uppercase data-face column.
   const dated = year === currentYear ? label : `${label} '${String(year).slice(-2)}`
   // One mark for the cell, ahead of everything in it: a row carrying a year is
   // one guessed date, not two.

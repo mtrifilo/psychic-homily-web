@@ -11,7 +11,7 @@ export interface LibraryViewToggleProps {
 }
 
 /**
- * Dense mono linkbox: `view [ table ] [ wall ]` (PSY-1429 / Figma State G).
+ * Dense data-face linkbox: `view [ table ] [ wall ]` (PSY-1429 / Figma State G).
  * Active option uses BracketLink `active`; inactive stays muted.
  */
 export function LibraryViewToggle({

@@ -249,7 +249,7 @@ function listenVerbs({ artist, source, buyHref }: ListenCard) {
           href={buyHref}
           external
           ariaLabel={`Buy ${artist.name} on ${source}`}
-          // BracketLink's own floor is 14px; this line is the 12px mono meta
+          // BracketLink's own floor is 14px; this line is the 12px data-face meta
           // line, and one oversized bracket mid-line reads as a mistake. Same
           // adjustment ShowTicketRow makes in the other direction.
           className="text-xs"

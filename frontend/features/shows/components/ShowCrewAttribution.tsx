@@ -15,7 +15,7 @@ import {
 } from '@/features/tags/types'
 
 /**
- * The label's type register per Figma `1666:2`: mono micro-caps on the muted
+ * The label's type register per Figma `1666:2`: data-face micro-caps on the muted
  * tone, at the size the crew chip beside it wears.
  */
 const CREW_ROW_LABEL_CLASS =

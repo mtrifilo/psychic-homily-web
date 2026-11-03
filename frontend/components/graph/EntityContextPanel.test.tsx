@@ -35,7 +35,7 @@ vi.mock('@/components/shared/MusicEmbed', () => ({
 }))
 
 describe('EntityContextPanel', () => {
-  it('renders the mono type-tag, name, meta, primary, facts, and Open page', () => {
+  it('renders the data-face type-tag, name, meta, primary, facts, and Open page', () => {
     const onClose = vi.fn()
     render(
       <EntityContextPanel

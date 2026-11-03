@@ -147,7 +147,7 @@ export default function RadioHub() {
 }
 
 /**
- * Mono section heading in the radio register (matches PSY-1016's panel
+ * Data-face section heading in the radio register (matches PSY-1016's panel
  * headers; the shared SectionHeader primitive uses the sans entity-page
  * register, which isn't this surface's idiom).
  */

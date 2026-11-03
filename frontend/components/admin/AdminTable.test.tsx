@@ -29,7 +29,7 @@ describe('AdminTable', () => {
     expect(screen.getAllByRole('row')).toHaveLength(3)
   })
 
-  it('applies the editorial mono-uppercase header treatment', () => {
+  it('applies the editorial data-face uppercase header treatment', () => {
     render(<AdminTable columns={columns} rows={rows} rowKey={r => r.id} />)
     const header = screen.getByRole('columnheader', { name: 'Name' })
     expect(header.className).toContain('font-data')

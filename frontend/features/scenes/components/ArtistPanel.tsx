@@ -255,7 +255,7 @@ export function ArtistPanel({
     <>
       {/* Stepping changes the panel's contents WITHOUT moving focus (by
           design — focus stays on the button being pressed), and the visible
-          kicker is abbreviated mono caps whose `‹ ›` glyphs only imply the
+          kicker is abbreviated data-face caps whose `‹ ›` glyphs only imply the
           position visually. This is the only thing that states the new
           position, and who you landed on, to a screen reader. */}
       <p className="sr-only" role="status">

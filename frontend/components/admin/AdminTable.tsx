@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
  * AdminTable — the canonical admin entity-list table (PSY-910). Unifies the
  * top-level admin entity-list tables (Collections, Radio Stations, Pipeline
  * Import History) behind one dense, hairline-divided table: a muted
- * column-header band with mono-uppercase labels (the editorial upgrade locked in
+ * column-header band with data-face uppercase labels (the editorial upgrade locked in
  * PSY-912), dense rows, and per-column alignment + render. Nested / detail
  * tables (collection items, venue config, extraction-run history, unmatched
  * plays) intentionally stay hand-rolled — they aren't single-click-to-detail
@@ -25,7 +25,7 @@ import { cn } from '@/lib/utils'
  * (you pass `<thead>/<tbody>` children, variants) for public entity pages;
  * AdminTable is *config-driven* (a columns array) for admin entity lists. Reach
  * for DenseTable on entity pages, AdminTable for admin lists. Their header
- * treatments intentionally differ — AdminTable uses a mono-uppercase band per
+ * treatments intentionally differ — AdminTable uses a data-face uppercase band per
  * PSY-912; DenseTable does not. Keep them divergent unless a cohesion pass
  * deliberately reconciles both.
  */

@@ -40,7 +40,7 @@ export function airDateCellText(
   // Never render an empty date line: an unparsable air_date falls back to the
   // raw string (visible + greppable) rather than a blank cell and an empty
   // accessible name — clamped so a long corrupt value can't stretch the
-  // whitespace-nowrap mono cells (a real date is 10 chars).
+  // whitespace-nowrap data-face cells (a real date is 10 chars).
   const dateLine = formatted || airDate.slice(0, 16)
   return { dateLine, timeBlock }
 }

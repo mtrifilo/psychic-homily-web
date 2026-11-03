@@ -11,7 +11,7 @@ import {
   CommandList,
 } from '@/components/ui/command'
 // PSY-1019: rows are icon-less in the editorial re-skin (Figma 539:5) — the
-// uppercase mono group headings carry the wayfinding, so names sit flush-left.
+// uppercase data-face group headings carry the wayfinding, so names sit flush-left.
 // The Recent clock is the one deliberate exception: in the no-query state it
 // distinguishes "something you searched before" from a live result. The X on
 // the clear-recent action row (PSY-1071) marks it as an action, not a result.

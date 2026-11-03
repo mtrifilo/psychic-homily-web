@@ -23,7 +23,7 @@ import {
 } from '../cityView'
 
 const GENRE_LABEL_BY_KEY: ReadonlyMap<string, string> = new Map(
-  // Lowercased: the rail's meta line is running mono text ("… · punk &
+  // Lowercased: the rail's meta line is running data-face text ("… · punk &
   // hardcore"), not a legend entry, so the legend's title case would shout.
   GENRE_FAMILIES.map((f) => [f.key, f.label.toLowerCase()]),
 )
@@ -130,7 +130,7 @@ export function VenueRail({
               rolling `shows_this_week`, hence "in the next 7 days" — see
               `VenueWithShowCount.shows_this_week`. Same phrasing as the pulse
               band and the globe tooltip; the "in" keeps "9 IN THE NEXT 7 DAYS"
-              from setting two numerals side by side in this uppercase-mono
+              from setting two numerals side by side in this uppercase data-face
               strip, where every other segment reads "<number> <noun>". */}
           {stats.venueCount} {spansMetro ? 'metro ' : ''}
           {stats.venueCount === 1 ? 'venue' : 'venues'} · {stats.upcomingCount}{' '}

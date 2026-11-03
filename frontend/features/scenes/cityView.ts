@@ -689,11 +689,11 @@ export function formatNextShowDate(isoDate: string | undefined | null): string {
 // ── Venue panel copy (PSY-1540) ───────────────────────────────────────────
 
 /**
- * "FRI 7/31" — the panel's mono date column, in the VENUE's timezone.
+ * "FRI 7/31" — the panel's data-face date column, in the VENUE's timezone.
  *
  * A FOURTH show-date format is a real cost, so it needs a reason: the mock
  * (Product Designs → Atlas → board 02, node 1152:84) draws the panel's dates
- * as a fixed-width mono GUTTER beside the bill, not as prose. A gutter has to
+ * as a fixed-width data-face GUTTER beside the bill, not as prose. A gutter has to
  * be scannable at a glance and the same width on every row, which "Tue, Jul
  * 28" (`formatShowDate`, used in the venue page's table) and "Tue Jul 28"
  * (`formatNextShowDate`, used in the rail's running meta line) are not — both
@@ -774,7 +774,7 @@ export function venueFieldNoteAttribution(
 }
 
 /**
- * The panel's mono identity line, e.g. "1502 E 6th St · cap ~250 · Austin, TX".
+ * The panel's data-face identity line, e.g. "1502 E 6th St · cap ~250 · Austin, TX".
  *
  * PRIVACY GATE (PSY-1536): `address` is one of the fields the API redacts for
  * unverified venues — `buildVenueResponse` serves it only when `verified` — so

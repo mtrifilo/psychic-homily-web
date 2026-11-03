@@ -18,7 +18,7 @@ interface ArchiveMastheadProps {
 }
 
 /**
- * Approved Figma archive masthead (node 996:28): period title, mono ARCHIVE
+ * Approved Figma archive masthead (node 996:28): period title, data-face ARCHIVE
  * marker, adjacent-period nav. No live window tabs / ticker.
  */
 export function ArchiveMasthead({ window, now }: ArchiveMastheadProps) {

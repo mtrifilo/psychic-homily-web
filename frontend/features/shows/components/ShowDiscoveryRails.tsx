@@ -245,7 +245,7 @@ function RailRow({
   const isNight = kind === 'night'
   // A clock time in the compact register is at most `10:30PM`; a date is at
   // most `SEP 04 '27`, which is three characters longer and needs the wider
-  // reservation. Both are `text-xs` mono, so the difference is real width, not
+  // reservation. Both are `text-xs` data face, so the difference is real width, not
   // a rounding.
   const leadWidth = isNight ? 'sm:w-14' : 'sm:w-20'
 
@@ -321,7 +321,7 @@ function RailRow({
             Fixed-width and truncating rather than sized to the value: this is
             contributor-written free text with no vocabulary enforced, so a
             column sized to fit whatever arrived would move under the row
-            below it. 40px is about five glyphs of `text-xs` mono, so `21+`
+            below it. 40px is about five glyphs of `text-xs` data face, so `21+`
             and `18+` fit and `ALL AGES` does not — it truncates, and `title`
             carries the whole of it. That recovery is mouse-only, which is
             exactly where the truncation happens: the column is full-width and

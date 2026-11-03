@@ -41,7 +41,7 @@ function countLabel(count: number, singular: string): string {
  * rule: no placeholder, no empty card.
  *
  * Treatment follows the Almanac editorial card: 104px cover, `FEATURED
- * COLLECTION` mono label, title, a blurb from the collection's own description,
+ * COLLECTION` data-face label, title, a blurb from the collection's own description,
  * and a muted meta line. The meta row carries a `discuss →` link into the
  * collection's comment thread (`#discussion`), and a `previously featured →`
  * link to the archive renders below the card ONLY when a closed run exists —

@@ -113,7 +113,7 @@ export default function StationDetail({ stationSlug }: StationDetailProps) {
   const streamHref = unanchoredLinkHref(station.stream_url)
 
   const location = [station.city, station.state].filter(Boolean).join(', ')
-  // Mono identity sub-line: "91.1 FM · Jersey City, NJ · FM/AM + Internet"
+  // Data-face identity sub-line: "91.1 FM · Jersey City, NJ · FM/AM + Internet"
   const subline = [
     station.frequency_mhz ? `${station.frequency_mhz} FM` : null,
     location || null,

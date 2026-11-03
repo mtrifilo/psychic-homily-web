@@ -1,7 +1,7 @@
 // Place labels for the light globe: which Natural Earth populated places
 // (globe-places-110m.geojson, loaded by globeSurface.ts) get a label at the
 // current camera. GlobeCanvas draws the chosen ones as DOM markers in the
-// app's mono face; this module holds the rules, free of DOM and MapLibre:
+// app's data face; this module holds the rules, free of DOM and MapLibre:
 //
 // - zoom: labels show from PLACE_LABEL_MIN_ZOOM up to the zoom the caller
 //   passes as the ceiling (the start of the globe-to-street crossfade, so no

@@ -117,7 +117,7 @@ export function clampStepIndex(
 // ── Stepper copy ──────────────────────────────────────────────────────────
 
 /**
- * The mock's mono kicker: "ARTIST · 2 OF 5 THIS WEEK AT THIS VENUE".
+ * The mock's data-face kicker: "ARTIST · 2 OF 5 THIS WEEK AT THIS VENUE".
  *
  * `scopeLabel` is a PROP all the way up rather than the literal the mock draws,
  * because the locked decision is that the stepper's scope is whatever list you
@@ -143,7 +143,7 @@ export function artistStepKicker(args: {
 /**
  * The same position as a SENTENCE, for the panel's live region.
  *
- * The visible kicker is abbreviated mono caps and the `‹ ›` glyphs imply the
+ * The visible kicker is abbreviated data-face caps and the `‹ ›` glyphs imply the
  * position visually; neither states it to a screen reader, and stepping does
  * not move focus (the buttons stay put on purpose), so without an announcement
  * a non-sighted user gets no feedback that anything changed. Names the artist

@@ -477,7 +477,7 @@ export function sheetLinkClassName(active: boolean): string {
 }
 
 /**
- * The mono uppercase group-label token shared by the desktop menus
+ * The data-face uppercase group-label token shared by the desktop menus
  * (BrowseMenu/ContributeMenu) and the mobile Browse sheet. Callers add their
  * own layout classes (margins/padding) on top.
  */

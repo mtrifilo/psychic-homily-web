@@ -78,7 +78,7 @@ export interface SceneMapLabelCandidate {
   priority: number
   /** Drawn through any collision, and exempt from the grid (not from a cap). */
   force: boolean
-  /** Non-default face — the mono of a region caption. */
+  /** Non-default face — the data face of a region caption. */
   fontFamily?: string
   /** Ink opacity, 1 by default. */
   alpha?: number

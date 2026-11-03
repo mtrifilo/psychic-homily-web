@@ -29,7 +29,7 @@ export const SCENE_LINK_INTERACTION_CLASS =
   'underline-offset-4 transition-colors hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring'
 
 /**
- * A scene-page link in the accent register: `SceneSectionHeading`'s mono
+ * A scene-page link in the accent register: `SceneSectionHeading`'s data-face
  * micro-caps type at the same size, toned `text-primary`.
  *
  * Hover UNDERLINES rather than recolouring. Against this primary base,
@@ -107,7 +107,7 @@ export function navigablePeriodKey(
  * A scene-page section heading, with an optional muted qualifier and one
  * trailing control.
  *
- * The type treatment is the wave's visual contract — letterspaced mono small
+ * The type treatment is the wave's visual contract — letterspaced data-face small
  * caps, the qualifier greyed inside the same heading — and it now appears on
  * every module of the detail page. Kept feature-local rather than reaching for
  * the shared `SectionHeader` primitive, whose `title` is a plain string and
@@ -159,7 +159,7 @@ export function SceneBreadcrumb({ slug, sceneName }: { slug: string; sceneName: 
  * The window family's H1: `Live shows in Chicago this week` on a rolling
  * route, `Week of Sep 7 in Chicago` on a dated permalink.
  *
- * Set in the locked frame's register (`1665:2`): mono, bold, micro-caps at
+ * Set in the locked frame's register (`1665:2`): data face, bold, micro-caps at
  * 14px with 4% tracking, rather than at display scale. The titles carry a
  * phrase as well as the city, which at display scale wraps to several lines at
  * 390px and spends the top of a calendar page on its own name.

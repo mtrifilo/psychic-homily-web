@@ -37,7 +37,7 @@ import type { SceneReplayController } from '../useSceneReplay'
 const MIN_BAR_FRACTION = 0.08
 
 /**
- * The mono primary-tinted chip the map card's small controls wear: the
+ * The data-face primary-tinted chip the map card's small controls wear: the
  * `WATCH IT GROW` entry point and the `THIS WEEK` share link on the freshness
  * footer, and this transport's pause control.
  *

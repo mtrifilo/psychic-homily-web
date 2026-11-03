@@ -25,7 +25,7 @@ interface PlaylistTableProps {
 }
 
 /**
- * Short mono-tag labels for rotation_status in the NOTES column (the long
+ * Short data-face tag labels for rotation_status in the NOTES column (the long
  * "Heavy Rotation" labels don't fit the dense register). Unknown statuses
  * fall back to the raw value, uppercased.
  */

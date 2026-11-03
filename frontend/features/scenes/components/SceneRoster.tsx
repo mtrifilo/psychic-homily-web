@@ -61,7 +61,7 @@ const ROSTER_MAX = 100
  * profile-resolved writers use the same column, so the field establishes no
  * release recency.
  *
- * The link carries its own underline. The caption's type is mono micro-caps in
+ * The link carries its own underline. The caption's type is data-face micro-caps in
  * the muted tone, where `EntityNameLink`'s default weight bump is nearly
  * invisible and its underline waits for a hover a touch reader never performs.
  */
