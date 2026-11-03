@@ -36,17 +36,55 @@ function TabsList({
 
 function TabsTrigger({
   className,
+  children,
+  asChild,
   ...props
 }: React.ComponentProps<typeof TabsPrimitive.Trigger>) {
+  // The selected trigger carries two indicators: a 1px muted-foreground
+  // boundary on the top and sides, and a 2px primary bottom edge. Both states
+  // reserve the 2px bottom border so selecting a tab keeps its label at the
+  // same height.
+  // border-b-primary must stay after border-muted-foreground: tailwind-merge
+  // drops an earlier one-side colour when a later all-sides colour shares
+  // its variant. Under automatic activation keyboard focus moves selection
+  // with it, so the focus border is also stacked on the active state to
+  // outrank the selected colours; the unstacked one covers a focused trigger
+  // that is not yet selected.
+  // The label renders twice in one grid cell: an invisible SemiBold copy
+  // sizes the cell, so while the selected style changes only the weight to
+  // SemiBold, selecting a tab keeps the trigger's width. Both copies lay out
+  // like the trigger itself (centred flex row with the trigger's gap), and
+  // the hidden one stays out of the accessible name, selection and hit
+  // testing. Because children render twice they must be presentational: no
+  // ids, refs or focusable elements. asChild hands its single child to Radix
+  // untouched, so it gets no reservation.
   return (
     <TabsPrimitive.Trigger
       data-slot="tabs-trigger"
       className={cn(
-        "data-[state=active]:bg-background data-[state=active]:border-b-primary dark:data-[state=active]:text-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:outline-ring dark:data-[state=active]:border-input dark:data-[state=active]:bg-input/30 text-foreground dark:text-muted-foreground inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent px-2 py-1 text-sm font-medium whitespace-nowrap transition-[color,box-shadow] focus-visible:ring-[3px] focus-visible:outline-1 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "data-[state=active]:bg-background dark:data-[state=active]:bg-input/30 data-[state=active]:text-foreground data-[state=active]:font-semibold data-[state=active]:border-muted-foreground data-[state=active]:border-b-primary focus-visible:border-ring focus-visible:data-[state=active]:border-ring focus-visible:ring-ring/50 focus-visible:outline-ring text-muted-foreground inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-md border border-b-2 border-transparent px-2 py-1 text-sm font-medium whitespace-nowrap transition-[color,box-shadow] focus-visible:ring-[3px] focus-visible:outline-1 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
+      asChild={asChild}
       {...props}
-    />
+    >
+      {asChild ? (
+        children
+      ) : (
+        <span
+          data-slot="tabs-trigger-label"
+          className="inline-grid [gap:inherit] *:col-start-1 *:row-start-1 *:inline-flex *:items-center *:justify-center *:[gap:inherit]"
+        >
+          <span
+            aria-hidden="true"
+            className="invisible pointer-events-none font-semibold select-none"
+          >
+            {children}
+          </span>
+          <span>{children}</span>
+        </span>
+      )}
+    </TabsPrimitive.Trigger>
   )
 }
 
