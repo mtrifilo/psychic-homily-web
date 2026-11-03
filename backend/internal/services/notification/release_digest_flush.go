@@ -11,8 +11,7 @@ import (
 
 const (
 	// defaultReleaseDigestFlushInterval is how often the poller looks for weeks
-	// that have closed. It is also the granularity at which a late release joins
-	// an already-delivered week's inbox row, which bounds how long it can be.
+	// that have closed.
 	defaultReleaseDigestFlushInterval = 15 * time.Minute
 
 	// defaultReleaseDigestWeekHold is how old a week bucket must be before it is

@@ -183,8 +183,7 @@ const (
 	//
 	// One row covers the reader's whole follow set for one week, so there is no
 	// single artist or release to name. The week lives in alert_bucket, and the
-	// releases are read from artist_release_alert_batch at read time, which lets a
-	// late release join a delivered row.
+	// releases are read from artist_release_alert_batch at read time.
 	//
 	// Both mistakes below fail silently:
 	//

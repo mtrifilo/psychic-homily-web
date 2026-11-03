@@ -68,13 +68,11 @@ CREATE INDEX ix_artist_release_alert_batch_release
 -- subject_entity_id stays NULL. This entity_id is NOT a show or artist id: the
 -- type must never join showAlertEntityTypes or artistSubjectAlertTypes.
 
--- Re-applying after a rollback can find digest rows (kept by the down
--- migration as inbox history) with a NULL bucket. Backfilled rather than
--- deleted, matching 20260824030000: truncating sent_at to its UTC Monday
--- recovers the bucket for every row the flush wrote on schedule.
-UPDATE notification_log
-   SET alert_bucket = (date_trunc('week', sent_at AT TIME ZONE 'UTC'))::date
- WHERE entity_type = 'artist_release_digest' AND alert_bucket IS NULL;
+-- Digest rows kept by a rollback that also dropped alert_bucket come back with
+-- a NULL bucket, and are left so: a weekly bucket cannot be recovered from
+-- sent_at (the flush runs after the week closes, and a backlog can deliver two
+-- weeks in one tick). NULL never collides in the index below and the CHECK is
+-- NOT VALID, so they stay as bare inbox history.
 
 -- The identity key: at most one row per (user, week, channel). entity_id equals
 -- user_id here, so it is redundant, but the four columns match
@@ -82,10 +80,10 @@ UPDATE notification_log
 -- in-app row is the bell entry; the email row is what the per-user daily
 -- alert-email budget counts.
 --
--- This index is the whole exactly-once guarantee. The flush re-resolves an
--- already-delivered week whenever a late release joins it, so the inbox row can
--- grow; ON CONFLICT DO NOTHING turns that re-run, and a concurrent tick, into a
--- no-op instead of a second send.
+-- This index is the whole exactly-once guarantee. The flush can re-resolve an
+-- already-delivered week (a member committed after the read, or moved by an
+-- artist merge); ON CONFLICT DO NOTHING turns that re-run, and a concurrent
+-- tick, into a no-op instead of a second send.
 --
 -- Not CONCURRENTLY (illegal inside golang-migrate's transaction), so it blocks
 -- notification_log writes while it builds; the partial predicate matches zero
@@ -97,8 +95,7 @@ CREATE UNIQUE INDEX uq_notification_log_artist_release_digest
 -- alert_bucket MUST be present on digest rows: NULLs are distinct inside a
 -- UNIQUE index, so a NULL-bucket row would collide with nothing and the flush
 -- would re-send. ck_notification_log_venue_alert_bucket does not cover this
--- discriminator. NOT VALID skips a scan the UPDATE above already made empty;
--- every INSERT and UPDATE is still checked.
+-- discriminator. NOT VALID enforces every INSERT and UPDATE and leaves pre-existing rows alone.
 ALTER TABLE notification_log
     ADD CONSTRAINT ck_notification_log_release_digest_bucket
     CHECK (entity_type <> 'artist_release_digest' OR alert_bucket IS NOT NULL)

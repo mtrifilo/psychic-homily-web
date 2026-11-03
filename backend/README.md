@@ -835,9 +835,10 @@ UTC week (Monday start) covering every followed artist that put something out.
 Accrual runs inside the release create funnel, so every API, CLI and importer
 create reaches it; edits, link passes and re-imports of a known release group do
 not. Only an announceable release accrues: one dated within the last 180 days
-(or up to a year ahead), or carrying only the current year. Undated and
-back-catalogue records never alert. The flush delivers a week once it has
-closed. This build writes the in-app row only; the email lane is gated off in
+(or up to a year ahead), or carrying only a year from the current year to the
+year a year ahead falls in. Undated and back-catalogue records never alert.
+Announceability is judged as of accrual, so a week flushed late still delivers
+what was new when it accrued. The flush delivers a week once it has closed. This build writes the in-app row only; the email lane is gated off in
 code.
 
 `DISABLE_ARTIST_RELEASE_ALERTS` gates both halves, read per PROCESS like the

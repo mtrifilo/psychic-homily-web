@@ -31,7 +31,7 @@ func ReleaseAnnounceable(release *Release, now time.Time) (bool, string) {
 		return false, NotAnnounceableGone
 	}
 
-	oldest, latest, minYear := ReleaseAnnounceableBounds(now)
+	oldest, latest, minYear, maxYear := ReleaseAnnounceableBounds(now)
 
 	if release.ReleaseDate != nil && *release.ReleaseDate != "" {
 		// Stored as a DATE but modelled as a string (see Release.ReleaseDate), so
@@ -52,10 +52,13 @@ func ReleaseAnnounceable(release *Release, now time.Time) (bool, string) {
 	}
 
 	if release.ReleaseYear != nil {
-		if *release.ReleaseYear >= minYear {
-			return true, ""
+		switch {
+		case *release.ReleaseYear < minYear:
+			return false, NotAnnounceableBackCatalogue
+		case *release.ReleaseYear > maxYear:
+			return false, NotAnnounceableImplausibleDate
 		}
-		return false, NotAnnounceableBackCatalogue
+		return true, ""
 	}
 
 	return false, NotAnnounceableUndated
@@ -63,16 +66,19 @@ func ReleaseAnnounceable(release *Release, now time.Time) (bool, string) {
 
 // ReleaseAnnounceableBounds returns the inclusive window ReleaseAnnounceable
 // applies at now, as calendar days in UTC: the oldest and latest announceable
-// release_date (YYYY-MM-DD) and the lowest announceable year-only release_year.
+// release_date (YYYY-MM-DD), and the lowest and highest announceable year-only
+// release_year.
 //
 // Day-granular because release_date is a DATE: comparing it against an instant
 // would make the window's edge days depend on the hour and on the zone of the
 // caller.
-func ReleaseAnnounceableBounds(now time.Time) (oldest, latest string, minYear int) {
+func ReleaseAnnounceableBounds(now time.Time) (oldest, latest string, minYear, maxYear int) {
 	utc := now.UTC()
+	future := utc.Add(ReleaseFutureWindow)
 	return utc.Add(-ReleaseRecencyWindow).Format(time.DateOnly),
-		utc.Add(ReleaseFutureWindow).Format(time.DateOnly),
-		utc.Year()
+		future.Format(time.DateOnly),
+		utc.Year(),
+		future.Year()
 }
 
 // ReleaseRecencyWindow is how old a dated release may be and still count as new.

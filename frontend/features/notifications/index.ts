@@ -21,11 +21,13 @@ export {
   NOTIFICATION_ENTITY_COMMENT_MENTION,
   NOTIFICATION_ENTITY_ARTIST_SHOW_ALERT,
   NOTIFICATION_ENTITY_VENUE_SHOW_ALERT,
+  NOTIFICATION_ENTITY_ARTIST_RELEASE_DIGEST,
   formatTimeAgo,
   getFilterSummary,
   isCommentNotification,
   isArtistShowAlertNotification,
   isVenueShowAlertNotification,
+  isArtistReleaseDigestNotification,
 } from './types'
 
 export {

@@ -791,7 +791,9 @@ func (s *NotificationFilterService) alertPrefsForUserIDs(userIDs []uint) (map[ui
 	var rows []recipientAlertPrefs
 	err := s.db.Table("user_preferences").
 		Select("user_id, home_metro, alert_defaults").
-		Where("user_id IN ?", userIDs).
+		// = ANY binds one array parameter; IN would bind one per user and a
+		// weekly digest's recipient set can pass Postgres's parameter limit.
+		Where("user_id = ANY(?)", pq.Array(userIDs)).
 		Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("alert preferences for %d users: %w", len(userIDs), err)

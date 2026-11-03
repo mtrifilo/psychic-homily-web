@@ -29,9 +29,9 @@ import (
 // engagement's resolver compare the same value.
 var artistReleaseFollowEntityType = string(engagementm.BookmarkEntityArtist)
 
-// ArtistReleaseAlertsEnabled reports whether the release-roundup loop is on.
+// artistReleaseAlertsEnabled reports whether the release-roundup loop is on.
 // Accrual and the flush poller read the same flag name from models/notification.
-func ArtistReleaseAlertsEnabled() bool {
+func artistReleaseAlertsEnabled() bool {
 	return !shared.EnvServiceDisabled(notificationm.ArtistReleaseAlertsDisableFlag)
 }
 
@@ -70,7 +70,7 @@ func enqueueArtistReleaseAlerts(tx *gorm.DB, release *catalogm.Release, artistID
 	if release == nil || len(artistIDs) == 0 {
 		return
 	}
-	if !ArtistReleaseAlertsEnabled() {
+	if !artistReleaseAlertsEnabled() {
 		return
 	}
 

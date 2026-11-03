@@ -364,13 +364,16 @@ function NotificationRow({ entry, variant, onItemClick, onMarkRead, dimmed }: Ro
     // Already relativized by the query hook so the click stays client-side and
     // its mark-read survives.
     const href = entry.alert_release_url || '/library'
-    // Both counts are FULL sizes from the server. Defaulting to 1 keeps the
-    // sentence grammatical if enrichment came back empty (every member deleted);
-    // the artist line then does not render.
-    const artistCount = entry.alert_release_artist_count || 1
-    const releaseCount = entry.alert_release_count || 1
-    const subject =
-      artistCount === 1 ? '1 artist you follow' : `${artistCount} artists you follow`
+    // Both counts are FULL sizes from the server. A row whose members are all
+    // gone (deleted, uncredited, unfollowed) arrives with no counts, and then
+    // states no count rather than an invented one.
+    const artistCount = entry.alert_release_artist_count
+    const releaseCount = entry.alert_release_count
+    const subject = !artistCount
+      ? 'Artists you follow'
+      : artistCount === 1
+        ? '1 artist you follow'
+        : `${artistCount} artists you follow`
     const verb =
       releaseCount === 1 ? 'added a release this week' : 'added releases this week'
     return (

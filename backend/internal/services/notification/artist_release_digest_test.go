@@ -439,7 +439,7 @@ func (s *NotificationFilterSuite) TestReleaseDigest_OnlyResolvedMembersAreRetire
 	s.Require().Len(batch.resolved, 1)
 
 	s.createRelease("Tenkiller", releaseDayAgo(2), nil, b)
-	s.svc.markReleaseDigestWeekDispatched(week, batch.resolved)
+	s.svc.markReleaseDigestMembersDispatched(week, batch.resolved)
 
 	var pending int64
 	s.Require().NoError(s.db.Table("artist_release_alert_batch").
@@ -465,9 +465,10 @@ func (s *NotificationFilterSuite) TestReleaseDigest_LateMemberFoldsIntoTheDelive
 	s.Equal(2, entries[0].AlertReleaseCount)
 }
 
-// The inbox restates ReleaseAnnounceable in SQL. Members are seeded straight
-// into the batch, bypassing accrual's own fence, at each side of every
-// boundary, and the inbox must count exactly the ones the Go predicate admits.
+// Pins the boundary days of the announceability window as the inbox applies it.
+// Members are seeded straight into the batch, bypassing accrual's own fence, at
+// each side of every boundary, and the inbox must count exactly the ones the
+// predicate admits.
 func (s *NotificationFilterSuite) TestReleaseDigest_InboxEnrichmentAgreesWithReleaseAnnounceable() {
 	userID := s.createTestUser()
 	artistID := s.createTestArtist("Oneida")
@@ -475,8 +476,8 @@ func (s *NotificationFilterSuite) TestReleaseDigest_InboxEnrichmentAgreesWithRel
 	week := currentAlertWeek()
 
 	now := time.Now()
-	oldest, latest, minYear := catalogm.ReleaseAnnounceableBounds(now)
-	dayBefore := func(d string, n int) *string {
+	oldest, latest, minYear, maxYear := catalogm.ReleaseAnnounceableBounds(now)
+	shiftDay := func(d string, n int) *string {
 		t, err := time.Parse("2006-01-02", d)
 		s.Require().NoError(err)
 		out := t.AddDate(0, 0, n).Format("2006-01-02")
@@ -485,11 +486,12 @@ func (s *NotificationFilterSuite) TestReleaseDigest_InboxEnrichmentAgreesWithRel
 	yearPtr := func(y int) *int { return &y }
 	candidates := []catalogm.Release{
 		{Title: "oldest day", ReleaseDate: &oldest},
-		{Title: "day before oldest", ReleaseDate: dayBefore(oldest, -1)},
+		{Title: "day before oldest", ReleaseDate: shiftDay(oldest, -1)},
 		{Title: "latest day", ReleaseDate: &latest},
-		{Title: "day after latest", ReleaseDate: dayBefore(latest, 1)},
+		{Title: "day after latest", ReleaseDate: shiftDay(latest, 1)},
 		{Title: "current year", ReleaseYear: yearPtr(minYear)},
 		{Title: "last year", ReleaseYear: yearPtr(minYear - 1)},
+		{Title: "past the latest year", ReleaseYear: yearPtr(maxYear + 1)},
 		{Title: "undated"},
 	}
 
@@ -517,4 +519,100 @@ func (s *NotificationFilterSuite) TestReleaseDigest_InboxEnrichmentAgreesWithRel
 	s.Require().Len(entries, 1)
 	s.Equal(want, entries[0].AlertReleaseCount)
 	s.Equal(3, want, "oldest day, latest day and current year are the announceable candidates")
+}
+
+// seedAccruedMember writes one batch membership as accrual would have written it
+// at accruedAt, bypassing the create funnel so a test can place it in the past.
+func (s *NotificationFilterSuite) seedAccruedMember(artistID, releaseID uint, accruedAt time.Time) string {
+	week := catalog.AlertWeekStart(accruedAt).Format(time.DateOnly)
+	s.Require().NoError(s.db.Exec(`
+		INSERT INTO artist_release_alert_batch (artist_id, release_id, alert_week, created_at)
+		VALUES (?, ?, ?::date, ?)`, artistID, releaseID, week, accruedAt).Error)
+	return week
+}
+
+func (s *NotificationFilterSuite) seedCreditedRelease(title string, artistID uint, date *string, year *int) uint {
+	rel := catalogm.Release{Title: title, ReleaseType: "lp", ReleaseDate: date, ReleaseYear: year}
+	s.Require().NoError(s.db.Create(&rel).Error)
+	s.Require().NoError(s.db.Create(&catalogm.ArtistRelease{
+		ArtistID: artistID, ReleaseID: rel.ID, Role: "main"}).Error)
+	return rel.ID
+}
+
+// Announceability is judged as of accrual. A week delivered long ago keeps its
+// row contents, and a week flushed late (a backlog, a year boundary) still
+// delivers what accrued while it was new.
+func (s *NotificationFilterSuite) TestReleaseDigest_JudgedAsOfAccrualNotToday() {
+	userID := s.createTestUser()
+	artistID := s.createTestArtist("Oneida")
+	s.followArtistWithAlerts(userID, artistID, `{}`)
+
+	accruedAt := time.Now().UTC().AddDate(0, 0, -200)
+	dated := accruedAt.AddDate(0, 0, -3).Format(time.DateOnly)
+	yearOnly := accruedAt.Year()
+	s.seedCreditedRelease("Dated", artistID, &dated, nil)
+	datedID := s.seedCreditedRelease("Dated Two", artistID, &dated, nil)
+	yearID := s.seedCreditedRelease("Year Only", artistID, nil, &yearOnly)
+	s.seedAccruedMember(artistID, datedID, accruedAt)
+	week := s.seedAccruedMember(artistID, yearID, accruedAt)
+
+	// Both are back catalogue by today's calendar; both were new when accrued.
+	s.Equal(1, s.flushReleaseDigestsNow())
+	entries := s.releaseDigestEntries(userID)
+	s.Require().Len(entries, 1)
+	s.Equal(week, entries[0].AlertBucket)
+	s.Equal(2, entries[0].AlertReleaseCount, "a delivered row must not empty out as time passes")
+}
+
+// A member whose credit was removed is read, skipped and retired. Left pending
+// it would re-select its week on every tick and starve later weeks.
+func (s *NotificationFilterSuite) TestReleaseDigest_UncreditedMemberIsRetired() {
+	userID := s.createTestUser()
+	artistID := s.createTestArtist("Oneida")
+	s.followArtistWithAlerts(userID, artistID, `{}`)
+	releaseID := s.createRelease("Success", releaseDayAgo(3), nil, artistID)
+	s.Require().NoError(s.db.Exec(
+		"DELETE FROM artist_releases WHERE artist_id = ? AND release_id = ?", artistID, releaseID).Error)
+
+	s.Equal(1, s.flushReleaseDigestsNow())
+
+	var pending int64
+	s.Require().NoError(s.db.Table("artist_release_alert_batch").
+		Where("dispatched_at IS NULL").Count(&pending).Error)
+	s.Equal(int64(0), pending, "the uncredited member must be stamped dispatched")
+	s.Equal(int64(0), s.releaseDigestRows(userID, notificationm.NotificationChannelInApp))
+}
+
+// The inbox row names only artists the reader has in-app release alerts on for,
+// matching what the flush delivered.
+func (s *NotificationFilterSuite) TestReleaseDigest_InboxHonoursPerArtistOptOut() {
+	userID := s.createTestUser()
+	oneida := s.createTestArtist("Oneida")
+	chatPile := s.createTestArtist("Chat Pile")
+	s.followArtistWithAlerts(userID, oneida, `{}`)
+	s.followArtistWithAlerts(userID, chatPile, `{"alerts":{"releases":{"enabled":false}}}`)
+
+	s.createRelease("Success", releaseDayAgo(3), nil, oneida)
+	s.createRelease("Tenkiller", releaseDayAgo(2), nil, chatPile)
+	s.Equal(1, s.flushReleaseDigestsNow())
+
+	entries := s.releaseDigestEntries(userID)
+	s.Require().Len(entries, 1)
+	s.Equal(1, entries[0].AlertReleaseCount)
+	s.Equal("Oneida", entries[0].AlertReleaseArtists)
+}
+
+// A closed account keeps its follows through its grace period and receives
+// nothing.
+func (s *NotificationFilterSuite) TestReleaseDigest_ClosedAccountReceivesNothing() {
+	userID := s.createTestUser()
+	artistID := s.createTestArtist("Oneida")
+	s.followArtistWithAlerts(userID, artistID, `{}`)
+	s.Require().NoError(s.db.Exec(
+		"UPDATE users SET is_active = false, deleted_at = now() WHERE id = ?", userID).Error)
+
+	s.createRelease("Success", releaseDayAgo(3), nil, artistID)
+	s.flushReleaseDigestsNow()
+
+	s.Equal(int64(0), s.releaseDigestRows(userID, notificationm.NotificationChannelInApp))
 }

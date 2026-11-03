@@ -35,6 +35,7 @@ func TestReleaseAnnounceable(t *testing.T) {
 		{"year only, current year", &Release{ReleaseYear: year(2026)}, true, ""},
 		{"year only, next year", &Release{ReleaseYear: year(2027)}, true, ""},
 		{"year only, last year is back catalogue", &Release{ReleaseYear: year(2025)}, false, NotAnnounceableBackCatalogue},
+		{"year only, past the future window is implausible", &Release{ReleaseYear: year(2062)}, false, NotAnnounceableImplausibleDate},
 		{"undated", &Release{}, false, NotAnnounceableUndated},
 		{"empty date string is undated", &Release{ReleaseDate: str("")}, false, NotAnnounceableUndated},
 		{"an unparseable date falls through to the year",

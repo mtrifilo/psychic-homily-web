@@ -2,6 +2,7 @@ package notification
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"slices"
@@ -35,8 +36,10 @@ import (
 // the claim is per (user, week) and an early flush would never email what landed
 // later in the week.
 //
-// The flush re-resolves already-delivered weeks when a late member joins, so the
-// inbox row can grow. The UNIQUE claim (uq_notification_log_artist_release_digest
+// Accrual writes the current, still-open week, so a member reaches an
+// already-delivered week only when its accrual commits after the flush read
+// (a commit straddling Monday 00:00 UTC) or an artist merge moves it. The flush
+// then re-resolves that week and the inbox row grows. The UNIQUE claim (uq_notification_log_artist_release_digest
 // with ON CONFLICT DO NOTHING) is the exactly-once guarantee, and the loser of a
 // concurrent tick claims and sends nothing. dispatched_at is bookkeeping.
 //
@@ -44,8 +47,9 @@ import (
 // does, build a shared predicate like notifiedAboutShow; never add this
 // discriminator to showAlertEntityTypes, because its entity_id is a USER id.
 //
-// No self-exclusion: releases have no submitted_by and the create endpoint is
-// admin-only.
+// No self-exclusion: releases have no submitted_by. Release data is not all
+// admin-curated: the MusicBrainz discography importer creates releases from
+// third-party data, so titles and years are untrusted text.
 //
 // No scope axis for releases: engagement.followAlertHasScopeAxis("artist",
 // "releases") is false, and this file must not invent one.
@@ -243,7 +247,7 @@ func (s *NotificationFilterService) flushReleaseDigestWeek(
 		return false
 	}
 
-	s.markReleaseDigestWeekDispatched(week, batch.resolved)
+	s.markReleaseDigestMembersDispatched(week, batch.resolved)
 	s.clearReleaseDigestFailure(week)
 	return true
 }
@@ -288,7 +292,7 @@ func (s *NotificationFilterService) noteReleaseDigestFailure(
 		week, failingFor.Round(time.Second), cause)
 
 	// Stamps the whole week (nil member set) so it stops being selected at all.
-	s.markReleaseDigestWeekDispatched(week, nil)
+	s.retireReleaseDigestWeek(week)
 	s.clearReleaseDigestFailure(week)
 }
 
@@ -309,49 +313,51 @@ func (s *NotificationFilterService) loadReleaseDigestWeek(week string) (*release
 	// after a watermark while carrying an earlier created_at, and a clock bound
 	// would retire it unread.
 	var rows []struct {
-		ArtistID    uint    `gorm:"column:artist_id"`
-		ArtistName  string  `gorm:"column:artist_name"`
-		ReleaseID   uint    `gorm:"column:release_id"`
-		Title       string  `gorm:"column:title"`
-		Slug        *string `gorm:"column:slug"`
-		ReleaseType string  `gorm:"column:release_type"`
-		ReleaseDate *string `gorm:"column:release_date"`
-		ReleaseYear *int    `gorm:"column:release_year"`
+		ArtistID    uint      `gorm:"column:artist_id"`
+		ArtistName  string    `gorm:"column:artist_name"`
+		ReleaseID   uint      `gorm:"column:release_id"`
+		Title       string    `gorm:"column:title"`
+		Slug        *string   `gorm:"column:slug"`
+		ReleaseType string    `gorm:"column:release_type"`
+		ReleaseDate *string   `gorm:"column:release_date"`
+		ReleaseYear *int      `gorm:"column:release_year"`
+		AccruedAt   time.Time `gorm:"column:accrued_at"`
+		Credited    bool      `gorm:"column:credited"`
 	}
 	err := s.db.Raw(`
 		SELECT b.artist_id, a.name AS artist_name, b.release_id,
 		       r.title, r.slug, r.release_type,
 		       to_char(r.release_date, 'YYYY-MM-DD') AS release_date,
-		       r.release_year
+		       r.release_year, b.created_at AS accrued_at,
+		       bool_or(ar.release_id IS NOT NULL) AS credited
 		FROM artist_release_alert_batch b
 		JOIN releases r ON r.id = b.release_id
 		JOIN artists a ON a.id = b.artist_id
-		-- Re-validate the credit against the CURRENT artist_releases rows. Only a
-		-- DELETED release or artist leaves the batch (the foreign keys cascade), so
-		-- without this join an artist merge or a credit correction could still put
-		-- a record under a band that is no longer on it.
-		JOIN artist_releases ar ON ar.artist_id = b.artist_id AND ar.release_id = b.release_id
+		-- The credit is read from the CURRENT artist_releases rows: a batch row
+		-- outlives a removed credit, and must be read (and retired) all the same.
+		LEFT JOIN artist_releases ar ON ar.artist_id = b.artist_id AND ar.release_id = b.release_id
 		WHERE b.alert_week = ?::date
 		GROUP BY b.artist_id, a.name, b.release_id, r.title, r.slug,
-		         r.release_type, r.release_date, r.release_year
+		         r.release_type, r.release_date, r.release_year, b.created_at
 		ORDER BY a.name ASC, b.artist_id ASC, r.release_date DESC NULLS LAST, b.release_id ASC
 	`, week).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("release digest members for week %s: %w", week, err)
 	}
 
-	// Re-check announceability with the predicate accrual used: release_date and
-	// release_year are editable during the week between accrual and flush.
-	now := time.Now()
 	members := make([]releaseDigestRelease, 0, len(rows))
-	// resolved is every member row read, announceable or not; leaving rejected
-	// rows undispatched would re-select the week forever.
+	// resolved is every member row read, delivered or not; leaving a rejected
+	// row undispatched would re-select the week forever.
 	resolved := make([]releaseDigestMember, 0, len(rows))
 	for _, row := range rows {
 		resolved = append(resolved, releaseDigestMember{ArtistID: row.ArtistID, ReleaseID: row.ReleaseID})
-
+		if !row.Credited {
+			continue
+		}
+		// Judged as of accrual, so only an edit to the release's date fields can
+		// drop it; the calendar moving on between accrual and flush cannot.
 		release := &catalogm.Release{ReleaseDate: row.ReleaseDate, ReleaseYear: row.ReleaseYear}
-		if ok, _ := catalogm.ReleaseAnnounceable(release, now); !ok {
+		if ok, _ := catalogm.ReleaseAnnounceable(release, row.AccruedAt); !ok {
 			continue
 		}
 
@@ -434,6 +440,8 @@ func (s *NotificationFilterService) artistReleaseFollowers(artistIDs []uint) ([]
 	err := s.db.Raw(`
 		SELECT b.user_id, b.entity_id AS artist_id, b.settings
 		FROM user_bookmarks b
+		-- A closed account keeps its bookmarks through its grace period.
+		JOIN users u ON u.id = b.user_id AND u.is_active AND u.deleted_at IS NULL
 		WHERE b.entity_type = ?
 		  AND b.action = ?
 		  AND b.entity_id = ANY(?)
@@ -537,6 +545,12 @@ func resolveReleaseDigestRecipients(
 // sends, whatever the reader's email preference says, so the in-app row is the
 // whole delivery and the email code below is unreachable. Enabling it is a
 // deliberate code change; TestReleaseDigestEmailLaneIsGatedOff pins it off.
+//
+// Known defects to fix before enabling: the subject and headline count
+// (artist, release) pairs, so a split release counts twice and is listed under
+// both artists; the fine print says email is on for "these artists" while
+// channels are OR-ed across follows; recipients are not filtered to verified
+// addresses.
 const releaseDigestEmailLaneEnabled = false
 
 // deliverReleaseDigest writes this recipient's rows and, when the email lane is
@@ -606,39 +620,43 @@ func (s *NotificationFilterService) claimReleaseDigestRow(
 		notificationm.NotificationEntityArtistReleaseDigest, userID, week, channel, now)
 }
 
-// markReleaseDigestWeekDispatched stamps the rows this flush RESOLVED, so the
-// week stops being selected until a new member joins it.
+// markReleaseDigestMembersDispatched stamps the member rows this flush read, so
+// the week stops being selected until a new member joins it.
 //
 // Bounded by the exact (artist, release) pairs that were read, never by a
 // clock: a row that became visible after the read keeps dispatched_at NULL and
-// re-selects the week, where the claim makes the re-run silent. A nil pair set
-// means the whole week, which is what retirement wants.
-func (s *NotificationFilterService) markReleaseDigestWeekDispatched(
+// re-selects the week, where the claim makes the re-run silent. Pairs, not two
+// id lists, which would stamp their cross product.
+func (s *NotificationFilterService) markReleaseDigestMembersDispatched(
 	week string,
-	resolved []releaseDigestMember,
+	members []releaseDigestMember,
 ) {
-	q := s.db.Table("artist_release_alert_batch").
-		Where("alert_week = ?::date AND dispatched_at IS NULL", week)
-	if resolved != nil {
-		if len(resolved) == 0 {
-			// Nothing was read; stamping the week would retire rows that arrived
-			// since.
-			return
-		}
-		// Matched as pairs, not two independent id lists, which would stamp the
-		// cross product and retire rows this flush never read.
-		artistIDs := make([]uint, 0, len(resolved))
-		releaseIDs := make([]uint, 0, len(resolved))
-		for _, m := range resolved {
-			artistIDs = append(artistIDs, m.ArtistID)
-			releaseIDs = append(releaseIDs, m.ReleaseID)
-		}
-		q = q.Where(
-			"(artist_id, release_id) IN (SELECT * FROM UNNEST(?::bigint[], ?::bigint[]))",
-			pq.Array(artistIDs), pq.Array(releaseIDs))
+	if len(members) == 0 {
+		return
 	}
-	if err := q.UpdateColumn("dispatched_at", gorm.Expr("NOW()")).Error; err != nil {
+	artistIDs := make([]uint, 0, len(members))
+	releaseIDs := make([]uint, 0, len(members))
+	for _, m := range members {
+		artistIDs = append(artistIDs, m.ArtistID)
+		releaseIDs = append(releaseIDs, m.ReleaseID)
+	}
+	if err := s.db.Table("artist_release_alert_batch").
+		Where("alert_week = ?::date AND dispatched_at IS NULL", week).
+		Where("(artist_id, release_id) IN (SELECT * FROM UNNEST(?::bigint[], ?::bigint[]))",
+			pq.Array(artistIDs), pq.Array(releaseIDs)).
+		UpdateColumn("dispatched_at", gorm.Expr("NOW()")).Error; err != nil {
 		log.Printf("release-digest flush: marking week %s dispatched: %v", week, err)
+	}
+}
+
+// retireReleaseDigestWeek stamps every pending row of the week, including rows
+// no flush has read. Only the poison-pill bound uses it: its point is that the
+// week stops being selected at all.
+func (s *NotificationFilterService) retireReleaseDigestWeek(week string) {
+	if err := s.db.Table("artist_release_alert_batch").
+		Where("alert_week = ?::date AND dispatched_at IS NULL", week).
+		UpdateColumn("dispatched_at", gorm.Expr("NOW()")).Error; err != nil {
+		log.Printf("release-digest flush: retiring week %s: %v", week, err)
 	}
 }
 
@@ -649,10 +667,10 @@ func (s *NotificationFilterService) markReleaseDigestWeekDispatched(
 // sendArtistReleaseDigestEmail renders and sends the roundup. The caller has
 // already checked the daily budget and claimed the email lane.
 //
-// No edited-after-accrual guard, unlike the venue digest: releases have no
-// self-serve create or edit path (POST /releases is admin-only), and
-// releases.updated_at moves on routine enrichment writes, so such a guard would
-// drop most of a week's roundup.
+// No edited-after-accrual guard, unlike the venue digest: releases.updated_at
+// moves on routine enrichment writes, so such a guard would drop most of a
+// week's roundup. Titles still come partly from MusicBrainz imports, so every
+// interpolated string is escaped by the layout builders.
 func (s *NotificationFilterService) sendArtistReleaseDigestEmail(
 	r releaseDigestRecipient,
 	batch *releaseDigestWeek,
@@ -869,18 +887,21 @@ func (s *NotificationFilterService) enrichArtistReleaseDigestNotifications(
 	}
 
 	var members []struct {
-		AlertWeek   string  `gorm:"column:alert_week"`
-		ReleaseID   uint    `gorm:"column:release_id"`
-		Slug        *string `gorm:"column:slug"`
-		ArtistID    uint    `gorm:"column:artist_id"`
-		ArtistName  string  `gorm:"column:artist_name"`
-		ReleaseDate *string `gorm:"column:release_date"`
-		ReleaseYear *int    `gorm:"column:release_year"`
+		AlertWeek   string           `gorm:"column:alert_week"`
+		ReleaseID   uint             `gorm:"column:release_id"`
+		Slug        *string          `gorm:"column:slug"`
+		ArtistID    uint             `gorm:"column:artist_id"`
+		ArtistName  string           `gorm:"column:artist_name"`
+		ReleaseDate *string          `gorm:"column:release_date"`
+		ReleaseYear *int             `gorm:"column:release_year"`
+		AccruedAt   time.Time        `gorm:"column:accrued_at"`
+		Settings    *json.RawMessage `gorm:"column:settings"`
 	}
 	if err := s.db.Raw(`
 		SELECT to_char(b.alert_week, 'YYYY-MM-DD') AS alert_week,
 		       b.release_id, r.slug, b.artist_id, a.name AS artist_name,
-		       to_char(r.release_date, 'YYYY-MM-DD') AS release_date, r.release_year
+		       to_char(r.release_date, 'YYYY-MM-DD') AS release_date, r.release_year,
+		       b.created_at AS accrued_at, ub.settings
 		FROM artist_release_alert_batch b
 		JOIN releases r ON r.id = b.release_id
 		JOIN artists a ON a.id = b.artist_id
@@ -896,7 +917,8 @@ func (s *NotificationFilterService) enrichArtistReleaseDigestNotifications(
 		 AND ub.entity_id = b.artist_id
 		WHERE b.alert_week = ANY(?::date[])
 		-- artist_releases is keyed by role, so one credit can join twice.
-		GROUP BY b.alert_week, b.release_id, r.slug, b.artist_id, a.name, r.release_date, r.release_year
+		GROUP BY b.alert_week, b.release_id, r.slug, b.artist_id, a.name, r.release_date,
+		         r.release_year, b.created_at, ub.settings
 		ORDER BY b.alert_week, a.name ASC, b.artist_id ASC, b.release_id ASC
 	`,
 		userID,
@@ -916,13 +938,28 @@ func (s *NotificationFilterService) enrichArtistReleaseDigestNotifications(
 		names    []string
 		soleURL  string
 	}
+	prefs, err := s.alertPrefsForUserIDs([]uint{userID})
+	if err != nil {
+		log.Printf("warning: failed to load alert preferences for release digest enrichment: %v", err)
+		return
+	}
+	accountDefaults := authm.ResolveAccountAlertDefaults(prefs[userID].AlertDefaults)
+
 	byWeek := make(map[string]*weekSummary, len(buckets))
-	now := time.Now()
 	for _, m := range members {
-		// The same predicate accrual and the flush applied, read live: a release
-		// whose date is corrected into back catalogue leaves the row.
+		// The predicate the flush applied, judged as of accrual, so the row does
+		// not empty out as the calendar moves on; a date corrected into back
+		// catalogue still leaves it.
 		release := &catalogm.Release{ReleaseDate: m.ReleaseDate, ReleaseYear: m.ReleaseYear}
-		if ok, _ := catalogm.ReleaseAnnounceable(release, now); !ok {
+		if ok, _ := catalogm.ReleaseAnnounceable(release, m.AccruedAt); !ok {
+			continue
+		}
+		// The reader's own in-app release alert for this artist, as the flush
+		// resolves it; an artist they switched release alerts off for is not
+		// theirs to hear about.
+		pref := engagement.ResolveFollowAlerts(
+			artistFollowEntityType, m.ArtistID, m.Settings, accountDefaults).Releases
+		if pref == nil || !pref.Enabled || !pref.InApp {
 			continue
 		}
 		w := byWeek[m.AlertWeek]
