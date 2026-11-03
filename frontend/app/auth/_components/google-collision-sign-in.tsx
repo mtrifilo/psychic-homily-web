@@ -38,8 +38,8 @@ function isPendingLinkGone(error: unknown): boolean {
  * is attached to another account, or the account holds a different Google
  * identity (the refusals backend usersvc.AttachOAuthIdentityTx answers with).
  * The backend clears this browser's pending-link cookie on them and keeps the
- * pending link itself, so an emailed link already sent still works; the page
- * leaves the collision state with the refusal's own words.
+ * pending link itself, so an emailed link already sent can still be followed;
+ * the page leaves the collision state with the refusal's own words.
  */
 const LINK_REFUSAL_CODES: ReadonlySet<string> = new Set([
   AuthErrorCode.OAUTH_IDENTITY_IN_USE,
