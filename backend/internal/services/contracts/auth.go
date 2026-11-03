@@ -193,10 +193,10 @@ func (e *OAuthSignupRequiredError) Unwrap() error {
 // account whose address, which the provider verified and is the authority
 // for (OAuthIdentity.EmailAuthoritative), belongs to an account UserID that
 // may sign in and either holds no identity from that provider or has an
-// address it never verified. Refusal is the
-// CodeOAuthLinkRefused AuthError, so a caller that offers no way to prove the
-// account answers with it unchanged; a caller that does holds Identity as a
-// pending link for that account.
+// address it never verified. Refusal is the CodeOAuthLinkRefused AuthError,
+// so a caller that offers no way to prove the account answers with it
+// unchanged; a caller that does holds Identity as a pending link for that
+// account.
 type OAuthLinkRequiredError struct {
 	Identity OAuthIdentity
 	UserID   uint

@@ -295,10 +295,9 @@ func evictOtherCredentials(tx *gorm.DB, userID uint, keepProvider string) error 
 // returns the row it removed, or nil when there was none. The caller has
 // userID's row locked and has read it as one the mailbox proof replaces an
 // identity on (authm.User.MailboxProofMayReplaceIdentity). An account holds at
-// most one row per
-// provider (oauth_accounts_user_provider_uniq), so the row locked FOR UPDATE
-// here is the one UnlinkOAuthAccountTx, the path Settings disconnects by,
-// removes.
+// most one row per provider (oauth_accounts_user_provider_uniq), so the row
+// locked FOR UPDATE here is the one UnlinkOAuthAccountTx, the path Settings
+// disconnects by, removes.
 func evictUnprovenIdentity(tx *gorm.DB, userID uint, provider, provenSubject string) (*authm.OAuthAccount, error) {
 	var held authm.OAuthAccount
 	found := otherProviderIdentity(tx, userID, provider, provenSubject).

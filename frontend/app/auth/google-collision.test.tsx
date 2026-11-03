@@ -443,6 +443,41 @@ describe('AuthPage collision state', () => {
       expect(mockLoginMutate).not.toHaveBeenCalled()
       expect(screen.queryByText('Password is required')).not.toBeInTheDocument()
     })
+
+    it('shows a failed send without leaving the state or offering a password', () => {
+      mockSendState = { isPending: false, isSuccess: false, isError: true, error: new Error('503') }
+      arriveOnCollision(REPLACING)
+
+      expect(screen.getByRole('alert')).toHaveTextContent('Failed to send magic link. Please try again.')
+      expect(screen.getByRole('button', { name: 'Email me a sign-in link' })).toBeEnabled()
+      expect(screen.queryByLabelText('Password')).not.toBeInTheDocument()
+    })
+
+    it('falls back to the normal tab when the send finds the pending link gone', async () => {
+      const user = userEvent.setup()
+      const { rerender } = arriveOnCollision(REPLACING)
+
+      await user.click(screen.getByRole('button', { name: 'Email me a sign-in link' }))
+      const [, options] = mockSendMutate.mock.calls[0]
+      const gone = new AuthError(PENDING_LINK_GONE_MESSAGE, AuthErrorCode.OAUTH_LINK_PENDING_EXPIRED)
+      mockSendState = { isPending: false, isSuccess: false, isError: true, error: gone }
+      options.onError(gone)
+      rerender(<AuthPage />)
+
+      expect(await screen.findByText('Sign in to your account')).toBeInTheDocument()
+      expect(screen.getByRole('status')).toHaveTextContent(PENDING_LINK_GONE_MESSAGE)
+    })
+  })
+
+  it('offers both proofs when the read says the emailed link replaces nothing', () => {
+    arriveOnCollision({
+      isPending: false,
+      data: { status: 'pending', email: ADDRESS, replaces_identity: false },
+    })
+
+    expect(screen.getByLabelText('Password')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sign in and connect Google' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Email me a sign-in link instead' })).toBeInTheDocument()
   })
 
   it('shows a failed send without leaving the state', () => {
