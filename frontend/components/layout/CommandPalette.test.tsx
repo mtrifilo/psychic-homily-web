@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest'
-import { screen, act } from '@testing-library/react'
+import { screen, act, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { CommandPalette, adminRoutes } from './CommandPalette'
@@ -160,6 +160,43 @@ describe('CommandPalette', () => {
     expect(screen.getByText('Settings')).toBeInTheDocument()
     // Admin should still be hidden for non-admin
     expect(screen.queryByText('Admin')).not.toBeInTheDocument()
+  })
+
+  // Library was "My Library"; the retired name stays searchable.
+  it('finds Library by its former name', async () => {
+    mockAuthContext.user = { id: '1', email: 'test@test.com' }
+    mockAuthContext.isAuthenticated = true
+    const user = userEvent.setup()
+    renderWithProviders(<CommandPalette />)
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true })
+      )
+    })
+    await user.type(screen.getByPlaceholderText('Search entities or go to page...'), 'my library')
+    expect(screen.getByRole('option', { name: 'Library/library' })).toBeInTheDocument()
+  })
+
+  // Recents are stored as labels, so one saved before the rename must still
+  // read as the route's current label, appear once beside a newer recent of
+  // the same route, and navigate.
+  it('resolves a recent saved under a former label to the renamed route', async () => {
+    mockAuthContext.user = { id: '1', email: 'test@test.com' }
+    mockAuthContext.isAuthenticated = true
+    localStorage.setItem('command-palette-recent', JSON.stringify(['Library', 'My Library']))
+    const user = userEvent.setup()
+    renderWithProviders(<CommandPalette />)
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true })
+      )
+    })
+    expect(screen.queryByText('My Library')).not.toBeInTheDocument()
+    const recentGroup = screen.getByRole('group', { name: 'Recent' })
+    const recent = within(recentGroup).getAllByRole('option', { name: 'Library/library' })
+    expect(recent).toHaveLength(1)
+    await user.click(recent[0])
+    expect(mockPush).toHaveBeenCalledWith('/library')
   })
 
   it('should not have a standalone "Collection" entry (merged into Library)', async () => {

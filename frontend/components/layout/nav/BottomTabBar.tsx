@@ -419,10 +419,12 @@ export function BottomTabBar() {
   const isSettledAuthenticated = authStatus === 'authenticated' && user !== null
 
   // The bar's tab set follows the same signal, which AuthHydrator seeds before
-  // the shell renders: the server HTML carries the viewer's bar, and only a
-  // context left 'pending' by a backend failure swaps it on the client.
+  // the shell renders, so the server HTML carries the viewer's bar and
+  // hydration keeps it. It changes on the client only when auth itself does
+  // after hydration: a profile read the server could not answer settles, a
+  // sign-in or a sign-out happens, or a session expires.
   const navViewer = isSettledAuthenticated ? 'signed-in' : 'signed-out'
-  const { primaryTabs, browseGroups, sheetHrefs } = mobileNavFor(navViewer)
+  const { primaryTabs, browseSheetGroups, browseSheetHrefs } = mobileNavFor(navViewer)
 
   // The canonical account list (navData, PSY-1821) with the username-aware
   // Profile href already resolved. Admin stays in the list (adminOnly) so the
@@ -444,7 +446,7 @@ export function BottomTabBar() {
       ? accountItems.some(i => isActive(i.href)) || isActive(PROFILE_CLAIM_HREF)
       : isActive(AUTH_PATH))
   const browseActive =
-    !primaryActive && !accountActive && sheetHrefs.some(isActive)
+    !primaryActive && !accountActive && browseSheetHrefs.some(isActive)
 
   return (
     <nav
@@ -480,7 +482,7 @@ export function BottomTabBar() {
           active={browseActive}
           description="All destinations: catalog, curation, scenes, contribute, and editorial links."
         >
-          <BrowseSheetBody groups={browseGroups} user={user} pathname={pathname} />
+          <BrowseSheetBody groups={browseSheetGroups} user={user} pathname={pathname} />
         </SheetTab>
 
         {/* The auth-aware Account cell. The signed-in sheet names a viewer,

@@ -83,19 +83,19 @@ describe('BottomTabBar', () => {
     mockAuthContext.mockReturnValue(authFixture())
   })
 
-  // Mobile-reachability guard, simplified per PSY-1821: primaryLinks and
-  // sidebarGroups now COMPOSE from the same canonical tables the mobile
-  // surfaces render, so for entries composed the natural way reachability is
-  // structural and this cannot fail. It survives as a fence for the residual
-  // fork paths only: an inline literal added to either list, or a rail entry
-  // composed from the account tables (which the mobile sheets don't render).
-  // Checked per viewer: the bar's tabs differ by viewer, so a destination one
-  // viewer's bar drops (Radio, once signed in) must land in that viewer's sheet.
+  // Mobile-reachability guard, per viewer. primaryLinks and sidebarGroups
+  // compose from the same canonical tables the mobile surfaces render, and a
+  // bar-only destination a viewer's bar drops (Radio, once signed in) leads
+  // that viewer's Discover group by construction (navData's
+  // barOnlyDestinations). What this still fences: an inline literal added to
+  // either desktop list, a rail entry composed from the account tables (which
+  // the mobile sheets don't render), or a desktop primary with no menu table
+  // that is missing from barOnlyDestinations.
   it.each(MOBILE_NAV_VIEWERS)(
     'keeps every desktop primary + rail destination reachable on mobile for a %s viewer',
     viewer => {
-      const { primaryTabs, sheetHrefs } = mobileNavFor(viewer)
-      const mobile = [...primaryTabs.map(t => t.href), ...sheetHrefs]
+      const { primaryTabs, browseSheetHrefs } = mobileNavFor(viewer)
+      const mobile = [...primaryTabs.map(t => t.href), ...browseSheetHrefs]
       for (const link of [...primaryLinks, ...sidebarGroups.flatMap(g => g.items)]) {
         if (link.external) continue
         expect(mobile).toContain(link.href)

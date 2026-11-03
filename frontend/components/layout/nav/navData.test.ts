@@ -51,7 +51,7 @@ describe('mobileNavFor', () => {
   const labels = (viewer: MobileNavViewer) =>
     mobileNavFor(viewer).primaryTabs.map(t => t.label)
   const discover = (viewer: MobileNavViewer) =>
-    mobileNavFor(viewer).browseGroups.find(g => g.label === 'Discover')!.items.map(i => i.label)
+    mobileNavFor(viewer).browseSheetGroups.find(g => g.label === 'Discover')!.items.map(i => i.label)
 
   // Product Designs P1a (2076:26 / 2077:22): Library takes Radio's tab once
   // signed in; everyone else keeps the bar as it was.
@@ -68,8 +68,8 @@ describe('mobileNavFor', () => {
 
   it('never lists a destination in both the bar and the Browse sheet', () => {
     for (const viewer of MOBILE_NAV_VIEWERS) {
-      const { primaryTabs, sheetHrefs } = mobileNavFor(viewer)
-      for (const tab of primaryTabs) expect(sheetHrefs, viewer).not.toContain(tab.href)
+      const { primaryTabs, browseSheetHrefs } = mobileNavFor(viewer)
+      for (const tab of primaryTabs) expect(browseSheetHrefs, viewer).not.toContain(tab.href)
     }
   })
 
@@ -174,7 +174,7 @@ describe('composition integrity', () => {
       sidebarAccountItems(null),
       accountNavItems(null),
       ...MOBILE_NAV_VIEWERS.flatMap(viewer =>
-        mobileNavFor(viewer).browseGroups.filter(g => g.label !== 'Scenes').map(g => g.items)
+        mobileNavFor(viewer).browseSheetGroups.filter(g => g.label !== 'Scenes').map(g => g.items)
       ),
     ]
     for (const items of blocks) {

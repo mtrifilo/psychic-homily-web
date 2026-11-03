@@ -438,28 +438,38 @@ export interface MobileNav {
    * the same length; BottomTabBar.test.tsx fails if either drifts.
    */
   primaryTabs: ReadonlyArray<NavDestination>
-  /** The Browse tab's long-tail sheet, in sheet order. */
-  browseGroups: NavGroup[]
-  /** Every in-app href of browseGroups: the routes that light the Browse tab. */
-  sheetHrefs: string[]
+  /** The Browse sheet's groups, in sheet order. */
+  browseSheetGroups: NavGroup[]
+  /** Every in-app href of the Browse sheet: the routes that light the Browse tab. */
+  browseSheetHrefs: string[]
 }
 
 /**
- * The Browse tab's long-tail sheet: every desktop menu destination, composed
- * from the canonical tables above (no forked destination lists), led by a
- * Discover group. Graph and Atlas are desktop *primary* links (PrimaryNav)
- * with no home in the Browse/Contribute menus, so without that group they
- * would be unreachable on mobile; so would any desktop primary the viewer's
- * bar does not carry, which is why the group's lead is a parameter.
+ * Destinations with no menu table, which only a bar tab or the Browse sheet's
+ * Discover group can carry on a phone. Any of them a viewer's bar does not
+ * carry leads that viewer's Discover group, so reachability follows from the
+ * tab list alone.
+ */
+const barOnlyDestinations: ReadonlyArray<NavDestination> = [homeItem, showsItem, radioItem]
+
+/**
+ * The Browse sheet: every desktop menu destination, composed from the
+ * canonical tables above (no forked destination lists), led by a Discover
+ * group. Graph and Atlas are desktop *primary* links (PrimaryNav) with no home
+ * in the Browse/Contribute menus, so without that group they would be
+ * unreachable on mobile; the bar-only destinations the viewer's bar drops
+ * join them at its head.
  *
  * Deduped at composition: Leaderboard legitimately appears in both Curation
  * and Contribute on desktop (two separate menus), but this is ONE sheet, so a
  * destination renders once, under the first group that claims it.
  */
-function composeMobileBrowseGroups(discoverLead: NavDestination[]): NavGroup[] {
+function composeMobileNav(primaryTabs: ReadonlyArray<NavDestination>): MobileNav {
+  const tabHrefs = new Set(primaryTabs.map(t => t.href))
+  const dropped = barOnlyDestinations.filter(d => !tabHrefs.has(d.href))
   const seen = new Set<string>()
-  return [
-    { label: 'Discover', items: [...discoverLead, graphItem, atlasItem] },
+  const browseSheetGroups = [
+    { label: 'Discover', items: [...dropped, graphItem, atlasItem] },
     ...browseGroups,
     { label: 'Contribute', items: contributeItems },
     { label: 'Editorial', items: editorialItems },
@@ -471,18 +481,11 @@ function composeMobileBrowseGroups(discoverLead: NavDestination[]): NavGroup[] {
       return true
     }),
   }))
-}
-
-function composeMobileNav(
-  primaryTabs: ReadonlyArray<NavDestination>,
-  discoverLead: NavDestination[]
-): MobileNav {
-  const browseGroups = composeMobileBrowseGroups(discoverLead)
   return {
     primaryTabs,
-    browseGroups,
+    browseSheetGroups,
     // External links are excluded; they never match a pathname.
-    sheetHrefs: browseGroups.flatMap(g =>
+    browseSheetHrefs: browseSheetGroups.flatMap(g =>
       g.items.filter(i => !i.external).map(i => i.href)
     ),
   }
@@ -490,15 +493,12 @@ function composeMobileNav(
 
 // THE mobile-tab membership and order decision, per viewer, and nothing
 // else's (PrimaryNav names its own destinations). A signed-in viewer's
-// Library takes Radio's tab, and Radio leads the Browse sheet's Discover group
-// instead (Product Designs XakQQ0nYGqnt77PrHKO9IE, P1a boards 2076:26 and
-// 2077:22).
+// Library takes Radio's tab, which puts Radio at the head of the Browse
+// sheet's Discover group (Product Designs XakQQ0nYGqnt77PrHKO9IE, P1a boards
+// 2076:26 and 2077:22).
 const mobileNavByViewer: Record<MobileNavViewer, MobileNav> = {
-  'signed-out': composeMobileNav([homeItem, showsItem, radioItem], []),
-  'signed-in': composeMobileNav(
-    [homeItem, showsItem, navDestination('/library')],
-    [radioItem]
-  ),
+  'signed-out': composeMobileNav([homeItem, showsItem, radioItem]),
+  'signed-in': composeMobileNav([homeItem, showsItem, navDestination('/library')]),
 }
 
 /** The mobile bar's tabs and Browse sheet for this viewer. */
