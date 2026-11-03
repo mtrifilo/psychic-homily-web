@@ -91,7 +91,7 @@ function StateCard({
 }
 
 /**
- * State 5: an expired, used or incomplete link. The password is untouched.
+ * State 5: an expired, used or incomplete link. Opening it changed nothing.
  * A new link is asked for on the Sign in tab, or, for a reader who is signed
  * in (whom /auth sends on), from Settings' Reset by email.
  */
@@ -140,7 +140,11 @@ function PasswordResetDone() {
   )
 }
 
-/** The centred notice card the magic-link page answers its failures with. */
+/**
+ * The centred notice card the magic-link page answers its failures with. Like
+ * StateCard, it can replace the form the reader was in, so its heading takes
+ * focus when it mounts.
+ */
 function NoticeCard({
   icon,
   title,
@@ -152,6 +156,11 @@ function NoticeCard({
   children: ReactNode
   action?: ReactNode
 }) {
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  useEffect(() => {
+    headingRef.current?.focus()
+  }, [])
+
   return (
     <CenteredColumn>
       <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
@@ -159,7 +168,11 @@ function NoticeCard({
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
             {icon}
           </div>
-          <CardTitle>{title}</CardTitle>
+          <CardTitle>
+            <h1 ref={headingRef} tabIndex={-1} className="focus:outline-none">
+              {title}
+            </h1>
+          </CardTitle>
           <CardDescription>{children}</CardDescription>
         </CardHeader>
         {action && <div className="flex justify-center px-6 pb-2">{action}</div>}

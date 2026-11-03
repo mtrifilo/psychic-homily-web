@@ -8,9 +8,10 @@ import { ChangePassword } from './change-password'
 // sends the reset link to the account's own address with no recent sign-in.
 
 const mockSendOwn = vi.fn<() => Promise<unknown>>()
+const mockChangePassword = vi.fn()
 
 vi.mock('@/features/auth', () => ({
-  useChangePassword: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null }),
+  useChangePassword: () => ({ mutate: mockChangePassword, isPending: false, isError: false, error: null }),
   useSendOwnPasswordReset: () => ({ mutateAsync: mockSendOwn, isPending: false }),
 }))
 
@@ -28,6 +29,31 @@ function renderCard(resetEmail: string | null = EMAIL) {
 describe('Reset by email', () => {
   beforeEach(() => {
     mockSendOwn.mockReset()
+    mockChangePassword.mockReset()
+  })
+
+  // The card's own form still changes the password inside the wrapper, and
+  // Reset by email sends nothing on its behalf.
+  it('leaves Update password working inside the wrapper', async () => {
+    mockChangePassword.mockImplementation((_data: unknown, opts: { onSuccess: (d: { message: string }) => void }) => {
+      opts.onSuccess({ message: 'Password changed successfully' })
+    })
+    const { user } = renderCard()
+
+    await user.type(screen.getByLabelText('Current password'), 'oldpassword123')
+    await user.type(screen.getByLabelText('New password'), 'newSecurePassword123!')
+    await user.type(screen.getByLabelText('Confirm new password'), 'newSecurePassword123!')
+    await user.click(screen.getByRole('button', { name: 'Update password' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Password changed successfully')).toBeInTheDocument()
+    })
+    expect(mockChangePassword.mock.calls[0][0]).toEqual({
+      current_password: 'oldpassword123',
+      new_password: 'newSecurePassword123!',
+    })
+    expect(mockSendOwn).not.toHaveBeenCalled()
+    expect(screen.queryByText(SENT)).not.toBeInTheDocument()
   })
 
   it('sits beside Update password with the approved line naming the address', () => {

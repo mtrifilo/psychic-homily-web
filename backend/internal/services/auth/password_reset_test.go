@@ -362,7 +362,7 @@ func (s *JWTIntegrationSuite) requireAuthCode(err error, code string) {
 	s.Equal(code, authErr.Code)
 }
 
-// Passkeys keep working after a reset (owner ruling 2026-11-03).
+// Passkeys keep working after a reset.
 func (suite *WebAuthnServiceIntegrationTestSuite) TestCompletePasswordReset_KeepsPasskeys() {
 	user := suite.createUser("reset-keeps-passkeys@test.local")
 	suite.insertCredential(user.ID, "laptop")

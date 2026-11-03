@@ -82,7 +82,7 @@ export function ResetByEmailNote({ email }: { email: string }) {
   return (
     <p className="text-xs text-muted-foreground">
       Don&apos;t know the current password? Reset by email sends a link to{' '}
-      <span className="break-words">{email}</span>. Setting a new password with it signs out every
+      <span className="font-data break-words">{email}</span>. Setting a new password with it signs out every
       other device.
     </p>
   )

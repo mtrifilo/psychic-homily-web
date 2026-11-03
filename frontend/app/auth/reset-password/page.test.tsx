@@ -247,7 +247,7 @@ describe('Reset password page', () => {
     checkState = checkRefused(refusal(AuthErrorCode.ACCOUNT_INACTIVE))
     renderWithProviders(<ResetPasswordPage />)
 
-    expect(screen.getByText("Can't sign you in")).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: "Can't sign you in" })).toHaveFocus()
     expect(screen.queryByLabelText('New password')).not.toBeInTheDocument()
   })
 })
