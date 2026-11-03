@@ -89,7 +89,7 @@ export function EpisodeArchiveTable({
             <span className="text-muted-foreground">upcoming</span>
           ) : isLive ? (
             <span className="text-link">
-              <span aria-hidden="true">●</span> live
+              <span aria-hidden="true" className="text-primary">●</span> live
             </span>
           ) : archiveHref ? (
             <BracketLink

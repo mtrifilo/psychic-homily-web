@@ -85,9 +85,9 @@ export type EmbedTheme = 'light' | 'dark'
  * The Bandcamp player's `bgcol` / `linkcol` per page theme: the page's own
  * `--background` and `--link` (app/globals.css; dark `--link` is `--primary`),
  * which `bandcamp.test.ts` holds to the stylesheet's values. `linkcol` colours
- * the player's small link text, so it takes the link token, not primary. Bandcamp honours `linkcol` exactly; the
- * small player paints its background in its own light or dark shade, and
- * `bgcol` picks which.
+ * the player's small link text, so it takes the link token, not primary.
+ * Bandcamp honours `linkcol` exactly; the small player paints its background
+ * in its own light or dark shade, and `bgcol` picks which.
  */
 export const BANDCAMP_THEME_COLORS: Record<
   EmbedTheme,

@@ -188,7 +188,7 @@
    * sidebar-accent fills (4.29, 4.38) or on a /20 or denser primary tint.
    * `link` text is never opacity-modified: /90 already fails on muted (4.17)
    * and /80 fails everywhere (3.82 on background). app/linkToken.test.ts pins
-   * these ratios; lib/primaryTextUsage.lint.test.ts keeps text-sized
+   * the passing surfaces; lib/primaryTextUsage.lint.test.ts keeps text-sized
    * `text-primary` from coming back. */
   --link: #a84015;
   --secondary: #e8e3d6;

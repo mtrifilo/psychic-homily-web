@@ -4,9 +4,10 @@ import { describe, expect, it } from 'vitest'
 
 /**
  * The `--link` token's contract in globals.css: text in it clears WCAG AA
- * (4.5:1) on every surface small orange text sits on, in both themes. The
- * surfaces listed here are the ones the token's comment names; a token edit
- * that breaks any of them fails here.
+ * (4.5:1) on each surface the token's comment lists as passing, in both themes
+ * where the surface exists in both. A token edit that breaks any of them fails
+ * here; the comment's failing surfaces (the accent fills, denser tints) are
+ * not pinned.
  */
 
 const css = readFileSync(resolve(process.cwd(), 'app/globals.css'), 'utf8')
@@ -70,12 +71,17 @@ describe('the link token', () => {
     expect(contrast(link, tokenHex(themeBlock, 'card'))).toBeGreaterThanOrEqual(4.5)
   })
 
-  it.each(['muted', 'secondary', 'sidebar'])(
-    'keeps light link text at WCAG AA on the %s surface',
-    surface => {
-      expect(contrast(tokenHex(light, 'link'), tokenHex(light, surface))).toBeGreaterThanOrEqual(4.5)
-    }
-  )
+  it.each([
+    ['light', 'muted'],
+    ['light', 'secondary'],
+    ['light', 'sidebar'],
+    ['dark', 'muted'],
+    ['dark', 'secondary'],
+    ['dark', 'sidebar'],
+  ])('keeps %s link text at WCAG AA on the %s surface', (theme, surface) => {
+    const themeBlock = theme === 'light' ? light : dark
+    expect(contrast(tokenHex(themeBlock, 'link'), tokenHex(themeBlock, surface))).toBeGreaterThanOrEqual(4.5)
+  })
 
   it('keeps light link text at WCAG AA on the muted/20 list-row stripe', () => {
     const stripe = composite(tokenHex(light, 'muted'), tokenHex(light, 'background'), 0.2)
