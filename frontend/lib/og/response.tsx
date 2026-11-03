@@ -12,7 +12,7 @@ import {
  * A font load that may have degraded.
  *
  * `degraded` is not cosmetic bookkeeping: every fit budget on a card is
- * computed from Satoshi's metrics, so a card drawn in Satori's fallback face
+ * computed from the brand faces' metrics, so a card drawn in Satori's fallback face
  * is measured against the wrong numbers and can overrun. Callers use this to
  * refuse to cache such a card for long.
  */

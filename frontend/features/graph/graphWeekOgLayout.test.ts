@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { OG_SIZE } from '@/lib/og/brand'
-import { measureMono } from '@/lib/og/textFit'
+import { measureData } from '@/lib/og/textFit'
 
 import {
   CONTENT_WIDTH,
@@ -56,7 +56,7 @@ describe('card type budgets', () => {
 
   it('fits the range on one line', () => {
     expect(
-      measureMono('DEC 28 2025 - JAN 3 2026', RANGE_SIZE, RANGE_TRACKING)
+      measureData('DEC 28 2025 - JAN 3 2026', RANGE_SIZE, RANGE_TRACKING)
     ).toBeLessThanOrEqual(TEXT_WIDTH)
   })
 })
@@ -65,7 +65,7 @@ describe('fitCountsSize', () => {
   it('uses the full size for an ordinary week', () => {
     const ordinary = '+12 ARTISTS · +34 CONNECTIONS'
     expect(fitCountsSize(ordinary)).toBe(COUNTS_SIZE_MAX)
-    expect(measureMono(ordinary, COUNTS_SIZE_MAX, COUNTS_TRACKING)).toBeLessThanOrEqual(
+    expect(measureData(ordinary, COUNTS_SIZE_MAX, COUNTS_TRACKING)).toBeLessThanOrEqual(
       COUNTS_MAX_WIDTH
     )
   })
@@ -78,7 +78,7 @@ describe('fitCountsSize', () => {
     const size = fitCountsSize(widest)
     expect(size).toBeLessThan(COUNTS_SIZE_MAX)
     expect(size).toBeGreaterThanOrEqual(COUNTS_SIZE_MIN)
-    expect(measureMono(widest, size, COUNTS_TRACKING)).toBeLessThanOrEqual(COUNTS_MAX_WIDTH)
+    expect(measureData(widest, size, COUNTS_TRACKING)).toBeLessThanOrEqual(COUNTS_MAX_WIDTH)
   })
 
   it('never returns below the legibility floor even for absurd input', () => {
@@ -87,7 +87,7 @@ describe('fitCountsSize', () => {
     // Past the floor the line is over its budget by design — but it must still
     // CLIP inside the canvas rather than bleed off it. `nowrap` plus a text
     // column narrower than the content box is what makes that true.
-    expect(measureMono(absurd, COUNTS_SIZE_MIN, COUNTS_TRACKING)).toBeGreaterThan(
+    expect(measureData(absurd, COUNTS_SIZE_MIN, COUNTS_TRACKING)).toBeGreaterThan(
       COUNTS_MAX_WIDTH
     )
   })
@@ -98,7 +98,7 @@ describe('fitCountsSize', () => {
     // the size the fit function actually returns for it.
     const clearStopPx = (OG_SIZE.width * MOTIF_FADE_CLEAR_STOP) / 100
     const widest = '+9,999 ARTISTS · +99,999 CONNECTIONS'
-    const right = PAD_X + measureMono(widest, fitCountsSize(widest), COUNTS_TRACKING)
+    const right = PAD_X + measureData(widest, fitCountsSize(widest), COUNTS_TRACKING)
     expect(right).toBeLessThanOrEqual(clearStopPx)
   })
 })

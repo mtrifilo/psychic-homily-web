@@ -23,7 +23,7 @@
  */
 
 import { OG_SIZE } from '@/lib/og/brand'
-import { fitMonoSize, measureMono, measureSans } from '@/lib/og/textFit'
+import { fitDataSize, measureData, measureSans } from '@/lib/og/textFit'
 
 export const PAD_X = 72
 export const PAD_Y = 64
@@ -32,9 +32,9 @@ export const PAD_Y = 64
 export const CONTENT_WIDTH = OG_SIZE.width - PAD_X * 2
 
 /**
- * `PSYCHIC HOMILY · THE MAP OF THE SCENE`, top left, Space Mono.
+ * `PSYCHIC HOMILY · THE MAP OF THE SCENE`, top left, in the data face.
  *
- * 34px, matching the weekly city card's mono floor: it is the only line on the
+ * 34px, matching the weekly city card's data-face floor: it is the only line on the
  * card carrying the brand, and 30px lands at 7.5px effective — under the
  * family's own floor. It gets the FULL content width rather than the headline
  * column's, which is what makes 34px fit; the motif behind its tail is drawn at
@@ -45,13 +45,13 @@ export const EYEBROW_TRACKING = 2
 export const EYEBROW_TEXT = 'PSYCHIC HOMILY · THE MAP OF THE SCENE'
 
 /**
- * `This week in the graph`, Satoshi Bold.
+ * `This week in the graph`, Schibsted Grotesk Bold.
  *
  * A FIXED size with no fit function, and that is a property of the copy rather
  * than an omission: this string is a constant, so it is measured once — by the
  * test next to this file — instead of being re-measured on every render. The
  * two variable-length strings on the card (the counts and the range) are both
- * mono and both bounded, and only the counts need a step-down.
+ * in the data face and both bounded, and only the counts need a step-down.
  *
  * It wraps to two lines inside `TEXT_WIDTH` by design. 92px is 23px at the
  * 300px share size, which keeps it the dominant element there too.
@@ -61,10 +61,10 @@ export const HEADLINE_LINE_HEIGHT = 88
 export const HEADLINE_TEXT = 'This week in the graph'
 
 /**
- * `+12 ARTISTS · +34 CONNECTIONS`, Space Mono, primary orange.
+ * `+12 ARTISTS · +34 CONNECTIONS`, data face, primary orange.
  *
  * Steps down rather than clipping, because the count is what the card exists to
- * say. The floor is the family's 8.5px-effective mono floor; the widest
+ * say. The floor is the family's 8.5px-effective data-face floor; the widest
  * realistic line (`+9,999 ARTISTS · +99,999 CONNECTIONS`) fits inside
  * `COUNTS_MAX_WIDTH` at it.
  */
@@ -72,7 +72,7 @@ export const COUNTS_SIZE_MAX = 40
 export const COUNTS_SIZE_MIN = 34
 export const COUNTS_TRACKING = 1
 
-/** `JUL 27 - AUG 2 2026`, Space Mono, muted. */
+/** `JUL 27 - AUG 2 2026`, data face, muted. */
 export const RANGE_SIZE = 34
 export const RANGE_TRACKING = 2
 
@@ -92,16 +92,15 @@ export const TEXT_WIDTH = 660
 /**
  * The counts line gets more room than the headline column.
  *
- * It is a single unwrappable mono run — a wrap would split `+12 ARTISTS` across
+ * It is a single unwrappable data run: a wrap would split `+12 ARTISTS` across
  * two lines — so it is allowed to reach past `TEXT_WIDTH` into the motif's
  * fade, where the gradient is still near-opaque.
  *
- * The VALUE is not chosen, it is derived, and the test beside this file is what
- * derives it: 810 is the smallest budget that seats the widest count line this
- * card can produce (`+9,999 ARTISTS · +99,999 CONNECTIONS`) at the 34px mono
- * floor, while still letting an ordinary week run at the full 40px. It also
- * keeps the line's right edge inside `MOTIF_FADE_CLEAR_STOP`, so no part of it
- * is ever set over undimmed dots.
+ * The test beside this file holds the value to three properties: it seats the
+ * widest count line this card can produce (`+9,999 ARTISTS · +99,999
+ * CONNECTIONS`) at or above the 34px floor, it lets an ordinary week run at
+ * the full 40px, and it keeps the line's right edge inside
+ * `MOTIF_FADE_CLEAR_STOP`, so no part of it is ever set over undimmed dots.
  */
 export const COUNTS_MAX_WIDTH = 810
 
@@ -158,17 +157,17 @@ export const GRAPH_WEEK_OG_ALT =
 
 /** What the counts line gets, once its own tracking is accounted for. */
 export function fitCountsSize(counts: string): number {
-  return fitMonoSize(counts, COUNTS_MAX_WIDTH, COUNTS_SIZE_MAX, COUNTS_SIZE_MIN, COUNTS_TRACKING)
+  return fitDataSize(counts, COUNTS_MAX_WIDTH, COUNTS_SIZE_MAX, COUNTS_SIZE_MIN, COUNTS_TRACKING)
 }
 
 /** Measured widths the test asserts the fixed-size copy against. */
 export function eyebrowWidth(): number {
-  return measureMono(EYEBROW_TEXT, EYEBROW_SIZE, EYEBROW_TRACKING)
+  return measureData(EYEBROW_TEXT, EYEBROW_SIZE, EYEBROW_TRACKING)
 }
 
 /** The headline's longest unbreakable run — what has to fit on one line. */
 export function headlineLongestWordWidth(): number {
   return Math.max(
-    ...HEADLINE_TEXT.split(' ').map(word => measureSans(word, 'satoshiBold', HEADLINE_SIZE))
+    ...HEADLINE_TEXT.split(' ').map(word => measureSans(word, 'schibstedBold', HEADLINE_SIZE))
   )
 }

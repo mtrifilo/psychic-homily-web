@@ -15,6 +15,7 @@
 import { ImageResponse } from 'next/og'
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { OG_COLORS, OG_FONT_FAMILY } from '../lib/og/brand'
 
 const FONTS = 'lib/og/fonts'
 const read = (f: string) => {
@@ -29,10 +30,9 @@ const read = (f: string) => {
 const brandOnly = process.argv.includes('--no-fallback')
 
 const fonts = [
-  { name: 'Satoshi', data: read('Satoshi-Bold.ttf'), weight: 700 as const, style: 'normal' as const },
-  { name: 'Satoshi', data: read('Satoshi-Medium.ttf'), weight: 500 as const, style: 'normal' as const },
-  { name: 'Satoshi', data: read('Satoshi-Regular.ttf'), weight: 400 as const, style: 'normal' as const },
-  { name: 'Space Mono', data: read('SpaceMono-Regular.ttf'), weight: 400 as const, style: 'normal' as const },
+  { name: OG_FONT_FAMILY.sans, data: read('SchibstedGrotesk-Bold.ttf'), weight: 700 as const, style: 'normal' as const },
+  { name: OG_FONT_FAMILY.sans, data: read('SchibstedGrotesk-Regular.ttf'), weight: 400 as const, style: 'normal' as const },
+  { name: OG_FONT_FAMILY.data, data: read('GolosText-Regular.ttf'), weight: 400 as const, style: 'normal' as const },
   // `--no-fallback` reproduces the pre-PSY-1640 font set, so the covered cases
   // below can be shown FAILING without it. A probe that only ever passes proves
   // nothing about whether the added faces are what is doing the work.
@@ -59,6 +59,14 @@ const COVERED: Array<[string, string]> = [
   ['Azerbaijani', 'Əə'],
   ['Numero', 'Клуб №1'],
   ['Latin Ext-A', 'Kraków'],
+  ['Polish', 'Łódź'],
+  ['Hungarian', 'Győr'],
+  // Golos Text draws ğ without its breve (google/fonts issue 11219); the glyph
+  // is present, so this is a rendering defect rather than an outbound request.
+  ['Turkish', 'Çağrı'],
+  // Golos Text lacks these, so the data-face line resolves them from the body
+  // face: still offline, and charged the over-estimate by textFit.
+  ['Esperanto', 'Ĝis ŝi'],
   ['Latin baseline', 'Phoenix'],
 ]
 
@@ -95,26 +103,32 @@ async function render(label: string, text: string, slug: string) {
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'center',
-            backgroundColor: '#0d0805',
+            backgroundColor: OG_COLORS.background,
             padding: '64px 72px',
           }}
         >
-          <div style={{ display: 'flex', fontFamily: 'Space Mono', fontSize: 40, color: '#e89960' }}>
-            {label}
+          <div style={{ display: 'flex', fontFamily: OG_FONT_FAMILY.data, fontSize: 40, color: OG_COLORS.primary }}>
+            {label} · {text}
+          </div>
+          {/* Figures in the data face, stacked so their near-tabular widths
+              (Golos's tnum set, 580 to 620 units) are visible. */}
+          <div style={{ display: 'flex', flexDirection: 'column', fontFamily: OG_FONT_FAMILY.data, fontSize: 34, color: OG_COLORS.mutedForeground }}>
+            <div style={{ display: 'flex' }}>1111 · 7777 · 4444</div>
+            <div style={{ display: 'flex' }}>0000 · 8888 · 2222</div>
           </div>
           <div
             style={{
               display: 'flex',
-              fontFamily: 'Satoshi',
+              fontFamily: OG_FONT_FAMILY.sans,
               fontWeight: 700,
               fontSize: 132,
-              color: '#eee7d9',
+              color: OG_COLORS.foreground,
               letterSpacing: -3,
             }}
           >
             {text}
           </div>
-          <div style={{ display: 'flex', fontFamily: 'Satoshi', fontWeight: 400, fontSize: 36, color: '#9c8c7c' }}>
+          <div style={{ display: 'flex', fontFamily: OG_FONT_FAMILY.sans, fontWeight: 400, fontSize: 36, color: OG_COLORS.mutedForeground }}>
             {text} · 12 shows this week
           </div>
         </div>

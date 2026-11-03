@@ -5,7 +5,7 @@ import {
   ogCacheControl,
   ogFallbackCard,
 } from '@/lib/og/response'
-import { fitFontSize, fitItemList, monoBaselineLift } from '@/lib/og/textFit'
+import { fitFontSize, fitItemList, dataBaselineLift } from '@/lib/og/textFit'
 import { fetchSceneWeek } from './sceneWeekApi'
 // The windows come from the shared module the FETCH reads them from, not from
 // a week-local alias. The card's cache-control and the data's revalidate have
@@ -82,7 +82,7 @@ export async function renderSceneWeekOgCard(
   const state = data.state?.trim() ?? ''
   const citySize = fitFontSize(
     data.city,
-    'satoshiBold',
+    'schibstedBold',
     cityMaxWidth(state),
     CITY_SIZE_MAX,
     CITY_SIZE_MIN,
@@ -91,7 +91,7 @@ export async function renderSceneWeekOgCard(
 
   const roomsLine = fitItemList(
     (data.tracked_venues ?? []).map(v => v.name),
-    'satoshiRegular',
+    'schibstedRegular',
     FOOTER_SIZE,
     ROOMS_MAX_WIDTH,
     roomsOverflowLabel
@@ -113,7 +113,7 @@ export async function renderSceneWeekOgCard(
         <div
           style={{
             display: 'flex',
-            fontFamily: OG_FONT_FAMILY.mono,
+            fontFamily: OG_FONT_FAMILY.data,
             fontSize: RANGE_SIZE,
             color: OG_COLORS.primary,
             letterSpacing: RANGE_TRACKING,
@@ -142,11 +142,11 @@ export async function renderSceneWeekOgCard(
             {state && (
               <div
                 style={{
-                  fontFamily: OG_FONT_FAMILY.mono,
+                  fontFamily: OG_FONT_FAMILY.data,
                   fontSize: STATE_SIZE,
                   color: OG_COLORS.mutedForeground,
                   letterSpacing: STATE_TRACKING,
-                  marginBottom: monoBaselineLift(citySize, STATE_SIZE),
+                  marginBottom: dataBaselineLift(citySize, STATE_SIZE),
                 }}
               >
                 {state}
@@ -157,7 +157,9 @@ export async function renderSceneWeekOgCard(
             style={{
               display: 'flex',
               fontFamily: OG_FONT_FAMILY.sans,
-              fontWeight: 500,
+              // 400, not the design's Medium: the edge bundle carries no 500
+              // instance (see the WEIGHTS note in `lib/og/brand.ts`).
+              fontWeight: 400,
               fontSize: COUNT_SIZE,
               color: OG_COLORS.foreground,
               marginTop: HEADLINE_GAP,
@@ -191,7 +193,7 @@ export async function renderSceneWeekOgCard(
           <div
             style={{
               display: 'flex',
-              fontFamily: OG_FONT_FAMILY.mono,
+              fontFamily: OG_FONT_FAMILY.data,
               color: OG_COLORS.primary,
             }}
           >
@@ -208,7 +210,7 @@ export async function renderSceneWeekOgCard(
       // its own window from, so the rendered card and the numbers on it can
       // never disagree about how long they are good for. A card drawn without
       // the brand fonts is held to the short window regardless: its fit budgets
-      // were computed from Satoshi's metrics, so it may be visually wrong, and
+      // were computed from the brand faces' metrics, so it may be visually wrong, and
       // a wrong card should expire rather than sit in the CDN for a day.
       headers: {
         'cache-control': ogCacheControl(
