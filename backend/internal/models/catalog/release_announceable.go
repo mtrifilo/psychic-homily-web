@@ -70,16 +70,20 @@ func ReleaseAnnounceable(release *Release, now time.Time) (bool, string) {
 		return false, NotAnnounceableGone
 	}
 
+	oldest, latest, minYear := ReleaseAnnounceableBounds(now)
+
 	if release.ReleaseDate != nil && *release.ReleaseDate != "" {
 		// Stored as a DATE but modelled as a string (see Release.ReleaseDate), so
 		// it is parsed here rather than trusted. An unparseable value is treated
 		// as absent and falls through to the year branch, which is the same
 		// fail-closed direction the rest of this predicate takes.
-		if day, err := time.Parse(releaseDateLayout, *release.ReleaseDate); err == nil {
-			if day.Before(now.Add(-ReleaseRecencyWindow)) {
+		if parsed, err := time.Parse(releaseDateLayout, *release.ReleaseDate); err == nil {
+			// Canonical YYYY-MM-DD strings order the same as the days they name.
+			day := parsed.Format(releaseDateLayout)
+			if day < oldest {
 				return false, NotAnnounceableBackCatalogue
 			}
-			if day.After(now.Add(ReleaseFutureWindow)) {
+			if day > latest {
 				return false, NotAnnounceableImplausibleDate
 			}
 			return true, ""
@@ -87,13 +91,28 @@ func ReleaseAnnounceable(release *Release, now time.Time) (bool, string) {
 	}
 
 	if release.ReleaseYear != nil {
-		if *release.ReleaseYear >= now.Year() {
+		if *release.ReleaseYear >= minYear {
 			return true, ""
 		}
 		return false, NotAnnounceableBackCatalogue
 	}
 
 	return false, NotAnnounceableUndated
+}
+
+// ReleaseAnnounceableBounds returns the inclusive window ReleaseAnnounceable
+// applies at now, as calendar days in UTC: the oldest and latest announceable
+// release_date (YYYY-MM-DD) and the lowest announceable year-only release_year.
+//
+// Day-granular because release_date is a DATE: comparing it against an instant
+// would make the window's edge days depend on the hour and on the zone of the
+// caller. SQL restatements of the predicate bind these values so they cannot
+// disagree with it.
+func ReleaseAnnounceableBounds(now time.Time) (oldest, latest string, minYear int) {
+	utc := now.UTC()
+	return utc.Add(-ReleaseRecencyWindow).Format(releaseDateLayout),
+		utc.Add(ReleaseFutureWindow).Format(releaseDateLayout),
+		utc.Year()
 }
 
 // releaseDateLayout is how releases.release_date is spelled. The column is a

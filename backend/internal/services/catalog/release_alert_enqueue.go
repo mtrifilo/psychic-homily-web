@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/lib/pq"
 	"gorm.io/gorm"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
@@ -147,16 +148,15 @@ func enqueueArtistReleaseAlerts(tx *gorm.DB, release *catalogm.Release, artistID
 	// and writes nothing. It also settles the concurrent-create race without a
 	// separate guard, which the venue sibling needed because its natural key
 	// included the day.
+	//
+	// The SQL carries no comments: GORM binds every literal question mark in
+	// the text, a comment's included.
 	err := tx.Transaction(func(itx *gorm.DB) error {
 		return itx.Exec(`
 			INSERT INTO artist_release_alert_batch (artist_id, release_id, alert_week, created_at)
 			SELECT a.id, ?, ?::date, ?
 			FROM artists a
-			-- IN ? rather than = ANY(array): GORM expands this into one bind
-			-- parameter per element, which is fine here and only here — the list
-			-- is the artists credited on ONE release, a handful even on a
-			-- compilation. The flush, whose lists are follower-sized, uses arrays.
-			WHERE a.id IN ?
+			WHERE a.id = ANY(?)
 			  AND EXISTS (
 			        SELECT 1 FROM user_bookmarks b
 			        WHERE b.entity_type = ?
@@ -166,7 +166,7 @@ func enqueueArtistReleaseAlerts(tx *gorm.DB, release *catalogm.Release, artistID
 			ON CONFLICT DO NOTHING
 		`,
 			release.ID, week, now,
-			artistIDs,
+			pq.Array(artistIDs),
 			artistReleaseFollowEntityType, string(engagementm.BookmarkActionFollow),
 		).Error
 	})

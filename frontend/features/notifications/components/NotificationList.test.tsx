@@ -103,6 +103,25 @@ function venueShowAlert(overrides: Partial<NotificationLogEntry> = {}): Notifica
   }
 }
 
+function artistReleaseDigest(
+  overrides: Partial<NotificationLogEntry> = {}
+): NotificationLogEntry {
+  return {
+    id: 8,
+    entity_type: 'artist_release_digest',
+    // The READER's user id: the row is coalesced over every artist they follow.
+    entity_id: 1,
+    channel: 'in_app',
+    sent_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    read_at: null,
+    alert_bucket: '2026-10-26',
+    alert_release_count: 4,
+    alert_release_artist_count: 3,
+    alert_release_artists: 'Dan Deacon, Primitive Man, Russian Circles',
+    ...overrides,
+  }
+}
+
 describe('NotificationList', () => {
   it('renders empty state when no entries', () => {
     render(<NotificationList entries={[]} />)
@@ -319,6 +338,56 @@ describe('NotificationList', () => {
     expect(screen.getByText('added a new show')).toBeInTheDocument()
     expect(screen.getByRole('link')).toHaveAttribute('href', '/venues')
     expect(screen.queryByText('venue_show_alert')).not.toBeInTheDocument()
+  })
+
+  it('counts the artists and lists them on a weekly release digest', () => {
+    render(<NotificationList entries={[artistReleaseDigest()]} />)
+    expect(screen.getByText('3 artists you follow')).toBeInTheDocument()
+    expect(screen.getByText('added releases this week')).toBeInTheDocument()
+    expect(
+      screen.getByText('Dan Deacon, Primitive Man, Russian Circles')
+    ).toBeInTheDocument()
+    // A multi-release week has no single destination.
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/library')
+  })
+
+  it('links a one-release digest to the release and singularizes it', () => {
+    render(
+      <NotificationList
+        entries={[
+          artistReleaseDigest({
+            alert_release_count: 1,
+            alert_release_artist_count: 1,
+            alert_release_artists: 'Russian Circles',
+            alert_release_url: 'https://example.com/releases/gnosis',
+          }),
+        ]}
+      />
+    )
+    expect(screen.getByText('1 artist you follow')).toBeInTheDocument()
+    expect(screen.getByText('added a release this week')).toBeInTheDocument()
+    expect(screen.getByRole('link')).toHaveAttribute(
+      'href',
+      'https://example.com/releases/gnosis'
+    )
+  })
+
+  it('degrades a release digest whose enrichment came back empty', () => {
+    render(
+      <NotificationList
+        entries={[
+          artistReleaseDigest({
+            alert_release_count: undefined,
+            alert_release_artist_count: undefined,
+            alert_release_artists: undefined,
+          }),
+        ]}
+      />
+    )
+    expect(screen.getByText('1 artist you follow')).toBeInTheDocument()
+    expect(screen.getByText('added a release this week')).toBeInTheDocument()
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/library')
+    expect(screen.queryByText('artist_release_digest')).not.toBeInTheDocument()
   })
 
   // The failure this guards is silent: entity_id on a venue alert is a VENUE

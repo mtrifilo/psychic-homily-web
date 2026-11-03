@@ -462,7 +462,7 @@ func (s *NotificationFilterService) loadReleaseDigestWeek(week string) (*release
 		WHERE b.alert_week = ?::date
 		GROUP BY b.artist_id, a.name, b.release_id, r.title, r.slug,
 		         r.release_type, r.release_date, r.release_year
-		ORDER BY a.name ASC, a.id ASC, r.release_date DESC NULLS LAST, r.id ASC
+		ORDER BY a.name ASC, b.artist_id ASC, r.release_date DESC NULLS LAST, b.release_id ASC
 	`, week).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("release digest members for week %s: %w", week, err)
@@ -1106,15 +1106,11 @@ func ArtistReleaseAlertsEnabled() bool {
 // Inbox enrichment
 // ──────────────────────────────────────────────
 
-// releaseDigestSummaryLimit caps how many records an inbox row names.
-//
-// A week's roundup is unbounded — a reader following two hundred bands during a
-// release wave is one row — and an inbox row is one or two lines. The count is
-// reported separately and in full, so the row can say "and 12 more" rather than
-// lying about the size. Two rather than the venue row's three because each entry
-// here carries a title AND an artist name, so the line is roughly half again as
-// wide per item.
-const releaseDigestSummaryLimit = 2
+// releaseDigestSummaryLimit caps how many artists an inbox row names. A week's
+// roundup is unbounded and an inbox row is one or two lines; the full count is
+// reported separately, so the row says "and 12 more" rather than misstating the
+// size.
+const releaseDigestSummaryLimit = 3
 
 // enrichArtistReleaseDigestNotifications populates the release count, preview
 // and (for a roundup of one) the link on artist_release_digest rows (PSY-1897).
@@ -1186,77 +1182,71 @@ func (s *NotificationFilterService) enrichArtistReleaseDigestNotifications(
 	var members []struct {
 		AlertWeek  string  `gorm:"column:alert_week"`
 		ReleaseID  uint    `gorm:"column:release_id"`
-		Title      string  `gorm:"column:title"`
 		Slug       *string `gorm:"column:slug"`
+		ArtistID   uint    `gorm:"column:artist_id"`
 		ArtistName string  `gorm:"column:artist_name"`
 	}
-	// The announceability window is passed as parameters computed from the SAME
-	// exported constants ReleaseAnnounceable uses, so the SQL restatement cannot
-	// drift from the Go one on its numbers. The predicate's SHAPE is restated,
-	// which is the cost of not round-tripping every inbox read through Go;
-	// TestInboxEnrichmentAgreesWithReleaseAnnounceable pins the two together.
-	now := time.Now()
+	// The announceability window is bound from catalogm.ReleaseAnnounceableBounds,
+	// the same day bounds ReleaseAnnounceable applies, so the SQL restatement of
+	// the predicate cannot disagree with it on a boundary day.
+	oldest, latest, minYear := catalogm.ReleaseAnnounceableBounds(time.Now())
 	if err := s.db.Raw(`
-		SELECT DISTINCT ON (b.alert_week, b.release_id)
-		       to_char(b.alert_week, 'YYYY-MM-DD') AS alert_week,
-		       b.release_id, r.title, r.slug, a.name AS artist_name
+		SELECT to_char(b.alert_week, 'YYYY-MM-DD') AS alert_week,
+		       b.release_id, r.slug, b.artist_id, a.name AS artist_name
 		FROM artist_release_alert_batch b
 		JOIN releases r ON r.id = b.release_id
 		JOIN artists a ON a.id = b.artist_id
 		-- The record must still be CREDITED to this artist: artist_releases is
 		-- rewritten by a credit correction and never touches the batch row.
 		JOIN artist_releases ar ON ar.artist_id = b.artist_id AND ar.release_id = b.release_id
-		-- The reader's OWN follow of that artist. This is what makes the count
-		-- THIS READER's roundup rather than the week's whole membership.
+		-- The reader's OWN follow of that artist, so the row describes this
+		-- reader's roundup rather than the week's whole membership.
 		JOIN user_bookmarks ub
 		  ON ub.user_id = ?
 		 AND ub.entity_type = ?
 		 AND ub.action = ?
 		 AND ub.entity_id = b.artist_id
 		WHERE b.alert_week = ANY(?::date[])
-		  -- The same fence accrual and the flush applied. See
-		  -- catalogm.ReleaseAnnounceable: a dated record must be recent and not
-		  -- implausibly far ahead, a year-only record must carry the current year
-		  -- or later, and an undated record is never announceable.
 		  AND (
 		        (r.release_date IS NOT NULL AND r.release_date >= ?::date AND r.release_date <= ?::date)
 		     OR (r.release_date IS NULL AND r.release_year IS NOT NULL AND r.release_year >= ?)
 		      )
-		ORDER BY b.alert_week, b.release_id, a.name ASC
+		-- artist_releases is keyed by role, so one credit can join twice.
+		GROUP BY b.alert_week, b.release_id, r.slug, b.artist_id, a.name
+		ORDER BY b.alert_week, a.name ASC, b.artist_id ASC, b.release_id ASC
 	`,
 		userID,
 		artistReleaseFollowEntityType,
 		string(engagementm.BookmarkActionFollow),
 		pq.Array(buckets),
-		now.Add(-catalogm.ReleaseRecencyWindow).Format(alertWeekLayout),
-		now.Add(catalogm.ReleaseFutureWindow).Format(alertWeekLayout),
-		now.Year(),
+		oldest, latest, minYear,
 	).Scan(&members).Error; err != nil {
 		log.Printf("warning: failed to load release digest batches for inbox enrichment: %v", err)
 		return
 	}
 
-	// DISTINCT ON (week, release) collapses a record credited to two artists the
-	// reader follows into ONE entry, matching what groupReleasesByArtist does for
-	// the email. Without it the bell would say "3 new releases" for two records.
+	// A release credited to two followed artists counts once as a release and
+	// once per artist, so the row's artist list names both.
 	type weekSummary struct {
-		count   int
-		preview []string
-		soleURL string
+		releases map[uint]struct{}
+		artists  map[uint]struct{}
+		names    []string
+		soleURL  string
 	}
 	byWeek := make(map[string]*weekSummary, len(buckets))
 	for _, m := range members {
 		w := byWeek[m.AlertWeek]
 		if w == nil {
-			w = &weekSummary{}
+			w = &weekSummary{releases: map[uint]struct{}{}, artists: map[uint]struct{}{}}
 			byWeek[m.AlertWeek] = w
 		}
-		w.count++
-		if w.count == 1 {
+		if _, seen := w.releases[m.ReleaseID]; !seen {
+			w.releases[m.ReleaseID] = struct{}{}
 			w.soleURL = entityURL(s.frontendURL, "releases", m.Slug, m.ReleaseID)
 		}
-		if len(w.preview) < releaseDigestSummaryLimit {
-			w.preview = append(w.preview, fmt.Sprintf("%s by %s", m.Title, m.ArtistName))
+		if _, seen := w.artists[m.ArtistID]; !seen {
+			w.artists[m.ArtistID] = struct{}{}
+			w.names = append(w.names, m.ArtistName)
 		}
 	}
 
@@ -1269,16 +1259,23 @@ func (s *NotificationFilterService) enrichArtistReleaseDigestNotifications(
 		if w == nil {
 			continue
 		}
-		e.AlertReleaseCount = w.count
-		summary := w.preview
-		if extra := w.count - len(summary); extra > 0 {
-			summary = append(append([]string{}, summary...), fmt.Sprintf("and %d more", extra))
-		}
-		e.AlertReleaseSummary = strings.Join(summary, " · ")
-		// Only a roundup of ONE has an honest single destination; see
-		// AlertReleaseURL on the contract for why a multi-record row has none.
-		if w.count == 1 {
+		e.AlertReleaseCount = len(w.releases)
+		e.AlertReleaseArtistCount = len(w.artists)
+		e.AlertReleaseArtists = releaseDigestArtistList(w.names)
+		// Only a one-release week has an honest single destination.
+		if len(w.releases) == 1 {
 			e.AlertReleaseURL = w.soleURL
 		}
 	}
+}
+
+// releaseDigestArtistList joins the inbox row's artist names, naming at most
+// releaseDigestSummaryLimit and counting the rest.
+func releaseDigestArtistList(names []string) string {
+	if len(names) <= releaseDigestSummaryLimit {
+		return strings.Join(names, ", ")
+	}
+	return fmt.Sprintf("%s and %d more",
+		strings.Join(names[:releaseDigestSummaryLimit], ", "),
+		len(names)-releaseDigestSummaryLimit)
 }

@@ -155,15 +155,16 @@ type NotificationLogEntry struct {
 	// AlertReleaseURL is absolute and same-origin-relativized by the frontend
 	// before use, like every other deep link on this contract.
 	//
-	// AlertReleaseCount is the roundup's FULL size for this reader, which is not
-	// always the number of records named in AlertReleaseSummary — the summary is
-	// capped.
+	// AlertReleaseCount is the number of distinct releases in the roundup for
+	// this reader.
 	AlertReleaseCount int `json:"alert_release_count,omitempty"`
-	// AlertReleaseSummary is a short, already-joined preview of the week's
-	// records ("Success by Oneida · Tenkiller by Chat Pile · and 1 more"),
-	// server-side capped so one busy week cannot produce an inbox row hundreds of
-	// entries long.
-	AlertReleaseSummary string `json:"alert_release_summary,omitempty"`
+	// AlertReleaseArtistCount is the number of distinct followed artists those
+	// releases are credited to. A full count, unlike AlertReleaseArtists.
+	AlertReleaseArtistCount int `json:"alert_release_artist_count,omitempty"`
+	// AlertReleaseArtists names those artists in name order, already joined
+	// ("Dan Deacon, Primitive Man, Russian Circles") and capped server-side,
+	// ending in "and N more" when it names fewer than AlertReleaseArtistCount.
+	AlertReleaseArtists string `json:"alert_release_artists,omitempty"`
 	// AlertReleaseURL is where the row links. Set ONLY when the roundup covers
 	// exactly one record, in which case that record's page is the honest
 	// destination. A multi-record roundup has no single page, and the frontend

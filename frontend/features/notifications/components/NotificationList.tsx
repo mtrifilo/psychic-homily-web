@@ -11,10 +11,11 @@
  */
 
 import Link from 'next/link'
-import { MessageCircle, AtSign, Calendar, BellRing, CalendarPlus, ExternalLink, PackageCheck, Building2 } from 'lucide-react'
+import { MessageCircle, AtSign, Calendar, BellRing, CalendarPlus, ExternalLink, PackageCheck, Building2, Disc3 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   formatTimeAgo,
+  isArtistReleaseDigestNotification,
   isArtistShowAlertNotification,
   isCommentNotification,
   isRequestNotification,
@@ -338,6 +339,61 @@ function NotificationRow({ entry, variant, onItemClick, onMarkRead, dimmed }: Ro
             {entry.alert_show_summary && (
               <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
                 {entry.alert_show_summary}
+              </p>
+            )}
+            <RowMeta entry={entry} onMarkRead={onMarkRead} />
+          </div>
+          {unread && (
+            <span
+              className="mt-2 h-2 w-2 shrink-0 rounded-full bg-primary"
+              aria-label="Unread"
+            />
+          )}
+        </Link>
+      </li>
+    )
+  }
+
+  if (isArtistReleaseDigestNotification(entry)) {
+    // Figma 2197:193, Kind = Weekly digest. ONE row per reader per UTC week,
+    // across every artist they follow, and the row can grow after delivery
+    // because the server resolves its release list at read time.
+    //
+    // Only a one-release week has a single destination, so the release page is
+    // the link only then; any larger week opens the reader's follow list.
+    // Already relativized by the query hook so the click stays client-side and
+    // its mark-read survives.
+    const href = entry.alert_release_url || '/library'
+    // Both counts are FULL sizes from the server. Defaulting to 1 keeps the
+    // sentence grammatical if enrichment came back empty (every member deleted);
+    // the artist line then does not render.
+    const artistCount = entry.alert_release_artist_count || 1
+    const releaseCount = entry.alert_release_count || 1
+    const subject =
+      artistCount === 1 ? '1 artist you follow' : `${artistCount} artists you follow`
+    const verb =
+      releaseCount === 1 ? 'added a release this week' : 'added releases this week'
+    return (
+      <li>
+        <Link
+          href={href}
+          onClick={() => onItemClick?.(entry)}
+          className={rowClasses}
+        >
+          <div
+            className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary"
+            aria-hidden
+          >
+            <Disc3 className="h-3.5 w-3.5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm leading-snug">
+              <span className="font-medium">{subject}</span>{' '}
+              <span className="text-muted-foreground">{verb}</span>
+            </p>
+            {entry.alert_release_artists && (
+              <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                {entry.alert_release_artists}
               </p>
             )}
             <RowMeta entry={entry} onMarkRead={onMarkRead} />

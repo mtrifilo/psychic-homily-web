@@ -73,6 +73,8 @@ func (s *ArtistMergeIntegrationSuite) SetupTest() {
 		"DELETE FROM show_artists",
 		"DELETE FROM show_venues",
 		"DELETE FROM shows",
+		"DELETE FROM artist_release_alert_batch",
+		"DELETE FROM releases",
 		"DELETE FROM artists",
 		"DELETE FROM venues",
 		"DELETE FROM users",
@@ -1049,4 +1051,57 @@ func (s *ArtistMergeIntegrationSuite) TestMergeRepointsArtistShowAlertSubject() 
 	s.Require().Len(subjects, 1)
 	s.Equal(canonical.ID, subjects[0],
 		"the alert must name the surviving artist, not an id that no longer exists")
+}
+
+// ──────────────────────────────────────────────
+// Release-alert batch memberships
+// ──────────────────────────────────────────────
+
+func (s *ArtistMergeIntegrationSuite) seedReleaseAlertMember(artistID, releaseID uint, week string, dispatched bool) {
+	s.Require().NoError(s.db.Exec(`
+		INSERT INTO artist_release_alert_batch (artist_id, release_id, alert_week, dispatched_at)
+		VALUES (?, ?, ?::date, CASE WHEN ? THEN NOW() END)`,
+		artistID, releaseID, week, dispatched).Error)
+}
+
+func (s *ArtistMergeIntegrationSuite) createRelease(title string) *catalogm.Release {
+	r := &catalogm.Release{Title: title, ReleaseType: "lp"}
+	s.Require().NoError(s.db.Create(r).Error)
+	return r
+}
+
+// A release credited to both artists collides on the (artist_id, release_id)
+// key; the canonical membership survives with its own week and dispatch stamp,
+// and the loser's other memberships move rather than cascade away.
+func (s *ArtistMergeIntegrationSuite) TestMergeRepointsReleaseAlertMemberships() {
+	canonical := s.createArtist("Canonical Band")
+	loser := s.createArtist("Dupe Band")
+	shared := s.createRelease("Shared Record")
+	onlyLoser := s.createRelease("Loser Record")
+
+	s.seedReleaseAlertMember(canonical.ID, shared.ID, "2026-10-26", true)
+	s.seedReleaseAlertMember(loser.ID, shared.ID, "2026-11-02", false)
+	s.seedReleaseAlertMember(loser.ID, onlyLoser.ID, "2026-11-02", false)
+
+	_, err := s.svc.MergeArtists(canonical.ID, loser.ID)
+	s.Require().NoError(err)
+
+	var rows []struct {
+		ArtistID     uint
+		ReleaseID    uint
+		AlertWeek    string
+		Dispatched   bool
+	}
+	s.Require().NoError(s.db.Raw(`
+		SELECT artist_id, release_id, to_char(alert_week, 'YYYY-MM-DD') AS alert_week,
+		       dispatched_at IS NOT NULL AS dispatched
+		FROM artist_release_alert_batch ORDER BY release_id`).Scan(&rows).Error)
+	s.Require().Len(rows, 2)
+	s.Equal(canonical.ID, rows[0].ArtistID)
+	s.Equal(shared.ID, rows[0].ReleaseID)
+	s.Equal("2026-10-26", rows[0].AlertWeek, "the canonical membership keeps its own week")
+	s.True(rows[0].Dispatched, "a delivered week stays delivered")
+	s.Equal(canonical.ID, rows[1].ArtistID)
+	s.Equal(onlyLoser.ID, rows[1].ReleaseID)
+	s.False(rows[1].Dispatched)
 }

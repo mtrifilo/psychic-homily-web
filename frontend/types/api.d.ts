@@ -12710,6 +12710,12 @@ export interface components {
             alert_artist_name?: string;
             alert_bucket?: string;
             /** Format: int64 */
+            alert_release_artist_count?: number;
+            alert_release_artists?: string;
+            /** Format: int64 */
+            alert_release_count?: number;
+            alert_release_url?: string;
+            /** Format: int64 */
             alert_show_count?: number;
             alert_show_summary?: string;
             alert_show_title?: string;

@@ -754,6 +754,7 @@ no nondeterministic DB state changes from ambient background jobs. A new
 | `DISABLE_SWEEP_HEALTH_CHECK`      | Overdue-sweep alerting — reports stopped background loops to Sentry (PSY-1612) |
 | `DISABLE_SHOW_NOTIFY_OUTBOX`      | Follower notifications for ingest-created shows (PSY-1894). **The kill switch for outbound show email** |
 | `DISABLE_VENUE_SHOW_ALERTS`       | Coalesced venue new-show alerts (PSY-1895), BOTH accrual and the flush poller |
+| `DISABLE_ARTIST_RELEASE_ALERTS`   | Weekly new-release roundups for followed artists, BOTH accrual in the release create funnel and the flush poller |
 | `DISABLE_INDEXNOW_PINGS`          | IndexNow change pings. The loop is also off whenever `INDEXNOW_KEY` is unset or malformed. Watched by the sweep health check, so turning it off after it has run needs the retirement step under Overdue-sweep alerting |
 
 `DISABLE_SHOW_NOTIFY_OUTBOX` gates the ENQUEUE as well as the drain, so setting it
@@ -826,6 +827,29 @@ database, or a run-state table that cannot be read. It shares the
 process-wide Nominatim client (and its 1 req/s limiter) with inline venue
 write-path geocoding, so it is safe alongside live traffic; large backlogs
 should still use the `geocode-venue-addresses` CLI off-hours.
+
+#### Artist new-release roundups
+
+Artist follows alert on new releases, COALESCED to one in-app row per user per
+UTC week (Monday start) covering every followed artist that put something out.
+Accrual runs inside the release create funnel, so every API, CLI and importer
+create reaches it; edits, link passes and re-imports of a known release group do
+not. Only an announceable release accrues: one dated within the last 180 days
+(or up to a year ahead), or carrying only the current year. Undated and
+back-catalogue records never alert. The flush delivers a week once it has
+closed. This build writes the in-app row only; the email lane is gated off in
+code.
+
+`DISABLE_ARTIST_RELEASE_ALERTS` gates both halves, read per PROCESS like the
+venue flag. Rows accrued while it was set are flushed once it is cleared. Do NOT
+delete dispatched rows from `artist_release_alert_batch`: the inbox row renders
+its release list from that table at read time.
+
+Tuning knobs: `RELEASE_DIGEST_FLUSH_INTERVAL_SECONDS` (default 15 minutes),
+`RELEASE_DIGEST_WEEK_HOLD_HOURS` (default `168`, how long after a week's Monday
+it is held before delivery), `RELEASE_DIGEST_FLUSH_BATCH` (default `2` weeks per
+tick), `RELEASE_DIGEST_MAX_AGE_HOURS` (default `12`, how long a week may fail
+continuously before it is abandoned).
 
 ### Background Service Scheduling (`background_service_runs`)
 
