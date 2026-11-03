@@ -15,8 +15,8 @@ import "time"
 //	release_date present  -> announceable when no more than ReleaseRecencyWindow
 //	                         old and no more than ReleaseFutureWindow ahead
 //	release_date absent,
-//	release_year present  -> announceable when the year is the current UTC year
-//	                         or later
+//	release_year present  -> announceable when the year is from the current UTC
+//	                         year through the year ReleaseFutureWindow ends in
 //	neither present       -> NOT announceable
 //
 // Future dates are announceable because the alert is about the announcement

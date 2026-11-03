@@ -149,7 +149,8 @@ type NotificationLogEntry struct {
 	// artist_release_digest rows (entity_id holds the USER id). Resolved from
 	// artist_release_alert_batch at read time rather than stamped on the row, so
 	// a member that reaches a delivered week (a boundary commit, an artist merge)
-	// appears in its row.
+	// appears in its row, and the reader's current follows and release-alert
+	// preferences narrow it.
 	//
 	// AlertReleaseCount is the number of distinct releases in the roundup for
 	// this reader.

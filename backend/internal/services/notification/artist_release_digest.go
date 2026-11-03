@@ -785,8 +785,8 @@ func buildArtistReleaseDigestEmailHTML(
 		body.WriteString(emailListRows(rows))
 	}
 
-	// Promises grouping, not completeness: a record accrued after this was sent
-	// joins the inbox row without a second email.
+	// Promises grouping, not completeness: a member that reaches a delivered
+	// week appears in the inbox row without a second email.
 	body.WriteString(emailParagraph(fmt.Sprintf(
 		"You follow %s. New releases from artists you follow are grouped into one roundup a week, so a run of records reaches you as one message instead of one per release.",
 		releaseDigestArtistPhrase(groups))))
@@ -849,19 +849,19 @@ const releaseDigestSummaryLimit = 3
 // AlertReleaseArtistCount, AlertReleaseArtists and (for a one-release week)
 // AlertReleaseURL on artist_release_digest rows.
 //
-// Members are read from artist_release_alert_batch at read time, so a release
-// accrued after delivery grows the row without a second notification. Because
-// the read is live, the query re-applies the delivery rules:
+// Members are read from artist_release_alert_batch at read time, so a member
+// that reaches a delivered week appears in its row. Because the read is live,
+// it re-applies the delivery rules with CURRENT state:
 //
-//   - announceability, through catalogm.ReleaseAnnounceable, since only a
-//     deleted release leaves the batch;
+//   - announceability, judged as of each member's accrual, so the calendar
+//     moving on never empties a row but a date edit into back catalogue does;
 //   - the credit, by re-joining artist_releases, as the flush does;
-//   - the reader's own current follow of each artist.
+//   - the reader's current follow of each artist, and their current in-app
+//     release preference for it.
 //
-// A week whose members are all gone leaves the counts at zero rather than
-// hiding the row. The row can shrink if the reader unfollows an artist
-// (user_bookmarks keeps no unfollow history), and it deliberately ignores the
-// current release-alert preference, which governs future alerts only.
+// The last rule means an unfollow or a release-alert opt-out also shrinks rows
+// already delivered (no history of either is kept). A row whose members are all
+// gone keeps its place with no counts rather than disappearing.
 func (s *NotificationFilterService) enrichArtistReleaseDigestNotifications(
 	userID uint,
 	entries []contracts.NotificationLogEntry,

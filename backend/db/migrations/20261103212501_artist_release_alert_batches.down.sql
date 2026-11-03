@@ -2,18 +2,19 @@
 -- delivered weekly roundup: the inbox rows survive but name no records, and
 -- re-applying the up migration brings back an EMPTY table.
 --
--- Dropping the unique index re-opens duplicate roundups, since the flush
--- re-resolves a delivered week whenever a late release joins it. Stop the
--- poller (DISABLE_ARTIST_RELEASE_ALERTS=1) before rolling back if the process
--- keeps running.
+-- Dropping the unique index re-opens duplicate roundups, since the flush can
+-- re-resolve a delivered week and the index is what makes that silent. Stop
+-- the poller (DISABLE_ARTIST_RELEASE_ALERTS=1) before rolling back if the
+-- process keeps running.
 --
 -- Rows of entity_type 'artist_release_digest' are LEFT IN PLACE: they are real
 -- notifications users received.
 --
 -- alert_bucket is NOT dropped: it belongs to
 -- 20260824030000_venue_show_alert_batches, whose uniqueness key depends on it.
--- The up migration's backfill covers the case where that migration was rolled
--- back too.
+-- If that migration is rolled back too, the retained digest rows lose their
+-- bucket for good; re-applying the up migration marks them read and leaves
+-- them as bare history.
 
 SET LOCAL lock_timeout = '5s';
 

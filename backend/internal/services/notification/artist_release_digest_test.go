@@ -547,16 +547,21 @@ func (s *NotificationFilterSuite) TestReleaseDigest_JudgedAsOfAccrualNotToday() 
 	artistID := s.createTestArtist("Oneida")
 	s.followArtistWithAlerts(userID, artistID, `{}`)
 
-	accruedAt := time.Now().UTC().AddDate(0, 0, -200)
+	// Late in December of last year: the year-only release carries last year,
+	// which today's calendar rejects, and the dated one is past the recency
+	// window today. Both were new when they accrued.
+	accruedAt := time.Date(time.Now().UTC().Year()-1, time.December, 30, 12, 0, 0, 0, time.UTC)
 	dated := accruedAt.AddDate(0, 0, -3).Format(time.DateOnly)
 	yearOnly := accruedAt.Year()
-	s.seedCreditedRelease("Dated", artistID, &dated, nil)
-	datedID := s.seedCreditedRelease("Dated Two", artistID, &dated, nil)
+	datedID := s.seedCreditedRelease("Dated", artistID, &dated, nil)
 	yearID := s.seedCreditedRelease("Year Only", artistID, nil, &yearOnly)
 	s.seedAccruedMember(artistID, datedID, accruedAt)
 	week := s.seedAccruedMember(artistID, yearID, accruedAt)
 
-	// Both are back catalogue by today's calendar; both were new when accrued.
+	batch, err := s.svc.loadReleaseDigestWeek(week)
+	s.Require().NoError(err)
+	s.Len(batch.releases, 2, "the flush must deliver what was new when it accrued")
+
 	s.Equal(1, s.flushReleaseDigestsNow())
 	entries := s.releaseDigestEntries(userID)
 	s.Require().Len(entries, 1)
@@ -615,4 +620,26 @@ func (s *NotificationFilterSuite) TestReleaseDigest_ClosedAccountReceivesNothing
 	s.flushReleaseDigestsNow()
 
 	s.Equal(int64(0), s.releaseDigestRows(userID, notificationm.NotificationChannelInApp))
+}
+
+// The inbox applies the reader's current preferences: an account-level
+// release-alert opt-out after delivery empties the row, which keeps its place
+// with no counts.
+func (s *NotificationFilterSuite) TestReleaseDigest_LaterOptOutNarrowsDeliveredRow() {
+	userID := s.createTestUser()
+	artistID := s.createTestArtist("Oneida")
+	s.followArtistWithAlerts(userID, artistID, `{}`)
+	s.createRelease("Success", releaseDayAgo(3), nil, artistID)
+	s.Equal(1, s.flushReleaseDigestsNow())
+	s.Require().Equal(1, s.releaseDigestEntries(userID)[0].AlertReleaseCount)
+
+	s.Require().NoError(s.db.Exec(`
+		INSERT INTO user_preferences (user_id, alert_defaults)
+		VALUES (?, '{"releases":{"in_app":false,"email":false}}'::jsonb)
+		ON CONFLICT (user_id) DO UPDATE SET alert_defaults = EXCLUDED.alert_defaults`, userID).Error)
+
+	entries := s.releaseDigestEntries(userID)
+	s.Require().Len(entries, 1, "the delivered row keeps its place")
+	s.Equal(0, entries[0].AlertReleaseCount)
+	s.Empty(entries[0].AlertReleaseArtists)
 }

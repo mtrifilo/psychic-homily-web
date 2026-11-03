@@ -14,10 +14,11 @@
 -- has no location, so there is no local clock to honor.
 --
 -- created_at lets the flush tell a settled week from one still accruing and
--- bounds the poison-pill retry. dispatched_at is per row so a release accrued
--- after its week was delivered can be folded into the existing inbox row; it is
--- bookkeeping, and uq_notification_log_artist_release_digest (below) is what
--- prevents a second email.
+-- bounds the poison-pill retry. dispatched_at is per row so a member that
+-- reaches an already-delivered week (a commit straddling Monday 00:00 UTC, an
+-- artist merge) can be folded into the existing inbox row; it is bookkeeping,
+-- and uq_notification_log_artist_release_digest (below) is what prevents a
+-- second email.
 --
 -- Both foreign keys CASCADE: a deleted release leaves its week, and a delivered
 -- roundup names the records that remain.
@@ -69,10 +70,14 @@ CREATE INDEX ix_artist_release_alert_batch_release
 -- type must never join showAlertEntityTypes or artistSubjectAlertTypes.
 
 -- Digest rows kept by a rollback that also dropped alert_bucket come back with
--- a NULL bucket, and are left so: a weekly bucket cannot be recovered from
--- sent_at (the flush runs after the week closes, and a backlog can deliver two
--- weeks in one tick). NULL never collides in the index below and the CHECK is
--- NOT VALID, so they stay as bare inbox history.
+-- a NULL bucket. A weekly bucket cannot be recovered from sent_at (the flush
+-- runs after the week closes, and a backlog can deliver two weeks in one tick),
+-- so they stay NULL as bare inbox history. They are marked read here: the CHECK
+-- below is NOT VALID, which still rejects any later UPDATE of such a row, and
+-- "mark all read" updates only unread rows.
+UPDATE notification_log
+   SET read_at = COALESCE(read_at, sent_at)
+ WHERE entity_type = 'artist_release_digest' AND alert_bucket IS NULL AND read_at IS NULL;
 
 -- The identity key: at most one row per (user, week, channel). entity_id equals
 -- user_id here, so it is redundant, but the four columns match
@@ -95,7 +100,8 @@ CREATE UNIQUE INDEX uq_notification_log_artist_release_digest
 -- alert_bucket MUST be present on digest rows: NULLs are distinct inside a
 -- UNIQUE index, so a NULL-bucket row would collide with nothing and the flush
 -- would re-send. ck_notification_log_venue_alert_bucket does not cover this
--- discriminator. NOT VALID enforces every INSERT and UPDATE and leaves pre-existing rows alone.
+-- discriminator. NOT VALID skips validating existing rows; every INSERT and
+-- UPDATE is still checked, which is why NULL-bucket rows are marked read above.
 ALTER TABLE notification_log
     ADD CONSTRAINT ck_notification_log_release_digest_bucket
     CHECK (entity_type <> 'artist_release_digest' OR alert_bucket IS NOT NULL)

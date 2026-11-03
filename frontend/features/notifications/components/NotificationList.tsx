@@ -356,8 +356,8 @@ function NotificationRow({ entry, variant, onItemClick, onMarkRead, dimmed }: Ro
 
   if (isArtistReleaseDigestNotification(entry)) {
     // Figma 2197:193, Kind = Weekly digest. ONE row per reader per UTC week,
-    // across every artist they follow, and the row can grow after delivery
-    // because the server resolves its release list at read time.
+    // across every artist they follow. The server resolves its release list at
+    // read time, so its counts can change after delivery.
     //
     // Only a one-release week has a single destination, so the release page is
     // the link only then; any larger week opens the reader's follow list.

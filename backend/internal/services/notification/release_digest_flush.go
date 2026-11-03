@@ -42,8 +42,9 @@ const (
 // to close and resolves followers, preferences and the message once against
 // the whole week.
 //
-// Re-runs are expected: a release accrued after delivery reopens the week so the
-// inbox row can grow, and every such pass reaches the delivery claim.
+// Re-runs happen: a member that reaches a delivered week (a commit straddling
+// Monday 00:00 UTC, an artist merge) re-selects it, and every such pass reaches
+// the delivery claim.
 // uq_notification_log_artist_release_digest with ON CONFLICT DO NOTHING makes
 // that silent and makes concurrent ticks safe (the loser claims nothing and
 // sends nothing). Any email would go out once, at first dispatch; later
