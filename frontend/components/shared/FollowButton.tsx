@@ -85,6 +85,9 @@ export function FollowButton({
   // the read here instead would cover this component and this variant only.
   const data = followData ?? fetchedData
   const isFollowing = data?.is_following ?? false
+  // An unformatted integer count, so it renders as digits only and the
+  // painted count below can carry `tabular-nums` safely (the body face widens
+  // comma, period and colon under `tnum`). Formatting it would break that.
   const followerCount = data?.follower_count ?? 0
   const isMutating = follow.isPending || unfollow.isPending
   // Cells: pending => disabled for EVERY variant. A control that cannot act

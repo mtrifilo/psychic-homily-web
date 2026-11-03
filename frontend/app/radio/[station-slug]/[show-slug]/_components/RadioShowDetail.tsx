@@ -54,7 +54,7 @@ function TopArtistsSidebar({ showSlug }: { showSlug: string }) {
                 {artist.artist_name}
               </span>
             )}
-            <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap shrink-0">
+            <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
               {pluralize(artist.play_count, 'play')} ·{' '}
               {pluralize(artist.episode_count, 'episode')}
             </span>
@@ -91,7 +91,7 @@ function TopLabelsSidebar({ showSlug }: { showSlug: string }) {
                 {label.label_name}
               </span>
             )}
-            <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap shrink-0">
+            <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
               {pluralize(label.play_count, 'play')}
             </span>
           </div>

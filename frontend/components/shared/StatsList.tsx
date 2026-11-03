@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
+import { tabularNumsIfDigitsOnly } from '@/lib/tabularNums'
 
 export interface StatsListItem {
   /** Stat label, shown verbatim (e.g. "Releases"). */
@@ -46,8 +47,12 @@ function formatValue(value: StatsListItem['value']): ReactNode {
  * Density-first stat block for entity pages (PSY-639). Pairs with
  * `<SectionHeader title="Statistics" />` in the artist sidebar.
  *
- * Sidebar variant: vertical `<dl>` with one row per stat — label on the
- * left, value right-aligned with `tabular-nums`.
+ * Sidebar variant: vertical `<dl>` with one row per stat, label on the
+ * left and value right-aligned.
+ *
+ * Values are arbitrary (formatted counts, frequencies, places, dates), so
+ * `tabular-nums` is applied per value and only when the formatted value is
+ * digits only: the body face widens comma, period and colon under `tnum`.
  *
  * Inline variant: a single row of middot-separated `<value> <label>` pairs
  * for placement above main-column content ("4 releases · 2 labels · 13 shows").
@@ -62,37 +67,42 @@ export function StatsList({
   if (variant === 'inline') {
     return (
       <p
-        className={cn(
-          'text-sm text-muted-foreground tabular-nums',
-          className
-        )}
+        className={cn('text-sm text-muted-foreground', className)}
       >
-        {items.map((item, idx) => (
-          <span key={item.label}>
-            {idx > 0 && (
-              <span aria-hidden="true" className="mx-1.5">
-                ·
-              </span>
-            )}
-            <span className="text-foreground font-medium">{formatValue(item.value)}</span>{' '}
-            <span>{item.label.toLowerCase()}</span>
-          </span>
-        ))}
+        {items.map((item, idx) => {
+          const value = formatValue(item.value)
+          return (
+            <span key={item.label}>
+              {idx > 0 && (
+                <span aria-hidden="true" className="mx-1.5">
+                  ·
+                </span>
+              )}
+              <span className={cn('text-foreground font-medium', tabularNumsIfDigitsOnly(value))}>
+                {value}
+              </span>{' '}
+              <span>{item.label.toLowerCase()}</span>
+            </span>
+          )
+        })}
       </p>
     )
   }
 
   return (
     <dl className={cn('text-sm space-y-0.5', className)}>
-      {items.map(item => (
-        <div
-          key={item.label}
-          className="flex items-baseline justify-between gap-2"
-        >
-          <dt className="text-muted-foreground">{item.label}</dt>
-          <dd className="font-medium tabular-nums">{formatValue(item.value)}</dd>
-        </div>
-      ))}
+      {items.map(item => {
+        const value = formatValue(item.value)
+        return (
+          <div
+            key={item.label}
+            className="flex items-baseline justify-between gap-2"
+          >
+            <dt className="text-muted-foreground">{item.label}</dt>
+            <dd className={cn('font-medium', tabularNumsIfDigitsOnly(value))}>{value}</dd>
+          </div>
+        )
+      })}
     </dl>
   )
 }

@@ -46,7 +46,7 @@ export function LabelCard({ label, density = 'comfortable' }: LabelCardProps) {
             {location}
           </span>
         )}
-        <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
+        <span className="text-xs text-muted-foreground shrink-0">
           {artistText}
         </span>
       </article>

@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { Loader2, TrendingUp, Heart, Users, ShieldCheck } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
+import { tabularNumsIfDigitsOnly } from '@/lib/tabularNums'
 import { Button } from '@/components/ui/button'
 import {
   useGrowthMetrics,
@@ -196,7 +198,7 @@ function StatCard({
     <Card>
       <CardContent className="py-4">
         <p className="text-sm font-medium text-muted-foreground">{label}</p>
-        <p className="mt-1 text-2xl font-bold tabular-nums">{value}</p>
+        <p className={cn('mt-1 text-2xl font-bold', tabularNumsIfDigitsOnly(value))}>{value}</p>
         {description && (
           <p className="mt-1 text-xs text-muted-foreground">{description}</p>
         )}

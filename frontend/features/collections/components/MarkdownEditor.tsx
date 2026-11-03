@@ -157,7 +157,7 @@ export function MarkdownEditor({
         {maxLength !== undefined && (
           <span
             className={cn(
-              'ml-auto text-[11px] tabular-nums',
+              'ml-auto text-[11px]',
               value.length > maxLength
                 ? 'text-destructive'
                 : 'text-muted-foreground'

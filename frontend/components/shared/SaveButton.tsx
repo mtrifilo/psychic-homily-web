@@ -94,6 +94,9 @@ export function SaveButton({
   // Save control for the same show (home can render two). Keyed on a settled
   // `false`, not a pending `undefined`, so a batch refetch does not close it.
   if (isHintOpen && data?.is_saved === false) setIsHintOpen(false)
+  // An unformatted integer count, so it renders as digits only and the
+  // painted count below can carry `tabular-nums` safely (the body face widens
+  // comma, period and colon under `tnum`). Formatting it would break that.
   const saveCount = data?.save_count ?? 0
 
   const { isLoading, toggle, error } = useSaveShowToggle(
