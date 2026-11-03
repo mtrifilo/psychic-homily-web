@@ -29,11 +29,6 @@ import (
 // engagement's resolver compare the same value.
 var artistReleaseFollowEntityType = string(engagementm.BookmarkEntityArtist)
 
-// alertWeekLayout is how a week bucket is spelled where it crosses the Go/SQL
-// boundary. Weeks are passed as strings with an explicit ::date cast, never as a
-// time.Time, which Postgres would cast to date in the SESSION time zone.
-const alertWeekLayout = "2006-01-02"
-
 // ArtistReleaseAlertsEnabled reports whether the release-roundup loop is on.
 // Accrual and the flush poller read the same flag name from models/notification.
 func ArtistReleaseAlertsEnabled() bool {
@@ -86,22 +81,21 @@ func enqueueArtistReleaseAlerts(tx *gorm.DB, release *catalogm.Release, artistID
 		return
 	}
 
-	week := AlertWeekStart(now).Format(alertWeekLayout)
+	week := AlertWeekStart(now).Format(time.DateOnly)
 
 	// One statement for every credited artist. ON CONFLICT DO NOTHING against
 	// the (artist_id, release_id) primary key means a re-import or correction
 	// that reaches this funnel again writes nothing, and settles the
 	// concurrent-create race.
 	//
-	// The SQL carries no comments: GORM binds every literal question mark in
-	// the text, a comment's included.
+	// No question mark may appear inside an SQL comment here: GORM binds every
+	// literal question mark in the text as a placeholder, a comment's included.
 	err := tx.Transaction(func(itx *gorm.DB) error {
 		return itx.Exec(`
 			INSERT INTO artist_release_alert_batch (artist_id, release_id, alert_week, created_at)
 			SELECT a.id, ?, ?::date, ?
-			FROM artists a
-			WHERE a.id = ANY(?)
-			  AND EXISTS (
+			FROM unnest(?::bigint[]) AS a(id)
+			WHERE EXISTS (
 			        SELECT 1 FROM user_bookmarks b
 			        WHERE b.entity_type = ?
 			          AND b.action = ?

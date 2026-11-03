@@ -6,8 +6,8 @@ import "time"
 // There is no batch record: a week's batch is the set of rows sharing AlertWeek.
 //
 // The key is (ArtistID, ReleaseID), not (week, artist, release), so a pair
-// accrues once ever and an enrichment re-run cannot re-notify. Used for reads
-// and a hand-written ON CONFLICT DO NOTHING insert. Do not add an ID field: the
+// accrues once ever and an enrichment re-run cannot re-notify. Do not add an ID
+// field: the
 // table has no surrogate key, and GORM would emit RETURNING id against a column
 // that does not exist.
 type ArtistReleaseAlertBatchItem struct {
@@ -22,8 +22,8 @@ type ArtistReleaseAlertBatchItem struct {
 	// the accrual key. UTC because a release has no location.
 	AlertWeek time.Time `gorm:"column:alert_week" json:"alert_week"`
 
-	// CreatedAt is when this release was accrued, not when the week opened; the
-	// flush measures how long a week has sat undispatched from it.
+	// CreatedAt is when this release was accrued, not when the week opened. The
+	// flush schedules on the week bucket, not on this column.
 	CreatedAt time.Time `gorm:"column:created_at" json:"created_at"`
 
 	// DispatchedAt marks that a flush has resolved this row's week. Per row, so a

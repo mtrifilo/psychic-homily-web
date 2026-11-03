@@ -45,7 +45,7 @@ CREATE TABLE artist_release_alert_batch (
 -- oldest first. Partial so the index holds only work in flight against a table
 -- that is never pruned.
 CREATE INDEX ix_artist_release_alert_batch_pending
-    ON artist_release_alert_batch (alert_week, created_at)
+    ON artist_release_alert_batch (alert_week)
     WHERE dispatched_at IS NULL;
 
 -- The flush loads a whole week and the inbox enriches by week, so the pending

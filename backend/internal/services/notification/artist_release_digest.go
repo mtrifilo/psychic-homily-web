@@ -2,10 +2,9 @@ package notification
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -65,7 +64,6 @@ type releaseDigestRelease struct {
 	ArtistID    uint
 	ArtistName  string
 	Title       string
-	Slug        *string
 	ReleaseType string
 	ReleaseDate *string
 	ReleaseYear *int
@@ -93,25 +91,12 @@ type releaseDigestWeek struct {
 // artistIDs returns the distinct credited artists in this week's announceable
 // members, which is the input to the follower query.
 func (w *releaseDigestWeek) artistIDs() []uint {
-	seen := make(map[uint]struct{}, len(w.releases))
-	out := make([]uint, 0, len(w.releases))
+	ids := make([]uint, 0, len(w.releases))
 	for _, r := range w.releases {
-		if _, dup := seen[r.ArtistID]; dup {
-			continue
-		}
-		seen[r.ArtistID] = struct{}{}
-		out = append(out, r.ArtistID)
+		ids = append(ids, r.ArtistID)
 	}
-	return out
-}
-
-// artistReleaseFollowerRow is one artist follow. A user has one row per followed
-// artist that released something in the week; resolveReleaseDigestRecipients
-// collapses them.
-type artistReleaseFollowerRow struct {
-	UserID   uint             `gorm:"column:user_id"`
-	ArtistID uint             `gorm:"column:artist_id"`
-	Settings *json.RawMessage `gorm:"column:settings"`
+	slices.Sort(ids)
+	return slices.Compact(ids)
 }
 
 // releaseDigestRecipient is what one user receives for one week: the channels
@@ -208,7 +193,7 @@ func (s *NotificationFilterService) releaseDigestWeeksReadyToFlush(
 	limit int,
 	weekHold time.Duration,
 ) ([]string, error) {
-	cutoff := time.Now().UTC().Add(-weekHold).Format(alertWeekLayout)
+	cutoff := time.Now().UTC().Add(-weekHold).Format(time.DateOnly)
 	var weeks []string
 	// alert_week comes back as TEXT: it is only ever used as a day, and a DATE
 	// scanned into time.Time carries a driver-dependent zone.
@@ -244,18 +229,10 @@ func (s *NotificationFilterService) flushReleaseDigestWeek(
 		return false
 	}
 
-	if len(batch.releases) == 0 {
-		// Nothing read is announceable. Retire exactly what was read; a closed
-		// week only gets further from announceable.
-		s.markReleaseDigestWeekDispatched(week, batch.resolved)
-		s.clearReleaseDigestFailure(week)
-		return true
-	}
-
 	if err := s.deliverReleaseDigestWeek(ctx, batch); err != nil {
 		// A cancelled tick is a deploy, not a failure, and must not advance the
 		// poison-pill bound.
-		if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		if ctx.Err() != nil {
 			log.Printf("release-digest flush: canceled mid-week for %s, left for the next tick", week)
 			return false
 		}
@@ -373,12 +350,7 @@ func (s *NotificationFilterService) loadReleaseDigestWeek(week string) (*release
 	for _, row := range rows {
 		resolved = append(resolved, releaseDigestMember{ArtistID: row.ArtistID, ReleaseID: row.ReleaseID})
 
-		release := &catalogm.Release{
-			ID:          row.ReleaseID,
-			Title:       row.Title,
-			ReleaseDate: row.ReleaseDate,
-			ReleaseYear: row.ReleaseYear,
-		}
+		release := &catalogm.Release{ReleaseDate: row.ReleaseDate, ReleaseYear: row.ReleaseYear}
 		if ok, _ := catalogm.ReleaseAnnounceable(release, now); !ok {
 			continue
 		}
@@ -388,7 +360,6 @@ func (s *NotificationFilterService) loadReleaseDigestWeek(week string) (*release
 			ArtistID:    row.ArtistID,
 			ArtistName:  row.ArtistName,
 			Title:       row.Title,
-			Slug:        row.Slug,
 			ReleaseType: row.ReleaseType,
 			ReleaseDate: row.ReleaseDate,
 			ReleaseYear: row.ReleaseYear,
@@ -421,17 +392,7 @@ func (s *NotificationFilterService) deliverReleaseDigestWeek(
 		return nil
 	}
 
-	userIDs := make([]uint, 0, len(followers))
-	seenUser := make(map[uint]struct{}, len(followers))
-	for _, f := range followers {
-		if _, dup := seenUser[f.UserID]; dup {
-			continue
-		}
-		seenUser[f.UserID] = struct{}{}
-		userIDs = append(userIDs, f.UserID)
-	}
-
-	prefs, err := s.alertPrefsForUserIDs(userIDs)
+	prefs, err := s.alertPrefsForUsers(followers)
 	if err != nil {
 		return err
 	}
@@ -462,11 +423,11 @@ func (s *NotificationFilterService) deliverReleaseDigestWeek(
 
 // artistReleaseFollowers returns every follow of every artist in this week, in
 // one query.
-func (s *NotificationFilterService) artistReleaseFollowers(artistIDs []uint) ([]artistReleaseFollowerRow, error) {
+func (s *NotificationFilterService) artistReleaseFollowers(artistIDs []uint) ([]artistFollowerRow, error) {
 	if len(artistIDs) == 0 {
 		return nil, nil
 	}
-	var rows []artistReleaseFollowerRow
+	var rows []artistFollowerRow
 	// = ANY(array) rather than IN, which GORM expands into one bind parameter per
 	// element: a week's artist list is unbounded, and Postgres caps a statement
 	// at 65535 parameters.
@@ -476,7 +437,7 @@ func (s *NotificationFilterService) artistReleaseFollowers(artistIDs []uint) ([]
 		WHERE b.entity_type = ?
 		  AND b.action = ?
 		  AND b.entity_id = ANY(?)
-	`, artistReleaseFollowEntityType, string(engagementm.BookmarkActionFollow),
+	`, artistFollowEntityType, string(engagementm.BookmarkActionFollow),
 		pq.Array(artistIDs)).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("artist release followers for %d artists: %w", len(artistIDs), err)
@@ -492,12 +453,12 @@ func (s *NotificationFilterService) artistReleaseFollowers(artistIDs []uint) ([]
 // user who enabled email for one of six bands gets an email that truthfully says
 // why. Pure, so the batching rules are testable without a database.
 func resolveReleaseDigestRecipients(
-	followers []artistReleaseFollowerRow,
+	followers []artistFollowerRow,
 	prefs map[uint]recipientAlertPrefs,
 	releases []releaseDigestRelease,
 ) []releaseDigestRecipient {
 	// Deterministic output order from a query with no ORDER BY.
-	ordered := make([]artistReleaseFollowerRow, len(followers))
+	ordered := make([]artistFollowerRow, len(followers))
 	copy(ordered, followers)
 	sort.SliceStable(ordered, func(i, j int) bool {
 		if ordered[i].UserID != ordered[j].UserID {
@@ -517,7 +478,7 @@ func resolveReleaseDigestRecipients(
 	for _, f := range ordered {
 		account := prefs[f.UserID]
 		resolved := engagement.ResolveFollowAlerts(
-			artistReleaseFollowEntityType, f.ArtistID, f.Settings,
+			artistFollowEntityType, f.ArtistID, f.Settings,
 			authm.ResolveAccountAlertDefaults(account.AlertDefaults),
 		)
 		// Releases is a pointer, nil for entity types that never emit releases.
@@ -550,7 +511,7 @@ func resolveReleaseDigestRecipients(
 		state := byUser[userID]
 		// The week's releases, in the week's order, narrowed to the artists this
 		// user subscribed to with the release alert on.
-		mine := make([]releaseDigestRelease, 0, len(releases))
+		var mine []releaseDigestRelease
 		for _, rel := range releases {
 			if _, ok := state.artists[rel.ArtistID]; !ok {
 				continue
@@ -635,24 +596,14 @@ func (s *NotificationFilterService) deliverReleaseDigest(
 // earlier or concurrent flush of the same week.
 //
 // entity_id is the reader's USER id (see NotificationEntityArtistReleaseDigest).
-// Raw SQL so the week goes in as a string with an explicit ::date cast and
-// RowsAffected reflects ON CONFLICT DO NOTHING.
 func (s *NotificationFilterService) claimReleaseDigestRow(
 	userID uint,
 	week string,
 	channel string,
 	now time.Time,
 ) (bool, error) {
-	res := s.db.Exec(`
-		INSERT INTO notification_log
-		    (user_id, filter_id, entity_type, entity_id, subject_entity_id, channel, sent_at, alert_bucket)
-		VALUES (?, NULL, ?, ?, NULL, ?, ?, ?::date)
-		ON CONFLICT DO NOTHING
-	`, userID, notificationm.NotificationEntityArtistReleaseDigest, userID, channel, now, week)
-	if res.Error != nil {
-		return false, res.Error
-	}
-	return res.RowsAffected > 0, nil
+	return s.claimCoalescedAlertRow(userID,
+		notificationm.NotificationEntityArtistReleaseDigest, userID, week, channel, now)
 }
 
 // markReleaseDigestWeekDispatched stamps the rows this flush RESOLVED, so the
@@ -852,7 +803,7 @@ func releaseTypeLabel(releaseType string) string {
 // date, a year only, or empty (which renders no line).
 func releaseDateLine(rel releaseDigestRelease) string {
 	if rel.ReleaseDate != nil && *rel.ReleaseDate != "" {
-		if day, err := time.Parse(alertWeekLayout, *rel.ReleaseDate); err == nil {
+		if day, err := time.Parse(time.DateOnly, *rel.ReleaseDate); err == nil {
 			return "Released " + day.Format("Jan 2, 2006")
 		}
 	}
@@ -861,18 +812,6 @@ func releaseDateLine(rel releaseDigestRelease) string {
 	}
 	return ""
 }
-
-// artistReleaseFollowEntityType is the bookmark entity type these roundups
-// subscribe on, read from the model so the follower WHERE clause and
-// engagement's resolver compare the same value.
-var artistReleaseFollowEntityType = string(engagementm.BookmarkEntityArtist)
-
-// alertWeekLayout is how a week bucket is spelled where it crosses the Go/SQL
-// boundary: passed as a string with an explicit ::date cast, never as a
-// time.Time, which Postgres would cast to date in the SESSION time zone. Must
-// match alertWeekLayout in services/catalog; it is duplicated so this package
-// does not import the catalogue service package for a format string.
-const alertWeekLayout = "2006-01-02"
 
 // ArtistReleaseAlertsEnabled reports whether the release-roundup loop is on.
 // Accrual in services/catalog reads the same flag name from models/notification.
@@ -896,7 +835,7 @@ const releaseDigestSummaryLimit = 3
 // accrued after delivery grows the row without a second notification. Because
 // the read is live, the query re-applies the delivery rules:
 //
-//   - announceability, through catalogm.ReleaseAnnounceableBounds, since only a
+//   - announceability, through catalogm.ReleaseAnnounceable, since only a
 //     deleted release leaves the batch;
 //   - the credit, by re-joining artist_releases, as the flush does;
 //   - the reader's own current follow of each artist.
@@ -930,19 +869,18 @@ func (s *NotificationFilterService) enrichArtistReleaseDigestNotifications(
 	}
 
 	var members []struct {
-		AlertWeek  string  `gorm:"column:alert_week"`
-		ReleaseID  uint    `gorm:"column:release_id"`
-		Slug       *string `gorm:"column:slug"`
-		ArtistID   uint    `gorm:"column:artist_id"`
-		ArtistName string  `gorm:"column:artist_name"`
+		AlertWeek   string  `gorm:"column:alert_week"`
+		ReleaseID   uint    `gorm:"column:release_id"`
+		Slug        *string `gorm:"column:slug"`
+		ArtistID    uint    `gorm:"column:artist_id"`
+		ArtistName  string  `gorm:"column:artist_name"`
+		ReleaseDate *string `gorm:"column:release_date"`
+		ReleaseYear *int    `gorm:"column:release_year"`
 	}
-	// Whole UTC days from catalogm.ReleaseAnnounceableBounds, the bounds
-	// ReleaseAnnounceable applies, so this SQL restatement agrees with the Go
-	// predicate on boundary days.
-	oldest, latest, minYear := catalogm.ReleaseAnnounceableBounds(time.Now())
 	if err := s.db.Raw(`
 		SELECT to_char(b.alert_week, 'YYYY-MM-DD') AS alert_week,
-		       b.release_id, r.slug, b.artist_id, a.name AS artist_name
+		       b.release_id, r.slug, b.artist_id, a.name AS artist_name,
+		       to_char(r.release_date, 'YYYY-MM-DD') AS release_date, r.release_year
 		FROM artist_release_alert_batch b
 		JOIN releases r ON r.id = b.release_id
 		JOIN artists a ON a.id = b.artist_id
@@ -957,19 +895,14 @@ func (s *NotificationFilterService) enrichArtistReleaseDigestNotifications(
 		 AND ub.action = ?
 		 AND ub.entity_id = b.artist_id
 		WHERE b.alert_week = ANY(?::date[])
-		  AND (
-		        (r.release_date IS NOT NULL AND r.release_date >= ?::date AND r.release_date <= ?::date)
-		     OR (r.release_date IS NULL AND r.release_year IS NOT NULL AND r.release_year >= ?)
-		      )
 		-- artist_releases is keyed by role, so one credit can join twice.
-		GROUP BY b.alert_week, b.release_id, r.slug, b.artist_id, a.name
+		GROUP BY b.alert_week, b.release_id, r.slug, b.artist_id, a.name, r.release_date, r.release_year
 		ORDER BY b.alert_week, a.name ASC, b.artist_id ASC, b.release_id ASC
 	`,
 		userID,
-		artistReleaseFollowEntityType,
+		artistFollowEntityType,
 		string(engagementm.BookmarkActionFollow),
 		pq.Array(buckets),
-		oldest, latest, minYear,
 	).Scan(&members).Error; err != nil {
 		log.Printf("warning: failed to load release digest batches for inbox enrichment: %v", err)
 		return
@@ -984,7 +917,14 @@ func (s *NotificationFilterService) enrichArtistReleaseDigestNotifications(
 		soleURL  string
 	}
 	byWeek := make(map[string]*weekSummary, len(buckets))
+	now := time.Now()
 	for _, m := range members {
+		// The same predicate accrual and the flush applied, read live: a release
+		// whose date is corrected into back catalogue leaves the row.
+		release := &catalogm.Release{ReleaseDate: m.ReleaseDate, ReleaseYear: m.ReleaseYear}
+		if ok, _ := catalogm.ReleaseAnnounceable(release, now); !ok {
+			continue
+		}
 		w := byWeek[m.AlertWeek]
 		if w == nil {
 			w = &weekSummary{releases: map[uint]struct{}{}, artists: map[uint]struct{}{}}

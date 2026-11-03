@@ -1004,12 +1004,30 @@ func (s *NotificationFilterService) claimVenueAlertRow(
 	channel string,
 	now time.Time,
 ) (bool, error) {
+	return s.claimCoalescedAlertRow(userID,
+		notificationm.NotificationEntityVenueShowAlert, key.VenueID, key.AlertDay, channel, now)
+}
+
+// claimCoalescedAlertRow inserts one lane's row of a coalesced alert, reporting
+// whether THIS call created it. A false with no error means the lane was already
+// claimed. Exactly-once rests on the discriminator's partial UNIQUE index over
+// (user_id, entity_id, alert_bucket, channel), which ON CONFLICT DO NOTHING
+// claims. bucket is a YYYY-MM-DD string cast to date in SQL, so no session time
+// zone can move the day.
+func (s *NotificationFilterService) claimCoalescedAlertRow(
+	userID uint,
+	entityType string,
+	entityID uint,
+	bucket string,
+	channel string,
+	now time.Time,
+) (bool, error) {
 	res := s.db.Exec(`
 		INSERT INTO notification_log
 		    (user_id, filter_id, entity_type, entity_id, subject_entity_id, channel, sent_at, alert_bucket)
 		VALUES (?, NULL, ?, ?, NULL, ?, ?, ?::date)
 		ON CONFLICT DO NOTHING
-	`, userID, notificationm.NotificationEntityVenueShowAlert, key.VenueID, channel, now, key.AlertDay)
+	`, userID, entityType, entityID, channel, now, bucket)
 	if res.Error != nil {
 		return false, res.Error
 	}

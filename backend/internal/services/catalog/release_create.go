@@ -3,6 +3,7 @@ package catalog
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"gorm.io/gorm"
@@ -55,7 +56,6 @@ func createReleaseTx(tx *gorm.DB, req *contracts.CreateReleaseRequest, apply fun
 	// because artist_releases is keyed on (artist_id, release_id, role): one
 	// artist credited in two roles must still be one accrual.
 	creditedArtistIDs := make([]uint, 0, len(req.Artists))
-	seenArtist := make(map[uint]struct{}, len(req.Artists))
 	for i, artistEntry := range req.Artists {
 		role := artistEntry.Role
 		if role == "" {
@@ -70,10 +70,7 @@ func createReleaseTx(tx *gorm.DB, req *contracts.CreateReleaseRequest, apply fun
 		if err := tx.Create(ar).Error; err != nil {
 			return nil, fmt.Errorf("failed to create artist-release link: %w", err)
 		}
-		if _, dup := seenArtist[ar.ArtistID]; !dup && ar.ArtistID != 0 {
-			seenArtist[ar.ArtistID] = struct{}{}
-			creditedArtistIDs = append(creditedArtistIDs, ar.ArtistID)
-		}
+		creditedArtistIDs = append(creditedArtistIDs, ar.ArtistID)
 	}
 
 	// Create external links, refusing the whole release rather than dropping a
@@ -113,16 +110,10 @@ func createReleaseTx(tx *gorm.DB, req *contracts.CreateReleaseRequest, apply fun
 	// see enqueueImageEnrich).
 	enqueueImageEnrich(tx, catalogm.ImageEnrichEntityRelease, release.ID)
 
-	// Record this release in each followed, credited artist's weekly roundup.
-	// Runs after the artist_releases writes because the credited set decides who
-	// is subscribed; same tx, in a SAVEPOINT, so it never fails the create (see
-	// enqueueArtistReleaseAlerts).
-	//
-	// This is the feature's only accrual hook: a release has no visibility
-	// transition (insert is publication), so accrual sits in the shared create
-	// funnel. A release-creating path that bypasses createReleaseTx is not
-	// covered.
-	enqueueArtistReleaseAlerts(tx, release, creditedArtistIDs)
+	// The release-alert accrual hook; see enqueueArtistReleaseAlerts. A release
+	// created outside createReleaseTx never alerts.
+	slices.Sort(creditedArtistIDs)
+	enqueueArtistReleaseAlerts(tx, release, slices.Compact(creditedArtistIDs))
 
 	return release, nil
 }

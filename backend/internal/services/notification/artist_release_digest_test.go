@@ -42,8 +42,8 @@ func TestReleaseDigestEmailLaneIsGatedOff(t *testing.T) {
 		"the release digest email has no approved template; enabling its lane needs its own change")
 }
 
-func releaseFollow(userID, artistID uint, settings string) artistReleaseFollowerRow {
-	row := artistReleaseFollowerRow{UserID: userID, ArtistID: artistID}
+func releaseFollow(userID, artistID uint, settings string) artistFollowerRow {
+	row := artistFollowerRow{UserID: userID, ArtistID: artistID}
 	if settings != "" {
 		raw := json.RawMessage(settings)
 		row.Settings = &raw
@@ -59,7 +59,7 @@ func TestResolveReleaseDigestRecipients(t *testing.T) {
 
 	t.Run("shipped defaults are in-app on, email off", func(t *testing.T) {
 		got := resolveReleaseDigestRecipients(
-			[]artistReleaseFollowerRow{releaseFollow(7, 1, "")}, nil, releases)
+			[]artistFollowerRow{releaseFollow(7, 1, "")}, nil, releases)
 		if assert.Len(t, got, 1) {
 			assert.True(t, got[0].inApp)
 			assert.False(t, got[0].email)
@@ -69,7 +69,7 @@ func TestResolveReleaseDigestRecipients(t *testing.T) {
 	})
 
 	t.Run("one reader following two releasing artists gets one roundup", func(t *testing.T) {
-		got := resolveReleaseDigestRecipients([]artistReleaseFollowerRow{
+		got := resolveReleaseDigestRecipients([]artistFollowerRow{
 			releaseFollow(7, 2, ""), releaseFollow(7, 1, ""),
 		}, nil, releases)
 		if assert.Len(t, got, 1) {
@@ -78,7 +78,7 @@ func TestResolveReleaseDigestRecipients(t *testing.T) {
 	})
 
 	t.Run("a reader sees only the artists they follow", func(t *testing.T) {
-		got := resolveReleaseDigestRecipients([]artistReleaseFollowerRow{
+		got := resolveReleaseDigestRecipients([]artistFollowerRow{
 			releaseFollow(7, 1, ""), releaseFollow(8, 2, ""),
 		}, nil, releases)
 		if assert.Len(t, got, 2) {
@@ -90,7 +90,7 @@ func TestResolveReleaseDigestRecipients(t *testing.T) {
 	})
 
 	t.Run("a follow with release alerts off contributes nothing", func(t *testing.T) {
-		got := resolveReleaseDigestRecipients([]artistReleaseFollowerRow{
+		got := resolveReleaseDigestRecipients([]artistFollowerRow{
 			releaseFollow(7, 1, `{"alerts":{"releases":{"enabled":false}}}`),
 		}, nil, releases)
 		assert.Empty(t, got)
@@ -100,12 +100,12 @@ func TestResolveReleaseDigestRecipients(t *testing.T) {
 		raw := json.RawMessage(`{"releases":{"in_app":false,"email":false}}`)
 		prefs := map[uint]recipientAlertPrefs{7: {AlertDefaults: &raw}}
 		got := resolveReleaseDigestRecipients(
-			[]artistReleaseFollowerRow{releaseFollow(7, 1, "")}, prefs, releases)
+			[]artistFollowerRow{releaseFollow(7, 1, "")}, prefs, releases)
 		assert.Empty(t, got)
 	})
 
 	t.Run("show-alert settings do not govern releases", func(t *testing.T) {
-		got := resolveReleaseDigestRecipients([]artistReleaseFollowerRow{
+		got := resolveReleaseDigestRecipients([]artistFollowerRow{
 			releaseFollow(7, 1, `{"alerts":{"shows":{"enabled":false}}}`),
 		}, nil, releases)
 		assert.Len(t, got, 1)
@@ -176,7 +176,7 @@ func releaseDayAgo(days int) *string {
 
 // currentAlertWeek is the bucket accrual keys a release created now on.
 func currentAlertWeek() string {
-	return catalog.AlertWeekStart(time.Now()).Format(alertWeekLayout)
+	return catalog.AlertWeekStart(time.Now()).Format(time.DateOnly)
 }
 
 // createRelease runs the real create funnel, where accrual is hooked.
@@ -247,7 +247,7 @@ func (s *NotificationFilterSuite) TestReleaseDigest_NewReleaseProducesOneInAppRo
 	s.Equal(userID, row.EntityID, "a weekly roundup's entity_id is its reader")
 	s.Nil(row.SubjectEntityID)
 	s.Require().NotNil(row.AlertBucket)
-	s.Equal(currentAlertWeek(), row.AlertBucket.UTC().Format(alertWeekLayout))
+	s.Equal(currentAlertWeek(), row.AlertBucket.UTC().Format(time.DateOnly))
 
 	s.Empty(capture.sent)
 	s.Equal(int64(0), s.releaseDigestRows(userID, notificationm.NotificationChannelEmail))

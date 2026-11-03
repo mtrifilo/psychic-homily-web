@@ -3,10 +3,9 @@ package catalog
 import "time"
 
 // ReleaseAnnounceable is the one predicate for "this release is new music worth
-// telling a follower about". Accrual, the flush and the inbox enrichment SQL all
-// apply it (the SQL through ReleaseAnnounceableBounds), so those surfaces cannot
-// disagree about what the alert covers; ShowAnnounceable plays the same role for
-// the show loops.
+// telling a follower about". Accrual, the flush and the inbox enrichment all
+// apply it, so those surfaces cannot disagree about what the alert covers;
+// ShowAnnounceable plays the same role for the show loops.
 //
 // A release has no visibility transition (insert is publication), and its
 // created_at is when the catalogue first saw it, not when the world did: a
@@ -39,9 +38,9 @@ func ReleaseAnnounceable(release *Release, now time.Time) (bool, string) {
 		// it is parsed here rather than trusted. An unparseable value is treated
 		// as absent and falls through to the year branch, which is the same
 		// fail-closed direction the rest of this predicate takes.
-		if parsed, err := time.Parse(releaseDateLayout, *release.ReleaseDate); err == nil {
+		if parsed, err := time.Parse(time.DateOnly, *release.ReleaseDate); err == nil {
 			// Canonical YYYY-MM-DD strings order the same as the days they name.
-			day := parsed.Format(releaseDateLayout)
+			day := parsed.Format(time.DateOnly)
 			if day < oldest {
 				return false, NotAnnounceableBackCatalogue
 			}
@@ -68,19 +67,13 @@ func ReleaseAnnounceable(release *Release, now time.Time) (bool, string) {
 //
 // Day-granular because release_date is a DATE: comparing it against an instant
 // would make the window's edge days depend on the hour and on the zone of the
-// caller. SQL restatements of the predicate bind these values so they cannot
-// disagree with it.
+// caller.
 func ReleaseAnnounceableBounds(now time.Time) (oldest, latest string, minYear int) {
 	utc := now.UTC()
-	return utc.Add(-ReleaseRecencyWindow).Format(releaseDateLayout),
-		utc.Add(ReleaseFutureWindow).Format(releaseDateLayout),
+	return utc.Add(-ReleaseRecencyWindow).Format(time.DateOnly),
+		utc.Add(ReleaseFutureWindow).Format(time.DateOnly),
 		utc.Year()
 }
-
-// releaseDateLayout is how releases.release_date is spelled. The column is a
-// DATE and the model holds it as a string precisely so no zone can reinterpret
-// it; parsing it with a date-only layout keeps that property.
-const releaseDateLayout = "2006-01-02"
 
 // ReleaseRecencyWindow is how old a dated release may be and still count as new.
 // Sized to absorb ingest lag (records reach the catalogue weeks or months after
