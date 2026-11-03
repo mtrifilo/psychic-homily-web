@@ -315,11 +315,11 @@ func (s *UserService) FindOrCreateUserFromOAuthIdentity(identity contracts.OAuth
 			// not be joined by whoever does clicking it. An account that may
 			// not sign in, or that holds an identity from this provider the
 			// mailbox proof would not replace
-			// (authm.User.MailboxProofReplacesIdentity), keeps the plain
+			// (authm.User.MailboxProofMayReplaceIdentity), keeps the plain
 			// refusal.
 			if existingUser.CanSignIn() && identity.EmailVerified && identity.EmailAuthoritative {
 				keepsHeldIdentity := false
-				if !existingUser.MailboxProofReplacesIdentity() {
+				if !existingUser.MailboxProofMayReplaceIdentity() {
 					holds, err := s.accountHoldsProviderIdentity(existingUser.ID, provider)
 					if err != nil {
 						return nil, err

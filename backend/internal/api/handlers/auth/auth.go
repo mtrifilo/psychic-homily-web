@@ -329,9 +329,9 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 	// The password just proved the account, which is one of the two proofs a
 	// pending provider link waits on. This browser's cookie is cleared
 	// whatever the pending link turns out to be, so the collision state does
-	// not come back for it. A refusal to attach leaves the pending link itself
-	// in place (LinkOAuthWithPassword), so an emailed link already sent for
-	// it still works.
+	// not come back for it. A refusal leaves the pending link itself in place
+	// (LinkOAuthWithPassword), so an emailed link already sent for it still
+	// works.
 	//
 	// A sign-in that asked to connect (ConnectPendingLink) and could not is
 	// refused, so the person who pressed "Sign in and connect" is never

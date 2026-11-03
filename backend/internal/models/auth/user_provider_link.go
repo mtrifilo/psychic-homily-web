@@ -17,23 +17,25 @@ func (u *User) MayConnectProvider() bool {
 	return u.Email == nil || *u.Email == "" || u.EmailVerified
 }
 
-// MailboxProofReplacesIdentity reports whether the mailbox proof of a pending
-// link to the account removes the account's identity from the link's provider
-// before attaching the proven one. It does while the account's address was
-// never verified: nothing showed that whoever attached that identity reads
-// the mailbox, and the proof shows that the person following the link does,
-// so the mailbox holder wins. A verified address keeps its identity, and the
-// proof is refused instead.
+// MailboxProofMayReplaceIdentity reports whether the mailbox proof of a
+// pending link to the account may remove an identity the account holds from
+// the link's provider before attaching the proven one. It may while the
+// account's address was never verified, whether or not such an identity is
+// held: nothing showed that whoever attached one reads the mailbox, and the
+// proof shows that the person following the link does, so the mailbox holder
+// wins. On a verified address the held identity stays, and the proof is
+// refused instead.
 //
 // Verifying the address ends this for good, even when the person who
-// verified it is the mailbox holder and the identity and password are
-// someone else's. That holder signs in by the verification and removes the
-// identity and resets the password from Settings; nothing here undoes a
-// verification.
+// verified it is the mailbox holder and the held identity and the password
+// are someone else's. Confirming the verification signs no one in. The
+// holder can then sign in by a magic link and disconnect the identity in
+// Settings; nothing clears a password someone else set, and nothing here
+// undoes a verification.
 //
 // The sign-in that offers the pending link, the collision state's read and
-// the proof all ask it, so they agree on which accounts the proof replaces
-// an identity on.
-func (u *User) MailboxProofReplacesIdentity() bool {
+// the proof all ask it, so they agree on which accounts the proof may
+// replace an identity on.
+func (u *User) MailboxProofMayReplaceIdentity() bool {
 	return u != nil && !u.EmailVerified
 }

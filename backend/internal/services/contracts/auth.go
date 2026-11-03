@@ -315,8 +315,8 @@ type AuthServiceInterface interface {
 	// CodeOAuthIdentityInUse when the identity is attached to another
 	// account, and CodeOAuthProviderAlreadyLinked when user holds another
 	// identity from the provider, whether or not its address is verified. A
-	// refusal leaves the pending link in place, so its mailbox proof can still
-	// act on it.
+	// refusal leaves the pending link in place, so an emailed link already
+	// sent for it still works.
 	LinkOAuthWithPassword(token string, user *authm.User) (linked bool, err error)
 	// CompleteOAuthLinkByEmail finishes the pending link an emailed sign-in
 	// link names. In one transaction it consumes the pending link, removes

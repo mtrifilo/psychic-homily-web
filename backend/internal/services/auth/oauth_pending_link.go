@@ -24,10 +24,11 @@ import (
 // (LinkOAuthWithPassword) or its mailbox (an emailed link,
 // CompleteOAuthLinkByEmail). Each proof consumes the pending link in the
 // transaction that acts on it, so whichever lands first is the only one that
-// acts, and the other is refused. A password proof refused to attach the
-// identity rolls its consumption back, so the pending link is still there for
-// the mailbox proof, which on an address never verified succeeds where the
-// password proof is refused (authm.User.MailboxProofReplacesIdentity).
+// acts, and the other is refused. A refused password proof rolls its
+// consumption back, whatever the refusal, so an emailed link already sent for
+// the pending link still works; on an address never verified that mailbox
+// proof succeeds where the password proof is refused
+// (authm.User.MailboxProofMayReplaceIdentity).
 
 var errPendingLinkAccountMismatch = errors.New("pending link names another account or address")
 
@@ -54,25 +55,25 @@ func (s *AuthService) PeekOAuthLink(token string) (*contracts.OAuthPendingLink, 
 	if row.UserID != nil {
 		link.UserID = *row.UserID
 	}
-	link.ReplacesIdentity, err = s.mailboxProofReplacesIdentity(link)
+	link.ReplacesIdentity, err = s.pendingLinkReplacesHeldIdentity(link)
 	if err != nil {
 		return nil, err
 	}
 	return link, nil
 }
 
-// mailboxProofReplacesIdentity reports whether the mailbox proof of link,
+// pendingLinkReplacesHeldIdentity reports whether the mailbox proof of link,
 // were it to land now, would remove an identity the account holds from
 // link's provider (CompleteOAuthLinkByEmail, evictUnprovenIdentity). It reads
 // without locking, so it describes the account as it is now, and the proof
 // decides again under its own lock.
-func (s *AuthService) mailboxProofReplacesIdentity(link *contracts.OAuthPendingLink) (bool, error) {
+func (s *AuthService) pendingLinkReplacesHeldIdentity(link *contracts.OAuthPendingLink) (bool, error) {
 	var account authm.User
 	found := s.db.Where("id = ?", link.UserID).Limit(1).Find(&account)
 	if found.Error != nil {
 		return false, fmt.Errorf("failed to read pending link account: %w", found.Error)
 	}
-	if found.RowsAffected == 0 || !account.MailboxProofReplacesIdentity() {
+	if found.RowsAffected == 0 || !account.MailboxProofMayReplaceIdentity() {
 		return false, nil
 	}
 	var held int64
@@ -199,7 +200,7 @@ func (s *AuthService) CompleteOAuthLinkByEmail(claims *contracts.OAuthLinkTokenC
 		// refusal to attach undoes the savepoint, so the password and the
 		// sessions stay as they were, and the consumed pending link commits.
 		refusal, err = attachInSavepoint(tx, func(sp *gorm.DB) error {
-			if account.MailboxProofReplacesIdentity() {
+			if account.MailboxProofMayReplaceIdentity() {
 				evicted, err := evictUnprovenIdentity(sp, account.ID, row.Provider, row.ProviderUserID)
 				if err != nil {
 					return err
@@ -235,6 +236,17 @@ func (s *AuthService) CompleteOAuthLinkByEmail(claims *contracts.OAuthLinkTokenC
 	if refusal != nil {
 		return nil, refusal
 	}
+	if replaced != nil {
+		// The removed row is gone from oauth_accounts, so this line is the
+		// record of which identity the proof took off the account. It is
+		// written once the removal commits, before anything that can still
+		// fail.
+		logger.Default().Warn("oauth_pending_link_replaced_identity",
+			"user_id", accountID,
+			"provider", replaced.Provider,
+			"replaced_oauth_account_id", replaced.ID,
+			"replaced_provider_email_hash", logger.HashEmail(shared.DerefOrEmpty(replaced.ProviderEmail)))
+	}
 
 	user, err := s.userService.GetUserByID(accountID)
 	if err != nil {
@@ -243,15 +255,6 @@ func (s *AuthService) CompleteOAuthLinkByEmail(claims *contracts.OAuthLinkTokenC
 	token, err := s.jwtService.CreateToken(user)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create token: %w", err)
-	}
-	if replaced != nil {
-		// The removed row is gone from oauth_accounts, so this line is the
-		// record of which identity the proof took off the account.
-		logger.Default().Warn("oauth_pending_link_replaced_identity",
-			"user_id", user.ID,
-			"provider", replaced.Provider,
-			"replaced_oauth_account_id", replaced.ID,
-			"replaced_provider_email_hash", logger.HashEmail(shared.DerefOrEmpty(replaced.ProviderEmail)))
 	}
 	logger.Default().Info("oauth_pending_link_completed", "proof", "mailbox", "user_id", user.ID,
 		"replaced_identity", replaced != nil)
@@ -290,7 +293,7 @@ func evictOtherCredentials(tx *gorm.DB, userID uint, keepProvider string) error 
 // when it is not provenSubject, the identity the mailbox proof attaches, and
 // returns the row it removed, or nil when there was none. The caller has
 // userID's row locked and has read it as one the mailbox proof replaces an
-// identity on (authm.User.MailboxProofReplacesIdentity). An account holds at
+// identity on (authm.User.MailboxProofMayReplaceIdentity). An account holds at
 // most one row per
 // provider (oauth_accounts_user_provider_uniq), so the row locked FOR UPDATE
 // here is the one UnlinkOAuthAccountTx, the path Settings disconnects by,

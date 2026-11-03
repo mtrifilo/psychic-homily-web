@@ -24,7 +24,7 @@ func TestMayConnectProvider(t *testing.T) {
 	}
 }
 
-func TestMailboxProofReplacesIdentity(t *testing.T) {
+func TestMailboxProofMayReplaceIdentity(t *testing.T) {
 	address := "someone@example.com"
 	for _, tc := range []struct {
 		name string
@@ -36,8 +36,8 @@ func TestMailboxProofReplacesIdentity(t *testing.T) {
 		{"nil account", nil, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := tc.user.MailboxProofReplacesIdentity(); got != tc.want {
-				t.Errorf("MailboxProofReplacesIdentity() = %v, want %v", got, tc.want)
+			if got := tc.user.MailboxProofMayReplaceIdentity(); got != tc.want {
+				t.Errorf("MailboxProofMayReplaceIdentity() = %v, want %v", got, tc.want)
 			}
 		})
 	}
