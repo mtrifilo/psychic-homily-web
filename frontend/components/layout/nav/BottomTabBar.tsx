@@ -26,20 +26,22 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 import { useCookieConsent } from '@/lib/context/CookieConsentContext'
 import {
   NOTIFICATIONS_HREF, PROFILE_CLAIM_HREF, accountNavItems, isNavActive,
-  legalSheetRows, mobileBrowseGroups, mobileBrowseHrefs, primaryTabs, sheetLinkClassName,
-  navGroupLabelClassName, visibleNavItems,
+  legalSheetRows, mobileNavFor, sheetLinkClassName, navGroupLabelClassName,
+  visibleNavItems,
 } from './navData'
-import type { NavDestination, NavLink } from './navData'
+import type { NavDestination, NavGroup, NavLink } from './navData'
 
 // The persistent mobile bottom tab bar (PSY-1020, Figma Navigation 540:8 —
 // Option A, the user-approved pattern; the hamburger-sheet Option B 542:6 is the
-// fallback record only). Five tabs: Home · Shows · Radio · Browse · Account.
-// Home/Shows/Radio are plain links (Radio became a plain /radio link in
-// PSY-1057, so the static mock and shipped reality agree here). Browse opens the
-// long-tail bottom sheet (every desktop Browse/Contribute/Editorial destination,
-// composed in navData's mobileBrowseGroups — one source of truth, no forked
-// lists). Account opens a sheet for every viewer, ending in the legal rows
-// (Cookie preferences, Privacy, Terms): for a viewer not settled as signed in
+// fallback record only). Five tabs: three plain links, then Browse and Account.
+// The links are Home · Shows · Radio for a viewer not settled as signed in and
+// Home · Shows · Library once signed in, with Radio moving into the Browse
+// sheet (navData's mobileNavFor holds both, P1a boards 2076:26 / 2077:22).
+// Browse opens the long-tail bottom sheet (every desktop
+// Browse/Contribute/Editorial destination, composed in navData: one source of
+// truth, no forked lists). Account opens a sheet for every viewer, ending in
+// the legal rows (Cookie preferences, Privacy, Terms): for a viewer not
+// settled as signed in
 // (anonymous, and unsettled too) a Sign in link back to the current page; once
 // signed in, the UserMenu entries and Sign out, with the unread-notification
 // badge on both the tab and the sheet's Notifications row (below `sm` the top
@@ -258,16 +260,18 @@ function SheetTab({
 }
 
 function BrowseSheetBody({
+  groups,
   user,
   pathname,
 }: {
+  groups: NavGroup[]
   user: { email: string; is_admin?: boolean } | null
   pathname: string
 }) {
   const { toggle: toggleTheme, label: themeLabel } = useThemeToggle()
   return (
     <>
-      {mobileBrowseGroups.map(group => (
+      {groups.map(group => (
         <div key={group.label} className="mb-4">
           <p className={cn('mb-2 px-3', navGroupLabelClassName)}>{group.label}</p>
           {visibleNavItems(group.items, user).map(item => (
@@ -417,23 +421,36 @@ export function BottomTabBar() {
   // type for the rule.
   const isSettledAuthenticated = authStatus === 'authenticated' && user !== null
 
+  // The bar's tab set follows the same signal. AuthHydrator seeds the profile
+  // this context reads before the shell renders, so the server HTML already
+  // carries the viewer's bar and hydration does not change it. Only a viewer
+  // the server could not answer for (a backend failure leaves the context
+  // 'pending') settles on the client; the third tab then swaps in place and
+  // the five columns do not move.
+  const navViewer = isSettledAuthenticated ? 'signed-in' : 'signed-out'
+  const { primaryTabs, browseGroups, browseHrefs } = mobileNavFor(navViewer)
+
   // The canonical account list (navData, PSY-1821) with the username-aware
   // Profile href already resolved. Admin stays in the list (adminOnly) so the
   // tab's active state covers every account route; rendering filters it.
   const accountItems = isSettledAuthenticated ? accountNavItems(user) : []
 
   // At most one tab lights up (off-map routes like /help light none). Primary
-  // tabs win on shared prefixes (e.g.
-  // /shows/submit is both a Shows descendant and a Browse-sheet destination —
-  // Shows takes it); Account owns its own routes (the legal rows' routes light
-  // no tab); Browse takes the rest of its sheet's destinations. The claim-view alias stays in the active set even
-  // when Profile deep-links to /users/<username>.
+  // tabs win on shared prefixes: /shows/submit is both a Shows descendant and
+  // a Browse-sheet destination, so Shows takes it, and /library is both a tab
+  // and an Account-sheet row for a signed-in viewer, so Library takes it.
+  // Account owns the rest of its own routes (the legal rows' routes light no
+  // tab); Browse takes the rest of its sheet's destinations. The claim-view
+  // alias stays in the active set even when Profile deep-links to
+  // /users/<username>.
   const primaryActive = primaryTabs.some(t => isActive(t.href))
-  const accountActive = isSettledAuthenticated
-    ? accountItems.some(i => isActive(i.href)) || isActive(PROFILE_CLAIM_HREF)
-    : isActive(AUTH_PATH)
+  const accountActive =
+    !primaryActive &&
+    (isSettledAuthenticated
+      ? accountItems.some(i => isActive(i.href)) || isActive(PROFILE_CLAIM_HREF)
+      : isActive(AUTH_PATH))
   const browseActive =
-    !primaryActive && !accountActive && mobileBrowseHrefs.some(isActive)
+    !primaryActive && !accountActive && browseHrefs.some(isActive)
 
   return (
     <nav
@@ -459,14 +476,17 @@ export function BottomTabBar() {
           )
         })}
 
-        {/* Browse — the long-tail sheet */}
+        {/* Browse, the long-tail sheet. Keyed by viewer for the reason the
+            Account cell below is: its rows differ per viewer, so a settle
+            closes an open sheet rather than shifting rows under a finger. */}
         <SheetTab
+          key={`browse-${navViewer}`}
           label="Browse"
           icon={LayoutGrid}
           active={browseActive}
           description="All destinations: catalog, curation, scenes, contribute, and editorial links."
         >
-          <BrowseSheetBody user={user} pathname={pathname} />
+          <BrowseSheetBody groups={browseGroups} user={user} pathname={pathname} />
         </SheetTab>
 
         {/* The auth-aware Account cell. The signed-in sheet names a viewer,

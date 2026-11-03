@@ -146,7 +146,7 @@ const routes: RouteItem[] = [
     requireAuth: true,
   },
   {
-    label: 'My Library',
+    label: 'Library',
     href: '/library',
     keywords: ['library', 'saved', 'bookmarks', 'favorites', 'following', 'my stuff', 'personal', 'my shows', 'my collection', 'submissions', 'my submissions'],
     requireAuth: true,

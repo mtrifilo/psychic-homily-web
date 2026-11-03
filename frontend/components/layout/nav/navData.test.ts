@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { Bell, Library } from 'lucide-react'
 import {
-  PROFILE_CLAIM_HREF, accountNavItems, buildDestinationIndex, mobileBrowseGroups,
+  PROFILE_CLAIM_HREF, accountNavItems, buildDestinationIndex, mobileNavFor,
   navDestination, profileHref, sidebarAccountItems, sidebarGroups, visibleNavItems,
 } from './navData'
+import type { MobileNavViewer } from './navData'
 
 describe('profileHref', () => {
   it('deep-links to the public identity view when the user has a username', () => {
@@ -20,7 +21,7 @@ describe('accountNavItems', () => {
   it('is the canonical account set, in menu order, with Admin flagged last', () => {
     const items = accountNavItems(null)
     expect(items.map(i => i.label)).toEqual([
-      'Notifications', 'My Library', 'Profile', 'Settings', 'Appearance', 'Admin',
+      'Notifications', 'Library', 'Profile', 'Settings', 'Appearance', 'Admin',
     ])
     // Admin last is load-bearing: UserMenu renders the adminOnly partition
     // after a separator while the mobile sheet renders in list order — a
@@ -43,6 +44,49 @@ describe('accountNavItems', () => {
     expect(sidebarAccountItems(null).map(i => i.href)).toContain(
       '/settings/notification-filters'
     )
+  })
+})
+
+describe('mobileNavFor', () => {
+  const viewers: MobileNavViewer[] = ['signed-in', 'signed-out']
+  const labels = (viewer: MobileNavViewer) =>
+    mobileNavFor(viewer).primaryTabs.map(t => t.label)
+  const discover = (viewer: MobileNavViewer) =>
+    mobileNavFor(viewer).browseGroups.find(g => g.label === 'Discover')!.items.map(i => i.label)
+
+  // Product Designs P1a (2076:26 / 2077:22): Library takes Radio's tab once
+  // signed in; everyone else keeps the bar as it was.
+  it('gives a signed-in viewer Library in the third tab and everyone else Radio', () => {
+    expect(labels('signed-in')).toEqual(['Home', 'Shows', 'Library'])
+    expect(labels('signed-out')).toEqual(['Home', 'Shows', 'Radio'])
+    expect(mobileNavFor('signed-in').primaryTabs[2].href).toBe('/library')
+  })
+
+  it('leads the Discover group with Radio only for the viewer whose bar dropped it', () => {
+    expect(discover('signed-in')).toEqual(['Radio', 'Graph', 'Atlas'])
+    expect(discover('signed-out')).toEqual(['Graph', 'Atlas'])
+  })
+
+  // The bar renders a literal grid-cols-5; a viewer with a different tab
+  // count would wrap a tab outside the fixed bar height.
+  it('keeps the tab count the same for every viewer', () => {
+    const counts = viewers.map(v => mobileNavFor(v).primaryTabs.length)
+    expect(new Set(counts).size).toBe(1)
+  })
+
+  it('never lists a destination in both the bar and the Browse sheet', () => {
+    for (const viewer of viewers) {
+      const { primaryTabs, browseHrefs } = mobileNavFor(viewer)
+      for (const tab of primaryTabs) expect(browseHrefs, viewer).not.toContain(tab.href)
+    }
+  })
+
+  it('resolves every tab through the canonical tables', () => {
+    for (const viewer of viewers) {
+      for (const tab of mobileNavFor(viewer).primaryTabs) {
+        expect(tab).toEqual(navDestination(tab.href))
+      }
+    }
   })
 })
 
@@ -137,7 +181,9 @@ describe('composition integrity', () => {
       ...sidebarGroups.map(g => g.items),
       sidebarAccountItems(null),
       accountNavItems(null),
-      ...mobileBrowseGroups.filter(g => g.label !== 'Scenes').map(g => g.items),
+      ...(['signed-in', 'signed-out'] as const).flatMap(viewer =>
+        mobileNavFor(viewer).browseGroups.filter(g => g.label !== 'Scenes').map(g => g.items)
+      ),
     ]
     for (const items of blocks) {
       const icons = items.map(i => i.icon)

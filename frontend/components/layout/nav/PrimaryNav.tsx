@@ -18,8 +18,9 @@ import {
 // became the dial, PSY-1049). Browse / Contribute carry menus (own components).
 // Composed from navData's canonical entries (PSY-1821) — this list only
 // decides WHICH destinations are top-bar primaries and their order (each
-// destination is named individually; the mobile bar's primaryTabs is a
-// separate membership decision, deliberately NOT spread here). Atlas is the
+// destination is named individually; the mobile bar's tabs, navData's
+// mobileNavFor, are a separate membership decision, deliberately NOT spread
+// here). Atlas is the
 // spin-to-discover globe promoted as a flagship discovery surface (PSY-1219).
 // Exported for BottomTabBar's mobile-reachability guard test: every desktop
 // primary destination must stay reachable from the mobile tab bar or its
