@@ -112,7 +112,7 @@ describe('ArtistPanel', () => {
       screen.getByRole('heading', { name: 'Die Spitz' }),
     ).toBeInTheDocument()
     expect(screen.getByTestId('artist-panel-kicker')).toHaveTextContent(
-      'ARTIST · 1 OF 3 UPCOMING AT HOTEL VEGAS',
+      'Artist · 1 of 3 upcoming at Hotel Vegas',
     )
   })
 
@@ -254,7 +254,7 @@ describe('ArtistPanel', () => {
         screen.queryByTestId('artist-panel-step-next'),
       ).not.toBeInTheDocument()
       expect(screen.getByTestId('artist-panel-kicker')).toHaveTextContent(
-        'ARTIST',
+        'Artist',
       )
     })
 

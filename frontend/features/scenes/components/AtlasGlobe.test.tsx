@@ -1386,7 +1386,7 @@ describe('AtlasGlobe', () => {
     it('steps through the whole venue week in order, de-duplicated', async () => {
       await drillIntoFirstShow()
       expect(screen.getByTestId('artist-panel-kicker')).toHaveTextContent(
-        'ARTIST · 1 OF 3 UPCOMING AT THIS VENUE',
+        'Artist · 1 of 3 upcoming at this venue',
       )
 
       fireEvent.click(screen.getByTestId('artist-panel-step-next'))
@@ -1394,7 +1394,7 @@ describe('AtlasGlobe', () => {
         screen.getByRole('heading', { name: 'Meat Wave' }),
       ).toBeInTheDocument()
       expect(screen.getByTestId('artist-panel-kicker')).toHaveTextContent(
-        'ARTIST · 2 OF 3 UPCOMING AT THIS VENUE',
+        'Artist · 2 of 3 upcoming at this venue',
       )
 
       // Meat Wave plays both nights but is ONE step — the third is night two's
@@ -1404,7 +1404,7 @@ describe('AtlasGlobe', () => {
         screen.getByRole('heading', { name: 'Gouge Away' }),
       ).toBeInTheDocument()
       expect(screen.getByTestId('artist-panel-kicker')).toHaveTextContent(
-        'ARTIST · 3 OF 3 UPCOMING AT THIS VENUE',
+        'Artist · 3 of 3 upcoming at this venue',
       )
     })
 
@@ -1461,7 +1461,7 @@ describe('AtlasGlobe', () => {
       // Night two's first artist is Meat Wave, which the de-duplicated list
       // already holds at index 1.
       expect(screen.getByTestId('artist-panel-kicker')).toHaveTextContent(
-        'ARTIST · 2 OF 3 UPCOMING AT THIS VENUE',
+        'Artist · 2 of 3 upcoming at this venue',
       )
     })
 

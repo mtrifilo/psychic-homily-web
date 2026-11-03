@@ -237,8 +237,8 @@ describe('SceneCalendar', () => {
           ])}
         />
       )
-      expect(screen.getByText('Cancelled')).toBeInTheDocument()
-      expect(screen.getByText('Sold out')).toBeInTheDocument()
+      expect(screen.getByText('CANCELLED')).toBeInTheDocument()
+      expect(screen.getByText('SOLD OUT')).toBeInTheDocument()
     })
 
     // The payoff of reading the day endpoint: the backend answered for the

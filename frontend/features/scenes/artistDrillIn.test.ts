@@ -173,7 +173,7 @@ describe('artistStepKicker', () => {
   it('states the position and the scope it belongs to', () => {
     expect(
       artistStepKicker({ index: 1, total: 5, scopeLabel: 'upcoming at Hotel Vegas' }),
-    ).toBe('ARTIST · 2 OF 5 UPCOMING AT HOTEL VEGAS')
+    ).toBe('Artist · 2 of 5 upcoming at Hotel Vegas')
   })
 
   // The scope is whatever list you drilled in from — a citywide surface must
@@ -181,18 +181,18 @@ describe('artistStepKicker', () => {
   it('carries a non-venue scope verbatim', () => {
     expect(
       artistStepKicker({ index: 0, total: 12, scopeLabel: 'in Austin' }),
-    ).toBe('ARTIST · 1 OF 12 IN AUSTIN')
+    ).toBe('Artist · 1 of 12 in Austin')
   })
 
   it('drops the position for a single-entry list', () => {
     expect(
       artistStepKicker({ index: 0, total: 1, scopeLabel: 'upcoming at Mohawk' }),
-    ).toBe('ARTIST')
+    ).toBe('Artist')
   })
 
   it('omits the scope segment when there is no label', () => {
     expect(artistStepKicker({ index: 0, total: 3, scopeLabel: '  ' })).toBe(
-      'ARTIST · 1 OF 3',
+      'Artist · 1 of 3',
     )
   })
 })

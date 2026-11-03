@@ -224,17 +224,17 @@ describe('SceneDayView — a night with shows', () => {
 
   it('badges a sold-out show', () => {
     render(<SceneDayView isRollingRoute={false} day={day({ shows: [show({ is_sold_out: true })] })} />)
-    expect(screen.getByText('Sold out')).toBeInTheDocument()
+    expect(screen.getByText('SOLD OUT')).toBeInTheDocument()
   })
 
-  // Cancelled outranks sold out — a cancelled show reading "Sold out" would
+  // Cancelled outranks sold out — a cancelled show reading "SOLD OUT" would
   // actively mislead someone deciding whether to go.
   it('badges a cancelled show and suppresses the sold-out badge', () => {
     render(
       <SceneDayView isRollingRoute={false} day={day({ shows: [show({ is_cancelled: true, is_sold_out: true })] })} />
     )
-    expect(screen.getByText('Cancelled')).toBeInTheDocument()
-    expect(screen.queryByText('Sold out')).not.toBeInTheDocument()
+    expect(screen.getByText('CANCELLED')).toBeInTheDocument()
+    expect(screen.queryByText('SOLD OUT')).not.toBeInTheDocument()
   })
 
   it('always discloses that coverage is partial', () => {

@@ -174,10 +174,10 @@ export function SceneWindowHeading({ title }: { title: string }) {
   )
 }
 
-/** Cancelled / Sold out. Both are warnings, so both are destructive-toned. */
+/** CANCELLED / SOLD OUT. Both are warnings, so both are destructive-toned. */
 export function ShowStatusBadge({ label }: { label: string }) {
   return (
-    <span className="shrink-0 rounded-sm border border-destructive px-1.5 py-px text-xs leading-4 text-destructive">
+    <span className="shrink-0 rounded-sm border border-destructive px-1.5 py-px font-data text-xs leading-4 tracking-wide text-destructive">
       {label}
     </span>
   )

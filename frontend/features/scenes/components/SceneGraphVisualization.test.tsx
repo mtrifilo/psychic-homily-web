@@ -483,8 +483,7 @@ describe('SceneGraphVisualization — label hub selection (PSY-1530)', () => {
   it('opens the label entity panel, not the artist panel', () => {
     renderAndSelectHub()
     expect(screen.getByText('12XU')).toBeInTheDocument()
-    // The panel uppercases the type tag in JS, not CSS.
-    expect(screen.getByText('LABEL')).toBeInTheDocument()
+    expect(screen.getByText('Label')).toBeInTheDocument()
     // "Open page →" must target the label route, never /artists/12xu.
     const link = screen.getByRole('link', { name: /open page/i })
     expect(link).toHaveAttribute('href', '/labels/12xu')

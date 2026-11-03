@@ -207,10 +207,10 @@ describe('SceneWeekView', () => {
 
   it('badges a sold-out show', () => {
     render(<SceneWeekView isRollingRoute week={week({ days: [{ date: '2026-07-27', shows: [show({ is_sold_out: true })] }] })} />)
-    expect(screen.getByText('Sold out')).toBeInTheDocument()
+    expect(screen.getByText('SOLD OUT')).toBeInTheDocument()
   })
 
-  // Cancelled outranks sold out — a cancelled show that reads "Sold out" would
+  // Cancelled outranks sold out — a cancelled show that reads "SOLD OUT" would
   // actively mislead someone deciding whether to go.
   it('badges a cancelled show and suppresses the sold-out badge', () => {
     render(
@@ -220,8 +220,8 @@ describe('SceneWeekView', () => {
         })}
       />
     )
-    expect(screen.getByText('Cancelled')).toBeInTheDocument()
-    expect(screen.queryByText('Sold out')).not.toBeInTheDocument()
+    expect(screen.getByText('CANCELLED')).toBeInTheDocument()
+    expect(screen.queryByText('SOLD OUT')).not.toBeInTheDocument()
   })
 
   // The decision was an empty STATE, not a 404 — a real city having a quiet

@@ -117,14 +117,16 @@ export function clampStepIndex(
 // ── Stepper copy ──────────────────────────────────────────────────────────
 
 /**
- * The mock's data-face kicker: "ARTIST · 2 OF 5 THIS WEEK AT THIS VENUE".
+ * The panel's kicker, in the sentence-case label tier: "Artist · 2 of 5 this
+ * week at this venue". The scope is printed verbatim, so a venue or city name
+ * keeps its own case.
  *
  * `scopeLabel` is a PROP all the way up rather than the literal the mock draws,
  * because the locked decision is that the stepper's scope is whatever list you
  * drilled in from. Baking "at this venue" in here would be the one thing the
  * decision rules out.
  *
- * Returns just "ARTIST" for a single-entry list — a "1 OF 1" stepper is noise.
+ * Returns just "Artist" for a single-entry list: a "1 of 1" stepper is noise.
  */
 export function artistStepKicker(args: {
   index: number
@@ -132,12 +134,12 @@ export function artistStepKicker(args: {
   scopeLabel: string
 }): string {
   const { index, total, scopeLabel } = args
-  if (total <= 1) return 'ARTIST'
+  if (total <= 1) return 'Artist'
   const scope = scopeLabel.trim()
-  const position = `${index + 1} OF ${total}`
+  const position = `${index + 1} of ${total}`
   return scope
-    ? `ARTIST · ${position} ${scope.toUpperCase()}`
-    : `ARTIST · ${position}`
+    ? `Artist · ${position} ${scope}`
+    : `Artist · ${position}`
 }
 
 /**

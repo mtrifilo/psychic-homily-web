@@ -68,8 +68,8 @@ function ShowRow({
           >
             {showDisplayTitle(show)}
           </span>
-          {show.is_cancelled && <ShowStatusBadge label="Cancelled" />}
-          {!show.is_cancelled && show.is_sold_out && <ShowStatusBadge label="Sold out" />}
+          {show.is_cancelled && <ShowStatusBadge label="CANCELLED" />}
+          {!show.is_cancelled && show.is_sold_out && <ShowStatusBadge label="SOLD OUT" />}
         </span>
         <span className="hidden flex-1 sm:block" aria-hidden="true" />
         <ShowPrice
