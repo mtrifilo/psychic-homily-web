@@ -39,11 +39,10 @@ export const SCENE_LINK_INTERACTION_CLASS =
  * The focus ring is offset rather than inset because these are inline text
  * links with no box of their own to ring inside.
  *
- * The tone is the link token, which clears the 4.5:1 AA floor for text at this
- * size on every light surface (see `--link` in globals.css); `--primary` does
- * not. The accent register is the wave's locked choice rather than this
- * constant's, so changing it is a design decision about every surface that
- * uses it.
+ * The tone is the link token: 4.5:1 or better for text at this size on the
+ * light background, card, muted, secondary and sidebar surfaces, but not on
+ * the accent fills (see `--link` in globals.css). Changing the tone changes
+ * every scene surface that uses this constant.
  */
 export const SCENE_ACCENT_LINK_CLASS = `rounded-sm font-data text-[11px] uppercase tracking-widest text-link ${SCENE_LINK_INTERACTION_CLASS}`
 

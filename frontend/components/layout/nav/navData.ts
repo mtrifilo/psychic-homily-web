@@ -23,7 +23,7 @@ export interface NavLink {
   authOnly?: boolean
   /**
    * Marks the Contribute menu's call-to-action ("+ Submit a show"), which the
-   * Figma design (frame 460:3) renders in the primary color. Submit lives in
+   * Figma design (frame 460:3) renders in orange, the link token. Submit lives in
    * this menu rather than as a standalone top-bar CTA (OQ-2, resolved).
    */
   submitPrimary?: boolean

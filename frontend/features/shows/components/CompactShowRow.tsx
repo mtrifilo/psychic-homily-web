@@ -202,7 +202,7 @@ export function CompactShowRow({
               <div className="mt-0.5">
                 <Link
                   href={detailsHref}
-                  className="text-link underline underline-offset-2"
+                  className="text-link underline underline-offset-2 hover:no-underline"
                 >
                   Details
                 </Link>

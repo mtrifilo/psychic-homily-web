@@ -14,7 +14,7 @@ interface ProfileSectionActionProps {
 /**
  * The plain orange section action the profile redesign boards use in
  * main-column section headers ("Edit" / "Manage" / "View all →"). The boards
- * draw these as unbracketed primary-colored text links — deliberately NOT the
+ * draw these as unbracketed orange (link token) text links, deliberately NOT the
  * entity-page BracketLink treatment (PSY-1062).
  */
 export function ProfileSectionAction({

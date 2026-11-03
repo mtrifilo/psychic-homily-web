@@ -159,7 +159,7 @@ function SheetNavLink({
         }
         className={cn(
           sheetLinkClassName(active),
-          // The Contribute menu's "+ Submit a show" CTA keeps its primary-color
+          // The Contribute menu's "+ Submit a show" CTA keeps its orange link
           // treatment in the sheet (Figma 460:3 — same rule the desktop menu
           // applies via navData's submitPrimary flag).
           item.submitPrimary && !active && 'text-link hover:text-link'

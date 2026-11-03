@@ -107,7 +107,7 @@ function StationCard({ editorial }: { editorial: StationEditorial }) {
         </div>
         {live && (
           <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="text-[8px] text-link" aria-hidden>
+            <span className="text-[8px] text-primary" aria-hidden>
               ●
             </span>
             live

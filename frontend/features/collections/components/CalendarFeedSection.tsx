@@ -167,14 +167,14 @@ export function CalendarFeedSection({
             href={googleCalUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-xs text-link underline underline-offset-2"
+            className="inline-flex items-center gap-1 text-xs text-link underline underline-offset-2 hover:no-underline"
           >
             Google Calendar
             <ExternalLink className="h-3 w-3" />
           </a>
           <a
             href={appleCalUrl}
-            className="inline-flex items-center gap-1 text-xs text-link underline underline-offset-2"
+            className="inline-flex items-center gap-1 text-xs text-link underline underline-offset-2 hover:no-underline"
           >
             Apple Calendar
             <ExternalLink className="h-3 w-3" />

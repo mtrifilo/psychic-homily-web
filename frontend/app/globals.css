@@ -181,11 +181,15 @@
   /* Orange text below large size (24px regular, 18.66px bold) uses `link`,
    * never `primary`: `link` clears WCAG AA 4.5:1 on every light surface links
    * sit on (background 5.46, card 5.76, the muted/20 row stripe 5.36, muted
-   * 4.90; also secondary 4.81 and sidebar 5.04), where `primary` measures
-   * 3.3 to 3.9. `primary` stays for icons and other non-text marks (3:1),
+   * 4.90; also secondary 4.81, sidebar 5.04, and `primary` tints of /10 and
+   * /15 over background or card, 4.53 to 5.10), where `primary` measures 3.1
+   * to 3.9. `primary` stays for icons and other non-text marks (3:1),
    * paper-on-orange buttons and large text. Not AA on the accent or
-   * sidebar-accent fills (4.29, 4.38), and an opacity modifier on `link`
-   * text drops it below 4.5:1 on every surface. */
+   * sidebar-accent fills (4.29, 4.38) or on a /20 or denser primary tint.
+   * `link` text is never opacity-modified: /90 already fails on muted (4.17)
+   * and /80 fails everywhere (3.82 on background). app/linkToken.test.ts pins
+   * these ratios; lib/primaryTextUsage.lint.test.ts keeps text-sized
+   * `text-primary` from coming back. */
   --link: #a84015;
   --secondary: #e8e3d6;
   --secondary-foreground: #1a1714;

@@ -383,7 +383,7 @@ function SubmissionShowCard({
                 <span>&nbsp;•&nbsp;</span>
                 <Link
                   href={`/shows/${show.slug || show.id}`}
-                  className="text-link underline underline-offset-2"
+                  className="text-link underline underline-offset-2 hover:no-underline"
                 >
                   Details
                 </Link>

@@ -34,7 +34,7 @@ import { useHoverIntentMenu } from './useHoverIntentMenu'
 // traverse every item across both columns in DOM order, and Escape returns
 // focus to the trigger.
 
-// Per-item color: primary (orange + semibold) for the "+ Submit a show"
+// Per-item color: link (orange + semibold) for the "+ Submit a show"
 // call-to-action, muted for the trailing "hub" / external links, foreground
 // for the rest — matching the Figma panel. The color is pinned on the focus
 // state too so the item keeps its own color (the default item chrome would
