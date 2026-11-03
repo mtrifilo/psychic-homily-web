@@ -51,8 +51,8 @@ export function SignedInHome({
         saved_shows: <SavedShowsModule />,
         nearby_shows: <NearbyShowsSection id={NEARBY_SECTION_ID} />,
         community_stats: <CommunityPulseBand />,
-        city_graph: <HomeSceneGraph />,
-        radio_shows: <LatestRadioShows />,
+        city_graph: <HomeSceneGraph narrowForm="linkRow" />,
+        radio_shows: <LatestRadioShows variant="rows" />,
       }}
     />
   )

@@ -129,4 +129,65 @@ describe('LatestRadioShows', () => {
       })
     ).toHaveAttribute('href', '/radio/wfmu')
   })
+
+  describe('rows variant (signed-in home)', () => {
+    function rowFor(name: RegExp) {
+      return screen.getByRole('link', { name })
+    }
+
+    it('renders an "All stations" header link and three rows, no cards', () => {
+      const { container } = render(<LatestRadioShows variant="rows" />)
+      expect(
+        screen.getByRole('heading', { name: /latest radio shows/i })
+      ).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'All stations →' })).toHaveAttribute(
+        'href',
+        '/radio'
+      )
+      expect(screen.queryByRole('link', { name: /browse all stations/i })).toBeNull()
+      expect(screen.getAllByRole('listitem')).toHaveLength(3)
+      expect(rowFor(/^KEXP · Seattle/)).toHaveAttribute('href', '/radio/kexp')
+      expect(rowFor(/^WFMU · Jersey City/)).toHaveAttribute('href', '/radio/wfmu')
+      expect(rowFor(/^NTS · London/)).toHaveAttribute('href', '/radio/nts-radio')
+      expect(container.querySelector('.min-h-\\[134px\\]')).toBeNull()
+    })
+
+    it('shows "station · show" over "city · live now" with a live dot when on air', () => {
+      useStationEpisodes.mockImplementation(({ stationSlug }: { stationSlug: string }) =>
+        stationSlug === 'wfmu'
+          ? { data: { episodes: [episodeRow()], total: 1 } }
+          : { data: { episodes: [], total: 0 } }
+      )
+      useStationNowPlaying.mockImplementation((slug: string) => ({
+        data: { on_air: slug === 'wfmu' },
+      }))
+      render(<LatestRadioShows variant="rows" />)
+      const wfmu = rowFor(/^WFMU · Jersey City/)
+      expect(wfmu).toHaveTextContent('WFMU · Strength Through Failure')
+      expect(wfmu).toHaveTextContent('Jersey City · live now')
+      expect(wfmu.querySelector('.bg-primary')).not.toBeNull()
+      // Rows drop the artist line; the accessible name still carries it.
+      expect(screen.queryByText('Stereolab · Broadcast · Pram')).toBeNull()
+      expect(wfmu).toHaveAccessibleName(
+        'WFMU · Jersey City — live now — latest: Strength Through Failure with Stereolab, Broadcast, Pram. Open the station page.'
+      )
+    })
+
+    it('falls back to "city · vibe" off air and the call sign alone with no episode', () => {
+      useStationEpisodes.mockReturnValue({ data: { episodes: [], total: 0 } })
+      render(<LatestRadioShows variant="rows" />)
+      const kexp = rowFor(/^KEXP · Seattle/)
+      expect(kexp).toHaveTextContent(/^KEXP\s*Seattle · Eclectic host’s-choice$/)
+      expect(kexp).not.toHaveTextContent(/live now/)
+      expect(kexp.querySelector('.bg-primary')).toBeNull()
+    })
+
+    it('degrades to the editorial shell on a fetch ERROR', () => {
+      useStationEpisodes.mockReturnValue({ data: undefined, error: new Error('404') })
+      useStationNowPlaying.mockReturnValue({ data: undefined, error: new Error('404') })
+      render(<LatestRadioShows variant="rows" />)
+      expect(rowFor(/^NTS · London/)).toHaveTextContent('London · Global, two live channels')
+      expect(screen.queryByText(/live now/)).toBeNull()
+    })
+  })
 })

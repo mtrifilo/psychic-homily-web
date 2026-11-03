@@ -269,7 +269,22 @@ function HomeGraphLegend({
 // re-invokes `loading` with an error); `loading` is only the happy-path skeleton.
 const ForceGraphView = createLazyForceGraphView(<SceneGraphSkeleton />)
 
-export function HomeSceneGraph() {
+/**
+ * What the section becomes below the canvas gate. `teaser` is the logged-out
+ * homepage's line of body text into the music map. `linkRow` is the signed-in
+ * home's form: one hairline-ruled row, "Scene graph · {city}, mapped →",
+ * standing as the section's heading and pointing at the same scene-scoped
+ * route as the desktop "Open the graph →" link. Its Customize row promises
+ * exactly that ("A link on phones"), so the two forms must not converge
+ * without that copy changing in `../sections`.
+ */
+export type HomeSceneGraphNarrowForm = 'teaser' | 'linkRow'
+
+export function HomeSceneGraph({
+  narrowForm = 'teaser',
+}: {
+  narrowForm?: HomeSceneGraphNarrowForm
+} = {}) {
   // Lazy-mount on scroll intent (shared hook — PSY-1347, incl. the React 19
   // defer-to-microtask fallback when IntersectionObserver is unavailable).
   // Once mounted, never tears down; the section's data hooks only run behind
@@ -283,7 +298,7 @@ export function HomeSceneGraph() {
         // must never dent the homepage; the throw is reported to Sentry, not
         // bubbled to app/error.tsx.
         <CanvasSectionErrorBoundary sentryTag="home-scene-graph">
-          <HomeSceneGraphSection />
+          <HomeSceneGraphSection narrowForm={narrowForm} />
         </CanvasSectionErrorBoundary>
       ) : (
         <SceneGraphSkeleton />
@@ -294,7 +309,11 @@ export function HomeSceneGraph() {
 
 // Inner component so the data hooks only run once scroll-intent exists —
 // the outer shell can't call them conditionally.
-function HomeSceneGraphSection() {
+function HomeSceneGraphSection({
+  narrowForm,
+}: {
+  narrowForm: HomeSceneGraphNarrowForm
+}) {
   const { refCallback, containerWidth, isBelowGraphBreakpoint } = useContainerWidth()
   const scenesQuery = useScenes()
   const scenes = useMemo(
@@ -484,13 +503,16 @@ function HomeSceneGraphSection() {
 
   const sceneHref = `/scenes/${scene.slug}`
   const sceneGraphHref = `${sceneHref}#graph`
+  const asLinkRow = isBelowGraphBreakpoint && narrowForm === 'linkRow'
 
   return (
     <section
-      // The heading is the section's accessible name only while it renders;
-      // below the gate this section is one line of body text, which is not a
-      // landmark worth naming.
-      aria-labelledby={isBelowGraphBreakpoint ? undefined : 'home-scene-graph-heading'}
+      // The heading is the section's accessible name only while one renders:
+      // the desktop heading, or the link row that stands in for it. The
+      // teaser is one line of body text, which is not a landmark worth naming.
+      aria-labelledby={
+        isBelowGraphBreakpoint && !asLinkRow ? undefined : 'home-scene-graph-heading'
+      }
       className="flex w-full flex-col gap-4"
     >
       {/* Unmeasured, this row is what a phone's server HTML carries, and the
@@ -564,9 +586,23 @@ function HomeSceneGraphSection() {
         {containerWidth === null && <SceneGraphSkeleton />}
 
         {/* The section's sub-640px form (PSY-511 gates the canvas off here).
-            The map is the link target rather than this scene's page, whose own
-            graph section collapses to this same line at this width. */}
-        {isBelowGraphBreakpoint && (
+            The teaser targets the map rather than this scene's page, whose own
+            graph section collapses to one line at this width; the link row
+            deliberately names this scene and targets its page instead. */}
+        {asLinkRow && (
+          <h2
+            id="home-scene-graph-heading"
+            className="border-y border-border text-[15px] font-normal leading-6 text-foreground"
+          >
+            <Link
+              href={sceneGraphHref}
+              className="block py-3 transition-colors hover:underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              Scene graph · {scene.city}, mapped <span aria-hidden="true">→</span>
+            </Link>
+          </h2>
+        )}
+        {isBelowGraphBreakpoint && !asLinkRow && (
           <MobileGraphTeaser
             href={graphRootHref()}
           >{`See how the scene connects on the music map`}</MobileGraphTeaser>

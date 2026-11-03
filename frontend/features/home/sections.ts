@@ -74,7 +74,8 @@ export const HOME_SECTIONS: readonly HomeSectionDefinition[] = [
   {
     id: 'city_graph',
     title: 'Scene graph',
-    description: 'The scene, mapped. Click a node to explore.',
+    description:
+      'The scene, mapped. A link on phones, the graph on larger screens.',
     defaultVisible: true,
   },
 ]

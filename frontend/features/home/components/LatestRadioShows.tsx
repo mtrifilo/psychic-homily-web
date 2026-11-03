@@ -1,12 +1,15 @@
 'use client'
 
 import Link from 'next/link'
+import { ChevronRight } from 'lucide-react'
 import { useStationEpisodes, useStationNowPlaying } from '@/features/radio/hooks'
+import { cn } from '@/lib/utils'
+import { HOME_ACCENT_LINK_CLASS } from './HomeCityShowsLink'
 
 /**
- * LatestRadioShows (PSY-389, real data per PSY-1329) — three station preview
+ * LatestRadioShows (PSY-389, real data per PSY-1329) — three station previews:
  * cards on the logged-out homepage (Figma `491:29`, section "Latest radio
- * shows").
+ * shows"), rows on the signed-in home (Signed-in Home v2, `2167:33`).
  *
  * The call sign / city / one-line vibe are EDITORIAL (hand-written per
  * station, stable facts + curation — fine to hardcode). The show name and
@@ -18,8 +21,8 @@ import { useStationEpisodes, useStationNowPlaying } from '@/features/radio/hooks
  * KEXP dot) with these.
  *
  * Degrades gracefully: while loading, or for a station with no imported
- * episodes yet, the card renders its editorial shell (call sign / city /
- * vibe) without a show line — never fictional data. Cards deep-link to the
+ * episodes yet, the card or row renders its editorial shell (call sign / city /
+ * vibe) without a show line — never fictional data. Both deep-link to the
  * station's own /radio tab.
  */
 
@@ -64,7 +67,18 @@ const STATIONS: ReadonlyArray<StationEditorial> = [
 /** Max artist names shown on the card's one-line artist preview. */
 const CARD_ARTIST_CAP = 3
 
-function StationCard({ editorial }: { editorial: StationEditorial }) {
+/**
+ * How the section draws its stations. `cards` is the logged-out homepage's
+ * contract (see AnonymousHome); `rows` is the signed-in home's list, one
+ * vocabulary at every width.
+ */
+export type LatestRadioShowsVariant = 'cards' | 'rows'
+
+/**
+ * One station's preview, read once and shared by both forms so the card and
+ * the row cannot disagree on what is live or what aired last.
+ */
+function useStationPreview(editorial: StationEditorial) {
   const { data: episodesData } = useStationEpisodes({
     stationSlug: editorial.slug,
     limit: 1,
@@ -78,9 +92,9 @@ function StationCard({ editorial }: { editorial: StationEditorial }) {
     .slice(0, CARD_ARTIST_CAP)
   const live = nowPlaying?.on_air === true
 
-  // aria-label REPLACES the accessible name computed from the card's content,
-  // so everything a sighted user sees must be restated here — notably the
-  // live status and artists (the dot glyph is aria-hidden decoration).
+  // aria-label REPLACES the accessible name computed from the link's content,
+  // so everything a sighted user sees must be restated here, notably the live
+  // status (the dot is aria-hidden decoration).
   const ariaLabel = [
     `${editorial.station} · ${editorial.city}`,
     live ? '— live now' : '',
@@ -91,6 +105,12 @@ function StationCard({ editorial }: { editorial: StationEditorial }) {
     .filter(Boolean)
     .join(' ')
     .replace(' .', '.')
+
+  return { latest, artists, live, ariaLabel }
+}
+
+function StationCard({ editorial }: { editorial: StationEditorial }) {
+  const { latest, artists, live, ariaLabel } = useStationPreview(editorial)
 
   return (
     <Link
@@ -129,7 +149,48 @@ function StationCard({ editorial }: { editorial: StationEditorial }) {
   )
 }
 
-export function LatestRadioShows() {
+/**
+ * The signed-in home's station row (Figma `v2 / Radio row` 2167:79): an 8px
+ * live-dot slot, "station · latest show" over "city · live now" or, off air,
+ * "city · vibe", and a trailing chevron. The dot slot holds its width when the
+ * station is off air so every row's text starts on the same edge.
+ */
+function StationRow({ editorial }: { editorial: StationEditorial }) {
+  const { latest, live, ariaLabel } = useStationPreview(editorial)
+
+  return (
+    <Link
+      href={`/radio/${editorial.slug}`}
+      aria-label={ariaLabel}
+      className="group flex min-h-12 items-center gap-2.5 py-[7px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+    >
+      <span
+        aria-hidden
+        className={cn('size-2 shrink-0 rounded-full', live && 'bg-primary')}
+      />
+      <span className="flex min-w-0 flex-1 flex-col gap-px">
+        <span className="truncate text-sm leading-[18px] text-foreground">
+          {editorial.station}
+          {latest && ` · ${latest.show_name}`}
+        </span>
+        <span className="truncate text-xs leading-[14px] text-muted-foreground">
+          {editorial.city} · {live ? 'live now' : editorial.vibe}
+        </span>
+      </span>
+      <ChevronRight
+        aria-hidden
+        className="size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground"
+      />
+    </Link>
+  )
+}
+
+export function LatestRadioShows({
+  variant = 'cards',
+}: {
+  variant?: LatestRadioShowsVariant
+} = {}) {
+  const asRows = variant === 'rows'
   return (
     <section aria-labelledby="home-radio-heading" className="flex w-full flex-col gap-4">
       <div className="flex items-center justify-between">
@@ -139,18 +200,34 @@ export function LatestRadioShows() {
         >
           Latest radio shows
         </h2>
-        <Link
-          href="/radio"
-          className="text-sm font-medium text-muted-foreground transition-colors hover:text-link hover:underline underline-offset-4"
-        >
-          Browse all stations →
-        </Link>
+        {asRows ? (
+          <Link href="/radio" className={HOME_ACCENT_LINK_CLASS}>
+            All stations →
+          </Link>
+        ) : (
+          <Link
+            href="/radio"
+            className="text-sm font-medium text-muted-foreground transition-colors hover:text-link hover:underline underline-offset-4"
+          >
+            Browse all stations →
+          </Link>
+        )}
       </div>
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-stretch">
-        {STATIONS.map(editorial => (
-          <StationCard key={editorial.slug} editorial={editorial} />
-        ))}
-      </div>
+      {asRows ? (
+        <ul className="border-t border-border">
+          {STATIONS.map(editorial => (
+            <li key={editorial.slug} className="border-b border-border">
+              <StationRow editorial={editorial} />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-stretch">
+          {STATIONS.map(editorial => (
+            <StationCard key={editorial.slug} editorial={editorial} />
+          ))}
+        </div>
+      )}
     </section>
   )
 }

@@ -707,6 +707,62 @@ describe('HomeSceneGraph', () => {
     expect(screen.getAllByRole('link')).toHaveLength(1)
   })
 
+  // The signed-in home's narrow form: one row that names this scene, stands as
+  // the section's heading, and targets the same scene-scoped route as the
+  // desktop "Open the graph →" link.
+  describe('linkRow narrow form', () => {
+    it('renders one heading-tier link row to the scene graph below the breakpoint', async () => {
+      setContainerWidth(500)
+      const { container } = render(<HomeSceneGraph narrowForm="linkRow" />)
+
+      const row = await screen.findByRole('link', {
+        name: 'Scene graph · Chicago, mapped',
+      })
+      expect(row).toHaveAttribute('href', '/scenes/chicago-il#graph')
+      expect(row.closest('h2')).not.toBeNull()
+      // The row names the section landmark.
+      expect(
+        screen.getByRole('region', { name: 'Scene graph · Chicago, mapped' })
+      ).toBeInTheDocument()
+
+      expect(screen.getAllByRole('link')).toHaveLength(1)
+      expect(screen.queryByTestId('force-graph-view')).toBeNull()
+      expect(
+        screen.queryByRole('link', {
+          name: 'See how the scene connects on the music map',
+        })
+      ).toBeNull()
+      expect(screen.queryByRole('button', { name: /surprise me/i })).toBeNull()
+      expect(useSceneGraph).toHaveBeenLastCalledWith(
+        expect.objectContaining({ enabled: false })
+      )
+      expect(container.querySelector('section')?.outerHTML).not.toMatch(
+        /this (week|month)/i
+      )
+    })
+
+    it('follows the geo-picked scene in the row copy and href', async () => {
+      setContainerWidth(500)
+      useGeoDefaultScene.mockReturnValue({ city: 'Phoenix', state: 'AZ' })
+      render(<HomeSceneGraph narrowForm="linkRow" />)
+      expect(
+        await screen.findByRole('link', { name: 'Scene graph · Phoenix, mapped' })
+      ).toHaveAttribute('href', '/scenes/phoenix-az#graph')
+    })
+
+    it('keeps the canvas section unchanged at canvas widths', async () => {
+      render(<HomeSceneGraph narrowForm="linkRow" />)
+      expect(
+        await screen.findByRole('heading', { name: 'The Chicago scene graph' })
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('link', { name: /open the graph/i })
+      ).toHaveAttribute('href', '/scenes/chicago-il#graph')
+      expect(await screen.findByTestId('force-graph-view')).toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: /mapped/i })).toBeNull()
+    })
+  })
+
   it('treats keepPreviousData placeholder frames as loading — never renders the previous scene’s graph under a new heading', async () => {
     // After "Surprise me", useSceneGraph reports the OLD scene's payload
     // with isPlaceholderData: true until the new fetch settles.
