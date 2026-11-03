@@ -40,7 +40,8 @@ const POPOVER_GUTTER_PX = 8
  * The popover opens upward by default: the link sits at the end of the page,
  * where the space is above it. Radix flips it when the space above runs out,
  * and its collision boundary stops above the fixed phone tab bar, which Radix
- * cannot see and which would otherwise cover the popover's footer. Its
+ * cannot see: without that, a popover opening downward would overlap the bar
+ * and hide the page's own navigation behind it. Its
  * position is recomputed every frame while open, because hiding or showing a
  * section above the link moves the link for the length of the slot's height
  * animation.

@@ -211,6 +211,50 @@ describe('HomeLayoutRuntime', () => {
     ).toBe(true)
   })
 
+  it('keeps the passkey offer in place when a hide is reversed mid-collapse', async () => {
+    const user = userEvent.setup()
+    const finishers: Array<() => void> = []
+    vi.mocked(animateSlotHeight).mockImplementation(
+      (_node, _direction, _reducedMotion, onFinish) => {
+        finishers.push(onFinish)
+        return { cancel: vi.fn() } as unknown as Animation
+      }
+    )
+    render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
+    const offerIsAboveNearby = () =>
+      precedes(screen.getByTestId('passkey-offer'), section('nearby_shows'))
+
+    await user.click(customizeButtons()[0])
+    const savedRow = screen.getByRole('checkbox', {
+      name: 'Your upcoming shows',
+    })
+    layout = setHomeSectionVisibility(layout, 'saved_shows', false)
+    await user.click(savedRow)
+    expect(offerIsAboveNearby()).toBe(true)
+
+    // Re-shown before the collapse finished: the offer never moved away.
+    layout = setHomeSectionVisibility(layout, 'saved_shows', true)
+    await user.click(savedRow)
+    expect(offerIsAboveNearby()).toBe(true)
+
+    act(() => finishers.splice(0).forEach(finish => finish()))
+    expect(offerIsAboveNearby()).toBe(true)
+  })
+
+  it('moves focus to the page heading without scrolling to it', async () => {
+    const user = userEvent.setup()
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus')
+    render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
+
+    await user.click(screen.getByTestId('passkey-offer'))
+
+    const heading = screen.getByRole('heading', { level: 1, name: 'Home' })
+    expect(heading).toHaveFocus()
+    expect(focus.mock.contexts.at(-1)).toBe(heading)
+    expect(focus).toHaveBeenLastCalledWith({ preventScroll: true })
+    focus.mockRestore()
+  })
+
   it('places the passkey offer under the first visible section when saved shows is hidden', () => {
     layout = setHomeSectionVisibility(resolveHomeLayout(null), 'saved_shows', false)
     render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)

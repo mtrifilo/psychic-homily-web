@@ -29,6 +29,14 @@ import type { HomeVisibilityChange } from './HomeSectionList'
 /** A section mid-show or mid-hide, and which way it is going. */
 type SlotTransition = 'collapse' | 'expand'
 
+/** A staged transition, and whether the section was visible before the first
+ *  gesture of the chain that staged it (a reversal mid-flight keeps the
+ *  value the interrupted transition recorded). */
+interface StagedTransition {
+  direction: SlotTransition
+  wasVisible: boolean
+}
+
 /**
  * The signed-in home's client shell: the sections in this viewer's order, then
  * the page-end row that carries "Customize home →".
@@ -56,9 +64,11 @@ export function HomeLayoutRuntime({
   // Counts the passkey offer's exits. Focus moves in an effect, after the
   // commit that removed the card: a modal the card opened still traps focus
   // until that commit, and would pull a focus moved any earlier back inside.
+  // Without scrolling: the card sits below the viewer's shows, and the
+  // heading is visually hidden, so scrolling to it would only jump the page.
   const [offerExits, setOfferExits] = useState(0)
   useEffect(() => {
-    if (offerExits > 0) headingRef.current?.focus()
+    if (offerExits > 0) headingRef.current?.focus({ preventScroll: true })
   }, [offerExits])
 
   // The server picked this variant from the viewer's cookie; signing out
@@ -76,7 +86,7 @@ export function HomeLayoutRuntime({
   // animation nobody asked for. A MAP, not one id, so toggling a second
   // section does not yank the first out mid-animation.
   const [transitions, setTransitions] = useState<
-    ReadonlyMap<HomeSectionId, SlotTransition>
+    ReadonlyMap<HomeSectionId, StagedTransition>
   >(() => new Map())
 
   // Direction-aware: a cancel fires this too, and a re-show staged DURING a
@@ -85,7 +95,7 @@ export function HomeLayoutRuntime({
   const settleTransition = useCallback(
     (id: HomeSectionId, direction: SlotTransition) => {
       setTransitions(current => {
-        if (current.get(id) !== direction) return current
+        if (current.get(id)?.direction !== direction) return current
         const next = new Map(current)
         next.delete(id)
         return next
@@ -115,10 +125,14 @@ export function HomeLayoutRuntime({
       }
       setTransitions(current => {
         const next = new Map(current)
+        const interrupted = current.get(change.id)
         // Deleted first so the map's insertion order stays staging order: its
         // last key is the most recently staged section (see `lastStaged`).
         next.delete(change.id)
-        next.set(change.id, change.visible ? 'expand' : 'collapse')
+        next.set(change.id, {
+          direction: change.visible ? 'expand' : 'collapse',
+          wasVisible: interrupted ? interrupted.wasVisible : !change.visible,
+        })
         return next
       })
     },
@@ -142,18 +156,17 @@ export function HomeLayoutRuntime({
     () => ({ cityLink, discoverLinks }),
     [cityLink, discoverLinks]
   )
-  // Placed by each section's visibility BEFORE its in-flight show or hide: the
-  // offer moves only once the height animation settles. Moving it in the same
-  // commit that starts the animation would shift everything below by the
-  // card's height on the first frame, the Customize link and its open popover
-  // included; moving it at the settle passes it over one section only, so
-  // nothing below that section moves.
+  // Placed by each section's visibility BEFORE the gestures still in flight
+  // on it: the offer moves only once the section settles, a reversal
+  // mid-animation included. Moving it in the commit that starts a height
+  // animation would shift everything below by the card's height on the first
+  // frame, the Customize link and its open popover included. A move at the
+  // settle only reorders the column, whose height it does not change, so
+  // nothing below the last section moves.
   const offerAfter = resolvePasskeyOfferSlot(
     rendered.map(section => {
-      const transition = transitions.get(section.id)
-      return transition
-        ? { ...section, visible: transition === 'collapse' }
-        : section
+      const staged = transitions.get(section.id)
+      return staged ? { ...section, visible: staged.wasVisible } : section
     })
   )
   const offerIndex = offerAfter
@@ -194,7 +207,7 @@ export function HomeLayoutRuntime({
         key={section.id}
         id={section.id}
         registerRef={register(section.id)}
-        transition={transitions.get(section.id)}
+        transition={transitions.get(section.id)?.direction}
         isLast={index === rendered.length - 1}
         onSettled={settleTransition}
       >

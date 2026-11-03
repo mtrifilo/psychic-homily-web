@@ -533,12 +533,14 @@ test.describe('Homepage (signed in)', () => {
     ).toBeHidden()
   })
 
-  // With the link near the top of a phone screen the popover opens downward,
-  // and its footer must clear the fixed tab bar, which Radix cannot see.
+  // With the link near the top of a short phone screen the popover opens
+  // downward and does not fit its natural height on either side, so the
+  // collision boundary decides where it ends: above the fixed tab bar, which
+  // Radix cannot see.
   test('keeps the Customize popover above the phone tab bar when it opens downward', async ({
     authenticatedPage: page,
   }) => {
-    await page.setViewportSize({ width: 390, height: 844 })
+    await page.setViewportSize({ width: 390, height: 640 })
     await page.goto('/')
 
     const customize = page.getByRole('button', { name: /customize home/i })
