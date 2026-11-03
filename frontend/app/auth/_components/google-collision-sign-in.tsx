@@ -36,9 +36,10 @@ function isPendingLinkGone(error: unknown): boolean {
 /**
  * The password proof's refusals to attach the Google identity: the identity
  * is attached to another account, or the account holds a different Google
- * identity. The backend leaves the pending link in place on them, so an
- * emailed link already sent still works; the page leaves the collision state
- * with the refusal's own words.
+ * identity (the refusals backend usersvc.AttachOAuthIdentityTx answers with).
+ * The backend clears this browser's pending-link cookie on them and keeps the
+ * pending link itself, so an emailed link already sent still works; the page
+ * leaves the collision state with the refusal's own words.
  */
 const LINK_REFUSAL_CODES: ReadonlySet<string> = new Set([
   AuthErrorCode.OAUTH_IDENTITY_IN_USE,
@@ -86,8 +87,9 @@ interface GoogleCollisionSignInProps {
    */
   reauthReason?: ReauthReason
   /**
-   * The pending link turned out to be gone; the page falls back to the
-   * normal tab, saying `message` or, without one, PENDING_LINK_GONE_MESSAGE.
+   * The pending link turned out to be gone, or this browser no longer holds
+   * it after a refused password proof; the page falls back to the normal
+   * tab, saying `message` or, without one, PENDING_LINK_GONE_MESSAGE.
    */
   onPendingLinkGone: (message?: string) => void
 }

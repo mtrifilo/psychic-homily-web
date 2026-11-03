@@ -234,7 +234,9 @@ func isLinkPendingExpired(err error) bool {
 // isPendingLinkAttachRefusal reports whether code is a password proof's
 // refusal to attach the pending identity, which says nothing against the
 // account signing in: the identity is attached elsewhere, or the account
-// holds another identity from the provider.
+// holds another identity from the provider. These are the refusals
+// usersvc.AttachOAuthIdentityTx answers with; the collision state's
+// LINK_REFUSAL_CODES (frontend) names the same two.
 func isPendingLinkAttachRefusal(code string) bool {
 	return code == autherrors.CodeOAuthIdentityInUse || code == autherrors.CodeOAuthProviderAlreadyLinked
 }

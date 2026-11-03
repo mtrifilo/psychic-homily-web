@@ -377,8 +377,8 @@ func asRefusal(err error) *apperrors.AuthError {
 	return nil
 }
 
-// ignoreRefusal is err unless it is a refusal, which a proof's transaction
-// commits past.
+// ignoreRefusal is err unless it is a refusal, which the mailbox proof's
+// transaction commits past.
 func ignoreRefusal(err error) error {
 	if asRefusal(err) != nil {
 		return nil

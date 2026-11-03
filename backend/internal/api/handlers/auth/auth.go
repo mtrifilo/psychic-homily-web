@@ -204,7 +204,7 @@ type LoginRequest struct {
 
 // LoginResponse represents login response
 type LoginResponse struct {
-	SetCookie []http.Cookie `header:"Set-Cookie" doc:"Authentication cookie, and the cleared pending-link cookie when the request carried one whose pending link this sign-in used, discarded or found gone"`
+	SetCookie []http.Cookie `header:"Set-Cookie" doc:"Authentication cookie, and the cleared pending-link cookie when the request carried one"`
 	Body      struct {
 		Success   bool        `json:"success" example:"true" doc:"Success status"`
 		Message   string      `json:"message" example:"Login successful" doc:"Response message"`
@@ -327,10 +327,11 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 	}
 
 	// The password just proved the account, which is one of the two proofs a
-	// pending provider link waits on. The cookie is cleared once the pending
-	// link is used, discarded or gone; a refusal leaves the pending link in
-	// place (LinkOAuthWithPassword), and the cookie with it, so this browser
-	// can still ask for its emailed link.
+	// pending provider link waits on. This browser's cookie is cleared
+	// whatever the pending link turns out to be, so the collision state does
+	// not come back for it. A refusal to attach leaves the pending link itself
+	// in place (LinkOAuthWithPassword), so an emailed link already sent for
+	// it still works.
 	//
 	// A sign-in that asked to connect (ConnectPendingLink) and could not is
 	// refused, so the person who pressed "Sign in and connect" is never
@@ -344,13 +345,8 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 		linked := false
 		var linkErr error
 		if pendingLink != "" {
-			linked, linkErr = h.authService.LinkOAuthWithPassword(pendingLink, user)
-		}
-		// Linked, discarded or gone: no pending link is left for the cookie
-		// to name.
-		settled := linkErr == nil || isLinkPendingExpired(linkErr)
-		if pendingLink != "" && settled {
 			resp.SetCookie = append(resp.SetCookie, clearedPendingLinkCookie(secure))
+			linked, linkErr = h.authService.LinkOAuthWithPassword(pendingLink, user)
 		}
 		refusal, refused := refusalWithOwnCopy(linkErr)
 		switch {
@@ -360,7 +356,7 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 				user = reloaded
 			}
 			logger.AuthInfo(ctx, "login_completed_pending_link", "user_id", user.ID)
-		case settled:
+		case linkErr == nil || isLinkPendingExpired(linkErr):
 			if input.Body.ConnectPendingLink {
 				logger.AuthWarn(ctx, "login_pending_link_refused", "user_id", user.ID, "error_code", autherrors.CodeOAuthLinkPendingExpired)
 				resp.Body.Success = false

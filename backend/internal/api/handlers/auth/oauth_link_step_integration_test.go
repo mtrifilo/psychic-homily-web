@@ -185,6 +185,15 @@ func (s *OAuthHandlerIntegrationSuite) sessionFrom(resp *httptest.ResponseRecord
 	return cookie.Value
 }
 
+// requireClearedLinkCookie requires resp to clear the browser's pending-link
+// cookie.
+func (s *OAuthHandlerIntegrationSuite) requireClearedLinkCookie(resp *httptest.ResponseRecorder) {
+	s.T().Helper()
+	cleared := setCookies(resp)[oauthPendingLinkCookie.name]
+	s.Require().NotNil(cleared, "expected the pending link cookie to be cleared")
+	s.Equal(-1, cleared.MaxAge)
+}
+
 func (s *OAuthHandlerIntegrationSuite) linkRows(userID uint) int64 {
 	var rows int64
 	s.Require().NoError(s.deps.DB.Model(&authm.OAuthPendingSignup{}).
@@ -492,9 +501,9 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_SignInWithoutTheCookieLeaves
 }
 
 // The identity was attached to another account between the callback and the
-// proof: the password proof is refused with that refusal, and the pending
-// link and its cookie stay. An ordinary sign-in carrying the cookie signs in
-// and leaves them too.
+// proof: the password proof is refused with that refusal, the browser's
+// cookie is cleared and the pending link stays. An ordinary sign-in still
+// carrying the token signs in and leaves the pending link too.
 func (s *OAuthHandlerIntegrationSuite) TestLinkStep_PasswordProofRefusedWhenTheIdentityMovedElsewhere() {
 	account := s.passwordAccount("pw-moved@test.com", true)
 	elsewhere := s.passwordAccount("pw-elsewhere-owner@test.com", true)
@@ -505,13 +514,13 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_PasswordProofRefusedWhenTheI
 	resp := s.loginToConnect(env, "pw-moved@test.com", collisionPassword, linkCookieHeader(token))
 	s.requireRefusal(resp, autherrors.CodeOAuthIdentityInUse)
 	s.Nil(setCookies(resp)["auth_token"])
-	s.Nil(setCookies(resp)[oauthPendingLinkCookie.name], "the refusal keeps the pending link's cookie")
+	s.requireClearedLinkCookie(resp)
 	s.Equal(int64(1), s.linkRows(account.ID), "the refusal leaves the pending link")
 
 	plain := s.login(env, "pw-moved@test.com", collisionPassword, linkCookieHeader(token))
 	s.Equal(true, s.decode(plain)["success"], plain.Body.String())
 	s.sessionFrom(plain)
-	s.Nil(setCookies(plain)[oauthPendingLinkCookie.name])
+	s.requireClearedLinkCookie(plain)
 	s.Equal(int64(1), s.linkRows(account.ID))
 	s.Empty(s.googleIdentitiesOf(account.ID))
 }
@@ -738,9 +747,9 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_SquattersGoogleIdentityIsRep
 
 // The password proves the account, not the mailbox, so it never replaces an
 // identity the account holds: the squatter's identity stays and the
-// password proof is refused with the provider refusal. The refusal leaves
-// the pending link, so the emailed link asked for afterwards, from the same
-// cookie, still replaces the identity.
+// password proof is refused with the provider refusal. The refusal clears
+// the browser's cookie and leaves the pending link usable: an emailed link
+// asked for with its token afterwards still replaces the identity.
 func (s *OAuthHandlerIntegrationSuite) TestLinkStep_PasswordProofKeepsTheSameProviderRefusal() {
 	account := s.passwordAccount("pw-squat@test.com", false)
 	s.attachGoogle(account.ID, "google-pw-squatter")
@@ -750,7 +759,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_PasswordProofKeepsTheSamePro
 	resp := s.loginToConnect(env, "pw-squat@test.com", collisionPassword, linkCookieHeader(token))
 	s.requireRefusal(resp, autherrors.CodeOAuthProviderAlreadyLinked)
 	s.Nil(setCookies(resp)["auth_token"])
-	s.Nil(setCookies(resp)[oauthPendingLinkCookie.name], "the refusal keeps the pending link's cookie")
+	s.requireClearedLinkCookie(resp)
 	s.requireOnlyGoogleIdentity(account.ID, "google-pw-squatter")
 	s.Equal(int64(1), s.linkRows(account.ID), "the refused password proof leaves the pending link")
 

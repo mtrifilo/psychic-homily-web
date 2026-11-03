@@ -971,8 +971,9 @@ function AuthPageContent() {
   // render), still lands on the state. The code is the first render's hint:
   // with it, the tab waits for the read and says so when the pending link is
   // gone; without it, the normal tab shows until the read answers. A proof
-  // that finds the pending link gone marks it gone for this arrival only, so
-  // a new arrival reads it afresh.
+  // that finds the pending link gone, or is refused (which clears this
+  // browser's cookie), marks it gone for this arrival only, so a new arrival
+  // reads it afresh.
   //
   // A re-authentication reads it only when the arrival carries
   // OAUTH_LINK_PENDING, which the callback writes when it holds the link and
