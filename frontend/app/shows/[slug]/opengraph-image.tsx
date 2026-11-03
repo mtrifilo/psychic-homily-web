@@ -352,7 +352,7 @@ function renderCard(
             <div
               style={{
                 display: 'flex',
-                fontFamily: OG_FONT_FAMILY.mono,
+                fontFamily: OG_FONT_FAMILY.data,
                 fontSize: DATE_SIZE,
                 color: OG_COLORS.primary,
               }}
@@ -430,7 +430,7 @@ function renderCard(
           </div>
 
           {/* Two whole shapes rather than four coupled ternaries: the wordmark
-              costs ~333px in mono, which the 640px plate column cannot spare
+              costs ~296px in the data face, which the 640px plate column cannot spare
               beside a venue line, so beside a plate the footer stacks. */}
           <div
             style={{
@@ -454,7 +454,10 @@ function renderCard(
               style={{
                 display: 'flex',
                 fontFamily: OG_FONT_FAMILY.sans,
-                fontWeight: 500,
+                // 400, not the design's Medium: the edge bundle carries no
+                // 500 instance (see the WEIGHTS note in `lib/og/brand.ts`), and
+                // `fitVenueSize` measures this line against the 400 table.
+                fontWeight: 400,
                 fontSize: venueSize,
                 color: OG_COLORS.foreground,
                 whiteSpace: 'nowrap',
@@ -466,7 +469,7 @@ function renderCard(
             <div
               style={{
                 display: 'flex',
-                fontFamily: OG_FONT_FAMILY.mono,
+                fontFamily: OG_FONT_FAMILY.data,
                 fontSize: DOMAIN_SIZE,
                 color: OG_COLORS.primary,
                 whiteSpace: 'nowrap',
@@ -495,7 +498,7 @@ function renderCard(
       // serving a card that says a sold-out show is available.
       //
       // A card drawn without the brand fonts is held shorter still: its fit
-      // budgets assumed Satoshi's metrics, so it may be visually wrong. A card
+      // budgets assumed the brand faces' metrics, so it may be visually wrong. A card
       // whose flyer failed to load is held on the same footing — it is an
       // incomplete render, not a settled one.
       headers: {

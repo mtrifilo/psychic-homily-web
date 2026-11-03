@@ -1,5 +1,5 @@
 import { OG_SIZE } from '@/lib/og/brand'
-import { fitFontSize, measureMono, measureSans } from '@/lib/og/textFit'
+import { fitFontSize, measureData, measureSans } from '@/lib/og/textFit'
 
 /**
  * Geometry of the show share card, from the blessed Figma mock
@@ -76,9 +76,9 @@ export const PLATE_GAP = 40
  * What the text column gets once the plate has taken its band — and, because
  * the footer STACKS beside a plate, what the venue line gets too.
  *
- * The wordmark costs ~333px in mono at its display size (17 chars × 612/1000 ×
- * 32). Keeping the footer on one row here would leave the venue ~267px of this
- * 640px column — not enough for "Sleeping Village · Chicago, IL" even at the
+ * The wordmark costs ~296px in the data face at its display size. Keeping the
+ * footer on one row here would leave the venue ~304px of this 640px column,
+ * not enough for "Sleeping Village · Chicago, IL" (~347px) even at the
  * minimum size, i.e. the ORDINARY case would clip. The row becomes two rows
  * instead: vertical space is the one thing the column has spare.
  */
@@ -116,11 +116,11 @@ export function fitPlate(
 /**
  * Width the venue line gets once the wordmark has taken its share of the row.
  *
- * The wordmark is measured in MONO because that is the face it renders in;
- * measuring it as sans under-reserves ~60px and lets the venue line wrap.
+ * The wordmark is measured in the DATA face because that is the face it
+ * renders in; measuring it as sans under-reserves ~10px.
  */
 export const VENUE_MAX_WIDTH =
-  CONTENT_WIDTH - measureMono(WORDMARK, DOMAIN_SIZE) - FOOTER_GAP
+  CONTENT_WIDTH - measureData(WORDMARK, DOMAIN_SIZE) - FOOTER_GAP
 
 /**
  * Width of the top row: the date, plus the SOLD OUT pill when there is one.
@@ -133,11 +133,11 @@ export const VENUE_MAX_WIDTH =
  * height from the headline.
  */
 export function dateRowWidth(dateText: string, soldOut: boolean): number {
-  const date = measureMono(dateText, DATE_SIZE)
+  const date = measureData(dateText, DATE_SIZE)
   if (!soldOut) return date
   const label = measureSans(
     'SOLD OUT',
-    'satoshiBold',
+    'schibstedBold',
     SOLD_OUT_SIZE,
     SOLD_OUT_TRACKING * SOLD_OUT_SIZE
   )
@@ -166,14 +166,14 @@ function longestToken(text: string): string {
 export function fitTitleSize(title: string, contentWidth: number = CONTENT_WIDTH): number {
   const byArea = fitFontSize(
     title,
-    'satoshiBold',
+    'schibstedBold',
     contentWidth * TITLE_MAX_LINES * WRAP_EFFICIENCY,
     TITLE_SIZE_MAX,
     TITLE_SIZE_MIN
   )
   const byToken = fitFontSize(
     longestToken(title),
-    'satoshiBold',
+    'schibstedBold',
     contentWidth,
     TITLE_SIZE_MAX,
     TITLE_SIZE_MIN
@@ -189,7 +189,7 @@ export function fitTitleSize(title: string, contentWidth: number = CONTENT_WIDTH
  * BESIDE the line, the plate card puts it below.
  */
 export function fitVenueSize(venueLine: string, maxWidth: number = VENUE_MAX_WIDTH): number {
-  return fitFontSize(venueLine, 'satoshiMedium', maxWidth, VENUE_SIZE, VENUE_SIZE_MIN)
+  return fitFontSize(venueLine, 'schibstedRegular', maxWidth, VENUE_SIZE, VENUE_SIZE_MIN)
 }
 
 /**
@@ -200,7 +200,7 @@ export function fitVenueSize(venueLine: string, maxWidth: number = VENUE_MAX_WID
  * clip rather than let the line run under the wordmark.
  */
 export function venueOverflows(venueLine: string, maxWidth: number = VENUE_MAX_WIDTH): boolean {
-  return measureSans(venueLine, 'satoshiMedium', fitVenueSize(venueLine, maxWidth)) > maxWidth
+  return measureSans(venueLine, 'schibstedRegular', fitVenueSize(venueLine, maxWidth)) > maxWidth
 }
 
 /**

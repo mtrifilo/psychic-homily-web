@@ -3,9 +3,9 @@ import {
   DESCENT_RATIO,
   fitFontSize,
   fitItemList,
-  measureMono,
+  measureData,
   measureSans,
-  monoBaselineLift,
+  dataBaselineLift,
 } from './textFit'
 import {
   CITY_SIZE_MAX,
@@ -27,16 +27,16 @@ const CITY_BUDGET = cityMaxWidth('IL')
 const roomsOverflow = (n: number) => `${n} ${n === 1 ? 'room' : 'rooms'} tracked`
 
 describe('measureSans', () => {
-  // The tables are only worth having if they agree with the real font. 515.3 is
+  // The tables are only worth having if they agree with the real font. 524.6 is
   // the table's own value; the blessed Figma card reported 511 for the same
-  // string, drawn in Inter — the ~1% gap is the face difference, not an error.
+  // string, drawn in Inter. The ~2.7% gap is the face difference, not an error.
   it('matches the width the card was designed against', () => {
-    expect(measureSans('Chicago', 'satoshiBold', 132)).toBeCloseTo(515.3, 0)
+    expect(measureSans('Chicago', 'schibstedBold', 132)).toBeCloseTo(524.6, 0)
     // The mock reported 511px for the same string drawn in Inter. Expressed as
     // a relative tolerance rather than a fixed one so a legitimate table update
     // doesn't fail a check that is really about the two faces being close.
-    expect(Math.abs(measureSans('Chicago', 'satoshiBold', 132) - 511) / 511).toBeLessThan(
-      0.02
+    expect(Math.abs(measureSans('Chicago', 'schibstedBold', 132) - 511) / 511).toBeLessThan(
+      0.03
     )
   })
 
@@ -44,72 +44,97 @@ describe('measureSans', () => {
   // regular table incorrectly fails here rather than silently reflowing the
   // footer on every card.
   it('pins the regular face against its table', () => {
-    expect(measureSans('Empty Bottle', 'satoshiRegular', 34)).toBeCloseTo(189.96, 1)
+    expect(measureSans('Empty Bottle', 'schibstedRegular', 34)).toBeCloseTo(202.2, 1)
   })
 
-  // Accents are stripped before lookup because every accented glyph in these
-  // faces carries its base letter's advance. If that ever stops being true the
-  // tables need regenerating, and this test is what catches it.
+  // Accents are stripped before lookup because almost every accented glyph in
+  // these faces carries its base letter's advance. If that ever stops being
+  // true the tables need regenerating, and this test is what catches it.
   it('measures accented names as their base letters', () => {
-    expect(measureSans('Montréal', 'satoshiBold', 132)).toBeCloseTo(
-      measureSans('Montreal', 'satoshiBold', 132),
+    expect(measureSans('Montréal', 'schibstedBold', 132)).toBeCloseTo(
+      measureSans('Montreal', 'schibstedBold', 132),
       5
     )
+  })
+
+  // The exception: the body face draws the caron on `d l t` as a raised comma
+  // beside the letter, so folding them onto their base would UNDER-measure a
+  // Czech or Slovak name, the unsafe direction.
+  it('measures ď ľ ť at their own, wider advance', () => {
+    for (const [carón, base] of [
+      ['ď', 'd'],
+      ['ľ', 'l'],
+      ['ť', 't'],
+    ]) {
+      expect(measureSans(carón, 'schibstedBold', 1000)).toBeGreaterThan(
+        measureSans(base, 'schibstedBold', 1000)
+      )
+    }
+    expect(measureSans('ď', 'schibstedBold', 1000)).toBeCloseTo(705, 0)
   })
 
   // The property that matters is the DIRECTION of the error, not the constant.
   // Unknown glyphs must over-measure: the subsets are Latin-only, the scene
   // table is worldwide, and an under-measured headline runs off a canvas that
-  // has no reflow. The widest glyph in the shipped subsets is 1211/1000 em.
+  // has no reflow. The widest glyph in the brand subsets is 1136/1000 em.
   it('over-measures glyphs it has no table entry for', () => {
-    const widestKnown = measureSans('W', 'satoshiBold', 1000)
-    const unknown = measureSans('東', 'satoshiBold', 1000)
+    const widestKnown = measureSans('W', 'schibstedBold', 1000)
+    const unknown = measureSans('東', 'schibstedBold', 1000)
     expect(unknown).toBeGreaterThan(widestKnown)
     expect(unknown).toBeGreaterThanOrEqual(1000)
   })
 
-  // `·` used to hit the unknown-glyph fallback and measured 584 against a real
-  // 275 — a systematic over-estimate on every multi-room footer.
+  // Left to the unknown-glyph fallback, `·` would be charged several times its
+  // real width: a systematic over-estimate on every multi-room footer.
   it('measures the list separator and en dash exactly', () => {
-    expect(measureSans('·', 'satoshiRegular', 1000)).toBeCloseTo(275, 0)
-    expect(measureSans('·', 'satoshiBold', 1000)).toBeCloseTo(333, 0)
-    expect(measureSans('–', 'satoshiRegular', 1000)).toBeCloseTo(927, 0)
+    expect(measureSans('·', 'schibstedRegular', 1000)).toBeCloseTo(280, 0)
+    expect(measureSans('·', 'schibstedBold', 1000)).toBeCloseTo(304, 0)
+    expect(measureSans('–', 'schibstedRegular', 1000)).toBeCloseTo(500, 0)
   })
 
   it('adds letter spacing per character when asked', () => {
-    const plain = measureSans('Chicago', 'satoshiBold', 132)
-    expect(measureSans('Chicago', 'satoshiBold', 132, -3)).toBeCloseTo(plain - 21, 5)
+    const plain = measureSans('Chicago', 'schibstedBold', 132)
+    expect(measureSans('Chicago', 'schibstedBold', 132, -3)).toBeCloseTo(plain - 21, 5)
   })
 
   it('measures the empty string as zero', () => {
-    expect(measureSans('', 'satoshiBold', 132)).toBe(0)
+    expect(measureSans('', 'schibstedBold', 132)).toBe(0)
   })
 })
 
-describe('measureMono', () => {
-  it('matches the wordmark width the card was designed against', () => {
-    expect(measureMono('psychichomily.com', 34)).toBeCloseTo(353.7, 0)
+describe('measureData', () => {
+  // A golden value, like the regular face's above: a wrongly regenerated data
+  // table fails here rather than silently moving every footer.
+  it('pins the wordmark width against its table', () => {
+    expect(measureData('psychichomily.com', 34)).toBeCloseTo(314.7, 0)
+  })
+
+  // The data face is proportional, so the separator and en dash in the eyebrow
+  // and the week range are measured exactly rather than charged the fallback.
+  it('measures the separator and en dash in the data face exactly', () => {
+    expect(measureData('·', 1000)).toBeCloseTo(300, 0)
+    expect(measureData('–', 1000)).toBeCloseTo(530, 0)
   })
 
   it('counts letter spacing per character', () => {
-    const plain = measureMono('IL', 40)
-    expect(measureMono('IL', 40, 3)).toBeCloseTo(plain + 6, 5)
+    const plain = measureData('IL', 40)
+    expect(measureData('IL', 40, 3)).toBeCloseTo(plain + 6, 5)
   })
 })
 
-describe('monoBaselineLift', () => {
-  // Satori's own `alignItems: 'baseline'` left the state 16px below the city;
-  // the descent ratios predict 17px, and rendering with this correction
-  // measured the gap back to 1px.
-  it('predicts the drift measured on the rendered card', () => {
-    expect(monoBaselineLift(132, 40)).toBeCloseTo(17.24, 1)
+describe('dataBaselineLift', () => {
+  // The descent ratios predict 25.3px between a 132px city and a 40px state.
+  // Rendering "Phoenix AZ" through the weekly card with this lift put the two
+  // runs' lowest ink rows 2px apart, which is the round glyphs' overshoot.
+  it('predicts the drift between the city and the state', () => {
+    expect(dataBaselineLift(132, 40)).toBeCloseTo(25.26, 1)
   })
 
   // The real invariant: the lift is exactly the difference in descender depth,
   // so it vanishes at the sizes where the two descenders coincide.
   it('vanishes when the two descenders land at the same depth', () => {
-    const monoSize = (100 * DESCENT_RATIO.sans) / DESCENT_RATIO.mono
-    expect(monoBaselineLift(100, monoSize)).toBeCloseTo(0, 10)
+    const dataSize = (100 * DESCENT_RATIO.sans) / DESCENT_RATIO.data
+    expect(dataBaselineLift(100, dataSize)).toBeCloseTo(0, 10)
   })
 })
 
@@ -119,44 +144,44 @@ describe('fitFontSize', () => {
   it('leaves ordinary metro names untouched', () => {
     for (const city of ['Chicago', 'Minneapolis', 'San Francisco', 'Oklahoma City']) {
       expect(
-        fitFontSize(city, 'satoshiBold', CITY_BUDGET, CITY_SIZE_MAX, CITY_SIZE_MIN)
+        fitFontSize(city, 'schibstedBold', CITY_BUDGET, CITY_SIZE_MAX, CITY_SIZE_MIN)
       ).toBe(CITY_SIZE_MAX)
     }
   })
 
-  // The mock was only ever drawn with "Chicago" (515px). These are the names
+  // The mock was only ever drawn with "Chicago" (525px). These are the names
   // that would actually have clipped, which is why this function exists.
   it('steps genuinely long city names down until they fit', () => {
     for (const city of ['Colorado Springs', 'Saint Petersburg']) {
       const size = fitFontSize(
         city,
-        'satoshiBold',
+        'schibstedBold',
         CITY_BUDGET,
         CITY_SIZE_MAX,
         CITY_SIZE_MIN
       )
       expect(size).toBeLessThan(CITY_SIZE_MAX)
-      expect(measureSans(city, 'satoshiBold', size)).toBeLessThanOrEqual(CITY_BUDGET)
+      expect(measureSans(city, 'schibstedBold', size)).toBeLessThanOrEqual(CITY_BUDGET)
     }
   })
 
   it('never returns below the floor, even for an absurd name', () => {
     expect(
-      fitFontSize('A'.repeat(80), 'satoshiBold', CITY_BUDGET, CITY_SIZE_MAX, CITY_SIZE_MIN)
+      fitFontSize('A'.repeat(80), 'schibstedBold', CITY_BUDGET, CITY_SIZE_MAX, CITY_SIZE_MIN)
     ).toBe(CITY_SIZE_MIN)
   })
 
-  // "Saint Petersburg" is the case that only fails once the state is beside it:
-  // 1022px fits the 1056px content box but not the ~981px the city is left
+  // "Fort Lauderdale" is the case that only fails once the state is beside it:
+  // 1034px fits the 1056px content box but not the ~995px the city is left
   // with. A fit that ignored the state's width would pass the first assertion
   // and fail the second.
   it('accounts for space already taken by the state', () => {
-    const city = 'Saint Petersburg'
+    const city = 'Fort Lauderdale'
     expect(
-      fitFontSize(city, 'satoshiBold', CONTENT_WIDTH, CITY_SIZE_MAX, CITY_SIZE_MIN)
+      fitFontSize(city, 'schibstedBold', CONTENT_WIDTH, CITY_SIZE_MAX, CITY_SIZE_MIN)
     ).toBe(CITY_SIZE_MAX)
     expect(
-      fitFontSize(city, 'satoshiBold', CITY_BUDGET, CITY_SIZE_MAX, CITY_SIZE_MIN)
+      fitFontSize(city, 'schibstedBold', CITY_BUDGET, CITY_SIZE_MAX, CITY_SIZE_MIN)
     ).toBeLessThan(CITY_SIZE_MAX)
   })
 
@@ -183,20 +208,20 @@ describe('fitItemList', () => {
 
   it('returns null when there are no rooms to name', () => {
     expect(
-      fitItemList([], 'satoshiRegular', FOOTER_SIZE, ROOMS_MAX_WIDTH, roomsOverflow)
+      fitItemList([], 'schibstedRegular', FOOTER_SIZE, ROOMS_MAX_WIDTH, roomsOverflow)
     ).toBeNull()
   })
 
   it('names what fits and counts the rest', () => {
     const line = fitItemList(
       chicago,
-      'satoshiRegular',
+      'schibstedRegular',
       FOOTER_SIZE,
       ROOMS_MAX_WIDTH,
       roomsOverflow
     )
     expect(line).not.toBeNull()
-    expect(measureSans(line!, 'satoshiRegular', FOOTER_SIZE)).toBeLessThanOrEqual(
+    expect(measureSans(line!, 'schibstedRegular', FOOTER_SIZE)).toBeLessThanOrEqual(
       ROOMS_MAX_WIDTH
     )
     // Whatever it drops, it must say so — a card implying full coverage would
@@ -211,7 +236,7 @@ describe('fitItemList', () => {
     expect(
       fitItemList(
         ['Valley Bar', 'Crescent'],
-        'satoshiRegular',
+        'schibstedRegular',
         FOOTER_SIZE,
         ROOMS_MAX_WIDTH,
         roomsOverflow
@@ -222,7 +247,7 @@ describe('fitItemList', () => {
   it('never truncates a room name mid-word', () => {
     const line = fitItemList(
       chicago,
-      'satoshiRegular',
+      'schibstedRegular',
       FOOTER_SIZE,
       ROOMS_MAX_WIDTH,
       roomsOverflow
@@ -238,7 +263,7 @@ describe('fitItemList', () => {
     expect(
       fitItemList(
         ['A Venue With An Extremely Long Name That Cannot Possibly Fit', 'Another'],
-        'satoshiRegular',
+        'schibstedRegular',
         FOOTER_SIZE,
         200,
         roomsOverflow
@@ -248,7 +273,7 @@ describe('fitItemList', () => {
 
   it('uses the caller label verbatim, including its singular', () => {
     expect(
-      fitItemList(['A'.repeat(100)], 'satoshiRegular', FOOTER_SIZE, 200, roomsOverflow)
+      fitItemList(['A'.repeat(100)], 'schibstedRegular', FOOTER_SIZE, 200, roomsOverflow)
     ).toBe('1 room tracked')
   })
 })
@@ -259,10 +284,10 @@ describe('card layout budgets', () => {
   // between them leave, and that has to be enough to name at least one room.
   it('leaves the room list room for a real venue name', () => {
     expect(ROOMS_MAX_WIDTH).toBe(
-      CONTENT_WIDTH - measureMono(WORDMARK, FOOTER_SIZE) - FOOTER_GAP
+      CONTENT_WIDTH - measureData(WORDMARK, FOOTER_SIZE) - FOOTER_GAP
     )
     expect(ROOMS_MAX_WIDTH).toBeGreaterThan(
-      measureSans('Salt Shed Fairgrounds +9', 'satoshiRegular', FOOTER_SIZE)
+      measureSans('Salt Shed Fairgrounds +9', 'schibstedRegular', FOOTER_SIZE)
     )
   })
 })

@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { deflateSync } from 'node:zlib'
 
-import { isPng, rightmostContentColumn } from '@/lib/og/test-helpers'
+import { PAD_X, PLATE_BOX_WIDTH } from '@/features/shows/showOgLayout'
+import { countPixelsNear, isPng, rightmostContentColumn } from '@/lib/og/test-helpers'
 
 /**
  * The route actually rendering, not just the pure modules it composes.
@@ -33,6 +34,9 @@ const BASE_SHOW = {
   artists: [{ name: 'Militarie Gun', is_headliner: true }, { name: 'MSPAINT' }],
 }
 
+/** The flyer fixture's one colour, which nothing else on a card is drawn in. */
+const PLATE_COLOUR = [220, 40, 90] as const
+
 /**
  * A real, decodable PNG — header-only bytes would size correctly and then
  * rasterise to nothing, so the plate assertion would pass without the image
@@ -44,9 +48,9 @@ function png(width: number, height: number): Uint8Array {
     const row = y * (1 + width * 3)
     raw[row] = 0 // filter: none
     for (let x = 0; x < width; x++) {
-      raw[row + 1 + x * 3] = 220 // a solid, high-contrast plate
-      raw[row + 2 + x * 3] = 40
-      raw[row + 3 + x * 3] = 90
+      raw[row + 1 + x * 3] = PLATE_COLOUR[0] // a solid, high-contrast plate
+      raw[row + 2 + x * 3] = PLATE_COLOUR[1]
+      raw[row + 3 + x * 3] = PLATE_COLOUR[2]
     }
   }
 
@@ -133,8 +137,13 @@ describe('the show OG route', () => {
 
     // The plate has to actually contribute pixels, which is what proves the
     // ArrayBuffer `src` reached the rasteriser rather than being ignored.
+    // Counted by colour inside the plate band rather than inferred from PNG
+    // size: a solid plate compresses to almost nothing, so the byte count
+    // tracks how much TEXT the narrower column draws, not the plate.
+    const plateBand = { fromX: PAD_X, toX: PAD_X + PLATE_BOX_WIDTH }
     const { bytes: textOnly } = await render(BASE_SHOW)
-    expect(bytes.byteLength).toBeGreaterThan(textOnly.byteLength)
+    expect(countPixelsNear(bytes, PLATE_COLOUR, 8, plateBand)).toBeGreaterThan(100_000)
+    expect(countPixelsNear(textOnly, PLATE_COLOUR, 8, plateBand)).toBe(0)
   }, 30000)
 
   it('renders the text-only card for a flyer-less show', async () => {

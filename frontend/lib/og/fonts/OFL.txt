@@ -1,10 +1,25 @@
-Two OFL-licensed families ship in this directory. Both are covered by the
+Three OFL-licensed families ship in this directory. All are covered by the
 single copy of the licence below (SIL OFL 1.1 in each case).
 
-  SpaceMono-Regular.ttf
-    Copyright 2016 The Space Mono Project Authors
-    (https://github.com/googlefonts/spacemono)
-    Subset of google/fonts @ dd0c1f1.
+  SchibstedGrotesk-Bold.ttf, SchibstedGrotesk-Regular.ttf
+    Copyright 2023 The Schibsted-Grotesk Project Authors
+    (https://github.com/schibsted/schibsted-grotesk)
+    Instanced at wght=700 and wght=400, rescaled to a 1000-unit em, and
+    subset from google/fonts @ 2fe1e8c6,
+    ofl/schibstedgrotesk/SchibstedGrotesk[wght].ttf
+    sha256 6ceeadf6be8e1fd7687011c7fa38ed0edd1abe967a0b73d97caec183552e823d
+    The body face. Shipped at two weights to fit a 1 MiB Vercel Edge Function
+    limit; see the header of ../brand.ts.
+
+  GolosText-Regular.ttf
+    Copyright 2019 The Golos Text Project Authors
+    (https://github.com/googlefonts/golos-text)
+    Instanced at wght=400, with its tabular figures (tnum) made the default
+    figures, and subset from google/fonts @ 2fe1e8c6,
+    ofl/golostext/GolosText[wght].ttf
+    sha256 17bb58fb69aec2dfb047a2ebf52534023e9b688c97a6b7ac795b0a72912c2063
+    The data face. Version 2.004 draws Ğ ğ Ŭ without their breve (google/fonts
+    issue 11219); the glyphs ship as drawn upstream.
 
   NotoSans-Regular.ttf
     Copyright 2022 The Noto Project Authors
@@ -16,10 +31,6 @@ single copy of the licence below (SIL OFL 1.1 in each case).
     have. Subset to living-language ranges and shipped at a single weight to fit
     a 1 MiB Vercel Edge Function limit; see the header of ../brand.ts for the
     measured budget and for what is deliberately NOT covered.
-
-Satoshi-*.ttf are NOT OFL and are NOT covered by this file. They are the brand
-face, self-hosted under the Fontshare / ITF Free Font License, and are the same
-faces the site already serves (see the type-system note in app/layout.tsx).
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:

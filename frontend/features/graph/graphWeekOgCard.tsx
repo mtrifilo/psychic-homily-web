@@ -118,7 +118,7 @@ export async function renderGraphWeekOgCard(): Promise<ImageResponse | Response>
         <div
           style={{
             display: 'flex',
-            fontFamily: OG_FONT_FAMILY.mono,
+            fontFamily: OG_FONT_FAMILY.data,
             fontSize: EYEBROW_SIZE,
             letterSpacing: EYEBROW_TRACKING,
             color: OG_COLORS.foreground,
@@ -147,7 +147,7 @@ export async function renderGraphWeekOgCard(): Promise<ImageResponse | Response>
             style={{
               display: 'flex',
               marginTop: HEADLINE_GAP,
-              fontFamily: OG_FONT_FAMILY.mono,
+              fontFamily: OG_FONT_FAMILY.data,
               fontSize: countsSize,
               letterSpacing: COUNTS_TRACKING,
               color: OG_COLORS.primary,
@@ -160,7 +160,7 @@ export async function renderGraphWeekOgCard(): Promise<ImageResponse | Response>
             style={{
               display: 'flex',
               marginTop: RANGE_GAP,
-              fontFamily: OG_FONT_FAMILY.mono,
+              fontFamily: OG_FONT_FAMILY.data,
               fontSize: RANGE_SIZE,
               letterSpacing: RANGE_TRACKING,
               color: OG_COLORS.mutedForeground,
@@ -178,7 +178,7 @@ export async function renderGraphWeekOgCard(): Promise<ImageResponse | Response>
       // The card is a property of the SNAPSHOT, which changes once a night, so
       // it may be held for the same window the data is. A card drawn without the
       // brand fonts is held to the short window regardless: its fit budgets were
-      // computed from Satoshi's metrics, so it may be visually wrong, and a
+      // computed from the brand faces' metrics, so it may be visually wrong, and a
       // wrong card should expire rather than sit in the CDN for an hour.
       headers: {
         'cache-control': ogCacheControl(

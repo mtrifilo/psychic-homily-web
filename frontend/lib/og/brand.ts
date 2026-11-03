@@ -12,29 +12,57 @@
  *    are copied from the `.dark` block in `app/globals.css` and must be kept in
  *    step with it — a drift shows up as a card that no longer matches the site.
  * 2. Satori cannot parse WOFF2 or variable fonts, so the `.ttf` files next to
- *    this module are static Latin-subset instances. They are DELIBERATELY the
- *    retired PSY-647 faces (Satoshi, Space Mono) until PSY-2563 moves the cards
- *    to the site's current type system (Schibsted Grotesk, Golos Text); the
- *    cards do not match the site's faces in the meantime.
+ *    this module are static Latin-subset instances of the site's faces:
+ *    Schibsted Grotesk sets every body and headline run, and Golos Text sets
+ *    the data runs (dates, the state, counts, the eyebrow, the wordmark).
  *
- * Regenerating the font files (only needed if a face is ever replaced) — with
- * `fonttools` and `brotli` installed:
+ * Regenerating the font files (only needed if a face is ever replaced), with
+ * `fonttools` and `brotli` installed. Both families are OFL. Pin the ref:
+ * `main` is mutable, and these bytes are parsed by a wasm renderer on a public
+ * route, so they must be diffable. Verify each download against the checksum
+ * in `lib/og/fonts/OFL.txt` before instancing.
  *
- *     # Satoshi: the site no longer ships it; take the WOFF2 from git history
- *     # (last commit that carried frontend/app/fonts), unwrap, then subset
- *     git show c24be05ac:frontend/app/fonts/Satoshi-Bold.woff2 > /tmp/Satoshi-Bold.woff2
- *     python -c "from fontTools.ttLib import TTFont; \
- *       f=TTFont('/tmp/Satoshi-Bold.woff2'); f.flavor=None; \
- *       f.save('/tmp/Satoshi-Bold.ttf')"
- *     # Space Mono: OFL. Pin the ref -- `main` is mutable, and these bytes are
- *     # parsed by a wasm renderer on a public route, so they must be diffable.
- *     # Verify the download against the checksum before subsetting.
- *     curl -sSLO https://raw.githubusercontent.com/google/fonts/dd0c1f1/ofl/spacemono/SpaceMono-Regular.ttf
- *     shasum -a 256 SpaceMono-Regular.ttf   # compare with lib/og/fonts/OFL.txt's sibling record
- *     # Subset each to the Latin coverage the cards need
- *     pyftsubset <in>.ttf --output-file=lib/og/fonts/<out>.ttf \
+ *     curl -sSLO https://raw.githubusercontent.com/google/fonts/2fe1e8c6/ofl/schibstedgrotesk/'SchibstedGrotesk[wght].ttf'
+ *     curl -sSLO https://raw.githubusercontent.com/google/fonts/2fe1e8c6/ofl/golostext/'GolosText[wght].ttf'
+ *     shasum -a 256 'SchibstedGrotesk[wght].ttf' 'GolosText[wght].ttf'
+ *     # Schibsted Grotesk: pin the weight axis at 700 and again at 400, and
+ *     # rescale the 2048-unit em to 1000 so the advances in textFit.ts are the
+ *     # font's own integers rather than rounded ratios.
+ *     python -c "from fontTools.ttLib import TTFont; from fontTools.varLib import instancer; \
+ *       from fontTools.ttLib.scaleUpem import scale_upem; \
+ *       f=instancer.instantiateVariableFont(TTFont('SchibstedGrotesk[wght].ttf'), \
+ *         {'wght':700}, updateFontNames=True); \
+ *       scale_upem(f, 1000); f.save('/tmp/SchibstedGrotesk-Bold.ttf')"
+ *     # Golos Text: pin wght 400, then FREEZE `tnum` into the cmap. Satori
+ *     # applies only `kern`, `liga` and `rlig`, never `tnum`, so the data runs
+ *     # get tabular figures only if the default glyphs are the tabular ones.
+ *     python -c "from fontTools.ttLib import TTFont; from fontTools.varLib import instancer; \
+ *       f=instancer.instantiateVariableFont(TTFont('GolosText[wght].ttf'), \
+ *         {'wght':400}, updateFontNames=True); g=f['GSUB'].table; m={}; \
+ *       [m.update(s.mapping) for r in g.FeatureList.FeatureRecord if r.FeatureTag=='tnum' \
+ *         for i in r.Feature.LookupListIndex for s in g.LookupList.Lookup[i].SubTable]; \
+ *       [t.cmap.update({u: m[n] for u, n in t.cmap.items() if n in m}) for t in f['cmap'].tables]; \
+ *       f.save('/tmp/GolosText-Regular.ttf')"
+ *     # Subset each to the Latin coverage the cards need. `tnum` is not kept:
+ *     # it is frozen above where it matters, and Satori would never apply it.
+ *     pyftsubset /tmp/<face>.ttf --output-file=lib/og/fonts/<face>.ttf \
  *       --unicodes="U+0020-007E,U+00A0-00FF,U+0100-017F,U+2010-2027,U+2032-2033,U+20AC,U+2122" \
- *       --layout-features="kern,liga,calt" --no-hinting --desubroutinize
+ *       --layout-features="kern,liga,calt" --no-hinting --desubroutinize \
+ *       --name-IDs='*' --name-legacy --name-languages='*'
+ *
+ * The `--name-*` flags keep the OFL notice in the bytes; see the fallback
+ * recipe below for why that is not cosmetic.
+ *
+ * Golos Text 2.004 draws `Ğ ğ Ŭ` without their breve (google/fonts issue
+ * 11219). The defect is upstream, and the cards draw the face as shipped
+ * rather than patching the glyphs.
+ *
+ * WEIGHTS: Schibsted Grotesk ships at 700 and 400 only. A 500 instance costs
+ * every OG function in this family another ~23.8 KB brotli, and the largest of
+ * them has no room for it (see the budget below), so the two runs the design
+ * sets in Medium (the show card's venue line and the weekly card's count line)
+ * request 400 and are measured as 400. Satori resolves an absent 500 to 400
+ * anyway; asking for 400 keeps the requested, measured and drawn face the same.
  *
  * Re-emit the metrics in `textFit.ts` whenever these files change.
  *
@@ -68,41 +96,44 @@
  * DECISION: cover the LIVING languages a worldwide scene table will realistically
  * emit, and accept that the long tail still leaves the page.
  *
- * Satoshi and Space Mono are Latin-only TYPEFACES — not Latin-only subsets.
- * Satoshi's full charset carries no Cyrillic at all and two stray Greek
- * codepoints, so there is nothing to re-subset: the brand faces CANNOT be
- * widened. Coverage past Latin therefore has to come from a separate fallback
- * face, which is what `NotoSans-Regular.ttf` is. It is never named in a
- * `fontFamily`; it exists purely to be found by the cross-family search
- * described above.
+ * Schibsted Grotesk is a Latin-only TYPEFACE, not merely a Latin-only subset:
+ * its full charset carries no Cyrillic at all and eight stray Greek
+ * codepoints, so the body face CANNOT be widened past Latin. Golos Text does
+ * draw Cyrillic, but its subset here is Latin like the body face's, so every
+ * script past Latin resolves through one separate fallback face, which is what
+ * `NotoSans-Regular.ttf` is. It is never named in a `fontFamily`; it exists
+ * purely to be found by the cross-family search described above.
  *
  * ---------------------------------------------------------------------------
  * THE BINDING CONSTRAINT IS A 1 MiB VERCEL EDGE FUNCTION LIMIT — NOT TASTE
  * ---------------------------------------------------------------------------
  *
- * These three OG routes are Edge Functions, and Vercel caps a deployed Edge
- * Function at 1 MiB on this plan. The build succeeds locally either way; it is
- * the DEPLOY that is rejected, so nothing in `next build` will warn you.
+ * Every OG route in this family is an Edge Function (six of them, each carrying
+ * its own copy of these fonts), and Vercel caps a deployed Edge Function at
+ * 1 MiB on this plan. The build succeeds locally either way; it is the DEPLOY
+ * that is rejected, so nothing in `next build` will warn you.
  *
- * Measured from `.vercel/output` (the metric that matches Vercel's reported
- * number is raw `index.js` + brotli-compressed assets):
+ * Measured from `vercel build`'s `.vercel/output` (the metric that matches
+ * Vercel's reported number is raw `index.js` + brotli-compressed assets) on
+ * the largest function, `shows/[slug]/opengraph-image`:
  *
- *     index.js                                    931 KB   raw, counted UNCOMPRESSED
- *     brand faces + @vercel/og's own fallback       81 KB   brotli
+ *     index.js                                     946 KB   raw, counted UNCOMPRESSED
+ *     brand faces (Schibsted 700 + 400, Golos)      62 KB   brotli
+ *     the coverage fallback below (29 KB raw)       13 KB   brotli
+ *     @vercel/og's own fallback face                15 KB   brotli
  *     ---------------------------------------------------
- *     BASELINE, with no coverage fallback at all   0.965 MiB
- *     this subset (29 KB raw -> 13 KB brotli)     +0.013 MiB
- *     ---------------------------------------------------
- *     shipped                                      0.977 MiB
+ *     shipped                                       0.988 MiB  (1,036,335 B)
  *
- * So the route family sits at ~96.5% of the limit BEFORE this file adds a single
- * glyph — roughly 36 KiB of brotli headroom for everything, forever. A previous
- * revision of this work shipped the same coverage at two weights across wider
- * blocks (242 KB raw) and was REJECTED at deploy: 1.067 MiB.
+ * So the largest route sits at ~98.8% of the limit: about 12 KiB of brotli
+ * headroom for everything. Measured against that, a Schibsted Grotesk 500
+ * instance adds 23.8 KB (1.011 MiB) and a Hanken Grotesk 700 instance for
+ * headlines adds 15.1 KB (1.003 MiB); neither fits. A previous revision of the
+ * fallback below shipped its coverage at two weights across wider blocks
+ * (242 KB raw) and was REJECTED at deploy: 1.067 MiB.
  *
  * That is why the subset below is cut to living-language ranges rather than whole
  * Unicode blocks, and why only ONE weight ships. Before widening anything here,
- * re-measure — and be aware that most of the 931 KB is next/og's satori + resvg
+ * re-measure, and be aware that most of the 946 KB is next/og's satori + resvg
  * glue plus the globally-injected Sentry/OpenTelemetry edge SDK (about half the
  * module graph), neither of which this file controls.
  *
@@ -120,7 +151,7 @@
  * ★ and ♱ remain uncovered, and are the one gap today's data actually hits.
  *
  * COVERED (no outbound request) — verified glyph-by-glyph in the test:
- *   Latin, Latin-1, Latin Ext-A          Satoshi / Space Mono (already)
+ *   Latin, Latin-1, Latin Ext-A          Schibsted Grotesk / Golos Text
  *   Greek, modern monotonic              fallback  Αθήνα, Θεσσαλονίκη
  *   Cyrillic, all living Slavic          fallback  Москва, Київ, Београд,
  *                                                  София, Скопје, Мінск
@@ -187,12 +218,12 @@
  * The ranges are enumerated per living language rather than as whole blocks, and
  * that precision is what buys the size. Whole-block equivalents cost roughly:
  * Greek U+0370-03FF 15 KB, Cyrillic U+0400-04FF+Supplement 38 KB, Latin Ext-B
- * U+0180-024F 25 KB, Latin Ext Additional 27 KB — against a total budget of ~36
- * KiB brotli for the entire route family. Hence the enumeration.
+ * U+0180-024F 25 KB, Latin Ext Additional 27 KB, against about 12 KiB of
+ * brotli headroom for the largest route. Hence the enumeration.
  *
- * The fallback deliberately carries NO Latin: Satoshi is searched first and
- * always wins there, so Latin glyphs in this file would be dead bytes on a
- * route that has no bytes to spare.
+ * The fallback deliberately carries NO Latin: the brand faces are searched
+ * first and always win there, so Latin glyphs in this file would be dead bytes
+ * on a route that has no bytes to spare.
  *
  * `textFit.fonts.test.ts` asserts this coverage against the shipped bytes, so a
  * re-subset that silently drops a script fails the suite instead of quietly
@@ -242,8 +273,8 @@ export const OG_COLORS = {
 
 /** Family names registered with Satori; use these in `fontFamily`. */
 export const OG_FONT_FAMILY = {
-  sans: 'Satoshi',
-  mono: 'Space Mono',
+  sans: 'Schibsted Grotesk',
+  data: 'Golos Text',
 } as const
 
 /**
@@ -268,17 +299,17 @@ const OG_FALLBACK_FAMILY = 'PH Fallback'
 export interface OgFont {
   name: string
   data: ArrayBuffer
-  weight: 400 | 500 | 700
+  weight: 400 | 700
   style: 'normal'
 }
 
 /**
  * Cached across requests in the same isolate, and deliberately cached as ONE
- * ARRAY rather than as four buffers.
+ * ARRAY rather than as separate buffers.
  *
  * Satori memoizes its parsed font loader in a `WeakMap` keyed on the identity
  * of the array it is handed. Building a fresh array per render therefore misses
- * that cache every single time and re-parses all four faces — measured at
+ * that cache every single time and re-parses every face, measured at
  * roughly 8–15% of render time, plus ~150KB of buffer churn per request. The
  * same trick is what `@vercel/og` itself uses for its fallback font.
  */
@@ -289,7 +320,7 @@ let fontsPromise: Promise<BrandFontSet> | undefined
  *
  * The two groups fail differently and must not be conflated. Losing a BRAND
  * face is a layout problem — every fit budget on a card is computed from
- * Satoshi's metrics, so the card may overrun. Losing the FALLBACK is a privacy
+ * the brand faces' metrics, so the card may overrun. Losing the FALLBACK is a privacy
  * and consistency problem — the card still lays out correctly, but any
  * non-Latin text silently goes back to being fetched from Google mid-render,
  * which is the exact behaviour this module exists to prevent.
@@ -301,7 +332,7 @@ export interface BrandFontSet {
 }
 
 /**
- * Load the five faces every card in the family uses.
+ * Load the four faces every card in the family uses.
  *
  * `new URL(..., import.meta.url)` is what makes the bundler treat the `.ttf`
  * files as route assets, so these must stay static relative literals — a
@@ -347,10 +378,9 @@ async function fetchBrandFonts(): Promise<BrandFontSet> {
   // their metrics, so a card without them is measured against the wrong numbers.
   // Losing one is worth failing the whole load for.
   const brand = Promise.all([
-    fetchFont(new URL('./fonts/Satoshi-Bold.ttf', import.meta.url)),
-    fetchFont(new URL('./fonts/Satoshi-Medium.ttf', import.meta.url)),
-    fetchFont(new URL('./fonts/Satoshi-Regular.ttf', import.meta.url)),
-    fetchFont(new URL('./fonts/SpaceMono-Regular.ttf', import.meta.url)),
+    fetchFont(new URL('./fonts/SchibstedGrotesk-Bold.ttf', import.meta.url)),
+    fetchFont(new URL('./fonts/SchibstedGrotesk-Regular.ttf', import.meta.url)),
+    fetchFont(new URL('./fonts/GolosText-Regular.ttf', import.meta.url)),
   ])
 
   // The fallback is ADDITIVE — it only ever adds glyph coverage — so it must not
@@ -362,7 +392,7 @@ async function fetchBrandFonts(): Promise<BrandFontSet> {
     new URL('./fonts/NotoSans-Regular.ttf', import.meta.url)
   ).catch(() => null)
 
-  const [[bold, medium, regular, mono], fallbackFace] = await Promise.all([brand, fallback])
+  const [[bold, regular, data], fallbackFace] = await Promise.all([brand, fallback])
 
   // Order matters: Satori searches the requested family first and then every
   // other family in THIS order, so the brand faces must precede the fallback.
@@ -372,9 +402,8 @@ async function fetchBrandFonts(): Promise<BrandFontSet> {
   // otherwise silently start drawing brand text in Noto Sans.
   const fonts: OgFont[] = [
     { name: OG_FONT_FAMILY.sans, data: bold, weight: 700, style: 'normal' },
-    { name: OG_FONT_FAMILY.sans, data: medium, weight: 500, style: 'normal' },
     { name: OG_FONT_FAMILY.sans, data: regular, weight: 400, style: 'normal' },
-    { name: OG_FONT_FAMILY.mono, data: mono, weight: 400, style: 'normal' },
+    { name: OG_FONT_FAMILY.data, data, weight: 400, style: 'normal' },
   ]
 
   // Registered at 400 only. Satori resolves weight WITHIN a family, so this one

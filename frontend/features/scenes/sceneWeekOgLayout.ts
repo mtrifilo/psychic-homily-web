@@ -1,5 +1,5 @@
 import { OG_SIZE } from '@/lib/og/brand'
-import { measureMono } from '@/lib/og/textFit'
+import { measureData } from '@/lib/og/textFit'
 
 /**
  * Geometry of the weekly-city share card, from the blessed Figma mock.
@@ -23,7 +23,7 @@ export const PAD_Y = 64
 export const CONTENT_WIDTH = OG_SIZE.width - PAD_X * 2
 
 /**
- * Week range, top left, Space Mono.
+ * Week range, top left, in the data face.
  *
  * 34px, not the mock's 30px. On an ARCHIVED card the count line drops "this
  * week", which leaves this line as the only thing saying which week the card is
@@ -45,7 +45,7 @@ export const CITY_SIZE_MIN = 72
 /** Design tracking is -3px at 132px; hold the ratio as the city steps down. */
 export const CITY_TRACKING_EM = -3 / CITY_SIZE_MAX
 
-/** The state, in mono, set on the city's baseline. */
+/** The state, in the data face, set on the city's baseline. */
 export const STATE_SIZE = 40
 export const STATE_TRACKING = 3
 export const CITY_STATE_GAP = 20
@@ -72,7 +72,7 @@ export const SCENE_WEEK_OG_ALT =
 
 /** What the room list gets once the wordmark has taken its share of the footer. */
 export const ROOMS_MAX_WIDTH =
-  CONTENT_WIDTH - measureMono(WORDMARK, FOOTER_SIZE) - FOOTER_GAP
+  CONTENT_WIDTH - measureData(WORDMARK, FOOTER_SIZE) - FOOTER_GAP
 
 /**
  * What the city headline gets once the state is sitting beside it.
@@ -82,5 +82,5 @@ export const ROOMS_MAX_WIDTH =
  */
 export function cityMaxWidth(state: string): number {
   if (!state) return CONTENT_WIDTH
-  return CONTENT_WIDTH - measureMono(state, STATE_SIZE, STATE_TRACKING) - CITY_STATE_GAP
+  return CONTENT_WIDTH - measureData(state, STATE_SIZE, STATE_TRACKING) - CITY_STATE_GAP
 }

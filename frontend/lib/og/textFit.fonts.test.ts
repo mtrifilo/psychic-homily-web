@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { DESCENT_RATIO, measureMono, measureSans, type SansFace } from './textFit'
+import { DESCENT_RATIO, measureData, measureSans, type SansFace } from './textFit'
 
 /**
  * Drift guard between the shipped font files and the numbers copied out of them.
@@ -88,22 +88,36 @@ function parseFont(path: string): Font {
 
 const FONTS = 'lib/og/fonts'
 const SANS: Array<[SansFace, string]> = [
-  ['satoshiBold', `${FONTS}/Satoshi-Bold.ttf`],
-  ['satoshiMedium', `${FONTS}/Satoshi-Medium.ttf`],
-  ['satoshiRegular', `${FONTS}/Satoshi-Regular.ttf`],
+  ['schibstedBold', `${FONTS}/SchibstedGrotesk-Bold.ttf`],
+  ['schibstedRegular', `${FONTS}/SchibstedGrotesk-Regular.ttf`],
+]
+const DATA = `${FONTS}/GolosText-Regular.ttf`
+
+/**
+ * Every face with an advance table, with the function that measures it.
+ * Measuring one character at 1000px yields its advance per 1000 em directly.
+ */
+const MEASURED: Array<[string, string, (char: string) => number, number]> = [
+  ...SANS.map(
+    ([face, path]) =>
+      [face, path, (char: string) => measureSans(char, face, 1000), DESCENT_RATIO.sans] as [
+        string,
+        string,
+        (char: string) => number,
+        number,
+      ]
+  ),
+  ['golosRegular', DATA, (char: string) => measureData(char, 1000), DESCENT_RATIO.data],
 ]
 
-/** Measuring one character at 1000px yields its advance per 1000 em directly. */
-const advanceOf = (char: string, face: SansFace) => measureSans(char, face, 1000)
-
-describe.each(SANS)('%s advance table', (face, path) => {
+describe.each(MEASURED)('%s advance table', (_face, path, advanceOf, descentRatio) => {
   const font = parseFont(path)
 
   it('matches the font file across the whole ASCII range', () => {
     const mismatches: string[] = []
     for (let cp = 0x20; cp <= 0x7e; cp++) {
       const real = font.advance(cp)
-      const table = advanceOf(String.fromCodePoint(cp), face)
+      const table = advanceOf(String.fromCodePoint(cp))
       if (real === null || Math.abs(real - table) > 0.5) {
         mismatches.push(`U+${cp.toString(16)} '${String.fromCodePoint(cp)}': font ${real} vs table ${table}`)
       }
@@ -115,48 +129,53 @@ describe.each(SANS)('%s advance table', (face, path) => {
   // between the two dates — so a wrong value here skews every footer.
   it('matches the font file for the punctuation the cards emit', () => {
     for (const char of ['·', '–', '’']) {
-      expect(advanceOf(char, face)).toBeCloseTo(font.advance(char.codePointAt(0)!)!, 1)
+      expect(advanceOf(char)).toBeCloseTo(font.advance(char.codePointAt(0)!)!, 1)
     }
   })
 
-  it('measures accented Latin as its base letter, as the folding assumes', () => {
-    for (const [accented, base] of [
-      ['é', 'e'],
-      ['ñ', 'n'],
-      ['ü', 'u'],
-      ['ł', 'l'],
-    ]) {
-      expect(font.advance(accented.codePointAt(0)!)).toBeCloseTo(
-        font.advance(base.codePointAt(0)!)!,
-        1
-      )
+  // The folding in `textFit` measures an accented letter as its base letter, so
+  // any glyph in the subset that is WIDER than its base is under-measured
+  // unless it has its own entry. Checked across every Latin-1 and Latin
+  // Extended-A codepoint the face ships, not a sample: the body face's
+  // `ď ľ ť` are wider than `d l t`, and a sample would not have found them.
+  it('measures every accented Latin glyph in the subset at its real advance', () => {
+    const mismatches: string[] = []
+    for (let cp = 0xa0; cp <= 0x17f; cp++) {
+      const real = font.advance(cp)
+      const char = String.fromCodePoint(cp)
+      const base = char.normalize('NFD').replace(/\p{M}/gu, '')
+      // Only glyphs that FOLD onto one ASCII letter are measured by the table;
+      // anything else is charged the deliberate over-estimate.
+      if (real === null || base.length !== 1 || base.codePointAt(0)! > 0x7e) continue
+      if (Math.abs(advanceOf(char) - real) > 0.5) {
+        mismatches.push(`U+${cp.toString(16)} '${char}': font ${real} vs measured ${advanceOf(char)}`)
+      }
     }
+    expect(mismatches).toEqual([])
   })
 
   it('keeps the descent ratio the baseline correction is built on', () => {
-    expect(font.descentRatio).toBeCloseTo(DESCENT_RATIO.sans, 4)
+    expect(font.descentRatio).toBeCloseTo(descentRatio, 4)
   })
 })
 
-describe('Space Mono metrics', () => {
-  const font = parseFont(`${FONTS}/SpaceMono-Regular.ttf`)
+describe('Golos Text figures', () => {
+  const font = parseFont(DATA)
 
-  it('is genuinely monospaced at the advance the module assumes', () => {
-    for (const cp of [0x20, 0x41, 0x69, 0x57, 0x2e, 0x30]) {
-      expect(font.advance(cp)).toBeCloseTo(measureMono(String.fromCodePoint(cp), 1000), 1)
-    }
-  })
-
-  it('keeps the descent ratio the baseline correction is built on', () => {
-    expect(font.descentRatio).toBeCloseTo(DESCENT_RATIO.mono, 4)
+  // Satori never applies the `tnum` feature, so the data face's tabular figures
+  // exist only because the recipe in `brand.ts` points the cmap at them. The
+  // proportional `1` is 485/1000 against a tabular 620; this is what fails if
+  // a regeneration drops that step.
+  it('draws the tabular figures by default, as the frozen tnum makes them', () => {
+    const figures = '0123456789'.split('').map(d => font.advance(d.codePointAt(0)!)!)
+    expect(font.advance('1'.codePointAt(0)!)).toBe(font.advance('0'.codePointAt(0)!))
+    // Golos's own tabular set spans 580 to 620, not one width.
+    expect(Math.max(...figures) - Math.min(...figures)).toBeLessThanOrEqual(40)
   })
 })
 
 describe('subset coverage', () => {
-  // Space Mono has no advance table (it is monospaced, so one constant covers
-  // it), but it draws the range, the state and the wordmark — a re-subset that
-  // dropped its digits or the en dash would be just as visible on a card.
-  const ALL_FACES = [...SANS.map(([, path]) => path), `${FONTS}/SpaceMono-Regular.ttf`]
+  const ALL_FACES = [...SANS.map(([, path]) => path), DATA]
 
   it('carries every glyph the cards actually draw, in every shipped face', () => {
     const required = 'psychichomily.com0123456789 ·–ABCDEFGHIJKLMNOPQRSTUVWXYZ'
@@ -175,7 +194,7 @@ describe('subset coverage', () => {
     for (const path of ALL_FACES) {
       const font = parseFont(path)
       expect(font.unitsPerEm, path).toBe(1000)
-      const expected = path.includes('SpaceMono') ? DESCENT_RATIO.mono : DESCENT_RATIO.sans
+      const expected = path === DATA ? DESCENT_RATIO.data : DESCENT_RATIO.sans
       expect(font.descentRatio, path).toBeCloseTo(expected, 4)
     }
   })
@@ -195,7 +214,7 @@ describe('subset coverage', () => {
  */
 describe('fallback face script coverage', () => {
   const FALLBACKS = [`${FONTS}/NotoSans-Regular.ttf`]
-  const BRAND = [...SANS.map(([, path]) => path), `${FONTS}/SpaceMono-Regular.ttf`]
+  const BRAND = [...SANS.map(([, path]) => path), DATA]
 
   /**
    * One representative per LIVING language the cards promise to render offline.
@@ -238,9 +257,9 @@ describe('fallback face script coverage', () => {
   })
 
   it('stays within the byte budget the 1 MiB edge limit leaves it', () => {
-    // Not style policing. These routes are Edge Functions and deploy at ~0.977
-    // of a 1 MiB cap, with roughly 36 KiB of brotli headroom for the whole
-    // family — a limit `next build` does not enforce, so it fails at DEPLOY.
+    // Not style policing. These routes are Edge Functions and the largest
+    // deploys at ~0.988 of a 1 MiB cap, with about 12 KiB of brotli headroom,
+    // a limit `next build` does not enforce, so it fails at DEPLOY.
     // A re-subset that quietly grows this file is the most likely way to break
     // the deploy, and this is the only place that would catch it first.
     const bytes = readFileSync(`${FONTS}/NotoSans-Regular.ttf`).byteLength
@@ -257,7 +276,7 @@ describe('fallback face script coverage', () => {
   it('carries no Latin, so the brand face always wins there', () => {
     // Satori searches the requested family first, but a fallback carrying Latin
     // would still be dead weight in an edge bundle — and would mask a genuine
-    // regression in the Satoshi subset behind a Noto Sans glyph.
+    // regression in a brand subset behind a Noto Sans glyph.
     for (const path of FALLBACKS) {
       const font = parseFont(path)
       for (const char of 'AZaz09') {

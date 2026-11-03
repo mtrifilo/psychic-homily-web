@@ -70,10 +70,10 @@ describe('fitTitleSize', () => {
     const token = 'Supercalifragilisticexpialidocious'
     // At the display size this single word is far wider than the content box,
     // and wrapping cannot help it.
-    expect(measureSans(token, 'satoshiBold', TITLE_SIZE_MAX)).toBeGreaterThan(CONTENT_WIDTH)
+    expect(measureSans(token, 'schibstedBold', TITLE_SIZE_MAX)).toBeGreaterThan(CONTENT_WIDTH)
     const size = fitTitleSize(token)
     expect(size).toBeLessThan(TITLE_SIZE_MAX)
-    expect(measureSans(token, 'satoshiBold', size)).toBeLessThanOrEqual(CONTENT_WIDTH)
+    expect(measureSans(token, 'schibstedBold', size)).toBeLessThanOrEqual(CONTENT_WIDTH)
   })
 
   // Beyond the floor there is nothing shrinking can do — the size clamps and
@@ -100,7 +100,7 @@ describe('fitVenueSize', () => {
     const line = buildVenueLine('The Fillmore New Orleans', 'New Orleans', 'LA')
     const size = fitVenueSize(line)
     expect(size).toBeLessThan(VENUE_SIZE)
-    expect(measureSans(line, 'satoshiMedium', size)).toBeLessThanOrEqual(VENUE_MAX_WIDTH)
+    expect(measureSans(line, 'schibstedRegular', size)).toBeLessThanOrEqual(VENUE_MAX_WIDTH)
     expect(venueOverflows(line)).toBe(false)
   })
 
@@ -268,7 +268,7 @@ describe('the text column beside a plate', () => {
     expect(dateRowWidth('Wednesday, September 30, 2026', true)).toBeLessThanOrEqual(CONTENT_WIDTH)
   })
 
-  // A guessed day carries a leading `~`, one more mono glyph on the row that
+  // A guessed day carries a leading `~`, one more data-face glyph on the row that
   // has no fit function and therefore wraps rather than shrinks. Both budgets
   // are re-asserted with it.
   it('still fits the marked abbreviated date beside a plate when sold out', () => {
