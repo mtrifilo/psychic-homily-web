@@ -197,6 +197,9 @@ describe('CommandPalette', () => {
     expect(recent).toHaveLength(1)
     await user.click(recent[0])
     expect(mockPush).toHaveBeenCalledWith('/library')
+    // Selecting it retires the former label from storage, so it stops
+    // holding one of the recents slots.
+    expect(JSON.parse(localStorage.getItem('command-palette-recent')!)).toEqual(['Library'])
   })
 
   it('should not have a standalone "Collection" entry (merged into Library)', async () => {

@@ -396,7 +396,7 @@ export function CommandPalette() {
 
   const handleSelect = useCallback(
     (href: string, label: string) => {
-      addRecentSearch(label)
+      addRecentSearch(label, stored => routeForRecent(stored)?.href === href)
       setOpen(false)
       router.push(href)
     },
