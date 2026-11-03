@@ -1214,7 +1214,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       })
       const pastRow = screen.getByRole('article', { name: 'Past Artist' })
       expect(within(upcomingRow).getByText('SUN JUL 19').className).toContain(
-        'text-primary'
+        'text-link'
       )
       expect(within(upcomingRow).getByText(/^saved /)).toBeTruthy()
       expect(within(pastRow).getByText('FRI JUN 19').className).toContain(

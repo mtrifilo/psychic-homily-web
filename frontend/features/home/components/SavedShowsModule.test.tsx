@@ -317,7 +317,7 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
       error: null,
     })
 
-    render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule />)
 
     const row = screen.getByRole('article', { name: 'Show 1' })
     expect(within(row).queryByText(/^saved /)).not.toBeInTheDocument()

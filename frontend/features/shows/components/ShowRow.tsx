@@ -96,7 +96,7 @@ export function ShowRow({
         <div
           className={cn(
             'whitespace-nowrap font-bold uppercase tracking-[0.4px] md:text-xs',
-            past ? 'text-muted-foreground' : 'text-primary'
+            past ? 'text-muted-foreground' : 'text-link'
           )}
         >
           {when}
@@ -113,7 +113,7 @@ export function ShowRow({
           <Link
             href={`/shows/${show.slug || show.id}`}
             className={cn(
-              'min-w-0 truncate text-sm font-medium leading-[18px] transition-colors hover:text-primary md:text-[15px]',
+              'min-w-0 truncate text-sm font-medium leading-[18px] transition-colors hover:text-link md:text-[15px]',
               past ? 'text-muted-foreground' : 'text-foreground'
             )}
           >
@@ -131,7 +131,7 @@ export function ShowRow({
             {venue.slug ? (
               <Link
                 href={`/venues/${venue.slug}`}
-                className="transition-colors hover:text-primary"
+                className="transition-colors hover:text-link"
               >
                 {venue.name}
               </Link>
