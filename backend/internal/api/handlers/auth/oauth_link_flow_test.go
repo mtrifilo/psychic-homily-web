@@ -246,9 +246,10 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_CrossSiteNavigationRefused() {
 func (s *OAuthHandlerIntegrationSuite) TestLink_StaleSessionRefused() {
 	hash := "$2a$not-a-real-hash"
 	user := &authm.User{
-		Email:        strPtr("link-stale-session@test.com"),
-		IsActive:     true,
-		PasswordHash: &hash,
+		Email:         strPtr("link-stale-session@test.com"),
+		IsActive:      true,
+		EmailVerified: true,
+		PasswordHash:  &hash,
 	}
 	s.Require().NoError(s.deps.DB.Create(user).Error)
 
@@ -286,9 +287,10 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_StaleSessionRefused() {
 func (s *OAuthHandlerIntegrationSuite) TestLink_SessionWithNoAuthTimeRefused() {
 	hash := "$2a$not-a-real-hash"
 	user := &authm.User{
-		Email:        strPtr("link-no-auth-time@test.com"),
-		IsActive:     true,
-		PasswordHash: &hash,
+		Email:         strPtr("link-no-auth-time@test.com"),
+		IsActive:      true,
+		EmailVerified: true,
+		PasswordHash:  &hash,
 	}
 	s.Require().NoError(s.deps.DB.Create(user).Error)
 
@@ -343,7 +345,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLink_NoSessionRefused() {
 // --- callback with an intent ---
 
 func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_AttachesIdentityAndIssuesNoSession() {
-	user := &authm.User{Email: strPtr("link-complete@test.com"), IsActive: true, EmailVerified: false}
+	user := &authm.User{Email: strPtr("link-complete@test.com"), IsActive: true, EmailVerified: true}
 	s.Require().NoError(s.deps.DB.Create(user).Error)
 
 	handler := s.newHandler(&mockOAuthCompleter{user: goth.User{
@@ -376,11 +378,80 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_AttachesIdentityAndIssue
 		Count(&rows).Error)
 	s.Equal(int64(1), rows)
 
-	// Possession of a provider account says nothing about this mailbox.
+	// The link leaves the account's address as it was.
 	var stored authm.User
 	s.Require().NoError(s.deps.DB.First(&stored, user.ID).Error)
-	s.False(stored.EmailVerified)
+	s.True(stored.EmailVerified)
 	s.Equal("link-complete@test.com", *stored.Email)
+}
+
+// An account whose address is not verified is refused at the start, before
+// the re-authentication check and before the one-time token is spent, and
+// lands back on Settings with the code the panel maps to its copy.
+func (s *OAuthHandlerIntegrationSuite) TestLink_UnverifiedAddressRefusedAtTheStart() {
+	hash := "$2a$not-a-real-hash"
+	for _, tc := range []struct {
+		name   string
+		authAt time.Time
+	}{
+		{"fresh session", time.Now()},
+		{"stale session", time.Now().Add(-2 * time.Hour)},
+	} {
+		s.Run(tc.name, func() {
+			defer s.TearDownTest()
+			user := &authm.User{Email: strPtr("link-unverified-start@test.com"), IsActive: true, PasswordHash: &hash}
+			s.Require().NoError(s.deps.DB.Create(user).Error)
+
+			w, req := s.oauthLinkRequestWithoutToken("google", user, tc.authAt)
+			token, err := mintOAuthLinkToken(s.cfg.JWT.SecretKey, user.ID)
+			s.Require().NoError(err)
+			q := req.URL.Query()
+			q.Set(oauthLinkTokenParam, token)
+			req.URL.RawQuery = q.Encode()
+
+			s.newHandler(&mockOAuthCompleter{}).OAuthLinkHTTPHandler(w, req)
+
+			s.assertLinkRefusal(w, autherrors.CodeEmailVerificationRequired)
+			s.Nil(linkIntentCookie(w))
+			s.True(consumeOAuthLinkToken(s.T().Context(), s.cfg.JWT.SecretKey, token, user.ID),
+				"the refusal leaves the token unspent")
+		})
+	}
+}
+
+// An account with no address has no mailbox to verify, so the start arms the
+// link for it.
+func (s *OAuthHandlerIntegrationSuite) TestLink_NoAddressAccountStarts() {
+	user := &authm.User{IsActive: true}
+	s.Require().NoError(s.deps.DB.Create(user).Error)
+
+	w, req := s.oauthLinkRequest("google", user)
+	s.newHandler(&mockOAuthCompleter{}).OAuthLinkHTTPHandler(w, req)
+
+	s.NotNil(linkIntentCookie(w), "the start arms an intent")
+	s.NotContains(w.Header().Get("Location"), oauthLinkErrorParam)
+}
+
+// The link write refuses an unverified account too, so a callback that
+// reaches it carries the same code back to Settings and attaches nothing.
+func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_UnverifiedAddressRefusedWithItsCode() {
+	user := &authm.User{Email: strPtr("link-unverified-callback@test.com"), IsActive: true}
+	s.Require().NoError(s.deps.DB.Create(user).Error)
+	handler := s.newHandler(&mockOAuthCompleter{user: goth.User{
+		Provider: "google",
+		UserID:   "google-link-unverified",
+		Email:    "link-unverified-callback@test.com",
+	}})
+
+	w, req := oauthCallbackRequest("google")
+	s.armLinkIntentOn(req, user.ID, "google")
+	s.addSessionCookie(req, user)
+	handler.OAuthCallbackHTTPHandler(w, req)
+
+	s.assertLinkRefusal(w, autherrors.CodeEmailVerificationRequired)
+	var rows int64
+	s.Require().NoError(s.deps.DB.Model(&authm.OAuthAccount{}).Where("user_id = ?", user.ID).Count(&rows).Error)
+	s.Zero(rows)
 }
 
 // The intent is single use, so a replayed callback finds nothing armed and is

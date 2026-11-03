@@ -36,7 +36,7 @@ func startLinkFromSettings(t *testing.T, h *OAuthHTTPHandler) *http.Response {
 // cookies.
 func startLinkFromSettingsWith(t *testing.T, h *OAuthHTTPHandler, cookies ...*http.Cookie) *http.Response {
 	t.Helper()
-	user := &authm.User{ID: 7}
+	user := &authm.User{ID: 7, EmailVerified: true}
 	token, err := mintOAuthLinkToken(handshakeTestSecret, user.ID)
 	if err != nil {
 		t.Fatalf("mintOAuthLinkToken: %v", err)

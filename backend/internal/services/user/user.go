@@ -295,9 +295,10 @@ func (s *UserService) FindOrCreateUserFromOAuthIdentity(identity contracts.OAuth
 			//
 			// So there is no by-address link at all. An identity is attached
 			// only from a session that already holds the account, at
-			// /auth/link/{provider}, which the refusal names, or after the
-			// person proves the account by its password or its mailbox, which
-			// OAuthLinkRequiredError offers a caller.
+			// /auth/link/{provider}, which the refusal names and which first
+			// requires a verified address (authm.User.MayConnectProvider), or
+			// after the person proves the account by its password or its
+			// mailbox, which OAuthLinkRequiredError offers a caller.
 			//
 			// A recoverable deleted account is the exception, for the reasons
 			// shared.AddressMatchIsRecoverable states.
@@ -635,6 +636,10 @@ func (s *UserService) createNewUserOauthWithConsent(
 //     (CodeOAuthProviderAlreadyLinked)
 //   - the provider returned no subject, the value the identity resolves on
 //
+// It also refuses an account that may not connect a provider
+// (authm.User.MayConnectProvider, CodeEmailVerificationRequired): one whose
+// address is not verified.
+//
 // It does not touch users.email or users.email_verified. A provider account is
 // not evidence about the mailbox on the account it is being attached to.
 func (s *UserService) LinkOAuthAccountToUser(userID uint, sessionsValidAfter *time.Time, gothUser goth.User, provider string) (*authm.User, error) {
@@ -663,9 +668,18 @@ func (s *UserService) LinkOAuthAccountToUser(userID uint, sessionsValidAfter *ti
 	// oauth_accounts foreign key would refuse the write anyway, but the lookup
 	// keeps this correct if that constraint is ever relaxed, and it gives the
 	// caller an error naming the user rather than a driver message.
-	if err := shared.LockSessionAccount(tx, userID, sessionsValidAfter); err != nil {
+	account, err := shared.LockSessionAccount(tx, userID, sessionsValidAfter)
+	if err != nil {
 		tx.Rollback()
 		return nil, err
+	}
+	if !account.MayConnectProvider() {
+		tx.Rollback()
+		logger.Default().Warn("oauth_link_refused_email_unverified",
+			"stage", "write",
+			"provider", provider,
+			"user_id", userID)
+		return nil, apperrors.ErrEmailVerificationRequired(provider)
 	}
 
 	if err := AttachOAuthIdentityTx(tx, userID, provider, gothUser); err != nil {
@@ -697,7 +711,10 @@ func (s *UserService) LinkOAuthAccountToUser(userID uint, sessionsValidAfter *ti
 //
 // An identity userID already holds is refreshed, so a repeat attach is
 // idempotent rather than an error. The caller has already checked that the
-// account may sign in, and gothUser carries a subject.
+// account may sign in, and gothUser carries a subject. A session-driven link
+// has also checked authm.User.MayConnectProvider (LinkOAuthAccountToUser
+// does); the pending-link proofs attach an identity their provider vouched
+// for at the account's own address, and do not.
 //
 // The checks alone do not serialize under READ COMMITTED: two concurrent
 // attaches can both read "unclaimed". Two unique indexes decide those races:

@@ -103,6 +103,12 @@ const (
 	// and the session IS valid, so a surface that reads this must offer a fresh
 	// sign-in rather than report a permission failure or clear the session.
 	CodeReauthRequired = "REAUTH_REQUIRED"
+	// CodeEmailVerificationRequired indicates that connecting a provider
+	// identity to the signed-in account was refused because the account has
+	// an address it has not verified (authm.User.MayConnectProvider). The
+	// caller IS the account owner; the remedy is verifying the address, then
+	// connecting.
+	CodeEmailVerificationRequired = "EMAIL_VERIFICATION_REQUIRED"
 	// CodeUnknownHomeMetro indicates a home-area metro code that does not resolve
 	// in the CBSA dataset venue and artist metros are drawn from. Typed so the
 	// handler can tell a rejected value from a failed write, which must not both
@@ -173,6 +179,7 @@ var authCodeHTTPStatus = map[string]int{
 	CodeOAuthSignupExpired:         http.StatusBadRequest,
 	CodeOAuthLinkPendingExpired:    http.StatusBadRequest,
 	CodeReauthRequired:             http.StatusForbidden,
+	CodeEmailVerificationRequired:  http.StatusForbidden,
 	CodeUnknownHomeMetro:           http.StatusUnprocessableEntity,
 }
 
@@ -315,7 +322,24 @@ const (
 	// (frontend/lib/errors/authErrors.ts), keyed on the code, so this string is
 	// what a CLI or a curl reader sees. Keep the two saying the same thing.
 	passwordAlreadySetMessage = "This account already has a password. Reload the page to change it."
+	// The Settings card renders its own copy for EMAIL_VERIFICATION_REQUIRED
+	// (frontend/features/auth/components/settings/oauth-accounts.tsx), keyed
+	// on the code. Keep the two saying the same thing.
+	emailVerificationRequiredMessage = "Verify your email address first, then connect this provider from this page."
 )
+
+// ErrEmailVerificationRequired creates the refusal for connecting a provider
+// identity to an account whose address is not verified. Until it is,
+// nothing shows that the account's holder reads that mailbox, and an
+// identity they attach would keep signing in to an address that may belong
+// to someone else.
+func ErrEmailVerificationRequired(provider string) *AuthError {
+	return NewAuthError(
+		CodeEmailVerificationRequired,
+		emailVerificationRequiredMessage,
+		fmt.Errorf("account address is not verified: provider %s", provider),
+	)
+}
 
 // ErrOAuthLinkRefused creates the refusal a goth OAuth sign-in gets when its
 // address already belongs to an account. Every such sign-in is refused; the
@@ -560,6 +584,8 @@ func ToExternalMessage(code string) string {
 		return oauthLinkRefusedMessage
 	case CodeReauthRequired:
 		return reauthRequiredMessage
+	case CodeEmailVerificationRequired:
+		return emailVerificationRequiredMessage
 	case CodeValidationFailed:
 		return "Validation failed"
 	case CodeAccountLocked:

@@ -121,7 +121,7 @@ func (s *WebAuthnService) FinishRegistration(user *authm.User, session *webauthn
 	webauthnCred := authm.ToWebAuthnCredential(user.ID, credential, displayName)
 
 	err = s.db.Transaction(func(tx *gorm.DB) error {
-		if err := shared.LockSessionAccount(tx, user.ID, user.SessionsValidAfter); err != nil {
+		if _, err := shared.LockSessionAccount(tx, user.ID, user.SessionsValidAfter); err != nil {
 			return err
 		}
 		if err := tx.Create(webauthnCred).Error; err != nil {

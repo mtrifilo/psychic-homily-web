@@ -22,7 +22,7 @@ var (
 // row carries known tokens and repeatConnectStoredExpiry.
 func (suite *UserServiceIntegrationTestSuite) linkedForRepeatConnect(address, subject string) *authm.User {
 	suite.T().Helper()
-	owner := suite.createLiveAccount(address)
+	owner := suite.createLinkableAccount(address)
 	_, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
 		UserID:       subject,
 		Email:        address,

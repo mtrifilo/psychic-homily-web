@@ -43,13 +43,17 @@ var ErrSessionAccountClosed = errors.New("the session's account may no longer si
 // validation is refused here. Under the lock, a deactivation, deletion or
 // revocation that committed before the read is seen by it, and one that comes
 // later waits for tx, so none can land between this check and the caller's
-// write. A missing account is an error, not a refusal.
-func LockSessionAccount(tx *gorm.DB, userID uint, sessionsValidAfter *time.Time) error {
+// write. A missing account is an error, not a refusal. On success it returns
+// the locked read, which stays the account's state until tx ends.
+func LockSessionAccount(tx *gorm.DB, userID uint, sessionsValidAfter *time.Time) (*authm.User, error) {
 	var account authm.User
 	if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).First(&account, userID).Error; err != nil {
-		return fmt.Errorf("failed to load user %d: %w", userID, err)
+		return nil, fmt.Errorf("failed to load user %d: %w", userID, err)
 	}
-	return CheckSessionAccount(&account, sessionsValidAfter)
+	if err := CheckSessionAccount(&account, sessionsValidAfter); err != nil {
+		return nil, err
+	}
+	return &account, nil
 }
 
 // CheckSessionAccount judges account, a read of the account a signed-in

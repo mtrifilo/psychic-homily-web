@@ -17,7 +17,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_Attache
 	owner := &authm.User{
 		Email:         stringPtr("link.session.owner@example.com"),
 		IsActive:      true,
-		EmailVerified: false,
+		EmailVerified: true,
 	}
 	suite.Require().NoError(suite.db.Create(owner).Error)
 
@@ -44,9 +44,10 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_Attache
 	suite.assertNoOAuthAccountFor(other.ID)
 }
 
-// A link proves possession of the provider account, not of the mailbox on the
-// account it attaches to, so it must not advance verification.
-func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_LeavesEmailVerificationAlone() {
+// An account whose address is unverified is refused with
+// CodeEmailVerificationRequired and nothing is attached, even when the
+// provider says it verified the same address.
+func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_UnverifiedAddress_Refused() {
 	owner := &authm.User{
 		Email:         stringPtr("link.stays.unverified@example.com"),
 		IsActive:      true,
@@ -54,17 +55,57 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_LeavesE
 	}
 	suite.Require().NoError(suite.db.Create(owner).Error)
 
-	_, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
+	linked, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
 		UserID:  "link-unverified-subject",
 		Email:   "link.stays.unverified@example.com",
 		RawData: map[string]any{"verified_email": true},
 	}, "google")
-	suite.Require().NoError(err)
 
+	suite.Require().Nil(linked)
+	var authErr *apperrors.AuthError
+	suite.Require().ErrorAs(err, &authErr)
+	suite.Equal(apperrors.CodeEmailVerificationRequired, authErr.Code)
+	suite.assertNoOAuthAccountFor(owner.ID)
+}
+
+// An account with no address (a provider sign-up that supplied none) has no
+// mailbox to verify, and links.
+func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_NoAddress_Links() {
+	owner := &authm.User{IsActive: true}
+	suite.Require().NoError(suite.db.Create(owner).Error)
+
+	linked, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
+		UserID: "link-no-address-subject",
+		Email:  "provider.address@example.com",
+	}, "google")
+	suite.Require().NoError(err)
+	suite.Require().Len(linked.OAuthAccounts, 1)
 	suite.assertStoredEmailVerified(owner.ID, false)
 	var stored authm.User
 	suite.Require().NoError(suite.db.First(&stored, owner.ID).Error)
-	suite.Equal("link.stays.unverified@example.com", *stored.Email)
+	suite.Nil(stored.Email, "the link does not give the account the provider's address")
+}
+
+// A verified account links, and the link leaves its address as it was.
+func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_VerifiedAddress_LinksAndLeavesTheAddressAlone() {
+	owner := &authm.User{
+		Email:         stringPtr("link.verified@example.com"),
+		IsActive:      true,
+		EmailVerified: true,
+	}
+	suite.Require().NoError(suite.db.Create(owner).Error)
+
+	linked, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
+		UserID: "link-verified-subject",
+		Email:  "someone.else@example.com",
+	}, "google")
+	suite.Require().NoError(err)
+	suite.Require().Len(linked.OAuthAccounts, 1)
+
+	suite.assertStoredEmailVerified(owner.ID, true)
+	var stored authm.User
+	suite.Require().NoError(suite.db.First(&stored, owner.ID).Error)
+	suite.Equal("link.verified@example.com", *stored.Email)
 }
 
 // Connecting the account you already connected is a no-op, not an error: a
@@ -193,12 +234,12 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_EmptyPr
 
 // The link is the remediation the refusal names, so the sequence the refusal
 // sends a user through has to actually work: refused by address, then linked
-// from a session.
+// from a session of the verified account.
 func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_CompletesWhatTheAddressRefusal_SendsUserTo() {
 	account := &authm.User{
 		Email:         stringPtr("link.remediation@example.com"),
 		IsActive:      true,
-		EmailVerified: false,
+		EmailVerified: true,
 	}
 	suite.Require().NoError(suite.db.Create(account).Error)
 
@@ -222,6 +263,32 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_Complet
 	resolved, err := suite.userService.FindOrCreateUserWithConsent(gothUser, "google", signupconsent.CurrentOAuthSignupConsent())
 	suite.Require().NoError(err)
 	suite.Equal(account.ID, resolved.ID)
+}
+
+// On an account whose address is unverified the same remediation takes one
+// more step: the link is refused with CodeEmailVerificationRequired until the
+// address is verified, and then it links.
+func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_AddressRefusalOnAnUnverifiedAccount_NeedsVerificationFirst() {
+	account := &authm.User{Email: stringPtr("link.remediation.unverified@example.com"), IsActive: true}
+	suite.Require().NoError(suite.db.Create(account).Error)
+	gothUser := goth.User{
+		UserID:  "link-remediation-unverified-subject",
+		Email:   "link.remediation.unverified@example.com",
+		RawData: map[string]any{"verified_email": true},
+	}
+
+	_, err := suite.userService.FindOrCreateUserWithConsent(gothUser, "google", signupconsent.CurrentOAuthSignupConsent())
+	suite.Require().Error(err)
+
+	_, err = suite.userService.LinkOAuthAccountToUser(account.ID, account.SessionsValidAfter, gothUser, "google")
+	var authErr *apperrors.AuthError
+	suite.Require().ErrorAs(err, &authErr)
+	suite.Equal(apperrors.CodeEmailVerificationRequired, authErr.Code)
+
+	suite.Require().NoError(suite.userService.SetEmailVerified(account.ID, true))
+	linked, err := suite.userService.LinkOAuthAccountToUser(account.ID, account.SessionsValidAfter, gothUser, "google")
+	suite.Require().NoError(err)
+	suite.Require().Len(linked.OAuthAccounts, 1)
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_UnknownUser_Refused() {
