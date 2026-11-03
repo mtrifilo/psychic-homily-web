@@ -192,10 +192,11 @@ func (e *OAuthSignupRequiredError) Unwrap() error {
 // OAuthLinkRequiredError is the refusal for an identity attached to no
 // account whose address, which the provider verified and is the authority
 // for (OAuthIdentity.EmailAuthoritative), belongs to an account UserID that
-// may sign in and holds no identity from that provider. Refusal is the
-// CodeOAuthLinkRefused AuthError, so a caller that offers no way to prove the
-// account answers with it unchanged; a caller that does holds Identity as a
-// pending link for that account.
+// may sign in and either holds no identity from that provider or has an
+// address it never verified. Refusal is the CodeOAuthLinkRefused AuthError,
+// so a caller that offers no way to prove the account answers with it
+// unchanged; a caller that does holds Identity as a pending link for that
+// account.
 type OAuthLinkRequiredError struct {
 	Identity OAuthIdentity
 	UserID   uint
@@ -229,6 +230,12 @@ type OAuthPendingLink struct {
 	UserID    uint
 	ExpiresAt time.Time
 	Ref       string
+	// ReplacesIdentity is set when the account's address was never verified
+	// and it holds an identity from Identity.Provider other than Identity:
+	// the mailbox proof replaces that identity, and the password proof,
+	// which never replaces one, is refused. It describes the account when
+	// the pending link was read; the proofs decide again when they land.
+	ReplacesIdentity bool
 }
 
 // OAuthLinkCompletion is a pending link finished by the mailbox proof: the
@@ -288,8 +295,9 @@ type AuthServiceInterface interface {
 	// link, nor the reverse.
 	StartOAuthLink(identity OAuthIdentity, userID uint, returnTo string) (token string, err error)
 	// PeekOAuthLink returns the pending link token names without consuming
-	// it. A token that fails its signature, names no pending link, or names an
-	// expired one is refused with a typed AuthError carrying
+	// it, with ReplacesIdentity read from the account as it is now. A token
+	// that fails its signature, names no pending link, or names an expired
+	// one is refused with a typed AuthError carrying
 	// CodeOAuthLinkPendingExpired; any other error means it could not be read.
 	PeekOAuthLink(token string) (*OAuthPendingLink, error)
 	// HoldOAuthLinkForEmail is PeekOAuthLink for the mailbox proof's send: it
@@ -298,23 +306,32 @@ type AuthServiceInterface interface {
 	// PeekOAuthLink's.
 	HoldOAuthLinkForEmail(token string) (*OAuthPendingLink, error)
 	// LinkOAuthWithPassword finishes the pending link token names for user,
-	// whose password the caller has just verified. It consumes the pending
-	// link whatever it names. When it names user, and user's address is still
-	// the identity's, the identity is attached to user in the transaction that
-	// consumes it and linked is true. A pending link for another account is
-	// discarded and linked is false. Refusals: PeekOAuthLink's, and
-	// CodeOAuthIdentityInUse or CodeOAuthProviderAlreadyLinked when the
-	// identity or the provider was attached since the pending link began.
+	// whose password the caller has just verified. When it names user, and
+	// user's address is still the identity's, the identity is attached to
+	// user in the transaction that consumes the pending link and linked is
+	// true. A pending link for another account is consumed and discarded and
+	// linked is false. Refusals: PeekOAuthLink's,
+	// shared.ClosedAccountRefusal when the account may not sign in,
+	// CodeOAuthIdentityInUse when the identity is attached to another
+	// account, and CodeOAuthProviderAlreadyLinked when user holds another
+	// identity from the provider, whether or not its address is verified. A
+	// refusal leaves the pending link in place, so an emailed link already
+	// sent for it can still be followed (CompleteOAuthLinkByEmail decides it
+	// on its own terms).
 	LinkOAuthWithPassword(token string, user *authm.User) (linked bool, err error)
 	// CompleteOAuthLinkByEmail finishes the pending link an emailed sign-in
-	// link names. In one transaction it consumes the pending link, attaches
-	// the identity, clears the account's password, marks its address
-	// verified, revokes every session and the calendar-feed token, and
-	// removes every identity from another provider; passkeys stay. Then it
-	// issues a new session, which the revocation does not reach. Refusals:
-	// CodeOAuthLinkPendingExpired when the pending link is used, expired, or
-	// not the claims' account, shared.ClosedAccountRefusal when the account
-	// may not sign in, and LinkOAuthWithPassword's link refusals.
+	// link names. In one transaction it consumes the pending link, removes
+	// the account's identity from the same provider when the account's
+	// address was never verified, attaches the identity, clears the
+	// account's password, marks its address verified, revokes every session
+	// and the calendar-feed token, and removes every identity from another
+	// provider; passkeys stay. Then it issues a new session, which the
+	// revocation does not reach. Refusals: CodeOAuthLinkPendingExpired when
+	// the pending link is used, expired, or not the claims' account,
+	// shared.ClosedAccountRefusal when the account may not sign in,
+	// CodeOAuthIdentityInUse when the identity is attached to another
+	// account, and CodeOAuthProviderAlreadyLinked when the account's address
+	// is verified and it holds another identity from the provider.
 	CompleteOAuthLinkByEmail(claims *OAuthLinkTokenClaims) (*OAuthLinkCompletion, error)
 	// CompleteOAuthSignup resolves or creates the account for a consumed
 	// pending sign-up through

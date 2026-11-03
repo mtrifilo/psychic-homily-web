@@ -321,7 +321,8 @@ type UserServiceInterface interface {
 	// arrives as *OAuthLinkRequiredError, which unwraps to it, when the
 	// provider verified the address and is the authority for it
 	// (OAuthIdentity.EmailAuthoritative), and the account holding it may sign
-	// in and holds no identity from the provider.
+	// in and either holds no identity from the provider or has an address it
+	// never verified (authm.User.EmailVerified false).
 	FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *OAuthSignupConsent) (*authm.User, error)
 	// FindOrCreateUserFromOAuthIdentity is FindOrCreateUserWithConsent for an
 	// identity already read from a provider, with the same refusals. An

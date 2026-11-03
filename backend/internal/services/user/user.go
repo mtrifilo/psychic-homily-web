@@ -202,8 +202,8 @@ func NewUserService(database *gorm.DB) *UserService {
 // CodeOAuthLinkRefused refusal arrives wrapped in
 // *contracts.OAuthLinkRequiredError when the provider verified the address
 // and is the authority for it (contracts.OAuthIdentity.EmailAuthoritative),
-// and the account holding it may sign in and holds no identity from the
-// provider.
+// and the account holding it may sign in and either holds no identity from
+// the provider or has an address it never verified.
 func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent) (*authm.User, error) {
 	return s.FindOrCreateUserFromOAuthIdentity(OAuthIdentityFromGoth(gothUser, provider), consent, nil)
 }
@@ -313,14 +313,20 @@ func (s *UserService) FindOrCreateUserFromOAuthIdentity(identity contracts.OAuth
 			// that it was verified once: the mailbox proof is a link sent
 			// there, and an identity that does not hold the mailbox now must
 			// not be joined by whoever does clicking it. An account that may
-			// not sign in, or that already holds an identity from this
-			// provider, keeps the plain refusal.
+			// not sign in, or that holds an identity from this provider the
+			// mailbox proof would not replace
+			// (authm.User.MailboxProofMayReplaceIdentity), keeps the plain
+			// refusal.
 			if existingUser.CanSignIn() && identity.EmailVerified && identity.EmailAuthoritative {
-				holds, err := s.accountHoldsProviderIdentity(existingUser.ID, provider)
-				if err != nil {
-					return nil, err
+				keepsHeldIdentity := false
+				if !existingUser.MailboxProofMayReplaceIdentity() {
+					holds, err := s.accountHoldsProviderIdentity(existingUser.ID, provider)
+					if err != nil {
+						return nil, err
+					}
+					keepsHeldIdentity = holds
 				}
-				if !holds {
+				if !keepsHeldIdentity {
 					// Whether a pending link is actually offered is the
 					// caller's decision (a CLI sign-in has nowhere to show
 					// one), so this names the possibility, not the outcome.

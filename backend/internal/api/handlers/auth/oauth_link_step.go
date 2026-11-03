@@ -134,6 +134,8 @@ type PendingOAuthLinkResponse struct {
 		Status    string     `json:"status" enum:"pending,expired" doc:"pending: the collision state can be shown. expired: the pending link is expired, already used, or not this browser's."`
 		Email     string     `json:"email,omitempty" doc:"The address the account and the provider share, when status is pending"`
 		ExpiresAt *time.Time `json:"expires_at,omitempty" doc:"When the pending link expires, when status is pending. The browser's cookie that names it lapses at most 10 minutes after the Google sign-in that started it, which can be sooner once its emailed link has been asked for."`
+		// Not omitempty: false is an answer the collision state renders from.
+		ReplacesIdentity bool `json:"replaces_identity" doc:"When status is pending: true when the account's address was never verified and it holds another identity from the provider, which the emailed link replaces and which refuses the password proof. Always false when status is expired."`
 	}
 }
 
@@ -153,6 +155,7 @@ func (h *OAuthLinkStepHandler) PendingLinkHandler(ctx context.Context, input *Pe
 	}
 	resp.Body.Status = pendingLinkStatusPending
 	resp.Body.Email = link.Identity.Email
+	resp.Body.ReplacesIdentity = link.ReplacesIdentity
 	expiresAt := link.ExpiresAt
 	resp.Body.ExpiresAt = &expiresAt
 	return resp, nil
@@ -178,8 +181,9 @@ type OAuthLinkByEmailResponse struct {
 
 // LinkByEmailHandler queues the sign-in link to the address of the account
 // this browser's pending link names. Following it links the provider, turns
-// off the account's password and signs out its other sessions
-// (AuthServiceInterface.CompleteOAuthLinkByEmail). The browser already
+// off the account's password and signs out its other sessions, and on an
+// address never verified it replaces the account's identity from the
+// provider (AuthServiceInterface.CompleteOAuthLinkByEmail). The browser already
 // learned the address is registered from the callback, so the answer names
 // the outcome plainly rather than in the enumeration-safe shape of
 // /auth/magic-link/send.
@@ -225,4 +229,14 @@ func (h *OAuthLinkStepHandler) unavailable(ctx context.Context, resp *OAuthLinkB
 func isLinkPendingExpired(err error) bool {
 	var authErr *autherrors.AuthError
 	return errors.As(err, &authErr) && authErr.Code == autherrors.CodeOAuthLinkPendingExpired
+}
+
+// isPendingLinkAttachRefusal reports whether code is a password proof's
+// refusal to attach the pending identity, which says nothing against the
+// account signing in: the identity is attached elsewhere, or the account
+// holds another identity from the provider. These are the refusals
+// usersvc.AttachOAuthIdentityTx answers with; the collision state's
+// LINK_REFUSAL_CODES (frontend) names the same two.
+func isPendingLinkAttachRefusal(code string) bool {
+	return code == autherrors.CodeOAuthIdentityInUse || code == autherrors.CodeOAuthProviderAlreadyLinked
 }

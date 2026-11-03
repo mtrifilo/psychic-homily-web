@@ -327,15 +327,18 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 	}
 
 	// The password just proved the account, which is one of the two proofs a
-	// pending provider link waits on. The cookie is cleared whatever the
-	// pending link turns out to be.
+	// pending provider link waits on. This browser's cookie is cleared
+	// whatever the pending link turns out to be, so the collision state does
+	// not come back for it. A refusal leaves the pending link itself in place
+	// (LinkOAuthWithPassword), so an emailed link already sent for it can
+	// still be followed.
 	//
 	// A sign-in that asked to connect (ConnectPendingLink) and could not is
 	// refused, so the person who pressed "Sign in and connect" is never
-	// signed in believing the provider is connected. An ordinary sign-in
-	// that happens to carry a pending link stands on its own when the link
-	// is gone or names another account. A refusal to attach refuses both,
-	// with that refusal's own words.
+	// signed in believing the provider is connected; a refusal to attach
+	// refuses it with that refusal's own words. An ordinary sign-in that
+	// happens to carry a pending link stands on its own when the link is
+	// gone, names another account, or is refused to attach.
 	secure := h.config != nil && h.config.Session.Secure
 	pendingLink := pendingLinkToken(input.PendingLink, input.PendingLinkHost, secure)
 	if pendingLink != "" || input.Body.ConnectPendingLink {
@@ -361,6 +364,8 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 				resp.Body.ErrorCode = autherrors.CodeOAuthLinkPendingExpired
 				return resp, nil
 			}
+		case refused && !input.Body.ConnectPendingLink && isPendingLinkAttachRefusal(refusal.Code):
+			logger.AuthInfo(ctx, "login_pending_link_left_in_place", "user_id", user.ID, "error_code", refusal.Code)
 		case refused:
 			logger.AuthWarn(ctx, "login_pending_link_refused", "user_id", user.ID, "error_code", refusal.Code)
 			resp.Body.Success = false
