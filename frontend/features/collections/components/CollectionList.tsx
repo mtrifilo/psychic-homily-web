@@ -236,6 +236,8 @@ export function CollectionList() {
         className="w-full"
       >
         <TabsList className="mb-4 h-auto w-full justify-start gap-1 rounded-none border-b border-border/50 bg-transparent p-0 text-muted-foreground">
+          {/* border-0 drops the primitive's selected boundary box; border-b-2
+              keeps the underline. */}
           {tabs.map((tab) => (
             <TabsTrigger
               key={tab.value}

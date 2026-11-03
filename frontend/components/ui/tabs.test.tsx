@@ -92,22 +92,40 @@ describe('Tabs', () => {
       expect(selected).toHaveClass(...BOTH_STATES_TOKENS, ...SELECTED_TOKENS)
     })
 
-    it('renders the unselected trigger with a muted medium label and a transparent border in both modes', () => {
+    it('styles the unselected label only through base tokens, so it stays muted Medium in both modes', () => {
       renderTwoTabs()
       const unselected = trigger('Create account')
       expect(unselected).toHaveAttribute('data-state', 'inactive')
       expect(unselected).toHaveClass(...BOTH_STATES_TOKENS, ...UNSELECTED_TOKENS)
-      // A bare text-foreground (or a dark-only muted label) would make the
-      // unselected label match the selected one in light mode.
-      expect(unselected).not.toHaveClass('text-foreground')
-      expect(unselected).not.toHaveClass('dark:text-muted-foreground')
-      expect(unselected).not.toHaveClass('dark:data-[state=active]:border-input')
+      // Every label colour or weight token other than the base ones must be
+      // scoped to the selected state; a dark: or inactive-state label token
+      // would change the unselected label in one mode.
+      const labelTokens = Array.from(unselected.classList).filter(token =>
+        /^(text-(?!sm$)|font-)/.test(token.split(':').pop() ?? '')
+      )
+      const unscoped = labelTokens.filter(
+        token => !token.startsWith('data-[state=active]:')
+      )
+      expect(unscoped).toEqual(['text-muted-foreground', 'font-medium'])
     })
 
-    it('lets an underline-list consumer remove the boundary with border-0', () => {
+    it('keeps the focus border above the selected boundary colour', () => {
+      renderTwoTabs()
+      expect(trigger('Sign in')).toHaveClass(
+        'focus-visible:data-[state=active]:border-ring',
+        'focus-visible:ring-[3px]',
+        'focus-visible:outline-1'
+      )
+    })
+
+    it('lets an underline-list consumer pass border-0 border-b-2 to drop the boundary and keep the underline', () => {
       renderTwoTabs('border-0 border-b-2')
       const selected = trigger('Sign in')
-      expect(selected).toHaveClass('border-0', 'border-b-2')
+      expect(selected).toHaveClass(
+        'border-0',
+        'border-b-2',
+        'data-[state=active]:border-b-primary'
+      )
       expect(selected).not.toHaveClass('border')
     })
   })
