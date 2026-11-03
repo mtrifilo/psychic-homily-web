@@ -103,7 +103,7 @@ describe('SavedShowsModule', () => {
       error: null,
     })
 
-    render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule />)
 
     expect(
       screen.getByRole('heading', { name: 'Your upcoming shows', level: 2 })
@@ -125,7 +125,7 @@ describe('SavedShowsModule', () => {
       error: null,
     })
 
-    render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule />)
 
     // The only button in the module is the row's own save control.
     expect(
@@ -151,7 +151,7 @@ describe('SavedShowsModule', () => {
       error: null,
     })
 
-    render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule />)
 
     expect(
       screen.getByRole('link', { name: 'Subscribe to calendar →' })
@@ -166,7 +166,7 @@ describe('SavedShowsModule', () => {
       error: null,
     })
 
-    render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule />)
 
     expect(mockUseSavedShows).toHaveBeenCalledWith({
       timeFilter: 'upcoming',
@@ -183,7 +183,7 @@ describe('SavedShowsModule', () => {
       error: null,
     })
 
-    render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule />)
 
     expect(
       screen.getByText('Nothing saved yet · tap ♡ on any show and it lands here')
@@ -191,9 +191,14 @@ describe('SavedShowsModule', () => {
     expect(
       screen.getByText('Save a show and it shows up here.')
     ).toBeInTheDocument()
+    // One line, as on the M2 board: the button below is the only call to
+    // action, so the row carries no link of its own.
     expect(
-      screen.getByRole('link', { name: 'Pick from this week ↓' })
-    ).toHaveAttribute('href', '#nearby')
+      screen.queryByText(/Upcoming first, past ones kept/)
+    ).not.toBeInTheDocument()
+    expect(screen.getAllByRole('link').map(link => link.textContent)).toEqual([
+      'Find a show',
+    ])
     const findAShow = screen.getByRole('link', { name: 'Find a show' })
     expect(findAShow).toHaveAttribute('href', '/shows')
     // Full width on a phone, content-sized from `sm` up.
@@ -217,7 +222,7 @@ describe('SavedShowsModule', () => {
       error: null,
     })
 
-    render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule />)
 
     expect(
       screen.getByRole('heading', { name: 'Your upcoming shows', level: 2 })
@@ -236,12 +241,17 @@ describe('SavedShowsModule', () => {
       error: new Error('boom'),
     })
 
-    render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule />)
 
     expect(
       screen.getByText('Unable to load your saved shows.')
     ).toBeInTheDocument()
     expect(screen.queryByText(/Nothing saved yet/)).not.toBeInTheDocument()
+    // Library stays reachable from the header, without a count it does not have.
+    expect(screen.getByRole('link', { name: 'Library →' })).toHaveAttribute(
+      'href',
+      '/library'
+    )
   })
 
   it('keeps the rows it already has when a refetch fails, and says so', () => {
@@ -251,7 +261,7 @@ describe('SavedShowsModule', () => {
       error: new Error('boom'),
     })
 
-    render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule />)
 
     expect(screen.getAllByRole('article')).toHaveLength(1)
     expect(
@@ -270,7 +280,7 @@ describe('SavedShowsModule', () => {
       error: null,
     })
 
-    render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule />)
 
     expect(mockUseSavedShows).toHaveBeenCalledWith(
       expect.objectContaining({ enabled: false, userId: undefined })
@@ -289,7 +299,7 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
     // must not offer to save it again.
     mockUseShowSaveCountBatch.mockReturnValue({ data: undefined })
 
-    render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule />)
 
     expect(saveButtonProps).toHaveBeenCalledWith(
       expect.objectContaining({ saveData: { save_count: 0, is_saved: true } })
@@ -306,7 +316,7 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
       data: { '1': { save_count: 7, is_saved: true } },
     })
 
-    render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule />)
 
     expect(saveButtonProps).toHaveBeenCalledWith(
       expect.objectContaining({ saveData: { save_count: 7, is_saved: true } })
@@ -321,7 +331,7 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
       error: null,
     })
 
-    const { container } = render(<SavedShowsModule nearbySectionId="nearby" />)
+    const { container } = render(<SavedShowsModule />)
 
     // Not a skeleton: an `enabled: false` query is pending forever, and a
     // signed-out viewer must not be left under "Your upcoming shows".
@@ -339,7 +349,7 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
       error: null,
     })
 
-    render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule />)
 
     expect(mockRefresh).not.toHaveBeenCalled()
   })
@@ -352,7 +362,7 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
       error: null,
     })
 
-    render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule />)
 
     expect(
       screen.getByRole('heading', { name: 'Your upcoming shows', level: 2 })
@@ -367,7 +377,7 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
         error: null,
       })
 
-      render(<SavedShowsModule nearbySectionId="nearby" />)
+      render(<SavedShowsModule />)
 
       expect(
         screen.queryByRole('link', { name: /All upcoming shows/ })
@@ -382,7 +392,7 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
         error: null,
       })
 
-      render(<SavedShowsModule nearbySectionId="nearby" />)
+      render(<SavedShowsModule />)
 
       expect(
         screen.getByRole('link', { name: 'All upcoming shows in Phoenix, AZ →' })
@@ -397,7 +407,7 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
         error: new Error('nope'),
       })
 
-      render(<SavedShowsModule nearbySectionId="nearby" />)
+      render(<SavedShowsModule />)
 
       expect(
         screen.getByRole('link', { name: 'All upcoming shows in Phoenix, AZ →' })
@@ -406,42 +416,6 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
       expect(
         screen.queryByRole('link', { name: 'Subscribe to calendar →' })
       ).not.toBeInTheDocument()
-    })
-  })
-
-  describe('the zero state\'s way down to the nearby list', () => {
-    it('anchors to the nearby section while it is on the page', () => {
-      mockUseSavedShows.mockReturnValue({
-        data: { shows: [], total: 0 },
-        isPending: false,
-        error: null,
-      })
-
-      render(<SavedShowsModule nearbySectionId="nearby" />)
-
-      expect(
-        screen.getByRole('link', { name: 'Pick from this week ↓' })
-      ).toHaveAttribute('href', '#nearby')
-    })
-
-    // The anchor's target is one of the five hideable sections, so the link
-    // has to stop pointing at it once the viewer hides it.
-    it('sends the viewer to /shows once the nearby section is hidden', () => {
-      mockCityLinkSlot.mockReturnValue('saved')
-      mockUseSavedShows.mockReturnValue({
-        data: { shows: [], total: 0 },
-        isPending: false,
-        error: null,
-      })
-
-      render(<SavedShowsModule nearbySectionId="nearby" />)
-
-      expect(
-        screen.queryByRole('link', { name: 'Pick from this week ↓' })
-      ).not.toBeInTheDocument()
-      expect(
-        screen.getByRole('link', { name: 'Find one to save →' })
-      ).toHaveAttribute('href', '/shows')
     })
   })
 
@@ -456,7 +430,7 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
       })
 
       const { container } = render(
-        <SavedShowsModule nearbySectionId="nearby" />
+        <SavedShowsModule />
       )
 
       const row = screen.getByRole('navigation', { name: 'Discover' })
@@ -485,7 +459,7 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
       mockDiscoverLinksSlot.mockReturnValue('saved')
       mockUseSavedShows.mockReturnValue(result)
 
-      render(<SavedShowsModule nearbySectionId="nearby" />)
+      render(<SavedShowsModule />)
 
       expect(
         screen.getByRole('navigation', { name: 'Discover' })
@@ -502,7 +476,7 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
           error: null,
         })
 
-        render(<SavedShowsModule nearbySectionId="nearby" />)
+        render(<SavedShowsModule />)
 
         expect(
           screen.queryByRole('navigation', { name: 'Discover' })
@@ -518,7 +492,7 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
       error: null,
     })
 
-    render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule />)
 
     expect(screen.queryByText(/^Welcome/)).not.toBeInTheDocument()
   })

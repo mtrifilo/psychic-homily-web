@@ -58,25 +58,14 @@ type ModuleState = 'loading' | 'error' | 'empty' | 'rows'
  * `total` (not `shows.length`) drives the subline and the zero state: the read
  * is capped, so the row count says nothing about how many saves exist.
  */
-export function SavedShowsModule({
-  nearbySectionId,
-}: {
-  /** Anchor for "Pick from this week ↓", the zero state's way down to the
-   *  nearby list. */
-  nearbySectionId: string
-}) {
+export function SavedShowsModule() {
   const { user, authStatus } = useAuthContext()
   const isAuthenticated = authStatus === 'authenticated'
   // Takes the city link and the Discover row only when the nearby section that
   // normally carries them is hidden. The footer is where they go, next to the
   // other lines that point off this module.
-  const cityLinkSlot = useHomeCityLinkSlot()
-  const ownsCityLink = cityLinkSlot === 'saved'
+  const ownsCityLink = useHomeCityLinkSlot() === 'saved'
   const ownsDiscoverLinks = useHomeDiscoverLinksSlot() === 'saved'
-  // The zero state's "Pick from this week ↓" scrolls to the nearby section. It
-  // only still owns the city link while it is on the page, so that is also the
-  // test for whether the anchor exists to scroll to.
-  const hasNearbySection = cityLinkSlot === 'nearby'
 
   // Exactly the rows painted. The server prefetches this same key for the
   // first paint (app/_components/HomeContentSlot.tsx), so the key must stay
@@ -126,8 +115,9 @@ export function SavedShowsModule({
       aria-labelledby="signed-in-home-heading"
       className="flex w-full flex-col gap-4 pt-2"
     >
-      {/* No call to action here: a viewer with saves is pointed at Library,
-          and only the zero state offers "Find a show", under its prompt row. */}
+      {/* No call to action here: a viewer with saves, or whose saves failed
+          to load, is pointed at Library; only the zero state offers "Find a
+          show", under its prompt row. */}
       <div className="min-w-0">
         {/* h2, not h1: this section is hideable, and the page's h1 lives on
             the layout shell so the document outline survives hiding it. */}
@@ -137,17 +127,29 @@ export function SavedShowsModule({
         >
           Your upcoming shows
         </h2>
-        {state === 'rows' && (
+        {(state === 'rows' || state === 'error') && (
           <div className="mt-1.5 flex items-baseline justify-between gap-x-4">
-            <p className="min-w-0 text-sm text-muted-foreground">
-              {total} saved · soonest first
-            </p>
-            <Link href="/library" className={cn(HOME_ACCENT_LINK_CLASS, 'shrink-0')}>
-              All {total}{' '}
-              <span className="sr-only">
-                {total === 1 ? 'saved show' : 'saved shows'} in Library
-              </span>{' '}
-              →
+            {state === 'rows' && (
+              <p className="min-w-0 text-sm text-muted-foreground">
+                {total} saved · soonest first
+              </p>
+            )}
+            <Link
+              href="/library"
+              className={cn(HOME_ACCENT_LINK_CLASS, 'ml-auto shrink-0')}
+            >
+              {state === 'rows' ? (
+                <>
+                  All {total}{' '}
+                  <span className="sr-only">
+                    {total === 1 ? 'saved show' : 'saved shows'} in Library
+                  </span>{' '}
+                  →
+                </>
+              ) : (
+                // No count: a read that failed has none to give.
+                'Library →'
+              )}
             </Link>
           </div>
         )}
@@ -186,31 +188,10 @@ export function SavedShowsModule({
           >
             - - -
           </div>
-          <div className="min-w-0 self-center">
-            <p className="text-sm font-medium leading-tight text-foreground md:text-[15px]">
-              Save a show and it shows up here.
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground md:text-[13px]">
-              Upcoming first, past ones kept as your record in Library.
-            </p>
-          </div>
-          <div className="col-start-2 mt-1 font-data text-[11px] md:col-start-3 md:row-start-1 md:mt-0 md:self-center">
-            {hasNearbySection ? (
-              <a
-                href={`#${nearbySectionId}`}
-                className="whitespace-nowrap text-link transition-colors hover:underline underline-offset-4"
-              >
-                Pick from this week ↓
-              </a>
-            ) : (
-              <Link
-                href="/shows"
-                className="whitespace-nowrap text-link transition-colors hover:underline underline-offset-4"
-              >
-                Find one to save →
-              </Link>
-            )}
-          </div>
+          {/* One line: the "Find a show" button below is the call to action. */}
+          <p className="min-w-0 self-center text-sm font-medium leading-tight text-foreground md:text-[15px]">
+            Save a show and it shows up here.
+          </p>
         </div>
       )}
 

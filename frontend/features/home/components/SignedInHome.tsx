@@ -6,7 +6,7 @@ import { NearbyShowsSection } from './NearbyShowsSection'
 import { SavedShowsModule } from './SavedShowsModule'
 import type { HomeLayoutDocument } from '../sections'
 
-/** Anchor target for the zero state's "Pick from this week ↓". */
+/** The nearby section's element id. */
 const NEARBY_SECTION_ID = 'home-shows-near-you'
 
 /**
@@ -48,7 +48,7 @@ export function SignedInHome({
     <HomeLayoutRuntime
       initialLayout={layout}
       sections={{
-        saved_shows: <SavedShowsModule nearbySectionId={NEARBY_SECTION_ID} />,
+        saved_shows: <SavedShowsModule />,
         nearby_shows: <NearbyShowsSection id={NEARBY_SECTION_ID} />,
         community_stats: <CommunityPulseBand />,
         city_graph: <HomeSceneGraph />,

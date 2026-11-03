@@ -105,7 +105,7 @@ vi.mock('@/components/shared/SaveButton', () => ({
 }))
 
 const SECTIONS = {
-  saved_shows: <SavedShowsModule nearbySectionId="nearby" />,
+  saved_shows: <SavedShowsModule />,
   nearby_shows: <NearbyShowsSection id="nearby" />,
   community_stats: <div>community_stats</div>,
   city_graph: <div>city_graph</div>,
