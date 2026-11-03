@@ -40,7 +40,8 @@ function TabsTrigger({
 }: React.ComponentProps<typeof TabsPrimitive.Trigger>) {
   // The selected trigger carries two indicators: a 1px muted-foreground
   // boundary on the top and sides, and a 2px primary bottom edge. Both states
-  // reserve the 2px bottom border so selecting a tab does not move its label.
+  // reserve the 2px bottom border so selecting a tab keeps its label at the
+  // same height.
   // border-b-primary must stay after border-muted-foreground: tailwind-merge
   // drops an earlier one-side colour when a later all-sides colour shares
   // its variant.
