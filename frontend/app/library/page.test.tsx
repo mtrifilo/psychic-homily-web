@@ -227,6 +227,14 @@ function makeSavedShow({
   }
 }
 
+// TabsTrigger renders its label twice, an invisible width-reserving copy and
+// the visible one; this reads the visible one.
+function visibleTabLabel(tab: HTMLElement) {
+  return tab.querySelector(
+    '[data-slot="tabs-trigger-label"] > :not([aria-hidden])'
+  )?.textContent
+}
+
 describe('LibraryPage (PSY-1440, PSY-1435)', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
@@ -272,7 +280,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
 
       const tablist = screen.getByRole('tablist')
       const tabs = within(tablist).getAllByRole('tab')
-      expect(tabs.map(t => t.textContent)).toEqual([
+      expect(tabs.map(visibleTabLabel)).toEqual([
         'Shows',
         'Artists · 4',
         'Venues · 2',
@@ -317,7 +325,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
         }
         if (
           this.getAttribute('role') === 'tab' &&
-          this.textContent === 'Releases · 0'
+          this.getAttribute('aria-label') === 'Releases, 0 saved'
         ) {
           return { ...defaultBounds.call(this), left: 500, right: 570 }
         }
@@ -931,7 +939,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       renderWithProviders(<LibraryPage />)
 
       expect(
-        screen.getByRole('tab', { name: 'Releases, 1 saved' }).textContent
+        visibleTabLabel(screen.getByRole('tab', { name: 'Releases, 1 saved' }))
       ).toBe('Releases · 1')
       const row = screen.getByRole('article')
       expect(

@@ -146,7 +146,7 @@ describe('BillComposition', () => {
     const user = userEvent.setup()
     renderWithProviders(<BillComposition artistId={1} />)
     expect(useHook).toHaveBeenCalledWith(expect.objectContaining({ months: 0 }))
-    await user.click(screen.getByText('Last 12 months'))
+    await user.click(screen.getByRole('tab', { name: 'Last 12 months' }))
     expect(useHook).toHaveBeenCalledWith(expect.objectContaining({ months: 12 }))
   })
 

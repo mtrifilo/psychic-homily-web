@@ -128,5 +128,49 @@ describe('Tabs', () => {
       )
       expect(selected).not.toHaveClass('border')
     })
+
+    it.each(['Sign in', 'Create account'])(
+      'reserves the SemiBold width of %s with a hidden copy in the same grid cell',
+      name => {
+        renderTwoTabs()
+        const tab = trigger(name)
+        const cell = tab.querySelector('[data-slot="tabs-trigger-label"]')
+        expect(cell).toHaveClass(
+          'inline-grid',
+          '*:col-start-1',
+          '*:row-start-1'
+        )
+        expect(cell?.children).toHaveLength(2)
+        const [reserve, label] = Array.from(cell?.children ?? [])
+        expect(reserve).toHaveAttribute('aria-hidden', 'true')
+        expect(reserve).toHaveClass(
+          'invisible',
+          'font-semibold',
+          'select-none',
+          'pointer-events-none'
+        )
+        expect(reserve).toHaveTextContent(name)
+        expect(label).not.toHaveAttribute('aria-hidden')
+        expect(label).toHaveTextContent(name)
+        expect(tab).toHaveAccessibleName(name)
+      }
+    )
+
+    it('passes an asChild trigger its single child without the reservation', () => {
+      render(
+        <Tabs defaultValue="one">
+          <TabsList>
+            <TabsTrigger value="one" asChild>
+              <a href="#one">One</a>
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      )
+      const tab = screen.getByRole('tab', { name: 'One' })
+      expect(tab.tagName).toBe('A')
+      expect(
+        tab.querySelector('[data-slot="tabs-trigger-label"]')
+      ).not.toBeInTheDocument()
+    })
   })
 })
