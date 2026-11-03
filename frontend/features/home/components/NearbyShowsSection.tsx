@@ -81,9 +81,10 @@ export function NearbyShowsSection({ id }: { id: string }) {
       className="flex w-full flex-col gap-4"
     >
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <div className="min-w-0 flex-1">
-          {/* The phone city control trails the heading on its own line, so
-              the subline and the link slot below cannot push it off it. */}
+        {/* Full width below md, so the link slot wraps under it and the
+            phone city control trails the heading on the heading's own line;
+            content width from md, where the control is hidden. */}
+        <div className="min-w-0 basis-full md:basis-auto">
           <div className="flex items-center justify-between gap-3">
             <h2
               id="home-nearby-shows-heading"

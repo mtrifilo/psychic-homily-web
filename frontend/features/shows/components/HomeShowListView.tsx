@@ -251,7 +251,11 @@ export function HomeShowListView({
             data-testid="home-city-phone-extras"
             className="mb-4 flex flex-col items-start gap-1 md:hidden"
           >
-            {saveDefaults}
+            {/* A row, as in the bar: SaveDefaultsButton's items center
+                themselves on the cross axis. */}
+            {saveDefaults && (
+              <div className="flex items-center gap-2">{saveDefaults}</div>
+            )}
             {geoAffordance}
           </div>
         )}

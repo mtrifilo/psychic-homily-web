@@ -267,11 +267,13 @@ function ShowsTab({ currentUserId }: { currentUserId?: string }) {
   const error = upcoming.error ?? past.error
   const isEmpty = upcomingTotal + pastTotal === 0
   // Every unsave, the wall's and each table row's heart alike, serializes with
-  // page loads; see `unsaveShowMutationKey`.
+  // every read of these lists: a next page AND a refetch of the loaded ones,
+  // which re-derives each later page's offset as it goes. See
+  // `unsaveShowMutationKey`.
   const isUnsavePending =
     useIsMutating({ mutationKey: unsaveShowMutationKey }) > 0
   const isSavedShowActionPending =
-    isUnsavePending || upcoming.isFetchingNextPage || past.isFetchingNextPage
+    isUnsavePending || upcoming.isFetching || past.isFetching
 
   const fetchAllPages = async (
     query: typeof upcoming | typeof past

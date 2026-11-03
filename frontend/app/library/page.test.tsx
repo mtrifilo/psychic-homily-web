@@ -1281,6 +1281,50 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       }
     })
 
+    // A refetch of the loaded pages re-derives each later page's offset as it
+    // goes, so an unsave landing mid-refetch skips a row just as a next-page
+    // load would.
+    it('holds every heart while the loaded pages refetch', () => {
+      mockUseSavedShows.mockImplementation((timeFilter: 'upcoming' | 'past') => ({
+        data: {
+          pages: [
+            timeFilter === 'upcoming'
+              ? {
+                  shows: [
+                    makeSavedShow({
+                      id: 1,
+                      title: 'Artist 1',
+                      eventDate: '2026-07-20T03:00:00Z',
+                      savedAt: '2026-07-10T12:00:00Z',
+                    }),
+                  ],
+                  total: 1,
+                  limit: 4,
+                  offset: 0,
+                }
+              : { shows: [], total: 0, limit: 4, offset: 0 },
+          ],
+          pageParams: [{ limit: 4, offset: 0 }],
+        },
+        isLoading: false,
+        isFetching: timeFilter === 'past',
+        error: null,
+        hasNextPage: false,
+        isFetchingNextPage: false,
+        fetchNextPage: mockFetchNextPage,
+      }))
+
+      renderWithProviders(<LibraryPage />)
+
+      expect(
+        (
+          screen.getByRole('button', {
+            name: 'Remove from saved shows',
+          }) as HTMLButtonElement
+        ).disabled
+      ).toBe(true)
+    })
+
     it('loads every page on expansion and re-expands without refetching', async () => {
       const shows = Array.from({ length: 6 }, (_, index) =>
         makeSavedShow({
