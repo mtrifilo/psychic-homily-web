@@ -4,7 +4,7 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@/lib/utils'
 
 // Badge labels are set in the data face (Golos Text) at a real Bold (700),
-// matching the design-system Badge: every badge is data-face + bold.
+// matching the design-system Badge.
 const badgeVariants = cva(
   'inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-data font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
   {

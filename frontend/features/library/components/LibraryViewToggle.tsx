@@ -35,7 +35,7 @@ export function LibraryViewToggle({
         aria-checked={view === 'table'}
         role="radio"
         onClick={() => onViewChange('table')}
-        className="font-data text-[11px]"
+        className="text-[11px]"
         ariaLabel="Table view"
         data-testid="library-view-table"
       />
@@ -45,7 +45,7 @@ export function LibraryViewToggle({
         aria-checked={view === 'wall'}
         role="radio"
         onClick={() => onViewChange('wall')}
-        className="font-data text-[11px]"
+        className="text-[11px]"
         ariaLabel="Wall view"
         data-testid="library-view-wall"
       />
