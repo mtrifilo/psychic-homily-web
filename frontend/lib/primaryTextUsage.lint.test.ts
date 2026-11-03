@@ -12,9 +12,15 @@ import ts from 'typescript'
  * `text-primary`; everything else is flagged:
  *
  * - a state variant (`hover:text-primary`, `focus-visible:text-primary`, ...),
- * - an opacity modifier (`text-primary/80`),
+ * - an opacity modifier (`text-primary/80`, and `text-link/80`, since `link`
+ *   at any opacity fails 4.5:1 somewhere),
  * - a bare `text-primary` in any other class string: a text link (its size
  *   is usually inherited) or sized text.
+ *
+ * Known limits: each string literal is judged alone, so a text size passed in
+ * a sibling `cn()` argument, a variant spliced in through `${}`, or text that
+ * inherits its size inside an icon-sized box is not seen. Every scanned file
+ * must parse cleanly, so a parse failure cannot hide a file's literals.
  *
  * A legitimate exception (a glyph span, an icon-only button's hover, a large
  * heading) goes in ALLOWED with the exact flagged tokens in that file and the
@@ -36,7 +42,7 @@ const ALLOWED: Record<string, { tokens: string[]; reason: string }> = {
   'app/radio/_components/DialStationStrip.tsx': { tokens: ['text-primary', 'text-primary'], reason: 'aria-hidden note glyphs' },
   'app/radio/[station-slug]/[show-slug]/_components/RadioShowDetail.tsx': { tokens: ['text-primary'], reason: 'aria-hidden on-air dot' },
   'app/radio/[station-slug]/[show-slug]/[date]/_components/EpisodeDateDetail.tsx': { tokens: ['text-primary'], reason: 'aria-hidden on-air dot' },
-  'app/radio/[station-slug]/[show-slug]/[date]/_components/PlaylistTable.tsx': { tokens: ['text-primary', 'text-primary'], reason: 'aria-hidden linked-artist dots' },
+  'app/radio/[station-slug]/[show-slug]/[date]/_components/PlaylistTable.tsx': { tokens: ['text-primary', 'text-primary', 'text-primary'], reason: 'aria-hidden linked-artist dots and now arrow' },
   'features/graph/components/ReplayScrubber.tsx': { tokens: ['text-primary'], reason: 'played bar fill, a graphic' },
   'features/notifications/components/NotificationList.tsx': { tokens: ['text-primary'], reason: 'aria-hidden icon tile, sized in a sibling string' },
   'features/radio/components/StationOnAirBox.tsx': { tokens: ['text-primary', 'text-primary'], reason: 'aria-hidden on-air dot and note glyph' },
@@ -51,15 +57,22 @@ const ALLOWED: Record<string, { tokens: string[]; reason: string }> = {
 
 // An icon box: a square size, or both a width and a height, with no text size
 // beside it. A lone height is a control height (`h-7 px-2` on a text button),
-// and a box that also sets a text size (`w-16 text-[11px]`) holds text.
-const utility = (prefix: string) => new RegExp(`(^|\\s)${prefix}-[\\d.]+(\\s|$)`)
+// and a box that also sets a text size (`w-16 text-[11px]`) holds text. Sizes
+// and text sizes may carry variants (`sm:size-5`, `sm:text-sm`), and a text
+// size may carry a line height (`text-xs/5`).
+const VARIANTS = String.raw`(?:[^\s:]+:)*`
+const utility = (prefix: string) =>
+  new RegExp(String.raw`(^|\s)${VARIANTS}${prefix}-(?:[\d.]+|\[[\d.]+px\])(\s|$)`)
 const SIZE = utility('size')
 const HEIGHT = utility('h')
 const WIDTH = utility('w')
-const TEXT_SIZE = /(^|\s)text-(xs|sm|base|lg|xl|\d*xl|\[[\d.]+(px|rem|em)\])(\s|$)/
+const TEXT_SIZE = new RegExp(
+  String.raw`(^|\s)${VARIANTS}text-(xs|sm|base|lg|xl|\d*xl|\[[\d.]+(px|rem|em)\]|\[length:[^\]]+\])(\/[\w.]+)?(\s|$)`
+)
 const isIconBox = (literal: string) =>
   (SIZE.test(literal) || (HEIGHT.test(literal) && WIDTH.test(literal))) && !TEXT_SIZE.test(literal)
 const PRIMARY = /(^|\s)((?:[^\s:]+:)*)!?text-primary(\/\d+)?!?(?![\w-])/g
+const LINK_OPACITY = /(^|\s)((?:[^\s:]+:)*)!?text-link(\/\d+)!?(?![\w-])/g
 
 const sourceFiles = ['app', 'components', 'features', 'lib']
   .flatMap(dir =>
@@ -76,7 +89,15 @@ const sourceFiles = ['app', 'components', 'features', 'lib']
  * render into one class attribute.
  */
 function literals(source: string, fileName = 'x.tsx'): string[] {
-  const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, false, ts.ScriptKind.TSX)
+  const kind = fileName.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+  const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, false, kind)
+  // `parseDiagnostics` is not in the public typings; a missing array fails
+  // loudly rather than skipping the check.
+  const diagnostics = (file as unknown as { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics
+  if (!diagnostics) throw new Error('typescript no longer exposes parseDiagnostics')
+  if (diagnostics.length > 0) {
+    throw new Error(`${fileName} does not parse, so its literals cannot be scanned`)
+  }
   const out: string[] = []
   const visit = (node: ts.Node) => {
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
@@ -98,6 +119,7 @@ function flagged(source: string, fileName?: string): string[] {
       const [, , variant, opacity = ''] = m
       if (variant || opacity || !isIconBox(literal)) hits.push(`${variant}text-primary${opacity}`)
     }
+    for (const m of literal.matchAll(LINK_OPACITY)) hits.push(`${m[2]}text-link${m[3]}`)
   }
   return hits
 }
@@ -142,6 +164,14 @@ describe('small orange text uses the link token', () => {
     expect(flagged(`<Button className="h-7 px-2 text-primary">Confirm</Button>`)).toEqual(['text-primary'])
     expect(flagged(`<Star className="h-4 w-4 text-primary" />`)).toEqual([])
     expect(flagged(`<Check className="size-4 shrink-0 text-primary" />`)).toEqual([])
+    expect(flagged(`<Check className="h-[18px] w-[18px] sm:size-5 text-primary" />`)).toEqual([])
+    expect(flagged(`<span className="h-6 w-6 sm:text-sm text-primary">x</span>`)).toEqual(['text-primary'])
+    expect(flagged(`<span className="size-8 text-xs/5 text-primary">x</span>`)).toEqual(['text-primary'])
+    expect(flagged(`<a className="text-link hover:text-link/80">x</a>`)).toEqual(['hover:text-link/80'])
+    expect(
+      flagged(`export const pick = <T,>(x: T): T => x\nexport const c = 'hover:text-primary'`, 'x.ts')
+    ).toEqual(['hover:text-primary'])
+    expect(() => flagged(`const = 'text-primary'`, 'x.ts')).toThrow(/does not parse/)
     expect(flagged(`<b className="bg-primary text-primary-foreground text-sm">x</b>`)).toEqual([])
     expect(flagged(`// a comment naming text-primary\nconst x = 1`)).toEqual([])
   })

@@ -111,7 +111,7 @@ export function PlaylistTable({ plays, live = false }: PlaylistTableProps) {
                     )}
                   >
                     {newestIsFresh && (
-                      <span aria-hidden="true">{'▸'} </span>
+                      <span aria-hidden="true" className="text-primary">{'▸'} </span>
                     )}
                     {time ?? ''}
                   </td>

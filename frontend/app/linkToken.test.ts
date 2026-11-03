@@ -4,10 +4,11 @@ import { describe, expect, it } from 'vitest'
 
 /**
  * The `--link` token's contract in globals.css: text in it clears WCAG AA
- * (4.5:1) on each surface the token's comment lists as passing, in both themes
- * where the surface exists in both. A token edit that breaks any of them fails
- * here; the comment's failing surfaces (the accent fills, denser tints) are
- * not pinned.
+ * (4.5:1) on each surface the token's comment lists as passing. Background,
+ * card, muted, secondary and sidebar are asserted in both themes; the muted/20
+ * stripe and the primary tints in light only. A token edit that breaks any of
+ * them fails here; the comment's failing surfaces (the accent fills, denser
+ * tints) are not pinned.
  */
 
 const css = readFileSync(resolve(process.cwd(), 'app/globals.css'), 'utf8')

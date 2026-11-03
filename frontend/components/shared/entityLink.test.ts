@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { ENTITY_LINK_CLASS } from './entityLink'
 
-// The link token's own contract (its contrast on every surface it may sit on)
-// is pinned in app/linkToken.test.ts.
+// The link token's own contract (its contrast on the passing surfaces listed
+// beside `--link` in globals.css) is pinned in app/linkToken.test.ts.
 describe('ENTITY_LINK_CLASS', () => {
   it('draws the accent tier in the solid link token, with no opacity and no hover recolour', () => {
     const tokens = ENTITY_LINK_CLASS.accent.split(' ')
