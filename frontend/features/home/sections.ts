@@ -74,6 +74,8 @@ export const HOME_SECTIONS: readonly HomeSectionDefinition[] = [
   {
     id: 'city_graph',
     title: 'Scene graph',
+    // True only while SignedInHome mounts HomeSceneGraph with
+    // narrowForm="linkRow"; change the two together.
     description:
       'The scene, mapped. A link on phones, the graph on larger screens.',
     defaultVisible: true,

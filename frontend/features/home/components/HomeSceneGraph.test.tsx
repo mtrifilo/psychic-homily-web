@@ -264,7 +264,7 @@ afterEach(() => {
 
 describe('HomeSceneGraph', () => {
   it('renders the graph-anchored heading, caption, CTA, tiered labels, and headline chip', async () => {
-    render(<HomeSceneGraph />)
+    render(<HomeSceneGraph narrowForm="teaser" />)
     expect(
       await screen.findByRole('heading', { name: 'The Chicago scene graph' })
     ).toBeInTheDocument()
@@ -320,7 +320,7 @@ describe('HomeSceneGraph', () => {
       isLoading: false,
       isError: false,
     })
-    render(<HomeSceneGraph />)
+    render(<HomeSceneGraph narrowForm="teaser" />)
     await screen.findByTestId('force-graph-view')
     expect(
       screen.getByText(/Jul 17, 2027 · Crescent Ballroom/)
@@ -352,7 +352,7 @@ describe('HomeSceneGraph', () => {
       isLoading: false,
       isError: false,
     })
-    render(<HomeSceneGraph />)
+    render(<HomeSceneGraph narrowForm="teaser" />)
     await screen.findByTestId('force-graph-view')
     // Phoenix (UTC-7) -> Mar 14. The NY state fallback would render Mar 15.
     expect(screen.getByText(/Mar 14 · Crescent Ballroom/)).toBeInTheDocument()
@@ -363,7 +363,7 @@ describe('HomeSceneGraph', () => {
     // A key with no marker behind it points the visitor at something that is
     // not on the canvas — the same class of unbacked claim as the copy.
     // The shared fixture has one node with upcoming shows and none playable.
-    render(<HomeSceneGraph />)
+    render(<HomeSceneGraph narrowForm="teaser" />)
     await screen.findByTestId('force-graph-view')
     const legend = screen.getByRole('group', { name: 'Graph legend' })
     expect(legend).toHaveTextContent('has upcoming shows')
@@ -383,7 +383,7 @@ describe('HomeSceneGraph', () => {
       isLoading: false,
       isError: false,
     })
-    render(<HomeSceneGraph />)
+    render(<HomeSceneGraph narrowForm="teaser" />)
     await screen.findByTestId('force-graph-view')
     const legend = screen.getByRole('group', { name: 'Graph legend' })
     expect(legend).toHaveTextContent('has upcoming shows')
@@ -398,7 +398,7 @@ describe('HomeSceneGraph', () => {
     // degree + upcoming_show_count. Neither input is dated, so the payoff line
     // may not say "right now"; and size is a tercile of the rank, not the
     // score, so it may not claim an equality either.
-    const { container } = render(<HomeSceneGraph />)
+    const { container } = render(<HomeSceneGraph narrowForm="teaser" />)
     await screen.findByTestId('force-graph-view')
     // "across the scene" is load-bearing: `degrees` counts every payload link,
     // but only links with both endpoints inside the node cap are drawn, so an
@@ -421,7 +421,7 @@ describe('HomeSceneGraph', () => {
     // -only "…scene this week…" regression ships (verified by mutation).
     // The section is located structurally, not by its accessible name, so a
     // copy regression fails on THIS assertion rather than on a setup query.
-    const { container } = render(<HomeSceneGraph />)
+    const { container } = render(<HomeSceneGraph narrowForm="teaser" />)
     await screen.findByTestId('force-graph-view')
     const section = container.querySelector('section')
     expect(section).not.toBeNull()
@@ -432,7 +432,7 @@ describe('HomeSceneGraph', () => {
     // Below the canvas gate the section is one line of link, so the rule has
     // to hold in that branch too.
     setContainerWidth(500)
-    const { container } = render(<HomeSceneGraph />)
+    const { container } = render(<HomeSceneGraph narrowForm="teaser" />)
     await screen.findByRole('link', {
       name: 'See how the scene connects on the music map',
     })
@@ -442,7 +442,7 @@ describe('HomeSceneGraph', () => {
   })
 
   it('requests the graph in static-viewport (click-select only) mode with the CONNECTED count in the aria-label', async () => {
-    render(<HomeSceneGraph />)
+    render(<HomeSceneGraph narrowForm="teaser" />)
     const graph = await screen.findByTestId('force-graph-view')
     expect(graph).toHaveAttribute('data-static-viewport', 'true')
     // 3, not the payload's artist_count of 4 — the isolate is off-canvas.
@@ -513,7 +513,7 @@ describe('HomeSceneGraph', () => {
       isLoading: false,
       isError: false,
     })
-    render(<HomeSceneGraph />)
+    render(<HomeSceneGraph narrowForm="teaser" />)
     const graph = await screen.findByTestId('force-graph-view')
     expect(graph).toHaveAttribute(
       'aria-label',
@@ -524,7 +524,7 @@ describe('HomeSceneGraph', () => {
   })
 
   it('filters isolate nodes out of the homepage canvas (PSY-1444)', async () => {
-    render(<HomeSceneGraph />)
+    render(<HomeSceneGraph narrowForm="teaser" />)
     await screen.findByTestId('force-graph-view')
     expect(
       screen.getByRole('button', { name: 'node-alpha' })
@@ -593,7 +593,7 @@ describe('HomeSceneGraph', () => {
       isLoading: false,
       isError: false,
     })
-    render(<HomeSceneGraph />)
+    render(<HomeSceneGraph narrowForm="teaser" />)
     expect(
       await screen.findByText(/not enough connected names in chicago/i)
     ).toBeInTheDocument()
@@ -606,7 +606,7 @@ describe('HomeSceneGraph', () => {
     // Chicago is the liveliest, but a Phoenix visitor should land on Phoenix
     // (Phoenix is active — upcoming_show_count 4 — so it clears the floor).
     useGeoDefaultScene.mockReturnValue({ city: 'Phoenix', state: 'AZ' })
-    render(<HomeSceneGraph />)
+    render(<HomeSceneGraph narrowForm="teaser" />)
     expect(
       await screen.findByRole('heading', { name: 'The Phoenix scene graph' })
     ).toBeInTheDocument()
@@ -615,7 +615,7 @@ describe('HomeSceneGraph', () => {
   it('pins the scene the visitor is exploring so a late geo resolution cannot swap it (PSY-1346)', async () => {
     // Cold cache: geo resolves to null first → the liveliest scene (Chicago).
     useGeoDefaultScene.mockReturnValue(null)
-    const { rerender } = render(<HomeSceneGraph />)
+    const { rerender } = render(<HomeSceneGraph narrowForm="teaser" />)
     fireEvent.click(await screen.findByRole('button', { name: 'node-alpha' }))
     expect(
       screen.getByRole('region', { name: 'About Alpha' })
@@ -628,7 +628,7 @@ describe('HomeSceneGraph', () => {
     // the scene must stay Chicago and the panel must remain open (the ticket's
     // "geo must never override user interaction" rule).
     useGeoDefaultScene.mockReturnValue({ city: 'Phoenix', state: 'AZ' })
-    rerender(<HomeSceneGraph />)
+    rerender(<HomeSceneGraph narrowForm="teaser" />)
     expect(
       screen.getByRole('heading', { name: 'The Chicago scene graph' })
     ).toBeInTheDocument()
@@ -640,7 +640,7 @@ describe('HomeSceneGraph', () => {
   it('lets "Surprise me" win over the geo default (PSY-1346)', async () => {
     // Geo would default to Phoenix; a surprise rotation must still move off it.
     useGeoDefaultScene.mockReturnValue({ city: 'Phoenix', state: 'AZ' })
-    render(<HomeSceneGraph />)
+    render(<HomeSceneGraph narrowForm="teaser" />)
     await screen.findByRole('heading', { name: 'The Phoenix scene graph' })
     fireEvent.click(screen.getByRole('button', { name: /surprise me/i }))
     // Only one other scene exists, so the rotation is deterministic.
@@ -650,7 +650,7 @@ describe('HomeSceneGraph', () => {
   })
 
   it('"Surprise me" rotates to another scene', async () => {
-    render(<HomeSceneGraph />)
+    render(<HomeSceneGraph narrowForm="teaser" />)
     await screen.findByRole('heading', { name: 'The Chicago scene graph' })
     fireEvent.click(screen.getByRole('button', { name: /surprise me/i }))
     // Only one other scene exists, so the rotation is deterministic.
@@ -668,7 +668,7 @@ describe('HomeSceneGraph', () => {
       isLoading: false,
       isError: true,
     })
-    const { container } = render(<HomeSceneGraph />)
+    const { container } = render(<HomeSceneGraph narrowForm="teaser" />)
     expect(screen.queryByRole('heading', { name: /scene graph/i })).toBeNull()
     // The wrapper stays (observer target) but carries no section content.
     expect(container.querySelector('section')).toBeNull()
@@ -680,7 +680,7 @@ describe('HomeSceneGraph', () => {
       isLoading: false,
       isError: false,
     })
-    const { container } = render(<HomeSceneGraph />)
+    const { container } = render(<HomeSceneGraph narrowForm="teaser" />)
     expect(container.querySelector('section')).toBeNull()
   })
 
@@ -689,7 +689,7 @@ describe('HomeSceneGraph', () => {
   // whose own graph section is the same line at the same width.
   it('collapses to a one-line map teaser below the graph breakpoint', async () => {
     setContainerWidth(500)
-    render(<HomeSceneGraph />)
+    render(<HomeSceneGraph narrowForm="teaser" />)
 
     const teaser = await screen.findByRole('link', {
       name: 'See how the scene connects on the music map',
@@ -772,7 +772,7 @@ describe('HomeSceneGraph', () => {
       isError: false,
       isPlaceholderData: true, // …but stale for the current key
     })
-    render(<HomeSceneGraph />)
+    render(<HomeSceneGraph narrowForm="teaser" />)
     await screen.findByRole('heading', { name: 'The Chicago scene graph' })
     expect(screen.queryByTestId('force-graph-view')).toBeNull()
     expect(screen.queryByText(/not enough connected names/i)).toBeNull()
@@ -784,7 +784,7 @@ describe('HomeSceneGraph', () => {
       isLoading: false,
       isError: true,
     })
-    render(<HomeSceneGraph />)
+    render(<HomeSceneGraph narrowForm="teaser" />)
     expect(
       await screen.findByText(/the graph couldn’t load/i)
     ).toBeInTheDocument()
@@ -799,13 +799,13 @@ describe('HomeSceneGraph', () => {
       isLoading: false,
       isError: true,
     })
-    render(<HomeSceneGraph />)
+    render(<HomeSceneGraph narrowForm="teaser" />)
     expect(await screen.findByTestId('force-graph-view')).toBeInTheDocument()
     expect(screen.queryByText(/the graph couldn’t load/i)).toBeNull()
   })
 
   it('closes a selected artist panel when a same-scene refresh removes that artist', async () => {
-    const { rerender } = render(<HomeSceneGraph />)
+    const { rerender } = render(<HomeSceneGraph narrowForm="teaser" />)
     fireEvent.click(await screen.findByRole('button', { name: 'node-alpha' }))
     expect(screen.getByRole('region', { name: 'About Alpha' })).toBeInTheDocument()
 
@@ -818,12 +818,12 @@ describe('HomeSceneGraph', () => {
       isLoading: false,
       isError: false,
     })
-    rerender(<HomeSceneGraph />)
+    rerender(<HomeSceneGraph narrowForm="teaser" />)
     expect(screen.queryByRole('region', { name: 'About Alpha' })).toBeNull()
   })
 
   it('refreshes selected artist identity from same-scene graph data', async () => {
-    const { rerender } = render(<HomeSceneGraph />)
+    const { rerender } = render(<HomeSceneGraph narrowForm="teaser" />)
     fireEvent.click(await screen.findByRole('button', { name: 'node-alpha' }))
 
     useSceneGraph.mockReturnValue({
@@ -838,7 +838,7 @@ describe('HomeSceneGraph', () => {
       isLoading: false,
       isError: false,
     })
-    rerender(<HomeSceneGraph />)
+    rerender(<HomeSceneGraph narrowForm="teaser" />)
 
     expect(
       screen.getByRole('region', { name: 'About Alpha Renamed' }),
@@ -851,7 +851,7 @@ describe('HomeSceneGraph', () => {
 
   it('does not fetch the graph payload below the canvas gate (teaser never reads it)', async () => {
     setContainerWidth(500)
-    render(<HomeSceneGraph />)
+    render(<HomeSceneGraph narrowForm="teaser" />)
     await screen.findByRole('link', {
       name: 'See how the scene connects on the music map',
     })
@@ -884,7 +884,7 @@ describe('HomeSceneGraph', () => {
       },
       isError: false,
     })
-    render(<HomeSceneGraph />)
+    render(<HomeSceneGraph narrowForm="teaser" />)
     fireEvent.click(await screen.findByRole('button', { name: 'node-alpha' }))
     expect(
       screen.getByRole('region', { name: 'About Alpha' })
@@ -902,7 +902,7 @@ describe('HomeSceneGraph', () => {
   })
 
   it('returns focus to the canvas wrapper when the panel closes (PSY-1313 pattern)', async () => {
-    render(<HomeSceneGraph />)
+    render(<HomeSceneGraph narrowForm="teaser" />)
     fireEvent.click(await screen.findByRole('button', { name: 'node-alpha' }))
     fireEvent.click(screen.getByRole('button', { name: /close details/i }))
     const canvasWrap = screen.getByTestId('force-graph-view').parentElement
@@ -910,7 +910,7 @@ describe('HomeSceneGraph', () => {
   })
 
   it('canvas background click and scene rotation both dismiss the panel (PSY-1345)', async () => {
-    render(<HomeSceneGraph />)
+    render(<HomeSceneGraph narrowForm="teaser" />)
     fireEvent.click(await screen.findByRole('button', { name: 'node-alpha' }))
     expect(
       screen.getByRole('region', { name: 'About Alpha' })
@@ -933,7 +933,7 @@ describe('HomeSceneGraph', () => {
     useScenes.mockImplementation(() => {
       throw new Error('boom')
     })
-    const { container } = render(<HomeSceneGraph />)
+    const { container } = render(<HomeSceneGraph narrowForm="teaser" />)
     expect(container.querySelector('section')).toBeNull()
     expect(captureException).toHaveBeenCalledWith(
       expect.any(Error),
@@ -948,7 +948,7 @@ describe('HomeSceneGraph', () => {
       isLoading: false,
       isError: false,
     })
-    render(<HomeSceneGraph />)
+    render(<HomeSceneGraph narrowForm="teaser" />)
     expect(
       await screen.findByText(/not enough connected names in chicago/i)
     ).toBeInTheDocument()

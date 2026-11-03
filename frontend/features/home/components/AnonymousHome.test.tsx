@@ -5,8 +5,16 @@ import { render, screen } from '@testing-library/react'
 // list slot lands, not what the other sections render.
 vi.mock('./HomeHero', () => ({ HomeHero: () => null }))
 vi.mock('./CommunityPulseBand', () => ({ CommunityPulseBand: () => null }))
-vi.mock('./HomeSceneGraph', () => ({ HomeSceneGraph: () => null }))
-vi.mock('./LatestRadioShows', () => ({ LatestRadioShows: () => null }))
+vi.mock('./HomeSceneGraph', () => ({
+  HomeSceneGraph: ({ narrowForm }: { narrowForm: string }) => (
+    <div data-testid="scene-graph" data-narrow-form={narrowForm} />
+  ),
+}))
+vi.mock('./LatestRadioShows', () => ({
+  LatestRadioShows: ({ variant }: { variant: string }) => (
+    <div data-testid="radio" data-variant={variant} />
+  ),
+}))
 vi.mock('@/features/shows/components/HomeShowList', () => ({
   HomeShowList: () => <div data-testid="client-home-show-list" />,
 }))
@@ -30,5 +38,18 @@ describe('AnonymousHome upcoming-shows slot', () => {
     render(<AnonymousHome />)
 
     expect(screen.getByTestId('client-home-show-list')).toBeInTheDocument()
+  })
+})
+
+describe('AnonymousHome shared sections', () => {
+  // The signed-in home's rows and link row must not leak onto this page.
+  it('keeps the radio cards and the map teaser', () => {
+    render(<AnonymousHome />)
+
+    expect(screen.getByTestId('radio')).toHaveAttribute('data-variant', 'cards')
+    expect(screen.getByTestId('scene-graph')).toHaveAttribute(
+      'data-narrow-form',
+      'teaser'
+    )
   })
 })

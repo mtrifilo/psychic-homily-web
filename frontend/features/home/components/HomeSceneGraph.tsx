@@ -281,9 +281,9 @@ const ForceGraphView = createLazyForceGraphView(<SceneGraphSkeleton />)
 export type HomeSceneGraphNarrowForm = 'teaser' | 'linkRow'
 
 export function HomeSceneGraph({
-  narrowForm = 'teaser',
+  narrowForm,
 }: {
-  narrowForm?: HomeSceneGraphNarrowForm
+  narrowForm: HomeSceneGraphNarrowForm
 }) {
   // Lazy-mount on scroll intent (shared hook — PSY-1347, incl. the React 19
   // defer-to-microtask fallback when IntersectionObserver is unavailable).
@@ -346,9 +346,8 @@ function HomeSceneGraphSection({
   const scene =
     scenes.find(s => s.slug === (surpriseSlug ?? pinnedSlug)) ?? defaultScene
 
-  // Below the canvas gate the teaser never reads graphData — don't pay
-  // the (dense, liveliest-scene) graph round-trip for a payload the
-  // mobile render discards.
+  // Below the canvas gate neither narrow form reads graphData, so the
+  // (dense, liveliest-scene) graph round-trip is not paid there.
   const graphAvailable =
     containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
   const graphQuery = useSceneGraph({

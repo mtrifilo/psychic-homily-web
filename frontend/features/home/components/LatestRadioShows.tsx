@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 import { HOME_ACCENT_LINK_CLASS } from './HomeCityShowsLink'
 
 /**
- * LatestRadioShows (PSY-389, real data per PSY-1329) — three station previews:
+ * LatestRadioShows (PSY-389, real data per PSY-1329): three station previews,
  * cards on the logged-out homepage (Figma `491:29`, section "Latest radio
  * shows"), rows on the signed-in home (Signed-in Home v2, `2167:33`).
  *
@@ -22,7 +22,7 @@ import { HOME_ACCENT_LINK_CLASS } from './HomeCityShowsLink'
  *
  * Degrades gracefully: while loading, or for a station with no imported
  * episodes yet, the card or row renders its editorial shell (call sign / city /
- * vibe) without a show line — never fictional data. Both deep-link to the
+ * vibe) without a show line, never fictional data. Both deep-link to the
  * station's own /radio tab.
  */
 
@@ -64,8 +64,9 @@ const STATIONS: ReadonlyArray<StationEditorial> = [
   },
 ]
 
-/** Max artist names shown on the card's one-line artist preview. */
-const CARD_ARTIST_CAP = 3
+/** Max artist names in the card's artist line and in both forms' accessible
+ *  name (the row shows no artist line). */
+const ARTIST_PREVIEW_CAP = 3
 
 /**
  * How the section draws its stations. `cards` is the logged-out homepage's
@@ -89,12 +90,14 @@ function useStationPreview(editorial: StationEditorial) {
   const artists = (latest?.artist_preview ?? [])
     .map(a => a.artist_name)
     .filter(Boolean)
-    .slice(0, CARD_ARTIST_CAP)
+    .slice(0, ARTIST_PREVIEW_CAP)
   const live = nowPlaying?.on_air === true
 
-  // aria-label REPLACES the accessible name computed from the link's content,
-  // so everything a sighted user sees must be restated here, notably the live
-  // status (the dot is aria-hidden decoration).
+  // aria-label REPLACES the accessible name computed from the link's content.
+  // One composition serves both forms: station · city, live status, latest
+  // show, up to ARTIST_PREVIEW_CAP artists. The editorial vibe is not in it,
+  // and the row's visible line order (station · show over city) is not the
+  // name's order, so the name is not a superset of the visible text.
   const ariaLabel = [
     `${editorial.station} · ${editorial.city}`,
     live ? '— live now' : '',
@@ -166,6 +169,7 @@ function StationRow({ editorial }: { editorial: StationEditorial }) {
     >
       <span
         aria-hidden
+        data-live={live || undefined}
         className={cn('size-2 shrink-0 rounded-full', live && 'bg-primary')}
       />
       <span className="flex min-w-0 flex-1 flex-col gap-px">
@@ -186,27 +190,28 @@ function StationRow({ editorial }: { editorial: StationEditorial }) {
 }
 
 export function LatestRadioShows({
-  variant = 'cards',
+  variant,
 }: {
-  variant?: LatestRadioShowsVariant
+  variant: LatestRadioShowsVariant
 }) {
   const asRows = variant === 'rows'
   return (
     <section aria-labelledby="home-radio-heading" className="flex w-full flex-col gap-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <h2
           id="home-radio-heading"
-          className="text-2xl font-semibold tracking-tight text-foreground"
+          className="min-w-0 text-2xl font-semibold tracking-tight text-foreground"
         >
           Latest radio shows
         </h2>
         <Link
           href="/radio"
-          className={
+          className={cn(
+            'shrink-0 whitespace-nowrap',
             asRows
               ? HOME_ACCENT_LINK_CLASS
               : 'text-sm font-medium text-muted-foreground transition-colors hover:text-link hover:underline underline-offset-4'
-          }
+          )}
         >
           {asRows ? 'All stations' : 'Browse all stations'} →
         </Link>

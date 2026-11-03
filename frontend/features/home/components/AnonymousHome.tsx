@@ -63,9 +63,9 @@ export function AnonymousHome({
       {/* PSY-1344: "Observatory Lite" — a bounded scene-graph glimpse of
           the knowledge graph (Figma Option D, locked 2026-07-03). Lazy-
           mounts on scroll; self-hides if scene data is unavailable. */}
-      <HomeSceneGraph />
+      <HomeSceneGraph narrowForm="teaser" />
 
-      <LatestRadioShows />
+      <LatestRadioShows variant="cards" />
     </>
   )
 }

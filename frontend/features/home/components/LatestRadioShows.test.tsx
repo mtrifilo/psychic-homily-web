@@ -48,7 +48,7 @@ beforeEach(() => {
 
 describe('LatestRadioShows', () => {
   it('renders the section heading and a "Browse all stations" link to /radio', () => {
-    render(<LatestRadioShows />)
+    render(<LatestRadioShows variant="cards" />)
     expect(
       screen.getByRole('heading', { name: /latest radio shows/i })
     ).toBeInTheDocument()
@@ -58,7 +58,7 @@ describe('LatestRadioShows', () => {
   })
 
   it('renders the three editorial station cards deep-linked to their /radio station tabs', () => {
-    render(<LatestRadioShows />)
+    render(<LatestRadioShows variant="cards" />)
     expect(screen.getByText('KEXP').closest('a')).toHaveAttribute('href', '/radio/kexp')
     expect(screen.getByText('WFMU').closest('a')).toHaveAttribute('href', '/radio/wfmu')
     expect(screen.getByText('NTS').closest('a')).toHaveAttribute('href', '/radio/nts-radio')
@@ -70,7 +70,7 @@ describe('LatestRadioShows', () => {
         ? { data: { episodes: [episodeRow()], total: 1 } }
         : { data: { episodes: [], total: 0 } }
     )
-    render(<LatestRadioShows />)
+    render(<LatestRadioShows variant="cards" />)
     expect(screen.getByText('Strength Through Failure')).toBeInTheDocument()
     expect(screen.getByText('Stereolab · Broadcast · Pram')).toBeInTheDocument()
     expect(screen.queryByText(/Fourth Artist Never Shown/)).not.toBeInTheDocument()
@@ -78,7 +78,7 @@ describe('LatestRadioShows', () => {
 
   it('degrades gracefully with no episode data: editorial shell only, no fictional content', () => {
     useStationEpisodes.mockReturnValue({ data: { episodes: [], total: 0 } })
-    render(<LatestRadioShows />)
+    render(<LatestRadioShows variant="cards" />)
     // Editorial shells render (call sign + city + vibe), nothing invented.
     expect(screen.getByText('KEXP')).toBeInTheDocument()
     expect(screen.getByText('Seattle')).toBeInTheDocument()
@@ -94,20 +94,20 @@ describe('LatestRadioShows', () => {
     useStationNowPlaying.mockImplementation((slug: string) => ({
       data: { on_air: slug === 'kexp' },
     }))
-    render(<LatestRadioShows />)
+    render(<LatestRadioShows variant="cards" />)
     expect(screen.getAllByText('live')).toHaveLength(1)
     expect(screen.getByText('live').closest('a')).toHaveAttribute('href', '/radio/kexp')
   })
 
   it('shows no live dot while now-playing data is absent', () => {
-    render(<LatestRadioShows />)
+    render(<LatestRadioShows variant="cards" />)
     expect(screen.queryByText('live')).not.toBeInTheDocument()
   })
 
   it('degrades to the editorial shell on a fetch ERROR (e.g. a renamed slug 404s)', () => {
     useStationEpisodes.mockReturnValue({ data: undefined, error: new Error('404') })
     useStationNowPlaying.mockReturnValue({ data: undefined, error: new Error('404') })
-    render(<LatestRadioShows />)
+    render(<LatestRadioShows variant="cards" />)
     expect(screen.getByText('KEXP')).toBeInTheDocument()
     expect(screen.getByText('Eclectic host’s-choice')).toBeInTheDocument()
     expect(screen.queryByText('live')).not.toBeInTheDocument()
@@ -122,7 +122,7 @@ describe('LatestRadioShows', () => {
     useStationNowPlaying.mockImplementation((slug: string) => ({
       data: { on_air: slug === 'wfmu' },
     }))
-    render(<LatestRadioShows />)
+    render(<LatestRadioShows variant="cards" />)
     expect(
       screen.getByRole('link', {
         name: 'WFMU · Jersey City — live now — latest: Strength Through Failure with Stereolab, Broadcast, Pram. Open the station page.',
@@ -164,7 +164,8 @@ describe('LatestRadioShows', () => {
       const wfmu = rowFor(/^WFMU · Jersey City/)
       expect(wfmu).toHaveTextContent('WFMU · Strength Through Failure')
       expect(wfmu).toHaveTextContent('Jersey City · live now')
-      expect(wfmu.querySelector('.bg-primary')).not.toBeNull()
+      expect(wfmu.querySelector('[data-live]')).not.toBeNull()
+      expect(rowFor(/^KEXP · Seattle/).querySelector('[data-live]')).toBeNull()
       // Rows drop the artist line; the accessible name still carries it.
       expect(screen.queryByText('Stereolab · Broadcast · Pram')).toBeNull()
       expect(wfmu).toHaveAccessibleName(
@@ -178,7 +179,7 @@ describe('LatestRadioShows', () => {
       const kexp = rowFor(/^KEXP · Seattle/)
       expect(kexp).toHaveTextContent(/^KEXP\s*Seattle · Eclectic host’s-choice$/)
       expect(kexp).not.toHaveTextContent(/live now/)
-      expect(kexp.querySelector('.bg-primary')).toBeNull()
+      expect(kexp.querySelector('[data-live]')).toBeNull()
     })
 
     it('degrades to the editorial shell on a fetch ERROR', () => {
