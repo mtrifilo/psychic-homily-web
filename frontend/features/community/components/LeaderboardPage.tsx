@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { Trophy, Medal, Award, Crown } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { tabularNumsIfDigitsOnly } from '@/lib/tabularNums'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { isSameUserId } from '@/features/auth/authUser'
 import { useLeaderboard } from '../hooks/useLeaderboard'
@@ -60,6 +61,7 @@ function LeaderboardSkeleton() {
 }
 
 function LeaderboardRow({ entry, isCurrentUser }: { entry: LeaderboardEntry; isCurrentUser: boolean }) {
+  const formattedCount = entry.count.toLocaleString()
   return (
     <div
       className={cn(
@@ -100,8 +102,8 @@ function LeaderboardRow({ entry, isCurrentUser }: { entry: LeaderboardEntry; isC
         </div>
       </div>
 
-      <div className="text-sm font-semibold tabular-nums">
-        {entry.count.toLocaleString()}
+      <div className={cn('text-sm font-semibold', tabularNumsIfDigitsOnly(formattedCount))}>
+        {formattedCount}
       </div>
     </div>
   )

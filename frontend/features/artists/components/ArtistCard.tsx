@@ -56,7 +56,7 @@ export function ArtistCard({ artist, density = 'comfortable' }: ArtistCardProps)
         {hasLocation && (
           <span className="text-xs text-muted-foreground shrink-0">{location}</span>
         )}
-        <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
+        <span className="text-xs text-muted-foreground shrink-0">
           {upcomingLabel(artist)}
         </span>
       </article>

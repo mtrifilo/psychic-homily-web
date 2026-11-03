@@ -13,6 +13,7 @@ import {
 } from '@/lib/hooks/common/useFollow'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { cn } from '@/lib/utils'
+import { tabularNumsIfDigitsOnly } from '@/lib/tabularNums'
 
 interface FollowButtonProps {
   /** Entity type for URL path (plural: "artists", "venues", "labels", "festivals", "tags", "scenes") */
@@ -179,7 +180,7 @@ export function FollowButton({
           <UserPlus className="h-3.5 w-3.5" />
         )}
         {followerCount > 0 && (
-          <span className="tabular-nums">{followerCount}</span>
+          <span className={tabularNumsIfDigitsOnly(followerCount)}>{followerCount}</span>
         )}
       </Button>
     )
@@ -211,7 +212,7 @@ export function FollowButton({
         {showUnfollow ? 'Unfollow' : isFollowing ? 'Following' : 'Follow'}
       </span>
       {followerCount > 0 && (
-        <span className="text-muted-foreground tabular-nums">
+        <span className={cn('text-muted-foreground', tabularNumsIfDigitsOnly(followerCount))}>
           {followerCount}
         </span>
       )}

@@ -50,7 +50,7 @@ export function RadioStationCard({ station }: RadioStationCardProps) {
               {broadcastLabel}
             </Badge>
             {station.frequency_mhz && (
-              <span className="text-sm text-muted-foreground tabular-nums">
+              <span className="text-sm text-muted-foreground">
                 {station.frequency_mhz} MHz
               </span>
             )}

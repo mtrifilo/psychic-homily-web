@@ -49,7 +49,7 @@ export function FestivalCard({
         {dateRange && (
           <span className="text-xs text-muted-foreground shrink-0">{dateRange}</span>
         )}
-        <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
+        <span className="text-xs text-muted-foreground shrink-0">
           {festival.artist_count} artists
         </span>
       </article>

@@ -18,6 +18,7 @@ import {
   usePinAboveSoftKeyboard,
 } from '@/lib/hooks/common/usePinAboveSoftKeyboard'
 import { cn } from '@/lib/utils'
+import { tabularNumsIfDigitsOnly } from '@/lib/tabularNums'
 import { cityKey, cityLabel } from './cityParams'
 import type { CityState, CityWithCount } from './CityFilters'
 
@@ -187,6 +188,7 @@ function CityFilterSheetBody({
           visibleRows.map(city => {
             const key = cityKey(city)
             const isPending = pendingKeys.has(key)
+            const formattedCount = formatCount(city.count)
             return (
               <label
                 key={key}
@@ -203,7 +205,7 @@ function CityFilterSheetBody({
                   onChange={() => toggleCity(city)}
                   // The visible name and count beside it are decorative; the
                   // control's own name carries both, with the count's unit.
-                  aria-label={`${cityLabel(city)}, ${formatCount(city.count)} ${
+                  aria-label={`${cityLabel(city)}, ${formattedCount} ${
                     city.count === 1 ? resultNoun.singular : resultNoun.plural
                   }`}
                   data-testid={`city-sheet-option-${city.city}-${city.state}`
@@ -221,10 +223,13 @@ function CityFilterSheetBody({
                   {cityLabel(city)}
                 </span>
                 <span
-                  className="shrink-0 tabular-nums text-muted-foreground"
+                  className={cn(
+                    'shrink-0 text-muted-foreground',
+                    tabularNumsIfDigitsOnly(formattedCount)
+                  )}
                   aria-hidden
                 >
-                  {formatCount(city.count)}
+                  {formattedCount}
                 </span>
               </label>
             )

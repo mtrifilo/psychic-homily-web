@@ -11,6 +11,7 @@ import {
   type BatchedSaveData,
 } from './batchedSaveData'
 import { cn } from '@/lib/utils'
+import { tabularNumsIfDigitsOnly } from '@/lib/tabularNums'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 import { useAutoDismissBanner } from '@/lib/hooks/common'
 import { useAuthGatedAction } from '@/lib/hooks/common/useAuthGatedAction'
@@ -230,7 +231,7 @@ export function SaveButton({
           } ${isLoading ? 'opacity-50' : ''}`}
         />
         {paintsCount && (
-          <span className="text-xs tabular-nums text-muted-foreground">
+          <span className={cn('text-xs text-muted-foreground', tabularNumsIfDigitsOnly(saveCount))}>
             {saveCount}
           </span>
         )}

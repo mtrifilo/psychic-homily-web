@@ -625,11 +625,11 @@ function TagAttributionContent({
         )}
       </p>
 
-      <p className="text-xs text-muted-foreground tabular-nums">
-        <span className="font-medium text-foreground">{tag.upvotes}</span>{' '}
+      <p className="text-xs text-muted-foreground">
+        <span className="font-medium text-foreground tabular-nums">{tag.upvotes}</span>{' '}
         {tag.upvotes === 1 ? 'upvote' : 'upvotes'}
         {' · '}
-        <span className="font-medium text-foreground">{tag.downvotes}</span>{' '}
+        <span className="font-medium text-foreground tabular-nums">{tag.downvotes}</span>{' '}
         {tag.downvotes === 1 ? 'downvote' : 'downvotes'}
       </p>
 

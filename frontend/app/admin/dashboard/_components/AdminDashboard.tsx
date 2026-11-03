@@ -34,6 +34,8 @@ import { useAdminStats, useAdminActivity } from '@/lib/hooks/admin/useAdminStats
 import { Loader2 } from 'lucide-react'
 import type { ActivityEvent } from '@/lib/types/adminStats'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
+import { tabularNumsIfDigitsOnly } from '@/lib/tabularNums'
+import { cn } from '@/lib/utils'
 
 interface StatCardProps {
   label: string
@@ -54,6 +56,7 @@ interface StatCardProps {
 
 function StatCard({ label, value, icon: Icon, highlight, trend, onClick }: StatCardProps) {
   const isZeroHighlight = highlight && value === 0
+  const formattedValue = value.toLocaleString()
   return (
     <Card
       className={`py-4${isZeroHighlight ? ' opacity-50' : ''}${onClick ? ' cursor-pointer transition-shadow hover:shadow-md hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2' : ''}`}
@@ -74,13 +77,13 @@ function StatCard({ label, value, icon: Icon, highlight, trend, onClick }: StatC
         </div>
         <div className="min-w-0">
           <p
-            className={`text-2xl font-bold tabular-nums ${
-              highlight && value > 0
-                ? 'text-amber-600 dark:text-amber-400'
-                : ''
-            }`}
+            className={cn(
+              'text-2xl font-bold',
+              tabularNumsIfDigitsOnly(formattedValue),
+              highlight && value > 0 && 'text-amber-600 dark:text-amber-400'
+            )}
           >
-            {value.toLocaleString()}
+            {formattedValue}
           </p>
           <p className="text-sm text-muted-foreground leading-tight">{label}</p>
           {trend !== undefined && trend !== 0 && (

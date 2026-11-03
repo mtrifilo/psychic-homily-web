@@ -3,6 +3,7 @@
 import { forwardRef, useCallback } from 'react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
+import { tabularNumsIfDigitsOnly } from '@/lib/tabularNums'
 import { outboundRel } from '@/lib/outboundRel'
 import { replayOnHydrate } from '@/lib/hydration/clickReplay'
 
@@ -242,7 +243,11 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
     const effectiveDisabled = disabled || unsafeExternalHref
 
     const classes = cn(
-      'inline-flex items-baseline whitespace-nowrap text-sm tabular-nums',
+      'inline-flex items-baseline whitespace-nowrap text-sm',
+      // Labels are arbitrary copy ("Loading…", "Catch up ✓"), and the body
+      // face widens comma, period and colon under `tnum`, so only a
+      // digits-only label gets tabular figures.
+      tabularNumsIfDigitsOnly(label),
       // Tailwind's preflight leaves <button> at `cursor: default`, so the
       // button branch reads as plain text on hover without this. Declared
       // before the disabled clause so tailwind-merge lets

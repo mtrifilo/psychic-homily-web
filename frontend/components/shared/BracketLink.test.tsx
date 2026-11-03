@@ -11,6 +11,15 @@ describe('BracketLink', () => {
     expect(screen.getByText(']')).toBeInTheDocument()
   })
 
+  it('applies tabular-nums only to a digits-only label', () => {
+    const { rerender } = render(<BracketLink label="12" />)
+    expect(screen.getByRole('button', { name: '12' })).toHaveClass('tabular-nums')
+    rerender(<BracketLink label="Loading…" />)
+    expect(screen.getByRole('button', { name: 'Loading…' })).not.toHaveClass('tabular-nums')
+    rerender(<BracketLink label="Tue, Nov 3" />)
+    expect(screen.getByRole('button', { name: 'Tue, Nov 3' })).not.toHaveClass('tabular-nums')
+  })
+
   it('renders as a button when no href is provided', () => {
     render(<BracketLink label="Follow" />)
     const button = screen.getByRole('button', { name: 'Follow' })

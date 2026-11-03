@@ -75,6 +75,38 @@ describe('StatsList', () => {
     expect(screen.getByText('shows tracked')).toBeInTheDocument()
   })
 
+  it('applies tabular-nums only to digits-only values in the sidebar variant', () => {
+    render(
+      <StatsList
+        items={[
+          { label: 'Releases', value: 204 },
+          { label: 'Plays', value: 1204 },
+          { label: 'Next show', value: 'Tue, Nov 3' },
+          { label: 'Founded', value: '1980' },
+        ]}
+      />
+    )
+    expect(screen.getByText('204')).toHaveClass('tabular-nums')
+    expect(screen.getByText('1980')).toHaveClass('tabular-nums')
+    expect(screen.getByText('1,204')).not.toHaveClass('tabular-nums')
+    expect(screen.getByText('Tue, Nov 3')).not.toHaveClass('tabular-nums')
+  })
+
+  it('applies tabular-nums only to digits-only values in the inline variant', () => {
+    const { container } = render(
+      <StatsList
+        variant="inline"
+        items={[
+          { label: 'Releases', value: 4 },
+          { label: 'Plays', value: 1204 },
+        ]}
+      />
+    )
+    expect(container.querySelector('p')).not.toHaveClass('tabular-nums')
+    expect(screen.getByText('4')).toHaveClass('tabular-nums')
+    expect(screen.getByText('1,204')).not.toHaveClass('tabular-nums')
+  })
+
   it('forwards custom className', () => {
     const { container } = render(
       <StatsList items={items} className="mt-4" />

@@ -185,6 +185,14 @@ describe('MarkdownEditor', () => {
     render(
       <MarkdownEditor value="abc" onChange={vi.fn()} maxLength={100} />
     )
-    expect(screen.getByText('3 / 100')).toBeInTheDocument()
+    expect(screen.getByTestId('markdown-editor-char-count')).toHaveTextContent('3 / 100')
+  })
+
+  it('keeps tabular figures on digits-only counts only', () => {
+    render(
+      <MarkdownEditor value="abc" onChange={vi.fn()} maxLength={2000} />
+    )
+    expect(screen.getByText('3')).toHaveClass('tabular-nums')
+    expect(screen.getByText('2,000')).not.toHaveClass('tabular-nums')
   })
 })
