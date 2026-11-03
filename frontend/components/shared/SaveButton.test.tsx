@@ -282,6 +282,35 @@ describe('SaveButton', () => {
     expect(mockUseSaveShowToggle).toHaveBeenCalledWith(42, false, 42, 'invalidate')
   })
 
+  it('fills the saved heart red unless the surface asks for primary', () => {
+    const { container, rerender } = render(
+      <SaveButton showId={1} saveData={{ save_count: 0, is_saved: true }} />
+    )
+    const heart = () => container.querySelector('svg')!
+    expect(heart().getAttribute('class')).toContain('fill-red-500')
+
+    rerender(
+      <SaveButton
+        showId={1}
+        saveData={{ save_count: 0, is_saved: true }}
+        savedTone="primary"
+      />
+    )
+    expect(heart().getAttribute('class')).toContain('fill-primary text-primary')
+    expect(heart().getAttribute('class')).not.toContain('red-500')
+
+    // The hollow state is the same in every tone.
+    rerender(
+      <SaveButton
+        showId={1}
+        saveData={{ save_count: 0, is_saved: false }}
+        savedTone="primary"
+      />
+    )
+    expect(heart().getAttribute('class')).toContain('text-muted-foreground')
+    expect(heart().getAttribute('class')).not.toContain('fill-primary')
+  })
+
   it('passes the unsave sync mode through to the toggle', () => {
     render(
       <SaveButton

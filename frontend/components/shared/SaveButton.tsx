@@ -58,7 +58,18 @@ interface SaveButtonProps {
    * pages without refetching every one of them.
    */
   unsaveSync?: UnsaveSyncMode
+  /**
+   * The filled heart's colour. `red` everywhere unless a surface's own design
+   * says otherwise; the shared show row passes `primary`.
+   */
+  savedTone?: 'red' | 'primary'
 }
+
+/** Filled-heart classes per {@link SaveButtonProps.savedTone}. */
+const SAVED_HEART_CLASS = {
+  red: 'fill-red-500 text-red-500',
+  primary: 'fill-primary text-primary',
+} as const
 
 export function SaveButton({
   showId,
@@ -71,6 +82,7 @@ export function SaveButton({
   disabled = false,
   hintAlign = 'end',
   unsaveSync = 'invalidate',
+  savedTone = 'red',
 }: SaveButtonProps) {
   const { isAuthenticated, authStatus, user } = useAuthContext()
   const shouldOpenFirstSaveHint = useShouldOpenFirstSaveHint()
@@ -238,7 +250,7 @@ export function SaveButton({
         <Heart
           className={`${iconSize} transition-all ${
             isSaved
-              ? 'fill-red-500 text-red-500'
+              ? SAVED_HEART_CLASS[savedTone]
               : 'text-muted-foreground hover:text-foreground'
           } ${isLoading ? 'opacity-50' : ''}`}
         />

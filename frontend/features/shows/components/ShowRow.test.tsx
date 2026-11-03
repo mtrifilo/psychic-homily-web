@@ -223,6 +223,7 @@ describe('ShowRowSaveButton', () => {
       expect.objectContaining({
         showId: 7,
         showCount: false,
+        savedTone: 'primary',
         saveData: { save_count: 3, is_saved: false },
       })
     )

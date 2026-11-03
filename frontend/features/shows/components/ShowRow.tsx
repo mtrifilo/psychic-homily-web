@@ -154,7 +154,8 @@ export function ShowRow({
 }
 
 /**
- * The row's heart: icon only, no count, an 18px glyph in a 44px target.
+ * The row's heart: icon only, no count, an 18px glyph in a 44px target,
+ * filled in primary when saved.
  *
  * The count is never painted: it would read as part of a list about this
  * viewer's saves. SaveButton still announces it when the caller's `saveData`
@@ -178,6 +179,9 @@ export function ShowRowSaveButton({
       unsaveSync={unsaveSync}
       disabled={disabled}
       showCount={false}
+      // The row's board fills the saved heart in primary; other surfaces keep
+      // SaveButton's red.
+      savedTone="primary"
       className="h-11 w-11 [&_svg]:size-[18px]"
     />
   )
