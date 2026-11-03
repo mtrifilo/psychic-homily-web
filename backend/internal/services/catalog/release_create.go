@@ -3,6 +3,7 @@ package catalog
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"gorm.io/gorm"
@@ -50,6 +51,11 @@ func createReleaseTx(tx *gorm.DB, req *contracts.CreateReleaseRequest, apply fun
 	}
 
 	// Create artist_releases entries
+	//
+	// The credited ids feed the release-alert accrual below, de-duplicated
+	// because artist_releases is keyed on (artist_id, release_id, role): one
+	// artist credited in two roles must still be one accrual.
+	creditedArtistIDs := make([]uint, 0, len(req.Artists))
 	for i, artistEntry := range req.Artists {
 		role := artistEntry.Role
 		if role == "" {
@@ -64,6 +70,7 @@ func createReleaseTx(tx *gorm.DB, req *contracts.CreateReleaseRequest, apply fun
 		if err := tx.Create(ar).Error; err != nil {
 			return nil, fmt.Errorf("failed to create artist-release link: %w", err)
 		}
+		creditedArtistIDs = append(creditedArtistIDs, ar.ArtistID)
 	}
 
 	// Create external links, refusing the whole release rather than dropping a
@@ -102,6 +109,11 @@ func createReleaseTx(tx *gorm.DB, req *contracts.CreateReleaseRequest, apply fun
 	// Same tx as the release create (atomic), best-effort (never fails the create —
 	// see enqueueImageEnrich).
 	enqueueImageEnrich(tx, catalogm.ImageEnrichEntityRelease, release.ID)
+
+	// The release-alert accrual hook; see enqueueArtistReleaseAlerts. A release
+	// created outside createReleaseTx never alerts.
+	slices.Sort(creditedArtistIDs)
+	enqueueArtistReleaseAlerts(tx, release, slices.Compact(creditedArtistIDs))
 
 	return release, nil
 }

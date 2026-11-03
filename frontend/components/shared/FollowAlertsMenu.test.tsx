@@ -175,6 +175,16 @@ describe('FollowAlertsMenu', () => {
     ).toHaveAttribute('title', expect.stringContaining('Release alerts are set in Settings'))
   })
 
+  it('states release delivery in the artist row title and calls nothing pending', () => {
+    renderMenu()
+
+    const title = screen
+      .getByRole('button', { name: /Show alerts for Alpha/ })
+      .getAttribute('title')
+    expect(title).toContain('arrive in the app once a week')
+    expect(title).not.toMatch(/still being switched on/i)
+  })
+
   // The entity-page twin's rule, on a row. Both account channels off means
   // this subscription is enabled and reaching nobody, so summarizing it as
   // "near me" is a delivery promise the notifier does not keep.

@@ -144,6 +144,29 @@ type NotificationLogEntry struct {
 	// server-side capped so one busy venue-day cannot produce an inbox row
 	// hundreds of entries long.
 	AlertShowSummary string `json:"alert_show_summary,omitempty"`
+
+	// Artist release-digest enrichment fields, populated only for
+	// artist_release_digest rows (entity_id holds the USER id). Resolved from
+	// artist_release_alert_batch at read time rather than stamped on the row, so
+	// a member that reaches a delivered week (a boundary commit, an artist merge)
+	// appears in its row, and the reader's current follows and release-alert
+	// preferences narrow it.
+	//
+	// AlertReleaseCount is the number of distinct releases in the roundup for
+	// this reader.
+	AlertReleaseCount int `json:"alert_release_count,omitempty"`
+	// AlertReleaseArtistCount is the number of distinct followed artists those
+	// releases are credited to. A full count, unlike AlertReleaseArtists.
+	AlertReleaseArtistCount int `json:"alert_release_artist_count,omitempty"`
+	// AlertReleaseArtists names those artists in name order, already joined
+	// ("Dan Deacon, Primitive Man, Russian Circles") and capped server-side,
+	// ending in "and N more" when it names fewer than AlertReleaseArtistCount.
+	AlertReleaseArtists string `json:"alert_release_artists,omitempty"`
+	// AlertReleaseURL is where the row links: absolute (the frontend relativizes
+	// same-origin links), and set ONLY when the roundup covers exactly one
+	// record. A multi-record roundup has no single page, so it is left empty and
+	// the frontend uses its own fallback.
+	AlertReleaseURL string `json:"alert_release_url,omitempty"`
 }
 
 // NotificationFilterServiceInterface defines the contract for notification filter operations.

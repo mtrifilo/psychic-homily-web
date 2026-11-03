@@ -336,6 +336,7 @@ func main() {
 		imageEnrichOutboxCancel      context.CancelFunc
 		showNotifyOutboxCancel       context.CancelFunc
 		venueAlertFlushCancel        context.CancelFunc
+		releaseDigestFlushCancel     context.CancelFunc
 		artistLocationSweepCancel    context.CancelFunc
 		artistDiscographySweepCancel context.CancelFunc
 		artistLinksSweepCancel       context.CancelFunc
@@ -495,6 +496,22 @@ func main() {
 	} else {
 		log.Printf("venue show alerts disabled (%s=1); venue followers will not be told about new shows",
 			notificationm.VenueShowAlertsDisableFlag)
+	}
+
+	// Start the release-digest flush poller: delivers the weekly per-user roundup
+	// of new releases by followed artists once a week bucket has closed. Accrual
+	// runs inside the release create funnel.
+	//
+	// ON by default; the DISABLE_* flag gates accrual too, so turning it off
+	// stops rows being written rather than queueing a burst. The flag is read per
+	// process: an ingest CLI run elsewhere needs it in its own environment.
+	if notification.ArtistReleaseAlertsEnabled() {
+		var releaseDigestFlushCtx context.Context
+		releaseDigestFlushCtx, releaseDigestFlushCancel = context.WithCancel(context.Background())
+		sc.ReleaseDigestFlush.Start(releaseDigestFlushCtx)
+	} else {
+		log.Printf("artist release alerts disabled (%s=1); artist followers will not be told about new releases",
+			notificationm.ArtistReleaseAlertsDisableFlag)
 	}
 
 	// Start artist-location sweep (PSY-1250: Phase-A background job filling missing
@@ -758,6 +775,10 @@ func main() {
 	if venueAlertFlushCancel != nil {
 		venueAlertFlushCancel()
 		sc.VenueAlertFlush.Stop()
+	}
+	if releaseDigestFlushCancel != nil {
+		releaseDigestFlushCancel()
+		sc.ReleaseDigestFlush.Stop()
 	}
 	if artistLocationSweepCancel != nil {
 		artistLocationSweepCancel()

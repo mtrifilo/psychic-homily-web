@@ -49,6 +49,12 @@ type NotificationFilterService struct {
 	// share one service instance.
 	venueAlertFailuresMu sync.Mutex
 	venueAlertFailures   map[venueAlertGroupKey]time.Time
+
+	// releaseDigestFailures is the same bound for the weekly release roundup,
+	// keyed on the week bucket. Separate from venueAlertFailures because the two
+	// loops retire independently.
+	releaseDigestFailuresMu sync.Mutex
+	releaseDigestFailures   map[string]time.Time
 }
 
 // NewNotificationFilterService creates a new notification filter service.
@@ -1109,6 +1115,7 @@ func (s *NotificationFilterService) GetUserNotifications(viewer contracts.ShowVi
 	s.enrichRequestNotifications(entries)
 	s.enrichArtistShowAlertNotifications(entries, viewer)
 	s.enrichVenueShowAlertNotifications(userID, entries)
+	s.enrichArtistReleaseDigestNotifications(userID, entries)
 	return entries, nil
 }
 
@@ -1152,6 +1159,7 @@ func formatAlertBucket(bucket *time.Time) string {
 var emailLaneAlertTypes = []string{
 	notificationm.NotificationEntityArtistShowAlert,
 	notificationm.NotificationEntityVenueShowAlert,
+	notificationm.NotificationEntityArtistReleaseDigest,
 }
 
 // showAlertEntityTypes are the entity types that mean "this user has been told
@@ -1168,6 +1176,10 @@ var emailLaneAlertTypes = []string{
 // filter match, an artist alert or a scene alert for an unrelated event, for
 // every user who follows that venue. TestShowAlertEntityTypesExcludeVenueAlerts
 // is what stops the well-meaning edit.
+//
+// NotificationEntityArtistReleaseDigest must never be added either: its
+// entity_id is a USER id, so user 42 would read as "already told about show 42".
+// TestShowAlertEntityTypesExcludeReleaseDigests guards it.
 var showAlertEntityTypes = []string{
 	notificationm.NotificationEntityArtistShowAlert,
 }

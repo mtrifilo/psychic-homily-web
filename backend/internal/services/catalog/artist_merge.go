@@ -78,10 +78,16 @@ import (
 //     Re-pointing it would additionally have to re-normalize the
 //     artist_a_id < artist_b_id CHECK and fold the two rows' counters, which is
 //     a recomputation dressed as a merge step.
+//   - artist_release_alert_batch: re-pointed by reassignArtistFKRefs, with a
+//     collision delete first. It CASCADES, so leaving it out would silently
+//     drop the losing artist's accrued releases from delivered inbox rows. A
+//     bare UPDATE would violate the (artist_id, release_id) primary key for any
+//     release credited to both artists and abort the merge.
 //
 // TestArtistForeignKeysAreAllHandled fails if a migration adds another.
 var artistFKColumns = []string{
 	"artist_aliases.artist_id",
+	"artist_release_alert_batch.artist_id",
 	"artist_communities.label_artist_id",
 	"artist_labels.artist_id",
 	"artist_link_suggestions.artist_id",
@@ -355,6 +361,30 @@ func reassignArtistFKRefs(tx *gorm.DB, canonicalID, mergeFromID uint) error {
 		canonicalID, mergeFromID,
 	).Error; err != nil {
 		return fmt.Errorf("failed to move radio_plays rows: %w", err)
+	}
+
+	// artist_release_alert_batch: ON DELETE CASCADE, and delivered inbox rows
+	// read their release list from it live, so it must be re-pointed.
+	//
+	// The collision delete is mandatory: (artist_id, release_id) is the primary
+	// key, and a duplicate artist usually shares releases with the canonical one.
+	// The canonical artist's row wins and keeps its alert_week and dispatched_at,
+	// so a delivered week stays delivered.
+	if err := tx.Exec(`
+		DELETE FROM artist_release_alert_batch l
+		WHERE l.artist_id = ?
+		  AND EXISTS (
+		        SELECT 1 FROM artist_release_alert_batch w
+		        WHERE w.artist_id = ? AND w.release_id = l.release_id
+		      )
+	`, mergeFromID, canonicalID).Error; err != nil {
+		return fmt.Errorf("failed to drop conflicting artist_release_alert_batch rows: %w", err)
+	}
+	if err := tx.Exec(
+		"UPDATE artist_release_alert_batch SET artist_id = ? WHERE artist_id = ?",
+		canonicalID, mergeFromID,
+	).Error; err != nil {
+		return fmt.Errorf("failed to move artist_release_alert_batch rows: %w", err)
 	}
 
 	if err := tx.Exec(

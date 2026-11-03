@@ -16,7 +16,7 @@ import {
   ALERTS_ANCHOR,
   ALERTS_AREA_ANCHOR,
   CUSTOM_ALERTS_HREF,
-  RELEASE_ALERTS_PENDING_NOTE,
+  RELEASE_ALERTS_DELIVERY_NOTE,
 } from '@/components/shared/followAlertChoices'
 import { useProfile } from '@/features/auth/hooks/useAuth'
 import { useSetShowReminders } from '@/features/shows'
@@ -552,7 +552,7 @@ export function AlertSettings() {
               opt-in.
             </p>
             <p className="text-xs text-muted-foreground">
-              {RELEASE_ALERTS_PENDING_NOTE}
+              {RELEASE_ALERTS_DELIVERY_NOTE}
             </p>
           </div>
       </AlertsCard>

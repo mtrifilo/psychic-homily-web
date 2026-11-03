@@ -31,6 +31,20 @@ const (
 	// IN-APP alerts alone: an email opt-out is not a request to stop being
 	// notified in the product.
 	UnsubscribeScopeArtistShowAlerts = "artist-show-alerts"
+
+	// UnsubscribeScopeArtistReleaseAlerts opts a recipient out of the weekly
+	// roundup of new releases from artists they follow.
+	//
+	// One mutation, one scope name. The venue show digest reuses
+	// UnsubscribeScopeArtistShowAlerts because both share the `shows` key in
+	// alert_defaults; releases have their own `releases` key and setter, so
+	// reusing the show scope would silence show alerts while release emails kept
+	// arriving.
+	//
+	// Signed on the USER like its sibling: a mailbox provider's native
+	// unsubscribe means stop this stream, not mute one band. The in-app roundup is
+	// untouched.
+	UnsubscribeScopeArtistReleaseAlerts = "artist-release-alerts"
 )
 
 // ComputeScopedUnsubscribeSignature computes HMAC-SHA256 over

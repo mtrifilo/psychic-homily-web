@@ -5,6 +5,8 @@ import {
   NOTIFICATION_ENTITY_REQUEST_FULFILLMENT_PROPOSED,
   NOTIFICATION_ENTITY_ARTIST_SHOW_ALERT,
   NOTIFICATION_ENTITY_VENUE_SHOW_ALERT,
+  NOTIFICATION_ENTITY_ARTIST_RELEASE_DIGEST,
+  isArtistReleaseDigestNotification,
   isArtistShowAlertNotification,
   isVenueShowAlertNotification,
   isCommentNotification,
@@ -65,6 +67,10 @@ describe('notification entity constants', () => {
     expect(NOTIFICATION_ENTITY_VENUE_SHOW_ALERT).toBe('venue_show_alert')
   })
 
+  it('exposes the artist release-digest row type', () => {
+    expect(NOTIFICATION_ENTITY_ARTIST_RELEASE_DIGEST).toBe('artist_release_digest')
+  })
+
   it('lists the quick-create entity types', () => {
     expect(NOTIFY_ENTITY_TYPES).toEqual(['artist', 'venue', 'label', 'tag'])
   })
@@ -87,6 +93,27 @@ describe('isArtistShowAlertNotification', () => {
     const alert = logEntry({ entity_type: 'artist_show_alert' })
     expect(isCommentNotification(alert)).toBe(false)
     expect(isRequestNotification(alert)).toBe(false)
+  })
+})
+
+describe('isArtistReleaseDigestNotification', () => {
+  it('returns true for an artist_release_digest row', () => {
+    expect(
+      isArtistReleaseDigestNotification(
+        logEntry({ entity_type: 'artist_release_digest' })
+      )
+    ).toBe(true)
+  })
+
+  // A digest's entity_id is the reader's USER id; matching it in either show
+  // alert branch would build a show or venue link from a user id.
+  it('is disjoint from the show-alert predicates', () => {
+    const digest = logEntry({ entity_type: 'artist_release_digest' })
+    expect(isArtistShowAlertNotification(digest)).toBe(false)
+    expect(isVenueShowAlertNotification(digest)).toBe(false)
+    expect(
+      isArtistReleaseDigestNotification(logEntry({ entity_type: 'artist_show_alert' }))
+    ).toBe(false)
   })
 })
 
@@ -223,6 +250,16 @@ describe('normalizeNotificationDeepLinks', () => {
     })
     expect(normalizeNotificationDeepLinks(sameOrigin).alert_venue_url).toBe(
       '/venues/valley-bar'
+    )
+  })
+
+  it('normalizes alert_release_url', () => {
+    const sameOrigin = logEntry({
+      entity_type: 'artist_release_digest',
+      alert_release_url: `${window.location.origin}/releases/gnosis`,
+    })
+    expect(normalizeNotificationDeepLinks(sameOrigin).alert_release_url).toBe(
+      '/releases/gnosis'
     )
   })
 

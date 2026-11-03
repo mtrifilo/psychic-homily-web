@@ -63,6 +63,17 @@ export interface NotificationLogEntry {
   alert_venue_url?: string
   alert_show_count?: number
   alert_show_summary?: string
+  // Artist release-digest enrichment. entity_id holds the reader's own user id:
+  // the row is coalesced over every release by every artist they follow in one
+  // UTC week, and `alert_bucket` is that week's Monday. Resolved at read time,
+  // so a row can grow after it was delivered. `alert_release_count` and
+  // `alert_release_artist_count` are full sizes; `alert_release_artists` is a
+  // server-capped name list. `alert_release_url` is set only for a one-release
+  // week, the one case with a single destination.
+  alert_release_count?: number
+  alert_release_artist_count?: number
+  alert_release_artists?: string
+  alert_release_url?: string
 }
 
 /** GET /me/notifications response shape */
@@ -118,6 +129,16 @@ export const NOTIFICATION_ENTITY_ARTIST_SHOW_ALERT =
 export const NOTIFICATION_ENTITY_VENUE_SHOW_ALERT =
   'venue_show_alert' as const
 
+/**
+ * Backend notification_log entity_type for the weekly artist new-release
+ * roundup. Must stay in sync with
+ * models/notification.NotificationEntityArtistReleaseDigest.
+ *
+ * Its entity_id is the READER's user id, not an artist, release or show id.
+ */
+export const NOTIFICATION_ENTITY_ARTIST_RELEASE_DIGEST =
+  'artist_release_digest' as const
+
 /** isCommentNotification returns true for the PSY-595 comment row types. */
 export function isCommentNotification(entry: NotificationLogEntry): boolean {
   return (
@@ -168,15 +189,26 @@ export function normalizeNotificationDeepLinks(
   const alert_venue_url = entry.alert_venue_url
     ? toRelativeIfSameOrigin(entry.alert_venue_url)
     : entry.alert_venue_url
+  const alert_release_url = entry.alert_release_url
+    ? toRelativeIfSameOrigin(entry.alert_release_url)
+    : entry.alert_release_url
   if (
     comment_url === entry.comment_url &&
     request_url === entry.request_url &&
     alert_show_url === entry.alert_show_url &&
-    alert_venue_url === entry.alert_venue_url
+    alert_venue_url === entry.alert_venue_url &&
+    alert_release_url === entry.alert_release_url
   ) {
     return entry
   }
-  return { ...entry, comment_url, request_url, alert_show_url, alert_venue_url }
+  return {
+    ...entry,
+    comment_url,
+    request_url,
+    alert_show_url,
+    alert_venue_url,
+    alert_release_url,
+  }
 }
 
 export function isRequestNotification(entry: NotificationLogEntry): boolean {
@@ -201,6 +233,13 @@ export function isVenueShowAlertNotification(
   entry: NotificationLogEntry
 ): boolean {
   return entry.entity_type === NOTIFICATION_ENTITY_VENUE_SHOW_ALERT
+}
+
+/** isArtistReleaseDigestNotification returns true for the weekly release roundup row. */
+export function isArtistReleaseDigestNotification(
+  entry: NotificationLogEntry
+): boolean {
+  return entry.entity_type === NOTIFICATION_ENTITY_ARTIST_RELEASE_DIGEST
 }
 
 /** Notification filter ownership (PSY-1467). Must stay in sync with

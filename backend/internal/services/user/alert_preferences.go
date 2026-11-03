@@ -209,6 +209,44 @@ func (s *UserService) UnsubscribeArtistShowAlertEmails(userID uint) error {
 	return nil
 }
 
+// UnsubscribeArtistReleaseAlertEmails stops the weekly new-release roundup
+// EMAILS for a user, and is what the RFC 8058 one-click link behind that email
+// calls.
+//
+// The same two-write shape and ordering as UnsubscribeArtistShowAlertEmails:
+// the preference resolves from two layers and either alone keeps the mail
+// flowing, and the account write lands first so a failed override sweep
+// reports an error rather than success with the default still on.
+//
+// It writes the `releases` key, not `shows` (separate keys, separate
+// unsubscribe scope), and sweeps ARTIST follows only, because
+// followAlertsSupportsReleases is false for every other entity type and
+// DisableFollowAlertEmailChannel would reject them. The in-app roundup is
+// untouched.
+func (s *UserService) UnsubscribeArtistReleaseAlertEmails(userID uint) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	off := false
+	if err := s.SetAccountAlertDefaults(userID, authm.AccountAlertDefaultsUpdate{
+		Releases: &authm.AlertChannelDefaultsUpdate{Email: &off},
+	}); err != nil {
+		return fmt.Errorf("failed to clear account release-alert email default: %w", err)
+	}
+
+	// FollowService is a thin handle over the same *gorm.DB, so constructing one
+	// here costs nothing and keeps the user_bookmarks JSONB merge in the package
+	// that owns it. See UnsubscribeArtistShowAlertEmails.
+	follows := engagement.NewFollowService(s.db)
+	if err := follows.DisableFollowAlertEmailChannel(
+		userID, string(engagementm.BookmarkEntityArtist), contracts.FollowAlertTypeReleases,
+	); err != nil {
+		return fmt.Errorf("failed to clear per-follow release-alert email overrides: %w", err)
+	}
+	return nil
+}
+
 // ensureUserPreferencesRow creates the user's preferences row if it has none,
 // leaving every column at its DDL default. DO NOTHING rather than DO UPDATE:
 // this call must never change a value, only guarantee that a row exists for a

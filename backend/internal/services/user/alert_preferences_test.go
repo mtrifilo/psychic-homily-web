@@ -316,6 +316,7 @@ func TestAlertPreferences_NilDatabase(t *testing.T) {
 		Shows: &authm.AlertChannelDefaultsUpdate{Email: boolPtrLocal(true)},
 	}))
 	assert.Error(t, svc.UnsubscribeArtistShowAlertEmails(1))
+	assert.Error(t, svc.UnsubscribeArtistReleaseAlertEmails(1))
 }
 
 // PSY-1896: the one-click unsubscribe has to clear BOTH layers. Testing the
@@ -370,6 +371,42 @@ func (suite *AlertPreferencesIntegrationTestSuite) TestUnsubscribeArtistShowAler
 	venueAlerts, err := follows.GetFollowAlertSettings(user.ID, "venue", venueID)
 	suite.Require().NoError(err)
 	suite.False(venueAlerts.Shows.Email)
+}
+
+// The release-alert unsubscribe clears release email at both layers and
+// leaves show alerts and the in-app channel alone.
+func (suite *AlertPreferencesIntegrationTestSuite) TestUnsubscribeArtistReleaseAlertEmails_ClearsBothLayers() {
+	user := suite.createUser("release-unsub@example.com")
+	artistID := suite.seedArtist("Release Unsub Band")
+
+	suite.Require().NoError(suite.userService.SetAccountAlertDefaults(user.ID,
+		authm.AccountAlertDefaultsUpdate{
+			Shows:    &authm.AlertChannelDefaultsUpdate{Email: boolPtrLocal(true)},
+			Releases: &authm.AlertChannelDefaultsUpdate{Email: boolPtrLocal(true)},
+		}))
+	follows := engagement.NewFollowService(suite.db)
+	suite.Require().NoError(follows.Follow(user.ID, "artist", artistID))
+	_, err := follows.SetFollowAlertSettings(user.ID, "artist", artistID,
+		contracts.FollowAlertUpdate{
+			Shows:    &contracts.FollowAlertPreferenceUpdate{Email: boolPtrLocal(true)},
+			Releases: &contracts.FollowAlertPreferenceUpdate{Email: boolPtrLocal(true)},
+		})
+	suite.Require().NoError(err)
+
+	suite.Require().NoError(suite.userService.UnsubscribeArtistReleaseAlertEmails(user.ID))
+
+	prefs, err := suite.userService.GetAlertPreferences(user.ID)
+	suite.Require().NoError(err)
+	suite.False(prefs.AlertDefaults.Releases.Email)
+	suite.True(prefs.AlertDefaults.Releases.InApp)
+	suite.True(prefs.AlertDefaults.Shows.Email, "a release unsubscribe must not touch show alerts")
+
+	alerts, err := follows.GetFollowAlertSettings(user.ID, "artist", artistID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(alerts.Releases)
+	suite.False(alerts.Releases.Email)
+	suite.True(alerts.Releases.InApp)
+	suite.True(alerts.Shows.Email)
 }
 
 func (suite *AlertPreferencesIntegrationTestSuite) seedArtist(name string) uint {

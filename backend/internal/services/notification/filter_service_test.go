@@ -231,6 +231,10 @@ func (s *NotificationFilterSuite) TearDownTest() {
 	// its flush finds, and "cleaned by someone else's cascade" is not a property
 	// worth depending on.
 	s.db.Exec("DELETE FROM venue_show_alert_batch")
+	s.db.Exec("DELETE FROM artist_release_alert_batch")
+	s.db.Exec("DELETE FROM artist_releases")
+	s.db.Exec("DELETE FROM release_external_links")
+	s.db.Exec("DELETE FROM releases")
 	s.db.Exec("DELETE FROM user_bookmarks")
 	s.db.Exec("DELETE FROM scenes")
 	s.db.Exec("DELETE FROM show_artists")

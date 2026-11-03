@@ -431,6 +431,11 @@ type UserServiceInterface interface {
 	// per-follow email override, because either one alone keeps the mail
 	// flowing. Leaves the in-app channel alone.
 	UnsubscribeArtistShowAlertEmails(userID uint) error
+	// UnsubscribeArtistReleaseAlertEmails does the same for the weekly
+	// new-release roundup. A separate method and scope because it writes a
+	// different alert_defaults key; folding them together would make one
+	// unsubscribe silence a stream the reader did not refuse.
+	UnsubscribeArtistReleaseAlertEmails(userID uint) error
 }
 
 // ──────────────────────────────────────────────

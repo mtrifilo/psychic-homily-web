@@ -146,6 +146,18 @@ func emailHeadline(text string) string {
 `, emailSansStack, emailForeground, html.EscapeString(text), emailRowGap, emailBackground)
 }
 
+// emailSectionLabel renders a small mono label that names the block beneath it,
+// for messages that group items by subject (a release roundup groups by
+// artist). Styled like the masthead kicker, not as a headline, so emailHeadline
+// stays the message's one bold voice. The bottom padding is 8px rather than
+// emailRowGap so the label reads as attached to the list that follows.
+func emailSectionLabel(text string) string {
+	return fmt.Sprintf(`<tr>
+<td style="padding:8px 0 8px 0; font-family:%[1]s; font-size:11px; font-weight:400; letter-spacing:0.06em; line-height:16px; color:%[2]s; background-color:%[4]s;">%[3]s</td>
+</tr>
+`, emailMonoStack, emailMutedForeground, html.EscapeString(strings.ToUpper(text)), emailBackground)
+}
+
 // emailParagraph renders a block of body prose.
 func emailParagraph(text string) string {
 	return fmt.Sprintf(`<tr>
@@ -237,6 +249,12 @@ type emailListRow struct {
 	// Detail is the optional second line under the title, e.g. a bill. An empty
 	// Detail renders no line rather than an empty one.
 	Detail string
+	// Href, when set, makes the Title a link to this destination. A structured
+	// field rather than caller-supplied markup, like emailFineprintWithLinks:
+	// every field here is escaped by the renderer, which must stay true for the
+	// scraped third-party text these rows carry. Empty renders the title as plain
+	// text (the venue digest relies on this). TestEmailListRowsHref covers both.
+	Href string
 }
 
 // emailListRows renders a hairline-separated TABLE of entries: the block a
@@ -278,11 +296,20 @@ func emailListRows(rows []emailListRow) string {
 				emailSansStack, emailMutedForeground, html.EscapeString(row.Detail))
 		}
 
+		// The anchor carries its own inline color and text-decoration because
+		// some mail clients restyle bare links to a blue underline.
+		title := html.EscapeString(row.Title)
+		if row.Href != "" {
+			title = fmt.Sprintf(
+				`<a href="%s" style="color:%s; text-decoration:none;">%s</a>`,
+				html.EscapeString(row.Href), emailForeground, title)
+		}
+
 		fmt.Fprintf(&b, `<tr>
 <td width="110" valign="top" style="width:110px; padding:12px 16px 12px 0; border-top:1px solid %[1]s; border-bottom:%[6]s solid %[1]s; font-family:%[2]s; font-size:13px; line-height:20px; color:%[3]s; background-color:%[7]s; white-space:nowrap;">%[4]s</td>
 <td valign="top" style="padding:12px 0 12px 0; border-top:1px solid %[1]s; border-bottom:%[6]s solid %[1]s; background-color:%[7]s;"><div style="font-family:%[8]s; font-size:14px; font-weight:600; line-height:20px; color:%[3]s;">%[5]s</div>%[9]s</td>
 </tr>
-`, emailBorder, emailMonoStack, emailForeground, html.EscapeString(row.Label), html.EscapeString(row.Title),
+`, emailBorder, emailMonoStack, emailForeground, html.EscapeString(row.Label), title,
 			bottom, emailBackground, emailSansStack, detail)
 	}
 

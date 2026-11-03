@@ -91,10 +91,14 @@ type NotificationLog struct {
 	// the driver reads the value back at midnight UTC regardless of the zone the
 	// day was computed in. Compare and write it as a day, never as an instant.
 	//
-	// NULL for every per-event writer. A database CHECK forbids NULL on
-	// venue_show_alert rows specifically, because a NULL there would make the
-	// unique index inert (NULLs compare distinct) and re-send the alert on every
-	// flush.
+	// Venue show alerts bucket by venue-local day; artist release digests by the
+	// Monday of an ISO week in UTC. Both store a calendar day.
+	//
+	// NULL for every per-event writer. A database CHECK per coalesced
+	// discriminator forbids NULL on its own rows, because a NULL there would make
+	// that discriminator's unique index inert (NULLs compare distinct) and
+	// re-send the alert on every flush. A new coalesced type needs its OWN CHECK:
+	// the existing ones name their entity_type explicitly.
 	AlertBucket *time.Time `gorm:"column:alert_bucket" json:"alert_bucket,omitempty"`
 }
 
@@ -168,6 +172,26 @@ const (
 	// service, or the shared "already told about this show" predicate would
 	// compare a venue id against a show id and silence unrelated notifications.
 	NotificationEntityVenueShowAlert = "venue_show_alert"
+
+	// NotificationEntityArtistReleaseDigest marks a notification_log row created
+	// because artists the user follows put out new records. Its ids line up with
+	// neither show sibling:
+	//
+	//	artist_show_alert:      entity_id = SHOW id,  subject_entity_id = artist id
+	//	venue_show_alert:       entity_id = VENUE id, subject_entity_id = NULL
+	//	artist_release_digest:  entity_id = USER id,  subject_entity_id = NULL
+	//
+	// One row covers the reader's whole follow set for one week, so there is no
+	// single artist or release to name. The week lives in alert_bucket, and the
+	// releases are read from artist_release_alert_batch at read time.
+	//
+	// Both mistakes below fail silently:
+	//
+	//   - It must never join showAlertEntityTypes, or the "already told about
+	//     this show" predicate would read user 42 as show 42.
+	//   - It must never join artistSubjectAlertTypes in services/catalog, or an
+	//     artist merge would rewrite a reader's user id.
+	NotificationEntityArtistReleaseDigest = "artist_release_digest"
 
 	// NotificationEntityRequestFulfillmentProposed marks a notification_log row
 	// created when someone proposes a fulfillment for a community request (the

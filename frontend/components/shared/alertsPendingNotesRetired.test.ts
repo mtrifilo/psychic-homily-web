@@ -3,22 +3,20 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { extname, join, relative, sep } from 'node:path'
 
 /**
- * Venue show alerts deliver, so no surface may tell a venue follower they are
- * "still being switched on".
+ * Venue show alerts and release alerts both deliver, so no surface may tell a
+ * follower either is "still being switched on".
  *
  * A source scan rather than a render test: it covers hand-written JSX as well
  * as shared constants, and every file rather than only the surfaces a test
  * renders. Words may be separated by any whitespace or a JSX `{' '}` token, so
  * a sentence wrapped or split across JSX lines is still one sentence.
  *
- * Release alerts are still pending and keep their own "still being switched
- * on" note, which is why the phrases below name venues rather than the bare
- * clause. This file is the one place the full phrases may appear; an absence
- * assertion elsewhere pins a fragment instead, or it would trip this scan.
+ * This file is the one place the full phrases may appear; an absence assertion
+ * elsewhere pins a fragment instead, or it would trip this scan.
  */
 
 const FRONTEND_ROOT = join(import.meta.dirname, '..', '..')
-const THIS_FILE = join('components', 'shared', 'venueAlertsPendingNoteRetired.test.ts')
+const THIS_FILE = join('components', 'shared', 'alertsPendingNotesRetired.test.ts')
 
 const SKIPPED_DIR_NAMES = new Set([
   'node_modules',
@@ -43,6 +41,9 @@ const RETIRED_PHRASES = [
   'shows a venue you follow adds are still being switched on',
   'this setting decides what they will cover once they are',
   'venue alerts are still being switched on',
+  'release alerts are still being switched on',
+  'these settings decide where they will reach you once they are',
+  'release alerts are set in settings, and are still being switched on',
 ]
 
 // Between two words: whitespace, or a JSX space token such as {' '} or {" "}.
@@ -73,7 +74,7 @@ function scannedFiles(dir: string): string[] {
   return files
 }
 
-describe('retired venue-alerts pending note', () => {
+describe('retired alerts pending notes', () => {
   const files = scannedFiles(FRONTEND_ROOT).filter(
     file => relative(FRONTEND_ROOT, file) !== THIS_FILE
   )
