@@ -75,6 +75,11 @@ var inboxEntityTypeDispositions = map[string]inboxEntityDisposition{
 	// entity_id = request id.
 	notificationm.NotificationEntityRequestFulfillmentProposed: reachesNoShow,
 
+	// entity_id = the reader's own USER id; the row is coalesced over a week of
+	// releases by artists they follow, and its enrichment reads releases only.
+	// Releases carry no visibility state, so there is nothing to gate.
+	notificationm.NotificationEntityArtistReleaseDigest: reachesNoShow,
+
 	// NO ENTITY TYPE HERE CARRIES A COLLECTION ID, which is why the direct arm
 	// stays show-only after PSY-1987. Collection activity reaches this table
 	// only as comment_reply / comment_mention, through the comment arm. A future
@@ -141,6 +146,7 @@ func TestInboxEntityTypeInventoryHasNoStaleEntries(t *testing.T) {
 		notificationm.NotificationEntityArtistShowAlert:            true,
 		notificationm.NotificationEntityVenueShowAlert:             true,
 		notificationm.NotificationEntityRequestFulfillmentProposed: true,
+		notificationm.NotificationEntityArtistReleaseDigest:        true,
 		engagement.NotificationEntityCommentReply:                  true,
 		engagement.NotificationEntityCommentMention:                true,
 	}

@@ -27,6 +27,8 @@
 -- The CHECK is dropped before the index, and both are named rather than left to
 -- a cascade, so the rollback's blast radius is visible in the file.
 
+SET LOCAL lock_timeout = '5s';
+
 ALTER TABLE notification_log
     DROP CONSTRAINT IF EXISTS ck_notification_log_release_digest_bucket;
 

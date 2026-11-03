@@ -336,6 +336,7 @@ func main() {
 		imageEnrichOutboxCancel      context.CancelFunc
 		showNotifyOutboxCancel       context.CancelFunc
 		venueAlertFlushCancel        context.CancelFunc
+		releaseDigestFlushCancel     context.CancelFunc
 		artistLocationSweepCancel    context.CancelFunc
 		artistDiscographySweepCancel context.CancelFunc
 		artistLinksSweepCancel       context.CancelFunc
@@ -495,6 +496,28 @@ func main() {
 	} else {
 		log.Printf("venue show alerts disabled (%s=1); venue followers will not be told about new shows",
 			notificationm.VenueShowAlertsDisableFlag)
+	}
+
+	// Start the release-digest flush poller: delivers the weekly per-user roundup
+	// of new releases by followed artists once a week bucket has closed. Accrual
+	// runs inside the release create funnel; without this loop the rows
+	// accumulate and nobody is told.
+	//
+	// ON by default with a DISABLE_* flag, and the flag gates accrual too, so
+	// turning it off stops rows being written rather than queueing a burst. Read
+	// per PROCESS: an ingest CLI run elsewhere needs the flag in its own
+	// environment to stop accruing.
+	//
+	// Starting this cannot alert anyone about the existing catalogue:
+	// artist_release_alert_batch ships empty and only release creation writes
+	// to it.
+	if notification.ArtistReleaseAlertsEnabled() {
+		var releaseDigestFlushCtx context.Context
+		releaseDigestFlushCtx, releaseDigestFlushCancel = context.WithCancel(context.Background())
+		sc.ReleaseDigestFlush.Start(releaseDigestFlushCtx)
+	} else {
+		log.Printf("artist release alerts disabled (%s=1); artist followers will not be told about new releases",
+			notificationm.ArtistReleaseAlertsDisableFlag)
 	}
 
 	// Start artist-location sweep (PSY-1250: Phase-A background job filling missing
@@ -758,6 +781,10 @@ func main() {
 	if venueAlertFlushCancel != nil {
 		venueAlertFlushCancel()
 		sc.VenueAlertFlush.Stop()
+	}
+	if releaseDigestFlushCancel != nil {
+		releaseDigestFlushCancel()
+		sc.ReleaseDigestFlush.Stop()
 	}
 	if artistLocationSweepCancel != nil {
 		artistLocationSweepCancel()

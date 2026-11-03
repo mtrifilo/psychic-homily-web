@@ -54,6 +54,11 @@
 -- instead — accrual only records a release when the credited artist actually has
 -- a follower, and only when the release is announceable.
 
+-- The foreign keys lock artists and releases while the table is created, and
+-- the index and CHECK below lock notification_log. Bounded so a manual run
+-- outside the boot runner cannot queue every write to those tables behind it.
+SET LOCAL lock_timeout = '5s';
+
 CREATE TABLE artist_release_alert_batch (
     artist_id     BIGINT      NOT NULL REFERENCES artists (id) ON DELETE CASCADE,
     release_id    BIGINT      NOT NULL REFERENCES releases (id) ON DELETE CASCADE,

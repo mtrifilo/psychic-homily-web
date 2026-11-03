@@ -706,6 +706,13 @@ func resolveReleaseDigestRecipients(
 	return out
 }
 
+// releaseDigestEmailLaneEnabled is the build-time gate on the digest's email
+// lane. While it is false a flush never claims an email-lane row and never
+// sends, whatever the reader's release-alert email preference says, so the
+// in-app row is the whole delivery. The email template has no approved design
+// yet; enabling the lane is a deliberate code change, not a configuration one.
+const releaseDigestEmailLaneEnabled = false
+
 // deliverReleaseDigest writes this recipient's rows and, when the email lane is
 // on and its row was newly claimed, sends the email.
 //
@@ -737,14 +744,18 @@ func (s *NotificationFilterService) deliverReleaseDigest(
 		}
 	}
 
-	if !r.email {
+	if !r.email || !releaseDigestEmailLaneEnabled {
 		return nil
 	}
 	if s.emailService == nil || !s.emailService.IsConfigured() {
 		return nil
 	}
-	if !s.withinDailyAlertEmailBudget(r.userID) {
-		log.Printf("rate limit: skipping release-digest email for user %d", r.userID)
+	// A failed budget check skips the email like a refusal does; the check has
+	// already logged it.
+	if within, err := s.withinDailyAlertEmailBudget(r.userID); err != nil || !within {
+		if err == nil {
+			log.Printf("rate limit: skipping release-digest email for user %d", r.userID)
+		}
 		return nil
 	}
 
@@ -881,7 +892,7 @@ func (s *NotificationFilterService) sendArtistReleaseDigestEmail(
 	// is worse than no link at all.
 	// TestReleaseDigestUsesItsOwnUnsubscribeScope pins this.
 	unsubscribeURL := engagement.GenerateScopedUnsubscribeURL(
-		engagement.DeriveBackendURL(s.frontendURL),
+		s.backendURL,
 		r.userID,
 		engagement.UnsubscribeScopeArtistReleaseAlerts,
 		s.jwtSecret,
@@ -927,7 +938,7 @@ func releaseDigestCountPhrase(n int) string {
 func releaseDigestSubject(releases []releaseDigestRelease) string {
 	if len(releases) == 1 {
 		return fmt.Sprintf("New release from %s",
-			truncateRunes(sanitizeEmailHeaderValue(releases[0].ArtistName), maxEmailSubjectEntityRunes))
+			entityNameForSubject(releases[0].ArtistName))
 	}
 	return fmt.Sprintf("%s from artists you follow", releaseDigestCountPhrase(len(releases)))
 }
