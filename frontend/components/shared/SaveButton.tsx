@@ -65,10 +65,15 @@ interface SaveButtonProps {
   savedTone?: 'red' | 'primary'
 }
 
-/** Filled-heart classes per {@link SaveButtonProps.savedTone}. */
+/**
+ * Filled-heart classes per {@link SaveButtonProps.savedTone}. The primary tone
+ * paints the SVG's fill and stroke directly rather than `text-primary`: the
+ * heart is an icon, and the text-token rule (lib/primaryTextUsage.lint.test.ts)
+ * reserves `text-primary` for icon boxes sized in the same class string.
+ */
 const SAVED_HEART_CLASS = {
   red: 'fill-red-500 text-red-500',
-  primary: 'fill-primary text-primary',
+  primary: 'fill-primary stroke-primary',
 } as const
 
 export function SaveButton({

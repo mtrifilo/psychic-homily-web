@@ -296,7 +296,7 @@ describe('SaveButton', () => {
         savedTone="primary"
       />
     )
-    expect(heart().getAttribute('class')).toContain('fill-primary text-primary')
+    expect(heart().getAttribute('class')).toContain('fill-primary stroke-primary')
     expect(heart().getAttribute('class')).not.toContain('red-500')
 
     // The hollow state is the same in every tone.
