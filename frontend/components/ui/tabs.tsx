@@ -51,10 +51,12 @@ function TabsTrigger({
   // outrank the selected colours; the unstacked one covers a focused trigger
   // that is not yet selected.
   // The label renders twice in one grid cell: an invisible SemiBold copy
-  // sizes the cell, so selecting a tab never changes the trigger's width.
-  // Both copies lay out like the trigger itself (centred flex row with the
-  // trigger's gap), and the hidden one stays out of the accessible name,
-  // selection and hit testing. asChild hands its single child to Radix
+  // sizes the cell, so while the selected style changes only the weight to
+  // SemiBold, selecting a tab keeps the trigger's width. Both copies lay out
+  // like the trigger itself (centred flex row with the trigger's gap), and
+  // the hidden one stays out of the accessible name, selection and hit
+  // testing. Because children render twice they must be presentational: no
+  // ids, refs or focusable elements. asChild hands its single child to Radix
   // untouched, so it gets no reservation.
   return (
     <TabsPrimitive.Trigger

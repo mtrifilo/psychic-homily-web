@@ -57,6 +57,18 @@ describe('Tabs', () => {
       'data-[state=active]:bg-background',
       'dark:data-[state=active]:bg-input/30',
     ]
+    // Stacks both label copies in one cell and lays each out as a centred
+    // flex row that inherits the trigger's gap, so icon spacing survives.
+    const RESERVATION_CELL_TOKENS = [
+      'inline-grid',
+      '[gap:inherit]',
+      '*:col-start-1',
+      '*:row-start-1',
+      '*:inline-flex',
+      '*:items-center',
+      '*:justify-center',
+      '*:[gap:inherit]',
+    ]
     const UNSELECTED_TOKENS = [
       'text-muted-foreground',
       'font-medium',
@@ -135,11 +147,7 @@ describe('Tabs', () => {
         renderTwoTabs()
         const tab = trigger(name)
         const cell = tab.querySelector('[data-slot="tabs-trigger-label"]')
-        expect(cell).toHaveClass(
-          'inline-grid',
-          '*:col-start-1',
-          '*:row-start-1'
-        )
+        expect(cell).toHaveClass(...RESERVATION_CELL_TOKENS)
         expect(cell?.children).toHaveLength(2)
         const [reserve, label] = Array.from(cell?.children ?? [])
         expect(reserve).toHaveAttribute('aria-hidden', 'true')
@@ -155,6 +163,28 @@ describe('Tabs', () => {
         expect(tab).toHaveAccessibleName(name)
       }
     )
+
+    it('keeps a consumer gap between an icon and the label in both copies', () => {
+      render(
+        <Tabs defaultValue="one">
+          <TabsList>
+            <TabsTrigger value="one" className="gap-2">
+              <svg data-testid="tab-icon" />
+              One
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      )
+      const tab = screen.getByRole('tab', { name: 'One' })
+      expect(tab).toHaveClass('gap-2')
+      expect(tab).not.toHaveClass('gap-1.5')
+      const cell = tab.querySelector('[data-slot="tabs-trigger-label"]')
+      expect(cell).toHaveClass(...RESERVATION_CELL_TOKENS)
+      for (const copy of Array.from(cell?.children ?? [])) {
+        expect(copy.querySelector('svg')).not.toBeNull()
+        expect(copy).toHaveTextContent('One')
+      }
+    })
 
     it('passes an asChild trigger its single child without the reservation', () => {
       render(
