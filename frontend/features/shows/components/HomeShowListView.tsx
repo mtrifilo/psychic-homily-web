@@ -9,6 +9,7 @@ import type { HomeShowCitySelection } from '../hooks/useHomeShowCitySelection'
 import { usePrefetchRoutes } from '@/lib/hooks/common/usePrefetchRoutes'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { ShowCard } from './ShowCard'
+import { ShowRow, ShowRowSaveButton } from './ShowRow'
 import { CityFilters } from '@/components/filters'
 import { GeoDefaultAffordance } from '@/components/filters/GeoDefaultAffordance'
 import { SaveDefaultsButton } from '@/components/filters/SaveDefaultsButton'
@@ -56,6 +57,16 @@ interface HomeShowListViewProps {
   /** City name for the sentences that describe an exhausted page; omitted when
    *  no city resolved, which those sentences then leave out. */
   excludedLabel?: string
+  /**
+   * `cards` is the anonymous home's bordered `ShowCard` list; `rows` is the
+   * dense `ShowRow` the signed-in home shares with its saved shows and Library.
+   */
+  layout?: 'cards' | 'rows'
+  /**
+   * Hide the city filter bar below `md`. Set only by a caller that renders its
+   * own phone city control, or the picker would be unreachable there.
+   */
+  hideCityFiltersBelowMd?: boolean
 }
 
 /**
@@ -73,6 +84,8 @@ export function HomeShowListView({
   excludeSaved = false,
   withinDays,
   excludedLabel,
+  layout = 'cards',
+  hideCityFiltersBelowMd = false,
 }: HomeShowListViewProps) {
   const { user, isAuthenticated } = useAuthContext()
   const isAdmin = user?.is_admin ?? false
@@ -197,7 +210,7 @@ export function HomeShowListView({
       {/* Show the filter whenever ≥1 city has shows (PSY-932) — consistent
           with /venues and /artists; hidden only when there are no cities. */}
       {cities.length > 0 && (
-        <div className="mb-6">
+        <div className={hideCityFiltersBelowMd ? 'mb-6 hidden md:block' : 'mb-6'}>
           <CityFilters
             cities={cities}
             selectedCities={effectiveCities}
@@ -229,6 +242,21 @@ export function HomeShowListView({
         {emptyMessage ? (
           <div className="text-center py-8 text-muted-foreground">
             <p>{emptyMessage}</p>
+          </div>
+        ) : layout === 'rows' ? (
+          <div className="flex flex-col">
+            {visibleShows.map(show => (
+              <ShowRow
+                key={show.id}
+                show={show}
+                trailing={
+                  <ShowRowSaveButton
+                    showId={show.id}
+                    saveData={batchedSaveFor(saveCounts, show.id)}
+                  />
+                }
+              />
+            ))}
           </div>
         ) : (
           <div className="flex flex-col gap-3">

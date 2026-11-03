@@ -637,6 +637,42 @@ describe('useSaveShowToggle', () => {
     )
   })
 
+  // Library's rows unsave through this toggle. Their lists can hold many
+  // loaded pages, so the unsave must patch the row out rather than refetch
+  // every page in both buckets.
+  it('patches the infinite lists on unsave when asked to', async () => {
+    mockApiRequest.mockResolvedValueOnce({ message: 'Unsaved' })
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const infiniteKey = queryKeys.savedShows.infiniteList('7', 'upcoming')
+    queryClient.setQueryData(infiniteKey, {
+      pages: [{ shows: [{ id: 1100 }, { id: 1101 }], total: 2, limit: 4, offset: 0 }],
+      pageParams: [{ limit: 4, offset: 0 }],
+    })
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    )
+
+    const { result } = renderHook(
+      () => useSaveShowToggle(1100, true, '7', 'patch-infinite'),
+      { wrapper }
+    )
+    await act(async () => {
+      await result.current.toggle()
+    })
+
+    const cached = queryClient.getQueryData<{
+      pages: Array<{ shows: Array<{ id: number }>; total: number }>
+    }>(infiniteKey)
+    expect(cached?.pages[0].shows).toEqual([{ id: 1101 }])
+    expect(cached?.pages[0].total).toBe(1)
+    expect(refetchAfterMutation).not.toHaveBeenCalledWith(
+      expect.anything(),
+      queryKeys.savedShows.all
+    )
+  })
+
   // Optimistic-update guard: assert the CACHE is patched, not just that a
   // request fired. A render-only stub of `toggle` would pass a request-only
   // assertion even with the optimistic wiring deleted.

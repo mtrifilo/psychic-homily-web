@@ -10,6 +10,7 @@ import { cityLabel } from '@/components/filters/cityParams'
 import { HomeCityShowsLink } from './HomeCityShowsLink'
 import { SignedInHomeDiscoverLinks } from './HomeDiscoverLinks'
 import { useHomeCityLinkSlot, useHomeDiscoverLinksSlot } from './HomeLinkSlots'
+import { NearbyCityControl } from './NearbyCityControl'
 
 /** Rows the section paints, the count on the approved board. */
 const NEARBY_ROWS = 4
@@ -90,6 +91,7 @@ export function NearbyShowsSection({ id }: { id: string }) {
           <p className="mt-0.5 text-sm text-muted-foreground">{subline}</p>
         </div>
         {ownsCityLink && <HomeCityShowsLink cities={effectiveCities} />}
+        <NearbyCityControl selection={selection} className="md:hidden" />
       </div>
 
       <HomeShowListView
@@ -98,6 +100,8 @@ export function NearbyShowsSection({ id }: { id: string }) {
         excludeSaved={isAuthenticated}
         withinDays={NEXT_7_DAYS}
         excludedLabel={cityCount > 0 ? cityNames : undefined}
+        layout="rows"
+        hideCityFiltersBelowMd
       />
 
       {ownsDiscoverLinks && <SignedInHomeDiscoverLinks className="pt-2" />}

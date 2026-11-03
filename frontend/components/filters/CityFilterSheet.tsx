@@ -20,6 +20,7 @@ import {
 import { cn } from '@/lib/utils'
 import { tabularNumsIfDigitsOnly } from '@/lib/tabularNums'
 import { cityKey, cityLabel } from './cityParams'
+import { citiesWithSelected } from './CityCommandList'
 import type { CityState, CityWithCount } from './CityFilters'
 
 /** Singular and plural of whatever the page below the filter lists. */
@@ -51,23 +52,6 @@ export interface CityFilterSheetProps {
 /** Share of the screen a content-sized sheet may occupy. */
 const SHEET_MAX_HEIGHT = '66dvh'
 
-/**
- * The rows: every city the page knows about, plus any selected city the page
- * has since stopped listing. Without the second half a selection that has
- * dropped out of the count list has no row, so it cannot be unticked from here
- * and the sheet shows a selection the reader cannot see.
- */
-function rowsFor(
-  cities: CityWithCount[],
-  selectedCities: CityState[]
-): CityWithCount[] {
-  const listed = new Set(cities.map(cityKey))
-  const orphans = selectedCities
-    .filter(c => !listed.has(cityKey(c)))
-    .map(c => ({ city: c.city, state: c.state, count: 0 }))
-  return orphans.length === 0 ? cities : [...cities, ...orphans]
-}
-
 function CityFilterSheetBody({
   cities,
   selectedCities,
@@ -83,7 +67,7 @@ function CityFilterSheetBody({
   const pendingKeys = useMemo(() => new Set(pending.map(cityKey)), [pending])
 
   const rows = useMemo(
-    () => rowsFor(cities, selectedCities),
+    () => citiesWithSelected(cities, selectedCities),
     [cities, selectedCities]
   )
 

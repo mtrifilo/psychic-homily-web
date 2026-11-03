@@ -221,8 +221,15 @@ export const useSaveShow = () => {
  * Hook to unsave (remove) a show from user's list
  * Requires authentication
  */
+/**
+ * How an unsave reaches the cached saved-show lists. `patch-infinite` is for a
+ * surface rendering the infinite Library lists, which may hold many pages: it
+ * patches the row out of them instead of refetching every page.
+ */
+export type UnsaveSyncMode = 'invalidate' | 'patch-infinite'
+
 interface UseUnsaveShowOptions {
-  syncMode?: 'invalidate' | 'patch-infinite'
+  syncMode?: UnsaveSyncMode
   userId?: string
 }
 
@@ -298,15 +305,19 @@ export const useUnsaveShow = ({
  * already holds it, from either the batch or the single save-count query, both
  * of which return is_saved alongside the public count. Re-querying it would
  * mean two requests for the same fact.
+ *
+ * `unsaveSync` is the unsave's list sync (see {@link UnsaveSyncMode}); a save
+ * always refetches.
  */
 export const useSaveShowToggle = (
   showId: number,
   isSaved: boolean,
-  userId?: string
+  userId?: string,
+  unsaveSync: UnsaveSyncMode = 'invalidate'
 ) => {
   const queryClient = useQueryClient()
   const saveShow = useSaveShow()
-  const unsaveShow = useUnsaveShow()
+  const unsaveShow = useUnsaveShow({ syncMode: unsaveSync, userId })
 
   const isLoading = saveShow.isPending || unsaveShow.isPending
 

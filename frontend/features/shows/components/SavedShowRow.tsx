@@ -1,124 +1,67 @@
 'use client'
 
-import type { ReactNode } from 'react'
-import Link from 'next/link'
-import { formatShowTime } from '@/lib/utils/formatters'
-import { formatShowDateBadge } from '@/lib/utils/showDateBadge'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import type { SavedShowResponse } from '../types'
+import { SHOW_ROW_GRID, ShowRow, ShowRowSaveButton } from './ShowRow'
 
 /**
- * The saved-show ledger row's grid: a fixed date column, a flexible bill, and
- * a trailing stack that becomes a third column at `md`.
- *
- * Exported because the states that sit directly above and below a run of these
- * rows (the signed-in home's prompt row) must line up with them. A second copy
- * of this string is how they stop lining up.
+ * The grid the signed-in home's saved-shows prompt row shares with the rows
+ * it stands in for. The same string as {@link SHOW_ROW_GRID}, not a copy.
  */
-export const SAVED_SHOW_ROW_GRID =
-  'grid grid-cols-[74px_minmax(0,1fr)] gap-x-3 border-b border-border py-2.5 md:grid-cols-[104px_minmax(0,1fr)_auto] md:gap-x-5 md:py-3'
+export const SAVED_SHOW_ROW_GRID = SHOW_ROW_GRID
 
 /**
- * One saved-show ledger row, shared by the Library Shows tab and the signed-in
- * home module (PSY-2103).
+ * Library's saved-show row: the shared {@link ShowRow} with the save age in
+ * its trailing column.
  *
- * The two surfaces differ only in the trailing control, so that control is a
- * slot rather than a variant flag: Library owns an "✕ remove" affordance
- * alongside its expand/collapse table, home renders the pressed SaveButton so
- * an unsave happens in place. The `saved {relative}` stamp above it is common
- * to both and stays here.
- *
- * The markup is the Library row verbatim. Its grid template, mobile/desktop
- * date split and venue line are one contract shared by both tables, not a
- * per-caller starting point.
+ * An upcoming row's unsave is the heart above the age, the same gesture that
+ * made the save. Its saved state is asserted rather than read back, because
+ * these rows ARE the viewer's saved shows, and it patches the row out of
+ * Library's loaded pages instead of refetching them. A past row is a record:
+ * the age alone, no heart.
  */
 export function SavedShowRow({
   show,
   isPast,
-  action,
+  disabled,
 }: {
   show: SavedShowResponse
   isPast: boolean
-  action: ReactNode
+  /** Holds the heart while another change to these lists is in flight. */
+  disabled?: boolean
 }) {
-  const venue = show.venues[0]
-  const artists = show.artists
-  const dateBadge = formatShowDateBadge(
-    show.event_date,
-    show.state,
-    show.venues?.[0]?.timezone
-  )
-  // Null on a guessed zone; the date column then holds the date alone.
-  const startTime = formatShowTime(
-    show.event_date,
-    show.state,
-    show.venues?.[0]?.timezone
+  const savedAge = (
+    // `relative`: SaveButton's root is positioned, and only a positioned
+    // later sibling paints above it where the two overlap.
+    <span className="relative whitespace-nowrap font-data text-[11px] leading-[14px] text-muted-foreground">
+      saved {formatRelativeTime(show.saved_at, { short: true })}
+    </span>
   )
 
   return (
-    <article
-      aria-label={show.title}
-      className={SAVED_SHOW_ROW_GRID}
-    >
-      <div
-        className={`row-span-2 font-data text-[11px] font-bold uppercase md:row-span-1 md:text-xs ${
-          isPast ? 'text-muted-foreground' : 'text-link'
-        }`}
-      >
-        <span className="md:hidden">{dateBadge.monthDay}</span>
-        <span className="hidden md:inline">
-          {dateBadge.dayOfWeek} {dateBadge.monthDay}
-        </span>
-        {startTime && (
-          <div className="mt-0.5 hidden text-[11px] font-normal normal-case text-muted-foreground md:block">
-            {startTime}
-          </div>
-        )}
-      </div>
-
-      <div className="min-w-0 self-center">
-        <Link
-          href={`/shows/${show.slug || show.id}`}
-          className="block truncate text-sm font-medium leading-tight transition-colors hover:text-link md:text-[15px]"
-        >
-          {artists.map(a => a.name).join(' · ')}
-        </Link>
-
-        <div className="mt-0.5 truncate text-xs text-muted-foreground md:text-[13px]">
-          {venue && (
-            <>
-              {venue.slug ? (
-                <Link
-                  href={`/venues/${venue.slug}`}
-                  className={`transition-colors hover:text-link ${
-                    isPast ? '' : 'md:text-link md:hover:underline'
-                  }`}
-                >
-                  {venue.name}
-                </Link>
-              ) : (
-                <span className={isPast ? undefined : 'md:text-link'}>
-                  {venue.name}
-                </span>
-              )}
-              {(venue.city || venue.state) && (
-                <span>
-                  {' '}
-                  &middot;{' '}
-                  {[venue.city, venue.state].filter(Boolean).join(', ')}
-                </span>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-
-      <div className="col-start-2 mt-1 flex items-center justify-between gap-3 font-data text-[11px] text-muted-foreground md:col-start-3 md:row-start-1 md:mt-0 md:flex-col md:items-end md:self-center">
-        <span className="whitespace-nowrap">
-          saved {formatRelativeTime(show.saved_at, { short: true })}
-        </span>
-        {action}
-      </div>
-    </article>
+    <ShowRow
+      show={show}
+      past={isPast}
+      trailing={
+        isPast ? (
+          savedAge
+        ) : (
+          <>
+            {/* The glyph is centred in its 44px target; pulling the age up
+                into the target's empty lower edge keeps the row dense, and the
+                age, painted above it, takes the taps that land on it. */}
+            <div className="-mb-2.5 flex">
+              <ShowRowSaveButton
+                showId={show.id}
+                saveData={{ save_count: 0, is_saved: true }}
+                unsaveSync="patch-infinite"
+                disabled={disabled}
+              />
+            </div>
+            {savedAge}
+          </>
+        )
+      }
+    />
   )
 }

@@ -312,3 +312,40 @@ export function venueLocalDateKey(show: ShowTimingInput): string | null {
   const pad = (value: number) => String(value).padStart(2, '0')
   return `${Math.floor(ordinal / 10000)}-${pad(Math.floor((ordinal % 10000) / 100))}-${pad(ordinal % 100)}`
 }
+
+/** A venue-local day ordinal (`20260314`) as whole days since the epoch. */
+function epochDayOfOrdinal(ordinal: number): number {
+  const year = Math.floor(ordinal / 10000)
+  const month = Math.floor((ordinal % 10000) / 100)
+  const day = ordinal % 100
+  return Date.UTC(year, month - 1, day) / 86_400_000
+}
+
+/**
+ * Calendar days from the venue-local date of `now` to the venue-local date of
+ * the show: 0 on the show's own day, 1 the day before, negative once it has
+ * passed. `null` when either instant cannot be read.
+ *
+ * Both dates are read on the VENUE's calendar, so the answer is the same for
+ * every reader whatever their own clock says. It counts calendar days, not
+ * 24-hour spans, so a DST day of 23 or 25 hours is still one day, and an
+ * after-midnight set (1 AM) belongs to the date it starts on.
+ *
+ * Carries the same timezone limit as its neighbours: a venue with no resolved
+ * `timezone` and a state outside the US map is dated on
+ * `FALLBACK_SHOW_TIMEZONE`. A surface that turns this into a same-day WORD
+ * must gate on `isShowTimezoneResolved` first.
+ */
+export function venueLocalDaysUntil(
+  show: ShowTimingInput,
+  now: Date = new Date()
+): number | null {
+  const startedAt = startInstantMs(show.eventDate)
+  const readAt = now.getTime()
+  if (startedAt === null || !Number.isFinite(readAt)) return null
+  const timeZone = resolveShowTimezone(show.state, show.timezone)
+  const days =
+    epochDayOfOrdinal(venueLocalDayOrdinal(startedAt, timeZone)) -
+    epochDayOfOrdinal(venueLocalDayOrdinal(readAt, timeZone))
+  return Number.isFinite(days) ? days : null
+}

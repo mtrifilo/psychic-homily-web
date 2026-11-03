@@ -200,17 +200,7 @@ function SavedShowsSection({
               key={show.id}
               show={show}
               isPast={isPast}
-              action={
-                <button
-                  type="button"
-                  onClick={() => onRemove(show.id)}
-                  disabled={isRemovalPending}
-                  className="whitespace-nowrap transition-colors hover:text-destructive disabled:cursor-wait disabled:opacity-60"
-                  aria-label={`Remove ${show.title} from saved shows`}
-                >
-                  {removingShowId === show.id ? 'removing…' : '✕ remove'}
-                </button>
-              }
+              disabled={isRemovalPending}
             />
           ))}
         </div>

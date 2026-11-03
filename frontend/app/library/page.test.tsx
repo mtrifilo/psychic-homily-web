@@ -12,6 +12,7 @@ const mockUseLibraryFollowingCounts = vi.fn()
 const mockUseLibraryFollowing = vi.fn()
 const mockScrollTo = vi.fn()
 const mockUnsaveShow = vi.fn()
+const mockSaveButtonClick = vi.fn()
 const mockUnfollowEntity = vi.fn()
 const mockToggleRelease = vi.fn()
 const mockUseUnfollow = vi.fn()
@@ -149,6 +150,30 @@ vi.mock('@/features/charts/hooks', () => ({
 vi.mock('@/lib/hooks/admin/useAdminShows', () => ({
   useSetShowSoldOut: () => ({ mutate: vi.fn(), isPending: false }),
   useSetShowCancelled: () => ({ mutate: vi.fn(), isPending: false }),
+}))
+
+// The row's heart is SaveButton, whose own suite covers the toggle; here it
+// only has to carry what Library hands it.
+vi.mock('@/components/shared/SaveButton', () => ({
+  SaveButton: ({
+    showId,
+    saveData,
+    unsaveSync,
+    disabled,
+  }: {
+    showId: number
+    saveData?: { is_saved: boolean }
+    unsaveSync?: string
+    disabled?: boolean
+  }) => (
+    <button
+      type="button"
+      aria-label={saveData?.is_saved ? 'Remove from saved shows' : 'Save show'}
+      data-unsave-sync={unsaveSync}
+      disabled={disabled}
+      onClick={() => mockSaveButtonClick(showId)}
+    />
+  ),
 }))
 
 import LibraryPage from './page'
@@ -1069,10 +1094,10 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       const row = screen.getByRole('article', { name: 'Zoneless' })
       expect(within(row).queryByText(/8:00\s?PM/) !== null).toBe(expected)
       // The date survives either way: it is the row's ordering cue.
-      expect(within(row).getByText('SEP 9')).toBeTruthy()
+      expect(within(row).getByText(/SEP 9/)).toBeTruthy()
     })
 
-    it('renders the compact mobile date and two-line show details', () => {
+    it('renders the shared row: weekday date at every width and two-line show details', () => {
       mockUseSavedShows.mockImplementation(
         (timeFilter: 'upcoming' | 'past') => ({
           data: {
@@ -1123,10 +1148,11 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       const row = screen.getByRole('article', {
         name: 'Calexico at E2E Reserved Venue',
       })
-      expect(row.className).toContain('grid-cols-[74px_minmax(0,1fr)]')
+      expect(row.className).toContain('grid-cols-[74px_minmax(0,1fr)_auto]')
 
-      const compactDate = within(row).getByText('JUL 12')
-      expect(compactDate.className).toContain('md:hidden')
+      // One label at every width: the weekday no longer drops below md.
+      expect(within(row).getByText('SUN JUL 12')).toBeTruthy()
+      expect(within(row).getByText(/4:59\s?PM/)).toBeTruthy()
       expect(
         within(row).getByRole('link', { name: 'Calexico' }).getAttribute('href')
       ).toBe('/shows/calexico-e2e-reserved-venue')
@@ -1144,7 +1170,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       ).toBeTruthy()
     })
 
-    it('renders upcoming and past buckets and removes from either section', () => {
+    it('unsaves an upcoming row with its heart and leaves a past row as a record', () => {
       const upcomingShow = makeSavedShow({
         id: 1,
         title: 'Upcoming Artist',
@@ -1180,26 +1206,26 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
         name: 'Upcoming Artist',
       })
       const pastRow = screen.getByRole('article', { name: 'Past Artist' })
-      expect(within(upcomingRow).getByText('JUL 19').className).toContain(
-        'md:hidden'
+      expect(within(upcomingRow).getByText('SUN JUL 19').className).toContain(
+        'text-primary'
       )
-      expect(
-        within(pastRow).getByText('JUN 19').closest('div')?.className
-      ).toContain('text-muted-foreground')
+      expect(within(upcomingRow).getByText(/^saved /)).toBeTruthy()
+      expect(within(pastRow).getByText('FRI JUN 19').className).toContain(
+        'text-muted-foreground'
+      )
+      expect(within(pastRow).getByText(/^saved /)).toBeTruthy()
 
-      fireEvent.click(
-        within(upcomingRow).getByRole('button', {
-          name: 'Remove Upcoming Artist from saved shows',
-        })
-      )
-      fireEvent.click(
-        within(pastRow).getByRole('button', {
-          name: 'Remove Past Artist from saved shows',
-        })
-      )
+      const heart = within(upcomingRow).getByRole('button', {
+        name: 'Remove from saved shows',
+      })
+      // Patches Library's loaded pages instead of refetching them.
+      expect(heart.getAttribute('data-unsave-sync')).toBe('patch-infinite')
+      fireEvent.click(heart)
+      expect(mockSaveButtonClick).toHaveBeenCalledWith(1)
 
-      expect(mockUnsaveShow).toHaveBeenNthCalledWith(1, 1)
-      expect(mockUnsaveShow).toHaveBeenNthCalledWith(2, 2)
+      // A past row carries the save age alone: no heart, no remove.
+      expect(within(pastRow).queryByRole('button')).toBeNull()
+      expect(screen.queryByText('✕ remove')).toBeNull()
     })
 
     it('loads every page on expansion and re-expands without refetching', async () => {

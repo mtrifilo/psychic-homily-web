@@ -274,12 +274,28 @@ describe('SaveButton', () => {
     render(
       <SaveButton showId={42} saveData={{ save_count: 2, is_saved: true }} />
     )
-    expect(mockUseSaveShowToggle).toHaveBeenCalledWith(42, true, 42)
+    expect(mockUseSaveShowToggle).toHaveBeenCalledWith(42, true, 42, 'invalidate')
   })
 
   it('defaults isSaved to false while the count query is still loading', () => {
     render(<SaveButton showId={42} />)
-    expect(mockUseSaveShowToggle).toHaveBeenCalledWith(42, false, 42)
+    expect(mockUseSaveShowToggle).toHaveBeenCalledWith(42, false, 42, 'invalidate')
+  })
+
+  it('passes the unsave sync mode through to the toggle', () => {
+    render(
+      <SaveButton
+        showId={42}
+        saveData={{ save_count: 0, is_saved: true }}
+        unsaveSync="patch-infinite"
+      />
+    )
+    expect(mockUseSaveShowToggle).toHaveBeenCalledWith(
+      42,
+      true,
+      42,
+      'patch-infinite'
+    )
   })
 
   // ── Interaction

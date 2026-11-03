@@ -5,6 +5,7 @@ import { Heart } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { BracketLink } from './BracketLink'
 import { useSaveShowToggle, useShowSaveCount } from '@/features/shows'
+import type { UnsaveSyncMode } from '@/features/shows/hooks/useSavedShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import {
   resolveBatchedSaveData,
@@ -51,6 +52,12 @@ interface SaveButtonProps {
    * inline among other verbs, where the hint reads left to right from it.
    */
   hintAlign?: 'start' | 'end'
+  /**
+   * How an unsave from this control syncs the saved-show lists. Library's own
+   * rows pass `patch-infinite` so an unsave removes the row from its loaded
+   * pages without refetching every one of them.
+   */
+  unsaveSync?: UnsaveSyncMode
 }
 
 export function SaveButton({
@@ -63,6 +70,7 @@ export function SaveButton({
   className,
   disabled = false,
   hintAlign = 'end',
+  unsaveSync = 'invalidate',
 }: SaveButtonProps) {
   const { isAuthenticated, authStatus, user } = useAuthContext()
   const shouldOpenFirstSaveHint = useShouldOpenFirstSaveHint()
@@ -100,7 +108,8 @@ export function SaveButton({
   const { isLoading, toggle, error } = useSaveShowToggle(
     showId,
     isSaved,
-    user?.id
+    user?.id,
+    unsaveSync
   )
   // Disabled while unsettled, as every control in this class is: it ships
   // ENABLED in server HTML with pre-hydration click replay, and a click that

@@ -29,6 +29,29 @@ vi.mock('./ShowCard', () => ({
     <div data-testid="show-card">{show.title}</div>
   ),
 }))
+vi.mock('./ShowRow', () => ({
+  ShowRow: ({
+    show,
+    trailing,
+  }: {
+    show: { id: number; title: string }
+    trailing: React.ReactNode
+  }) => (
+    <div data-testid="show-row">
+      {show.title}
+      {trailing}
+    </div>
+  ),
+  ShowRowSaveButton: ({
+    saveData,
+  }: {
+    saveData?: { is_saved: boolean } | 'pending'
+  }) => (
+    <span data-testid="row-heart">
+      {saveData === 'pending' ? 'pending' : String(saveData?.is_saved)}
+    </span>
+  ),
+}))
 vi.mock('@/components/filters', () => ({
   CityFilters: ({ children }: { children?: React.ReactNode }) => (
     <div data-testid="city-filters">{children}</div>
@@ -84,6 +107,37 @@ describe('HomeShowListView', () => {
     render(<HomeShowListView selection={selection} />)
 
     expect(screen.getAllByTestId('show-card')).toHaveLength(2)
+  })
+
+  it('paints dense rows with the batch heart when asked for rows', () => {
+    render(<HomeShowListView selection={selection} layout="rows" />)
+
+    expect(screen.queryByTestId('show-card')).not.toBeInTheDocument()
+    const rows = screen.getAllByTestId('show-row')
+    expect(rows).toHaveLength(2)
+    expect(screen.getAllByTestId('row-heart').map(h => h.textContent)).toEqual([
+      'true',
+      'false',
+    ])
+  })
+
+  it('keeps the filter bar at every width unless the caller owns a phone control', () => {
+    const withCities: HomeShowCitySelection = {
+      ...baseSelection,
+      cities: [{ ...phoenix, count: 3 }],
+    }
+    const { unmount } = render(<HomeShowListView selection={withCities} />)
+    expect(
+      screen.getByTestId('city-filters').parentElement?.className
+    ).not.toContain('hidden')
+    unmount()
+
+    render(
+      <HomeShowListView selection={withCities} hideCityFiltersBelowMd />
+    )
+    const bar = screen.getByTestId('city-filters').parentElement
+    expect(bar?.className).toContain('hidden')
+    expect(bar?.className).toContain('md:block')
   })
 
   it('asks for only its rows when it is not excluding', () => {
