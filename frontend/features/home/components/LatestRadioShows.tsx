@@ -189,7 +189,7 @@ export function LatestRadioShows({
   variant = 'cards',
 }: {
   variant?: LatestRadioShowsVariant
-} = {}) {
+}) {
   const asRows = variant === 'rows'
   return (
     <section aria-labelledby="home-radio-heading" className="flex w-full flex-col gap-4">
@@ -200,18 +200,16 @@ export function LatestRadioShows({
         >
           Latest radio shows
         </h2>
-        {asRows ? (
-          <Link href="/radio" className={HOME_ACCENT_LINK_CLASS}>
-            All stations →
-          </Link>
-        ) : (
-          <Link
-            href="/radio"
-            className="text-sm font-medium text-muted-foreground transition-colors hover:text-link hover:underline underline-offset-4"
-          >
-            Browse all stations →
-          </Link>
-        )}
+        <Link
+          href="/radio"
+          className={
+            asRows
+              ? HOME_ACCENT_LINK_CLASS
+              : 'text-sm font-medium text-muted-foreground transition-colors hover:text-link hover:underline underline-offset-4'
+          }
+        >
+          {asRows ? 'All stations' : 'Browse all stations'} →
+        </Link>
       </div>
       {asRows ? (
         <ul className="border-t border-border">

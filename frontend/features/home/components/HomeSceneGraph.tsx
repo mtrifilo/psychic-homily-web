@@ -284,7 +284,7 @@ export function HomeSceneGraph({
   narrowForm = 'teaser',
 }: {
   narrowForm?: HomeSceneGraphNarrowForm
-} = {}) {
+}) {
   // Lazy-mount on scroll intent (shared hook — PSY-1347, incl. the React 19
   // defer-to-microtask fallback when IntersectionObserver is unavailable).
   // Once mounted, never tears down; the section's data hooks only run behind
@@ -504,15 +504,14 @@ function HomeSceneGraphSection({
   const sceneHref = `/scenes/${scene.slug}`
   const sceneGraphHref = `${sceneHref}#graph`
   const asLinkRow = isBelowGraphBreakpoint && narrowForm === 'linkRow'
+  const asTeaser = isBelowGraphBreakpoint && narrowForm === 'teaser'
 
   return (
     <section
       // The heading is the section's accessible name only while one renders:
       // the desktop heading, or the link row that stands in for it. The
       // teaser is one line of body text, which is not a landmark worth naming.
-      aria-labelledby={
-        isBelowGraphBreakpoint && !asLinkRow ? undefined : 'home-scene-graph-heading'
-      }
+      aria-labelledby={asTeaser ? undefined : 'home-scene-graph-heading'}
       className="flex w-full flex-col gap-4"
     >
       {/* Unmeasured, this row is what a phone's server HTML carries, and the
@@ -602,7 +601,7 @@ function HomeSceneGraphSection({
             </Link>
           </h2>
         )}
-        {isBelowGraphBreakpoint && !asLinkRow && (
+        {asTeaser && (
           <MobileGraphTeaser
             href={graphRootHref()}
           >{`See how the scene connects on the music map`}</MobileGraphTeaser>

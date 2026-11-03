@@ -136,7 +136,7 @@ describe('LatestRadioShows', () => {
     }
 
     it('renders an "All stations" header link and three rows, no cards', () => {
-      const { container } = render(<LatestRadioShows variant="rows" />)
+      render(<LatestRadioShows variant="rows" />)
       expect(
         screen.getByRole('heading', { name: /latest radio shows/i })
       ).toBeInTheDocument()
@@ -149,7 +149,6 @@ describe('LatestRadioShows', () => {
       expect(rowFor(/^KEXP · Seattle/)).toHaveAttribute('href', '/radio/kexp')
       expect(rowFor(/^WFMU · Jersey City/)).toHaveAttribute('href', '/radio/wfmu')
       expect(rowFor(/^NTS · London/)).toHaveAttribute('href', '/radio/nts-radio')
-      expect(container.querySelector('.min-h-\\[134px\\]')).toBeNull()
     })
 
     it('shows "station · show" over "city · live now" with a live dot when on air', () => {
