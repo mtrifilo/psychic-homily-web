@@ -52,7 +52,7 @@
 export type SansFace = 'schibstedBold' | 'schibstedRegular'
 
 /** Every face with a table: the body weights plus the data face (Golos Text). */
-type MeasuredFace = SansFace | 'golosRegular'
+type MeasuredFace = SansFace | 'data'
 
 /** ASCII 0x20–0x7E advance widths, per 1000 em units. */
 const TABLES: Record<MeasuredFace, number[]> = {
@@ -64,7 +64,7 @@ const TABLES: Record<MeasuredFace, number[]> = {
     '254,240,353,654,564,850,686,199,309,309,443,635,265,488,280,444,611,343,572,576,584,580,595,531,579,594,280,268,635,635,635,529,885,700,645,703,697,585,561,718,720,354,536,660,545,868,729,770,615,770,633,613,644,673,678,935,652,623,595,310,444,310,635,500,500,551,589,551,589,573,341,555,567,242,272,552,262,873,581,597,590,590,401,513,340,581,554,812,559,548,504,327,239,327,635'
       .split(',')
       .map(Number),
-  golosRegular:
+  data:
     '250,300,390,680,640,840,670,220,380,380,450,550,300,380,300,480,620,620,580,585,620,580,605,620,610,605,300,300,550,550,550,510,1020,670,670,680,700,610,595,705,760,314,555,690,570,860,760,740,655,740,680,640,620,730,670,960,660,640,600,380,480,380,550,500,260,565,615,545,615,580,365,615,615,268,268,565,320,885,615,600,615,615,390,530,400,605,560,810,550,560,510,380,340,380,550'
       .split(',')
       .map(Number),
@@ -86,7 +86,7 @@ const TABLES: Record<MeasuredFace, number[]> = {
 const EXTRA_ADVANCES: Record<MeasuredFace, Record<number, number>> = {
   schibstedBold: { 0xb7: 304, 0x2013: 500, 0x2019: 292, 0x10f: 705, 0x13e: 329, 0x165: 421 },
   schibstedRegular: { 0xb7: 280, 0x2013: 500, 0x2019: 265, 0x10f: 628, 0x13e: 276, 0x165: 364 },
-  golosRegular: { 0xb7: 300, 0x2013: 530, 0x2019: 300 },
+  data: { 0xb7: 300, 0x2013: 530, 0x2019: 300 },
 }
 
 /**
@@ -154,7 +154,9 @@ function measureFace(
   let units = 0
   let chars = 0
   for (const char of text.normalize('NFC')) {
-    const exact = extra[char.codePointAt(0)!]
+    const code = char.codePointAt(0)!
+    const exact =
+      code >= FIRST_CODE && code <= LAST_CODE ? table[code - FIRST_CODE] : extra[code]
     if (exact !== undefined) {
       units += exact
       chars += 1
@@ -194,7 +196,7 @@ export function measureSans(
  * budget, so under-charging would hand the city more room than it actually has.
  */
 export function measureData(text: string, fontSize: number, letterSpacing = 0): number {
-  return measureFace(text, 'golosRegular', fontSize, letterSpacing)
+  return measureFace(text, 'data', fontSize, letterSpacing)
 }
 
 /**

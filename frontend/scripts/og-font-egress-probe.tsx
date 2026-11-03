@@ -15,6 +15,7 @@
 import { ImageResponse } from 'next/og'
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { OG_COLORS, OG_FONT_FAMILY } from '../lib/og/brand'
 
 const FONTS = 'lib/og/fonts'
 const read = (f: string) => {
@@ -29,9 +30,9 @@ const read = (f: string) => {
 const brandOnly = process.argv.includes('--no-fallback')
 
 const fonts = [
-  { name: 'Schibsted Grotesk', data: read('SchibstedGrotesk-Bold.ttf'), weight: 700 as const, style: 'normal' as const },
-  { name: 'Schibsted Grotesk', data: read('SchibstedGrotesk-Regular.ttf'), weight: 400 as const, style: 'normal' as const },
-  { name: 'Golos Text', data: read('GolosText-Regular.ttf'), weight: 400 as const, style: 'normal' as const },
+  { name: OG_FONT_FAMILY.sans, data: read('SchibstedGrotesk-Bold.ttf'), weight: 700 as const, style: 'normal' as const },
+  { name: OG_FONT_FAMILY.sans, data: read('SchibstedGrotesk-Regular.ttf'), weight: 400 as const, style: 'normal' as const },
+  { name: OG_FONT_FAMILY.data, data: read('GolosText-Regular.ttf'), weight: 400 as const, style: 'normal' as const },
   // `--no-fallback` reproduces the pre-PSY-1640 font set, so the covered cases
   // below can be shown FAILING without it. A probe that only ever passes proves
   // nothing about whether the added faces are what is doing the work.
@@ -99,31 +100,31 @@ async function render(label: string, text: string, slug: string) {
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'center',
-            backgroundColor: '#0d0805',
+            backgroundColor: OG_COLORS.background,
             padding: '64px 72px',
           }}
         >
-          <div style={{ display: 'flex', fontFamily: 'Golos Text', fontSize: 40, color: '#e89960' }}>
+          <div style={{ display: 'flex', fontFamily: OG_FONT_FAMILY.data, fontSize: 40, color: OG_COLORS.primary }}>
             {label} · {text}
           </div>
           {/* Figures in the data face, stacked so tabular alignment is visible. */}
-          <div style={{ display: 'flex', flexDirection: 'column', fontFamily: 'Golos Text', fontSize: 34, color: '#9c8c7c' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', fontFamily: OG_FONT_FAMILY.data, fontSize: 34, color: OG_COLORS.mutedForeground }}>
             <div style={{ display: 'flex' }}>1111 · 7777 · 4444</div>
             <div style={{ display: 'flex' }}>0000 · 8888 · 2222</div>
           </div>
           <div
             style={{
               display: 'flex',
-              fontFamily: 'Schibsted Grotesk',
+              fontFamily: OG_FONT_FAMILY.sans,
               fontWeight: 700,
               fontSize: 132,
-              color: '#eee7d9',
+              color: OG_COLORS.foreground,
               letterSpacing: -3,
             }}
           >
             {text}
           </div>
-          <div style={{ display: 'flex', fontFamily: 'Schibsted Grotesk', fontWeight: 400, fontSize: 36, color: '#9c8c7c' }}>
+          <div style={{ display: 'flex', fontFamily: OG_FONT_FAMILY.sans, fontWeight: 400, fontSize: 36, color: OG_COLORS.mutedForeground }}>
             {text} · 12 shows this week
           </div>
         </div>

@@ -87,30 +87,39 @@ function parseFont(path: string): Font {
 }
 
 const FONTS = 'lib/og/fonts'
-const SANS: Array<[SansFace, string]> = [
-  ['schibstedBold', `${FONTS}/SchibstedGrotesk-Bold.ttf`],
-  ['schibstedRegular', `${FONTS}/SchibstedGrotesk-Regular.ttf`],
-]
-const DATA = `${FONTS}/GolosText-Regular.ttf`
 
 /**
- * Every face with an advance table, with the function that measures it.
+ * Every brand face with an advance table, with the function that measures it.
  * Measuring one character at 1000px yields its advance per 1000 em directly.
  */
-const MEASURED: Array<[string, string, (char: string) => number, number]> = [
-  ...SANS.map(
-    ([face, path]) =>
-      [face, path, (char: string) => measureSans(char, face, 1000), DESCENT_RATIO.sans] as [
-        string,
-        string,
-        (char: string) => number,
-        number,
-      ]
-  ),
-  ['golosRegular', DATA, (char: string) => measureData(char, 1000), DESCENT_RATIO.data],
-]
+interface MeasuredFace {
+  label: string
+  path: string
+  advanceOf: (char: string) => number
+  descentRatio: number
+}
 
-describe.each(MEASURED)('%s advance table', (_face, path, advanceOf, descentRatio) => {
+const sansFace = (face: SansFace, file: string): MeasuredFace => ({
+  label: face,
+  path: `${FONTS}/${file}`,
+  advanceOf: char => measureSans(char, face, 1000),
+  descentRatio: DESCENT_RATIO.sans,
+})
+
+const MEASURED: MeasuredFace[] = [
+  sansFace('schibstedBold', 'SchibstedGrotesk-Bold.ttf'),
+  sansFace('schibstedRegular', 'SchibstedGrotesk-Regular.ttf'),
+  {
+    label: 'data',
+    path: `${FONTS}/GolosText-Regular.ttf`,
+    advanceOf: char => measureData(char, 1000),
+    descentRatio: DESCENT_RATIO.data,
+  },
+]
+const DATA = MEASURED[2].path
+const BRAND_FACES = MEASURED.map(face => face.path)
+
+describe.each(MEASURED)('$label advance table', ({ path, advanceOf, descentRatio }) => {
   const font = parseFont(path)
 
   it('matches the font file across the whole ASCII range', () => {
@@ -154,6 +163,17 @@ describe.each(MEASURED)('%s advance table', (_face, path, advanceOf, descentRati
     expect(mismatches).toEqual([])
   })
 
+  // Anything the tables do not cover is charged one fixed advance, and that
+  // only over-measures if no glyph this face ships is wider. A re-subset that
+  // brings in a wider glyph has to raise the constant with it.
+  it('charges unknown glyphs at least the widest advance it ships', () => {
+    let widest = 0
+    for (let cp = 0x20; cp <= 0x2122; cp++) {
+      widest = Math.max(widest, font.advance(cp) ?? 0)
+    }
+    expect(advanceOf('東')).toBeGreaterThanOrEqual(widest)
+  })
+
   it('keeps the descent ratio the baseline correction is built on', () => {
     expect(font.descentRatio).toBeCloseTo(descentRatio, 4)
   })
@@ -175,11 +195,9 @@ describe('Golos Text figures', () => {
 })
 
 describe('subset coverage', () => {
-  const ALL_FACES = [...SANS.map(([, path]) => path), DATA]
-
   it('carries every glyph the cards actually draw, in every shipped face', () => {
     const required = 'psychichomily.com0123456789 ·–ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-    for (const path of ALL_FACES) {
+    for (const path of BRAND_FACES) {
       const font = parseFont(path)
       for (const char of required) {
         expect(
@@ -190,12 +208,9 @@ describe('subset coverage', () => {
     }
   })
 
-  it('keeps every face on the same em square and descent the card assumes', () => {
-    for (const path of ALL_FACES) {
-      const font = parseFont(path)
-      expect(font.unitsPerEm, path).toBe(1000)
-      const expected = path === DATA ? DESCENT_RATIO.data : DESCENT_RATIO.sans
-      expect(font.descentRatio, path).toBeCloseTo(expected, 4)
+  it('keeps every face on the 1000-unit em square the tables assume', () => {
+    for (const path of BRAND_FACES) {
+      expect(parseFont(path).unitsPerEm, path).toBe(1000)
     }
   })
 })
@@ -214,7 +229,6 @@ describe('subset coverage', () => {
  */
 describe('fallback face script coverage', () => {
   const FALLBACKS = [`${FONTS}/NotoSans-Regular.ttf`]
-  const BRAND = [...SANS.map(([, path]) => path), DATA]
 
   /**
    * One representative per LIVING language the cards promise to render offline.
@@ -244,7 +258,7 @@ describe('fallback face script coverage', () => {
   ]
 
   it.each(COVERED)('renders %s from the shipped bytes, with no network fetch', (_label, sample) => {
-    const faces = [...BRAND, ...FALLBACKS].map(parseFont)
+    const faces = [...BRAND_FACES, ...FALLBACKS].map(parseFont)
     for (const char of sample) {
       const cp = char.codePointAt(0)!
       const covered = faces.some(f => f.advance(cp) !== null)
@@ -289,7 +303,7 @@ describe('fallback face script coverage', () => {
     // Pins the residual gap so it stays a written decision rather than drifting
     // into an assumption. If one of these ever starts passing, the gap section
     // of the `brand.ts` header is out of date.
-    const faces = [...BRAND, ...FALLBACKS].map(parseFont)
+    const faces = [...BRAND_FACES, ...FALLBACKS].map(parseFont)
     const uncovered: Array<[string, number]> = [
       ['CJK', 0x4e2d],
       ['Hangul', 0xac00],

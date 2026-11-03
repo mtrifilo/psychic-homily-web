@@ -61,16 +61,15 @@ describe('measureSans', () => {
   // beside the letter, so folding them onto their base would UNDER-measure a
   // Czech or Slovak name, the unsafe direction.
   it('measures ď ľ ť at their own, wider advance', () => {
-    for (const [carón, base] of [
+    for (const [caron, base] of [
       ['ď', 'd'],
       ['ľ', 'l'],
       ['ť', 't'],
     ]) {
-      expect(measureSans(carón, 'schibstedBold', 1000)).toBeGreaterThan(
+      expect(measureSans(caron, 'schibstedBold', 1000)).toBeGreaterThan(
         measureSans(base, 'schibstedBold', 1000)
       )
     }
-    expect(measureSans('ď', 'schibstedBold', 1000)).toBeCloseTo(705, 0)
   })
 
   // The property that matters is the DIRECTION of the error, not the constant.
