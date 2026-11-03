@@ -42,44 +42,6 @@ func (s *AuthService) StartOAuthLink(identity contracts.OAuthIdentity, userID ui
 // PeekOAuthLink returns the pending link token names, leaving it in place
 // (contracts.AuthServiceInterface).
 func (s *AuthService) PeekOAuthLink(token string) (*contracts.OAuthPendingLink, error) {
-	link, err := s.peekPendingLink(token)
-	if err != nil {
-		return nil, err
-	}
-	link.ReplacesIdentity, err = s.mailboxProofReplacesIdentity(link)
-	if err != nil {
-		return nil, err
-	}
-	return link, nil
-}
-
-// mailboxProofReplacesIdentity reports whether the mailbox proof of link,
-// were it to land now, would remove an identity the account holds from
-// link's provider (CompleteOAuthLinkByEmail): the account's address was
-// never verified and it holds an identity from the provider other than
-// link's. It reads without locking, so it describes the account as it is
-// now, and the proof decides again under its own lock.
-func (s *AuthService) mailboxProofReplacesIdentity(link *contracts.OAuthPendingLink) (bool, error) {
-	var account authm.User
-	found := s.db.Where("id = ?", link.UserID).Limit(1).Find(&account)
-	if found.Error != nil {
-		return false, fmt.Errorf("failed to read pending link account: %w", found.Error)
-	}
-	if found.RowsAffected == 0 || !account.MailboxProofReplacesIdentity() {
-		return false, nil
-	}
-	var held int64
-	if err := s.db.Model(&authm.OAuthAccount{}).
-		Where("user_id = ? AND provider = ? AND provider_user_id <> ?",
-			link.UserID, link.Identity.Provider, link.Identity.Subject).
-		Count(&held).Error; err != nil {
-		return false, fmt.Errorf("failed to read provider identities: %w", err)
-	}
-	return held > 0, nil
-}
-
-// peekPendingLink reads the pending link token names, leaving it in place.
-func (s *AuthService) peekPendingLink(token string) (*contracts.OAuthPendingLink, error) {
 	row, hash, err := s.readPending(s.db, pendingLinkPurpose, token, peekPendingRow)
 	if err != nil {
 		return nil, err
@@ -92,7 +54,42 @@ func (s *AuthService) peekPendingLink(token string) (*contracts.OAuthPendingLink
 	if row.UserID != nil {
 		link.UserID = *row.UserID
 	}
+	link.ReplacesIdentity, err = s.mailboxProofReplacesIdentity(link)
+	if err != nil {
+		return nil, err
+	}
 	return link, nil
+}
+
+// mailboxProofReplacesIdentity reports whether the mailbox proof of link,
+// were it to land now, would remove an identity the account holds from
+// link's provider (CompleteOAuthLinkByEmail, evictUnprovenIdentity). It reads
+// without locking, so it describes the account as it is now, and the proof
+// decides again under its own lock.
+func (s *AuthService) mailboxProofReplacesIdentity(link *contracts.OAuthPendingLink) (bool, error) {
+	var account authm.User
+	found := s.db.Where("id = ?", link.UserID).Limit(1).Find(&account)
+	if found.Error != nil {
+		return false, fmt.Errorf("failed to read pending link account: %w", found.Error)
+	}
+	if found.RowsAffected == 0 || !account.MailboxProofReplacesIdentity() {
+		return false, nil
+	}
+	var held int64
+	if err := otherProviderIdentity(s.db, link.UserID, link.Identity.Provider, link.Identity.Subject).
+		Count(&held).Error; err != nil {
+		return false, fmt.Errorf("failed to read provider identities: %w", err)
+	}
+	return held > 0, nil
+}
+
+// otherProviderIdentity scopes db to userID's identity from provider when it
+// is not subject: the identity the mailbox proof of subject replaces. The
+// collision state's read and the proof's eviction both select through it, so
+// the read predicts what the proof removes.
+func otherProviderIdentity(db *gorm.DB, userID uint, provider, subject string) *gorm.DB {
+	return db.Model(&authm.OAuthAccount{}).
+		Where("user_id = ? AND provider = ? AND provider_user_id <> ?", userID, provider, subject)
 }
 
 // oauthLinkEmailedLifetime is how long a pending link lives once its emailed
@@ -105,7 +102,7 @@ const oauthLinkEmailedLifetime = authEmailMaxAge + contracts.MagicLinkTokenTTL
 // oauthLinkEmailedLifetime from now, or longer if it already was
 // (contracts.AuthServiceInterface).
 func (s *AuthService) HoldOAuthLinkForEmail(token string) (*contracts.OAuthPendingLink, error) {
-	link, err := s.peekPendingLink(token)
+	link, err := s.PeekOAuthLink(token)
 	if err != nil {
 		return nil, err
 	}
@@ -300,8 +297,8 @@ func evictOtherCredentials(tx *gorm.DB, userID uint, keepProvider string) error 
 // removes.
 func evictUnprovenIdentity(tx *gorm.DB, userID uint, provider, provenSubject string) (*authm.OAuthAccount, error) {
 	var held authm.OAuthAccount
-	found := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("user_id = ? AND provider = ? AND provider_user_id <> ?", userID, provider, provenSubject).
+	found := otherProviderIdentity(tx, userID, provider, provenSubject).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
 		Limit(1).Find(&held)
 	if found.Error != nil {
 		return nil, fmt.Errorf("failed to read the provider identity: %w", found.Error)

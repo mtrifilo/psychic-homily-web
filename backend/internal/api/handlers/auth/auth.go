@@ -345,9 +345,12 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 		var linkErr error
 		if pendingLink != "" {
 			linked, linkErr = h.authService.LinkOAuthWithPassword(pendingLink, user)
-			if linkErr == nil || isLinkPendingExpired(linkErr) {
-				resp.SetCookie = append(resp.SetCookie, clearedPendingLinkCookie(secure))
-			}
+		}
+		// Linked, discarded or gone: no pending link is left for the cookie
+		// to name.
+		settled := linkErr == nil || isLinkPendingExpired(linkErr)
+		if pendingLink != "" && settled {
+			resp.SetCookie = append(resp.SetCookie, clearedPendingLinkCookie(secure))
 		}
 		refusal, refused := refusalWithOwnCopy(linkErr)
 		switch {
@@ -357,7 +360,7 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 				user = reloaded
 			}
 			logger.AuthInfo(ctx, "login_completed_pending_link", "user_id", user.ID)
-		case linkErr == nil || isLinkPendingExpired(linkErr):
+		case settled:
 			if input.Body.ConnectPendingLink {
 				logger.AuthWarn(ctx, "login_pending_link_refused", "user_id", user.ID, "error_code", autherrors.CodeOAuthLinkPendingExpired)
 				resp.Body.Success = false

@@ -47,6 +47,27 @@ const LINK_REFUSAL_CODES: ReadonlySet<string> = new Set([
 
 const LINK_CLASS = 'font-medium underline underline-offset-4 hover:text-primary'
 
+/**
+ * The state's copy that depends on the proofs offered: both proofs, where
+ * the emailed link connects Google, or the emailed link alone, where it
+ * replaces the connected Google account.
+ */
+const BOTH_PROOFS_COPY = {
+  noteTail: ' Sign in with your password to connect Google.',
+  sendLabel: 'Email me a sign-in link instead',
+  sendNote:
+    'The link connects Google, signs out your other sessions and turns off your current password.',
+  sentTail: 'Opening it connects Google and signs out your other sessions.',
+}
+const REPLACING_COPY: typeof BOTH_PROOFS_COPY = {
+  noteTail: '',
+  sendLabel: 'Email me a sign-in link',
+  sendNote:
+    'The link replaces the connected Google account with yours, signs out your other sessions and turns off your current password.',
+  sentTail:
+    'Opening it replaces the connected Google account with yours, signs out your other sessions and turns off your current password.',
+}
+
 interface GoogleCollisionSignInProps {
   /** The address the account and the Google identity share. */
   email: string
@@ -130,6 +151,7 @@ export function GoogleCollisionSignIn({
   }
 
   const sendError = sendLink.isError && !isPendingLinkGone(sendLink.error)
+  const copy = replacesIdentity ? REPLACING_COPY : BOTH_PROOFS_COPY
 
   const emailField = (
     <div className="space-y-2">
@@ -153,7 +175,7 @@ export function GoogleCollisionSignIn({
         <AlertDescription>
           <span>
             An account already uses <strong className="font-semibold">{email}</strong>.
-            {!replacesIdentity && ' Sign in with your password to connect Google.'}
+            {copy.noteTail}
           </span>
         </AlertDescription>
       </Alert>
@@ -229,10 +251,7 @@ export function GoogleCollisionSignIn({
             <p className="font-medium">Check your inbox</p>
             <p>
               We sent a sign-in link to <span className="font-data">{email}</span>. It expires in{' '}
-              {MAGIC_LINK_EXPIRY_MINUTES} minutes.{' '}
-              {replacesIdentity
-                ? 'Opening it replaces the connected Google account with yours, signs out your other sessions and turns off your current password.'
-                : 'Opening it connects Google and signs out your other sessions.'}
+              {MAGIC_LINK_EXPIRY_MINUTES} minutes. {copy.sentTail}
             </p>
           </div>
         </div>
@@ -259,17 +278,11 @@ export function GoogleCollisionSignIn({
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Sending...
               </>
-            ) : replacesIdentity ? (
-              'Email me a sign-in link'
             ) : (
-              'Email me a sign-in link instead'
+              copy.sendLabel
             )}
           </Button>
-          <p className="text-center text-xs text-muted-foreground">
-            {replacesIdentity
-              ? 'The link replaces the connected Google account with yours, signs out your other sessions and turns off your current password.'
-              : 'The link connects Google, signs out your other sessions and turns off your current password.'}
-          </p>
+          <p className="text-center text-xs text-muted-foreground">{copy.sendNote}</p>
         </div>
       )}
 

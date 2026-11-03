@@ -233,7 +233,8 @@ type OAuthPendingLink struct {
 	// ReplacesIdentity is set when the account's address was never verified
 	// and it holds an identity from Identity.Provider other than Identity:
 	// the mailbox proof replaces that identity, and the password proof,
-	// which never replaces one, is refused. Only PeekOAuthLink reads it.
+	// which never replaces one, is refused. It describes the account when
+	// the pending link was read; the proofs decide again when they land.
 	ReplacesIdentity bool
 }
 
@@ -299,10 +300,10 @@ type AuthServiceInterface interface {
 	// one is refused with a typed AuthError carrying
 	// CodeOAuthLinkPendingExpired; any other error means it could not be read.
 	PeekOAuthLink(token string) (*OAuthPendingLink, error)
-	// HoldOAuthLinkForEmail is PeekOAuthLink for the mailbox proof's send,
-	// without ReplacesIdentity: it also keeps the pending link alive for as
-	// long as the emailed link it is about to be named by can be delivered
-	// and followed. Refusals are PeekOAuthLink's.
+	// HoldOAuthLinkForEmail is PeekOAuthLink for the mailbox proof's send: it
+	// also keeps the pending link alive for as long as the emailed link it is
+	// about to be named by can be delivered and followed. Refusals are
+	// PeekOAuthLink's.
 	HoldOAuthLinkForEmail(token string) (*OAuthPendingLink, error)
 	// LinkOAuthWithPassword finishes the pending link token names for user,
 	// whose password the caller has just verified. When it names user, and
