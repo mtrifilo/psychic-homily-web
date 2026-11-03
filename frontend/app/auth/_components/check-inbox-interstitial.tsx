@@ -9,13 +9,9 @@ import {
   VerificationResendSessionExpired,
   VerificationResendStatus,
   useVerificationResendState,
-  type ResendAnnouncement,
-  type ResendStatusFormat,
 } from '@/features/auth/components/verification-resend'
-import {
-  formatResendStatus,
-  resendStatusAnnouncement,
-} from '@/features/auth/hooks/useVerificationResendCooldown'
+import { formatResendWaitOnly } from '@/features/auth/hooks/useVerificationResendCooldown'
+import { SentAgainConfirmation, announceSentAgain } from '@/app/auth/_components/sent-again'
 import { buildAuthHref } from '@/lib/auth-href'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -41,23 +37,6 @@ const BROWSE_HREF = '/shows'
 
 /** The account-email fold, which is a tab on the profile page, not `/settings`. */
 const ACCOUNT_SETTINGS_HREF = '/profile?tab=settings'
-
-/**
- * The wait alone. This surface confirms a send in its own words
- * (`ResendConfirmation`), so the shared line must not say it a second time.
- */
-const formatWaitOnly: ResendStatusFormat = (_sent, secondsRemaining) =>
-  formatResendStatus(false, secondsRemaining)
-
-const SENT_AGAIN = 'Sent again. Give it a minute to arrive.'
-
-/**
- * This surface announces a confirmed send in the same words it shows, and only
- * while that send is the latest outcome, matching `ResendConfirmation`. The
- * region empties when the next attempt starts, so every success is announced.
- */
-const announceSentAgain: ResendAnnouncement = ({ latestAttemptSent, isCoolingDown }) =>
-  latestAttemptSent ? SENT_AGAIN : resendStatusAnnouncement(false, isCoolingDown)
 
 interface CheckInboxInterstitialProps {
   /** The address the account was created under. */
@@ -140,9 +119,9 @@ export function CheckInboxInterstitial({
           </VerificationResendButton>
         </div>
 
-        <ResendConfirmation />
+        <SentAgainConfirmation />
         <VerificationResendStatus
-          format={formatWaitOnly}
+          format={formatResendWaitOnly}
           announce={announceSentAgain}
           className="text-xs text-link"
         />
@@ -194,25 +173,5 @@ function CurrentSessionExpired({ children }: { children: ReactNode }) {
     <VerificationResendSessionExpired key={sessionExpiredRefusals}>
       {children}
     </VerificationResendSessionExpired>
-  )
-}
-
-/**
- * This surface's own words for a confirmed send, shown only while that send is
- * the latest outcome: a later attempt in flight, throttled, or refused takes it
- * down, so it never claims a send that did not happen.
- *
- * Hidden from assistive tech because the live region speaks the same sentence
- * under the same condition (`announceSentAgain`).
- */
-function ResendConfirmation() {
-  const { latestAttemptSent } = useVerificationResendState()
-  if (!latestAttemptSent) {
-    return null
-  }
-  return (
-    <p aria-hidden="true" className="text-sm text-success-foreground">
-      {SENT_AGAIN}
-    </p>
   )
 }

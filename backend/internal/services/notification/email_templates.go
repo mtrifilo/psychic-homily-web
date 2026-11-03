@@ -153,6 +153,33 @@ var accountRecoveryEmailTemplate = mustEmailTemplate("account_recovery", `{{temp
     </div>
 {{template "plainFrameClose"}}`)
 
+// passwordResetEmailData is the reset email's data. ExpiryMinutes is the
+// reset link's lifetime (contracts.PasswordResetTokenTTL).
+type passwordResetEmailData struct {
+	ResetURL      string
+	ExpiryMinutes int
+}
+
+// The reset email says only what the reset does: the link works once, nothing
+// changes until a new password is set with it, and setting one signs out every
+// other device while passkeys keep working.
+var passwordResetEmailTemplate = mustEmailTemplate("password_reset", `{{template "plainFrameOpen"}}
+    <div style="background: #f9f9f9; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
+        <h2 style="margin-top: 0; color: #1a1a1a;">Reset your password</h2>
+        <p>Use the button below to choose a new password for your Psychic Homily account. This link expires in {{.ExpiryMinutes}} minutes and works once.</p>
+        <p style="text-align: center; margin: 30px 0;">
+            <a href="{{.ResetURL}}" style="display: inline-block; background: #f97316; color: white; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600;">Choose a new password</a>
+        </p>
+        <p style="font-size: 14px; color: #666;">Nothing changes until you set a new password with this link. Setting one signs out every other device signed in to your account. Your passkeys keep working.</p>
+    </div>
+
+    <div style="text-align: center; font-size: 12px; color: #999;">
+        <p>If you didn't ask to reset your password, you can ignore this email. Your password stays as it is.</p>
+        <p>If the button doesn't work, copy and paste this link into your browser:</p>
+        <p style="word-break: break-all; color: #666;">{{.ResetURL}}</p>
+    </div>
+{{template "plainFrameClose"}}`)
+
 // ──────────────────────────────────────────────
 // Show reminder
 // ──────────────────────────────────────────────
@@ -509,6 +536,7 @@ var allEmailTemplates = []struct {
 }{
 	{magicLinkEmailTemplate, magicLinkEmailData{}},
 	{accountRecoveryEmailTemplate, accountRecoveryEmailData{}},
+	{passwordResetEmailTemplate, passwordResetEmailData{}},
 	{showReminderEmailTemplate, showReminderEmailData{}},
 	{tierPromotionEmailTemplate, tierPromotionEmailData{}},
 	{tierDemotionEmailTemplate, tierDemotionEmailData{}},

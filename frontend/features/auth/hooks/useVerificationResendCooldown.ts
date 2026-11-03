@@ -60,6 +60,17 @@ export function formatResendStatus(
 }
 
 /**
+ * The wait alone, for a surface that confirms a send in its own words, so the
+ * shared line never says "sent" a second time.
+ */
+export function formatResendWaitOnly(
+  _sent: boolean,
+  secondsRemaining: number
+): string | null {
+  return formatResendStatus(false, secondsRemaining)
+}
+
+/**
  * True when a resend failed because the session is gone rather than because
  * the send itself broke.
  *

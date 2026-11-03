@@ -62,6 +62,7 @@ vi.mock('@/features/auth', () => ({
     isPending: false,
     error: null as Error | null,
   }),
+  useRequestPasswordReset: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
   useSendMagicLink: () => ({
     mutate: vi.fn(),
     isPending: false,

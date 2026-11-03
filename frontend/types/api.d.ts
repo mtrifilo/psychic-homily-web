@@ -2832,6 +2832,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/password-reset/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post auth password reset check */
+        post: operations["post-auth-password-reset-check"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/password-reset/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post auth password reset complete */
+        post: operations["post-auth-password-reset-complete"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/password-reset/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post auth password reset request */
+        post: operations["post-auth-password-reset-request"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/password-reset/send-own": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post auth password reset send own */
+        post: operations["post-auth-password-reset-send-own"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/preferences/alert-defaults": {
         parameters: {
             query?: never;
@@ -9038,6 +9106,34 @@ export interface components {
                 [key: string]: components["schemas"]["CheckEventStatus"];
             };
         };
+        CheckPasswordResetRequestBody: {
+            /** @description Password reset token from the emailed link */
+            token: string;
+        };
+        CheckPasswordResetResponseBody: {
+            /**
+             * @description The address of the account the link resets
+             * @example user@example.com
+             */
+            email?: string;
+            /**
+             * @description Error code for programmatic handling
+             * @example INVALID_TOKEN
+             */
+            error_code?: string;
+            /** @description Refusal message */
+            message?: string;
+            /**
+             * @description Request ID for debugging
+             * @example 550e8400-e29b-41d4-a716-446655440000
+             */
+            request_id?: string;
+            /**
+             * @description The link may still set a new password
+             * @example true
+             */
+            success: boolean;
+        };
         CheckSavedResponseBody: {
             is_saved: boolean;
         };
@@ -9282,6 +9378,36 @@ export interface components {
             ups: number;
             /** Format: int64 */
             user_vote: number | null;
+        };
+        CompletePasswordResetRequestBody: {
+            /** @description The account's new password */
+            new_password: string;
+            /** @description Password reset token from the emailed link */
+            token: string;
+        };
+        CompletePasswordResetResponseBody: {
+            /**
+             * @description Error code for programmatic handling
+             * @example INVALID_TOKEN
+             */
+            error_code?: string;
+            /**
+             * @description Response message
+             * @example Password reset
+             */
+            message: string;
+            /**
+             * @description Request ID for debugging
+             * @example 550e8400-e29b-41d4-a716-446655440000
+             */
+            request_id?: string;
+            /**
+             * @description Success status
+             * @example true
+             */
+            success: boolean;
+            /** @description The account, signed in on this browser */
+            user?: components["schemas"]["User"];
         };
         ComponentHealth: {
             /**
@@ -14314,6 +14440,30 @@ export interface components {
              */
             success: boolean;
         };
+        RequestPasswordResetRequestBody: {
+            /**
+             * @description Address to send the password reset link to
+             * @example user@example.com
+             */
+            email: string;
+        };
+        RequestPasswordResetResponseBody: {
+            /**
+             * @description Response message
+             * @example If an account uses this email, a password reset link has been sent.
+             */
+            message: string;
+            /**
+             * @description Request ID for debugging
+             * @example 550e8400-e29b-41d4-a716-446655440000
+             */
+            request_id?: string;
+            /**
+             * @description Always true: the response never says whether an account uses the address
+             * @example true
+             */
+            success: boolean;
+        };
         RequestResponse: {
             /** Format: date-time */
             created_at: string;
@@ -14938,6 +15088,18 @@ export interface components {
             request_id?: string;
             /**
              * @description Success status. Always true for any well-formed request — the response never reveals whether the email is registered or verified.
+             * @example true
+             */
+            success: boolean;
+        };
+        SendOwnPasswordResetResponseBody: {
+            /**
+             * @description Request ID for debugging
+             * @example 550e8400-e29b-41d4-a716-446655440000
+             */
+            request_id?: string;
+            /**
+             * @description The reset link is queued for the account's own address
              * @example true
              */
             success: boolean;
@@ -23012,6 +23174,135 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SetPasswordResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-auth-password-reset-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckPasswordResetRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckPasswordResetResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-auth-password-reset-complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompletePasswordResetRequestBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompletePasswordResetResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-auth-password-reset-request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequestPasswordResetRequestBody"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestPasswordResetResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-auth-password-reset-send-own": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendOwnPasswordResetResponseBody"];
                 };
             };
             /** @description Error */

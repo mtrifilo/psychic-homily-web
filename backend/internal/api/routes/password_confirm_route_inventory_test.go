@@ -58,6 +58,7 @@ var (
 	scopePasskeyRegister  = fmt.Sprintf("registerBeginGroup: its own %d/min passkey register begin budget per session user, inside it a %d/min ceiling per client IP across users, behind HumaJWTMiddleware", middleware.PasskeyRegisterBeginRequestsPerMinute, middleware.PasskeyRegisterBeginIPCeilingPerMinute)
 	scopeResendSized      = fmt.Sprintf("its own limiter at the %d/min verification-resend size", VerificationResendPerMinute)
 	scopeSetPassword      = fmt.Sprintf("setPasswordGroup: its own limiter at the %d/min password-confirm size", PasswordConfirmAttemptsPerMinute)
+	scopeResetSend        = fmt.Sprintf("resetSendLimiter: one %d/min counter shared by the signed-out reset request and the signed-in send-own", VerificationResendPerMinute)
 	scopeProtectedNoLimit = "rc.Protected with no per-route limiter"
 	scopeAdminNoLimit     = "rc.Admin with no per-route limiter"
 	scopePublicNoLimit    = "rc.API with no per-route limiter"
@@ -104,6 +105,10 @@ var authRouteRateLimitScope = map[string]string{
 	"POST /auth/magic-link/verify":                 scopePublicAuth,
 	"POST /auth/apple/callback":                    scopeAppleSignIn,
 	"POST /auth/recover-account":                   scopePublicAuth,
+	"POST /auth/password-reset/request":            scopeResetSend,
+	"POST /auth/password-reset/send-own":           scopeResetSend,
+	"POST /auth/password-reset/check":              scopePublicAuth,
+	"POST /auth/password-reset/complete":           scopePublicAuth,
 	"POST /auth/recover-account/request":           scopePublicAuth,
 	"POST /auth/recover-account/confirm":           scopePublicAuth,
 	"POST /auth/change-password":                   scopePasswordConfirm,

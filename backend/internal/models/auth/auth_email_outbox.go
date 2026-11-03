@@ -15,6 +15,9 @@ const (
 	// AuthEmailKindOAuthLink is the sign-in link that proves the mailbox for a
 	// pending provider link; OAuthLinkRef names that pending link.
 	AuthEmailKindOAuthLink AuthEmailKind = "oauth_link"
+	// AuthEmailKindPasswordReset is the emailed link that sets a new password
+	// without the current one.
+	AuthEmailKindPasswordReset AuthEmailKind = "password_reset"
 )
 
 // auth_email_outbox status values.
@@ -30,12 +33,12 @@ const (
 	AuthEmailStatusFailed     = "failed"
 )
 
-// AuthEmailOutboxItem is one magic-link, account-recovery, verification or
-// pending-link email a request handler has promised to send. The row names
-// the account and the kind, and for a pending-link email the pending link by
-// OAuthLinkRef, a hash no browser can present. The poller reads the account
-// and mints the link token at send time, so the table never holds a bearer
-// token.
+// AuthEmailOutboxItem is one magic-link, account-recovery, verification,
+// pending-link or password-reset email a request handler has promised to
+// send. The row names the account and the kind, and for a pending-link email
+// the pending link by OAuthLinkRef, a hash no browser can present. The poller
+// reads the account and mints the link token at send time, so the table never
+// holds a bearer token.
 type AuthEmailOutboxItem struct {
 	ID     uint          `gorm:"primaryKey"`
 	Kind   AuthEmailKind `gorm:"column:kind;not null"`

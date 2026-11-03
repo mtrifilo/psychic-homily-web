@@ -90,6 +90,11 @@ export const AuthErrorCode = {
    * another tab or device. Changing it goes through Change password.
    */
   PASSWORD_ALREADY_SET: 'PASSWORD_ALREADY_SET',
+  /**
+   * An emailed link that no longer works: expired, already used, or minted
+   * before the account changed. The remedy is a new link.
+   */
+  INVALID_TOKEN: 'INVALID_TOKEN',
 } as const
 
 export type AuthErrorCodeType =

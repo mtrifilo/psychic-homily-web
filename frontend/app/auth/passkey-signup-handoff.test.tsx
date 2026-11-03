@@ -62,6 +62,7 @@ vi.mock('@/lib/context/AuthContext', async () => {
 vi.mock('@/features/auth', () => ({
   useLogin: () => ({ mutate: vi.fn(), isPending: false, error: null as Error | null }),
   useRegister: () => ({ mutate: vi.fn(), isPending: false, error: null as Error | null }),
+  useRequestPasswordReset: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
   useSendMagicLink: () => ({ mutate: vi.fn(), isPending: false }),
   useSendVerificationEmail: () => ({
     mutate: vi.fn(),

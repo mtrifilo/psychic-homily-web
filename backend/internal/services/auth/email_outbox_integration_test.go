@@ -19,8 +19,8 @@ import (
 	"psychic-homily-backend/internal/testutil"
 )
 
-// recordingSender records every magic-link, recovery and verification send and
-// answers each with err. onSend, when set, runs before the answer, with the
+// recordingSender records every magic-link, recovery, verification and
+// password-reset send and answers each with err. onSend, when set, runs before the answer, with the
 // recipient.
 type recordingSender struct {
 	mu            sync.Mutex
@@ -65,6 +65,10 @@ func (r *recordingSender) SendVerificationEmailContext(ctx context.Context, to, 
 	return r.record(ctx, recordedSend{kind: authm.AuthEmailKindVerification, to: to, token: token})
 }
 
+func (r *recordingSender) SendPasswordResetEmailContext(ctx context.Context, to, token string) error {
+	return r.record(ctx, recordedSend{kind: authm.AuthEmailKindPasswordReset, to: to, token: token})
+}
+
 // The plain forms make recordingSender an authEmailSender, which
 // NewAuthEmailOutbox takes; the poller calls the context forms above.
 func (r *recordingSender) SendMagicLinkEmail(to, token string) error {
@@ -77,6 +81,10 @@ func (r *recordingSender) SendAccountRecoveryEmail(to, token string, daysRemaini
 
 func (r *recordingSender) SendVerificationEmail(to, token string) error {
 	return r.SendVerificationEmailContext(context.Background(), to, token)
+}
+
+func (r *recordingSender) SendPasswordResetEmail(to, token string) error {
+	return r.SendPasswordResetEmailContext(context.Background(), to, token)
 }
 
 func (r *recordingSender) recorded() []recordedSend {
@@ -218,6 +226,30 @@ func (s *AuthEmailOutboxSuite) TestVerification_MintedAtSendForTheCurrentAddress
 	s.Require().NoError(err, "the token is a valid verification token")
 	s.Equal(user.ID, claims.UserID)
 	s.Equal("unverified-new@example.com", claims.Email)
+	s.Equal(authm.AuthEmailStatusSent, s.onlyRow().Status)
+}
+
+// The reset link is minted at send against the account's address and password
+// as they then stand, with no verified-address rule.
+func (s *AuthEmailOutboxSuite) TestPasswordReset_MintedAtSendForTheCurrentAddressAndPassword() {
+	user := s.verifiedUser("reset-old@example.com")
+	s.Require().NoError(s.db.Model(user).Updates(map[string]any{"email_verified": false, "password_hash": "$2a$10$queued"}).Error)
+	s.enqueue(authm.AuthEmailKindPasswordReset, user.ID)
+	s.Require().NoError(s.db.Model(user).Updates(map[string]any{"email": "reset-new@example.com", "password_hash": "$2a$10$atsend"}).Error)
+
+	s.outbox.RunNow(context.Background())
+
+	sends := s.sender.recorded()
+	s.Require().Len(sends, 1)
+	s.Equal(authm.AuthEmailKindPasswordReset, sends[0].kind)
+	s.Equal("reset-new@example.com", sends[0].to, "the email goes to the account's address at send time")
+	claims, err := s.jwt.ValidatePasswordResetToken(sends[0].token)
+	s.Require().NoError(err, "the token is a valid reset link")
+	s.Equal(user.ID, claims.UserID)
+	s.Equal("reset-new@example.com", claims.Email)
+	atSend, queued := "$2a$10$atsend", "$2a$10$queued"
+	s.True(s.jwt.passwordStateMatches(claims, &atSend), "the link names the password as it stood at send")
+	s.False(s.jwt.passwordStateMatches(claims, &queued))
 	s.Equal(authm.AuthEmailStatusSent, s.onlyRow().Status)
 }
 
@@ -499,7 +531,7 @@ func (s *AuthEmailOutboxSuite) TestDeliver_UnknownKindFails() {
 	testutil.DeactivateAccount(s.T(), s.db, user.ID)
 
 	reason, err := s.outbox.deliver(context.Background(),
-		authm.AuthEmailOutboxItem{Kind: "password_reset", UserID: user.ID}, time.Now().Add(time.Minute))
+		authm.AuthEmailOutboxItem{Kind: "no_such_kind", UserID: user.ID}, time.Now().Add(time.Minute))
 
 	s.ErrorIs(err, errUnknownAuthEmailKind)
 	s.Empty(reason)

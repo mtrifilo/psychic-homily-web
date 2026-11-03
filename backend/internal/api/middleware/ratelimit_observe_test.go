@@ -518,6 +518,7 @@ func TestRateLimitLogValuesAreStable(t *testing.T) {
 		"LimiterSetPassword":                   "set_password",
 		"LimiterOAuthLinkToken":                "oauth_link_token",
 		"LimiterSignOutEverywhereElse":         "sign_out_everywhere_else",
+		"LimiterPasswordResetSend":             "password_reset_send",
 		"LimiterTagCreate":                     "tag_create",
 		"LimiterTagVote":                       "tag_vote",
 		"LimiterShowReport":                    "show_report",

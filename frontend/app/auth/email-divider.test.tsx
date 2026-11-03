@@ -31,6 +31,7 @@ let mockSendMagicLinkPending = false
 vi.mock('@/features/auth', () => ({
   useLogin: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null }),
   useRegister: () => ({ mutate: vi.fn(), isPending: false, error: null as Error | null }),
+  useRequestPasswordReset: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
   useSendMagicLink: () => ({ mutate: mockSendMagicLink, isPending: mockSendMagicLinkPending }),
   useSendVerificationEmail: () => ({
     mutate: vi.fn(),

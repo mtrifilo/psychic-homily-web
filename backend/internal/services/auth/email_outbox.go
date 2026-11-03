@@ -25,8 +25,7 @@ const (
 
 	// DisableAuthEmailOutboxEnvVar set to "1" switches the outbox off at both
 	// ends: Enqueue refuses new rows and the poller sends nothing, so no
-	// magic-link, account-recovery or magic-link verification email goes out
-	// while it is set. It is
+	// email of any AuthEmailKind goes out while it is set. It is
 	// read from the process environment, so it takes effect when a server
 	// starts with it set (a restart or redeploy), not on a running one.
 	DisableAuthEmailOutboxEnvVar = "DISABLE_AUTH_EMAIL_OUTBOX"
@@ -135,6 +134,7 @@ type (
 		CreateOAuthLinkToken(userID uint, email, pendingLink string) (string, error)
 		CreateAccountRecoveryToken(userID uint, email string) (string, error)
 		CreateVerificationToken(userID uint, email string) (string, error)
+		CreatePasswordResetToken(user *authm.User) (string, error)
 	}
 	// authEmailSender is the shape of contracts.EmailServiceInterface's
 	// sends, which every email service and its test doubles have.
@@ -143,6 +143,7 @@ type (
 		SendMagicLinkEmail(toEmail, token string) error
 		SendAccountRecoveryEmail(toEmail, token string, daysRemaining int) error
 		SendVerificationEmail(toEmail, token string) error
+		SendPasswordResetEmail(toEmail, token string) error
 	}
 	// authEmailContextSender is how the poller sends: each send takes the
 	// worker's context, which carries the worker's Sentry hub, so a provider
@@ -152,6 +153,7 @@ type (
 		SendMagicLinkEmailContext(ctx context.Context, toEmail, token string) error
 		SendAccountRecoveryEmailContext(ctx context.Context, toEmail, token string, daysRemaining int) error
 		SendVerificationEmailContext(ctx context.Context, toEmail, token string) error
+		SendPasswordResetEmailContext(ctx context.Context, toEmail, token string) error
 	}
 )
 
@@ -172,6 +174,10 @@ func (s contextFreeSender) SendVerificationEmailContext(_ context.Context, toEma
 	return s.SendVerificationEmail(toEmail, token)
 }
 
+func (s contextFreeSender) SendPasswordResetEmailContext(_ context.Context, toEmail, token string) error {
+	return s.SendPasswordResetEmail(toEmail, token)
+}
+
 // asContextSender returns sender's context forms when it has them
 // (notification.EmailService does), and sender adapted otherwise.
 func asContextSender(sender authEmailSender) authEmailContextSender {
@@ -181,8 +187,8 @@ func asContextSender(sender authEmailSender) authEmailContextSender {
 	return contextFreeSender{sender}
 }
 
-// AuthEmailOutbox queues and sends magic-link, account-recovery, verification
-// and pending-link emails.
+// AuthEmailOutbox queues and sends magic-link, account-recovery,
+// verification, pending-link and password-reset emails.
 //
 // The enumeration-safe request handlers call Enqueue for a known account and
 // answer at once; the poller sends. A handler's response time therefore does
@@ -509,7 +515,8 @@ var (
 //
 // The eligibility rules: every kind but recovery needs an account that may
 // sign in (needsOpenAccount); a magic link needs a verified address; a
-// verification email needs an address not yet verified; a recovery email
+// verification email needs an address not yet verified; a password reset
+// needs nothing more; a recovery email
 // needs a soft-deleted account still inside its recovery window, the rule
 // the recovery request and confirm handlers apply; a pending-link email
 // needs a row that names a pending link.
@@ -571,6 +578,17 @@ func (o *AuthEmailOutbox) deliver(ctx context.Context, item authm.AuthEmailOutbo
 		}
 		return "", o.sender.SendVerificationEmailContext(ctx, email, token)
 
+	case authm.AuthEmailKindPasswordReset:
+		// No verified-address rule: the link proves the mailbox it is sent
+		// to, and the account may sign in (needsOpenAccount). The token
+		// carries the password state read here, so it is spent by the first
+		// password write after this send.
+		token, err := o.tokens.CreatePasswordResetToken(user)
+		if err != nil {
+			return "", err
+		}
+		return "", o.sender.SendPasswordResetEmailContext(ctx, email, token)
+
 	case authm.AuthEmailKindAccountRecovery:
 		if user.IsActive || !o.users.IsAccountRecoverable(user) {
 			return authEmailSkipIneligible, nil
@@ -589,7 +607,8 @@ func (o *AuthEmailOutbox) deliver(ctx context.Context, item authm.AuthEmailOutbo
 func knownAuthEmailKind(kind authm.AuthEmailKind) bool {
 	switch kind {
 	case authm.AuthEmailKindMagicLink, authm.AuthEmailKindOAuthLink,
-		authm.AuthEmailKindVerification, authm.AuthEmailKindAccountRecovery:
+		authm.AuthEmailKindVerification, authm.AuthEmailKindAccountRecovery,
+		authm.AuthEmailKindPasswordReset:
 		return true
 	}
 	return false

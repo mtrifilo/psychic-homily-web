@@ -240,6 +240,9 @@ func (m *mockEmailServiceForPendingEdit) SendMagicLinkEmail(_, _ string) error  
 func (m *mockEmailServiceForPendingEdit) SendAccountRecoveryEmail(_, _ string, _ int) error {
 	return nil
 }
+func (m *mockEmailServiceForPendingEdit) SendPasswordResetEmail(_, _ string) error {
+	return nil
+}
 func (m *mockEmailServiceForPendingEdit) SendShowReminderEmail(_, _, _, _ string, _ contracts.LocalizedEventTime, _ []string) error {
 	return nil
 }

@@ -885,6 +885,128 @@ export const useVerifyMagicLink = () => {
   })
 }
 
+type RequestPasswordResetResponse =
+  components['schemas']['RequestPasswordResetResponseBody']
+type SendOwnPasswordResetResponse =
+  components['schemas']['SendOwnPasswordResetResponseBody']
+type CheckPasswordResetResponse =
+  components['schemas']['CheckPasswordResetResponseBody']
+type CompletePasswordResetResponse = Omit<
+  components['schemas']['CompletePasswordResetResponseBody'],
+  'user'
+> & { user?: AuthApiUser }
+
+/**
+ * Ask for the emailed password reset link for an address. The answer is the
+ * same whether or not an account uses it; a malformed address (400), a server
+ * with no email provider (503) and a throttle (429) reject.
+ */
+export const useRequestPasswordReset = () => {
+  return useMutation({
+    mutationFn: async (email: string): Promise<RequestPasswordResetResponse> => {
+      authLogger.debug('Password reset request', {
+        email: email.slice(0, 2) + '***',
+      })
+      return apiRequest<RequestPasswordResetResponse>(
+        API_ENDPOINTS.AUTH.PASSWORD_RESET_REQUEST,
+        {
+          method: 'POST',
+          body: JSON.stringify({ email }),
+          credentials: 'include',
+        }
+      )
+    },
+  })
+}
+
+/**
+ * Send the emailed password reset link to the signed-in account's own
+ * address. Resolves once it is queued; any failure, a throttle included,
+ * rejects, so nothing is confirmed that was not queued.
+ */
+export const useSendOwnPasswordReset = () => {
+  return useMutation({
+    mutationFn: async (): Promise<SendOwnPasswordResetResponse> =>
+      apiRequest<SendOwnPasswordResetResponse>(
+        API_ENDPOINTS.AUTH.PASSWORD_RESET_SEND_OWN,
+        { method: 'POST', credentials: 'include' }
+      ),
+  })
+}
+
+/**
+ * Raises a reset route's body-encoded refusal as an AuthError carrying its
+ * code. Status 400 marks it as an answer about the link or the password, so
+ * the page tells it apart from a 5xx or a transport failure, which carry
+ * their own status or none.
+ */
+function throwPasswordResetRefusal(response: {
+  message?: string
+  error_code?: string
+  request_id?: string
+}): never {
+  throw new AuthError(
+    response.message || 'This password reset link no longer works.',
+    (response.error_code as AuthErrorCodeType) || AuthErrorCode.UNKNOWN,
+    { requestId: response.request_id, status: 400 }
+  )
+}
+
+/**
+ * Ask whether an emailed reset link may still set a password, and for which
+ * address. Opening the link spends nothing.
+ */
+export const useCheckPasswordReset = () => {
+  return useMutation({
+    mutationFn: async (token: string): Promise<CheckPasswordResetResponse> => {
+      const response = await apiRequest<CheckPasswordResetResponse>(
+        API_ENDPOINTS.AUTH.PASSWORD_RESET_CHECK,
+        {
+          method: 'POST',
+          body: JSON.stringify({ token }),
+          credentials: 'include',
+        }
+      )
+      if (!response.success) throwPasswordResetRefusal(response)
+      return response
+    },
+  })
+}
+
+/**
+ * Set a new password with an emailed reset link. Success signs every other
+ * session out and signs this browser in, so the profile is brought up to
+ * date with the new session before the mutation settles.
+ */
+export const useCompletePasswordReset = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      token,
+      newPassword,
+    }: {
+      token: string
+      newPassword: string
+    }): Promise<CompletePasswordResetResponse> => {
+      const response = await apiRequest<CompletePasswordResetResponse>(
+        API_ENDPOINTS.AUTH.PASSWORD_RESET_COMPLETE,
+        {
+          method: 'POST',
+          body: JSON.stringify({ token, new_password: newPassword }),
+          credentials: 'include',
+        }
+      )
+      if (!response.success) throwPasswordResetRefusal(response)
+      return response
+    },
+    onSuccess: async data => {
+      authLogger.info('Password reset', undefined, data.request_id)
+      await refreshCachesForNewSession(queryClient)
+    },
+  })
+}
+
 // Account deletion types
 interface DeletionSummaryResponse {
   success: boolean
