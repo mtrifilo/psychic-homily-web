@@ -28,12 +28,13 @@ export type FollowAlertChoice = 'near_me' | 'everywhere' | 'off' | 'on'
  * copy holds only while the backend's DISABLE_VENUE_SHOW_ALERTS is unset, since
  * that flag stops accrual and delivery alike.
  *
- * Release alerts have a stored, resolved subscription and no notifier behind
- * it. Their controls may say what the alerts WILL cover; they may not imply
- * anything is already flowing.
+ * Release alerts deliver IN-APP only: new releases are accrued and flushed as
+ * one inbox row per reader per UTC week, after the week closes. Their email
+ * lane is gated off in the backend, so no copy may promise release email. This
+ * note holds only while the backend's DISABLE_ARTIST_RELEASE_ALERTS is unset.
  */
-export const RELEASE_ALERTS_PENDING_NOTE =
-  'Release alerts are still being switched on. These settings decide where they will reach you once they are.'
+export const RELEASE_ALERTS_DELIVERY_NOTE =
+  'Release alerts arrive in the app once a week, listing new releases from the artists you follow. Email for release alerts is not available yet.'
 
 /**
  * Where a viewer with no home area goes to set one, and where an alert email's
@@ -281,15 +282,11 @@ const ALERTS_PAUSED_SCOPE_KEPT =
  * still be misread as governing releases, and this copy REPLACES the tooltip
  * that said otherwise.
  *
- * It does NOT reuse `RELEASE_ALERTS_PENDING_NOTE` verbatim. That string ends
- * "These settings decide where they will reach you once they are", written for
- * the account matrix card where "these settings" are the release channel
- * checkboxes. Under the chips, the only settings on screen are scope options
- * the release axis does not have and the server 422s, so the borrowed sentence
- * would point at the exact control the sentence before it just denied.
+ * It carries `RELEASE_ALERTS_DELIVERY_NOTE`, so the paused copy and the
+ * tooltip it replaces state release delivery the same way, and then points at
+ * where the release channels live.
  */
-const ALERTS_PAUSED_RELEASES_UNAFFECTED =
-  'New releases are never geography-scoped, so none of this affects them. Release alerts are still being switched on, and their channels are in your alert settings.'
+const ALERTS_PAUSED_RELEASES_UNAFFECTED = `New releases are never geography-scoped, so none of this affects them. ${RELEASE_ALERTS_DELIVERY_NOTE} Their channels are in your alert settings.`
 
 /**
  * Why a follow reads paused, what lifts it, and anything else still true of

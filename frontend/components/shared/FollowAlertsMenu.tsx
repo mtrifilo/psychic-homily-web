@@ -132,7 +132,7 @@ export function FollowAlertsMenu({
               paused
                 ? undefined
                 : hasReleaseAxis
-                  ? `New-show alerts for ${entityName}. Release alerts are set in Settings, and are still being switched on.`
+                  ? `New-show alerts for ${entityName}. Release alerts are set in Settings and arrive in the app once a week.`
                   : `New-show alerts for ${entityName}.`
             }
             // No `active`: this is a menu button, not a toggle. aria-pressed

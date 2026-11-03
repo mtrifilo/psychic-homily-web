@@ -7,7 +7,7 @@ import {
   followAlertSummaryFor,
   followAlertUpdateFor,
   isAlertCapableFollowType,
-  RELEASE_ALERTS_PENDING_NOTE,
+  RELEASE_ALERTS_DELIVERY_NOTE,
 } from './followAlertChoices'
 import type { FollowAlertSettings } from '@/lib/types/follow'
 
@@ -379,21 +379,18 @@ describe('followAlertsPausedNote', () => {
   it('keeps the release disclosure for the type that has a release axis', () => {
     const note = followAlertsPausedNote('artists')
     expect(note).toContain('never geography-scoped')
-    expect(note).toContain('Release alerts are still being switched on')
+    expect(note).toContain(RELEASE_ALERTS_DELIVERY_NOTE)
+    expect(note).not.toMatch(/still being switched on/i)
   })
 
-  // NOT the matrix card's string verbatim. That one ends "These settings
-  // decide where they will reach you once they are", written where "these
-  // settings" are the release channel checkboxes. Under the scope chips, the
-  // only settings on screen are ones the release axis does not have and the
-  // server 422s, so the borrowed sentence would point at the exact control
-  // the sentence before it just ruled out.
-  it('does not borrow the matrix card wording, whose referent is not here', () => {
-    expect(followAlertsPausedNote('artists')).not.toContain(
-      RELEASE_ALERTS_PENDING_NOTE
+  // The release delivery note names no on-screen control, so the paused copy
+  // carries it verbatim and then says where the release channels live.
+  it('states release delivery and where its channels live', () => {
+    expect(RELEASE_ALERTS_DELIVERY_NOTE).toBe(
+      'Release alerts arrive in the app once a week, listing new releases from the artists you follow. Email for release alerts is not available yet.'
     )
     expect(followAlertsPausedNote('artists')).toContain(
-      'their channels are in your alert settings'
+      'Their channels are in your alert settings'
     )
   })
 

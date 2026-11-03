@@ -469,18 +469,18 @@ describe('AlertSettings', () => {
     )
   })
 
-  // Capability truth, per alert type. Artist and venue show alerts deliver;
-  // release alerts do not. The footer's pending note is therefore the release
-  // note alone, and nothing else on the card is "still being switched on".
-  it('discloses only the alert type that does not deliver yet', () => {
+  // Capability truth, per alert type. Every type delivers in-app now; release
+  // alerts deliver weekly and have no email lane yet, which the footer states.
+  // Nothing on the card may call any alert "still being switched on".
+  it('states release delivery truthfully and calls nothing pending', () => {
     renderWithProviders(<AlertSettings />)
 
     expect(
       screen.getByText(
-        'Release alerts are still being switched on. These settings decide where they will reach you once they are.'
+        'Release alerts arrive in the app once a week, listing new releases from the artists you follow. Email for release alerts is not available yet.'
       )
     ).toBeInTheDocument()
-    expect(screen.getAllByText(/still being switched on/i)).toHaveLength(1)
+    expect(screen.queryByText(/still being switched on/i)).toBeNull()
   })
 
   // PENDING is not UNAVAILABLE. The first paint of the settings tab has no

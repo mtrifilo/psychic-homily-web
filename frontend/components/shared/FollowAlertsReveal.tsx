@@ -30,16 +30,17 @@ import {
   followAlertsPausedNote,
   followAlertUpdateFor,
   isAlertCapableFollowType,
-  RELEASE_ALERTS_PENDING_NOTE,
+  RELEASE_ALERTS_DELIVERY_NOTE,
   type FollowAlertChoice,
   type HomeMetroState,
 } from './followAlertChoices'
 import { cn } from '@/lib/utils'
 
-// Artist show alerts DELIVER (PSY-1896), so this copy says what happens, not
-// what will happen. Release alerts still do not, and they are a separate
-// account-level setting, which is why they get named here rather than implied.
-const ARTIST_TOOLTIP = `Chooses which of this artist's new shows you get alerted about. New releases are never geography-scoped, so this does not affect them. ${RELEASE_ALERTS_PENDING_NOTE}`
+// Artist show alerts deliver, so this copy says what happens, not what will
+// happen. Release alerts are a separate account-level setting with their own
+// weekly, in-app-only delivery, which is why they are named here rather than
+// implied.
+const ARTIST_TOOLTIP = `Chooses which of this artist's new shows you get alerted about. New releases are never geography-scoped, so this does not affect them. ${RELEASE_ALERTS_DELIVERY_NOTE}`
 
 // Venue show alerts deliver, coalesced to one alert per venue per venue-local
 // day, so the copy names that unit and promises no clock. Email is named only

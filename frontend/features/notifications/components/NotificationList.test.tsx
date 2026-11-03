@@ -342,8 +342,10 @@ describe('NotificationList', () => {
 
   it('counts the artists and lists them on a weekly release digest', () => {
     render(<NotificationList entries={[artistReleaseDigest()]} />)
+    // Delivered after its week closes, so the row never says "this week".
+    expect(screen.queryByText(/this week/i)).toBeNull()
     expect(screen.getByText('3 artists you follow')).toBeInTheDocument()
-    expect(screen.getByText('added releases this week')).toBeInTheDocument()
+    expect(screen.getByText('added releases last week')).toBeInTheDocument()
     expect(
       screen.getByText('Dan Deacon, Primitive Man, Russian Circles')
     ).toBeInTheDocument()
@@ -365,7 +367,7 @@ describe('NotificationList', () => {
       />
     )
     expect(screen.getByText('1 artist you follow')).toBeInTheDocument()
-    expect(screen.getByText('added a release this week')).toBeInTheDocument()
+    expect(screen.getByText('added a release last week')).toBeInTheDocument()
     expect(screen.getByRole('link')).toHaveAttribute(
       'href',
       'https://example.com/releases/gnosis'
@@ -386,7 +388,7 @@ describe('NotificationList', () => {
     )
     // No invented count when the server could not resolve any member.
     expect(screen.getByText('Artists you follow')).toBeInTheDocument()
-    expect(screen.getByText('added releases this week')).toBeInTheDocument()
+    expect(screen.getByText('added releases last week')).toBeInTheDocument()
     expect(screen.getByRole('link')).toHaveAttribute('href', '/library')
     expect(screen.queryByText('artist_release_digest')).not.toBeInTheDocument()
   })

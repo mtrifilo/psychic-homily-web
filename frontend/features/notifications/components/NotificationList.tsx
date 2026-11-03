@@ -374,8 +374,9 @@ function NotificationRow({ entry, variant, onItemClick, onMarkRead, dimmed }: Ro
       : artistCount === 1
         ? '1 artist you follow'
         : `${artistCount} artists you follow`
+    // "Last week": the row is delivered only after its UTC week has closed.
     const verb =
-      releaseCount === 1 ? 'added a release this week' : 'added releases this week'
+      releaseCount === 1 ? 'added a release last week' : 'added releases last week'
     return (
       <li>
         <Link

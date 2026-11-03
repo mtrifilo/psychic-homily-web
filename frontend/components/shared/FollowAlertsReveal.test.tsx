@@ -407,9 +407,9 @@ describe('FollowAlertsReveal', () => {
     })
   })
 
-  // Capability truth, per type: artist and venue show alerts deliver, release
-  // alerts do not. Both tooltips are pinned to the CLAIM rather than to the
-  // existence of a tooltip button.
+  // Capability truth, per type: artist and venue show alerts deliver, and
+  // release alerts deliver weekly, in-app only. Both tooltips are pinned to the
+  // CLAIM rather than to the existence of a tooltip button.
   describe('capability truth in the tooltips', () => {
     const openTooltip = async () => {
       const user = userEvent.setup()
@@ -418,18 +418,19 @@ describe('FollowAlertsReveal', () => {
       )
     }
 
-    // The artist tooltip's only pending sentence is about RELEASES. A regex
-    // for "still being switched on" alone passes even if the artist copy is
-    // reverted to claiming artist SHOW alerts are unshipped, because the
-    // release note satisfies it. So assert the release subject explicitly, and
-    // assert the reverted claim is absent.
-    it('scopes the artist tooltip pending note to releases only', async () => {
+    // The artist tooltip states release delivery as it is: weekly, in-app,
+    // no email. Nothing in it may call any alert pending.
+    it('states weekly in-app release delivery in the artist tooltip', async () => {
       renderArtist()
       await openTooltip()
 
       expect(
-        await screen.findAllByText(/Release alerts are still being switched on/i)
+        await screen.findAllByText(/Release alerts arrive in the app once a week/i)
       ).not.toHaveLength(0)
+      expect(
+        screen.getAllByText(/Email for release alerts is not available yet/i)
+      ).not.toHaveLength(0)
+      expect(screen.queryByText(/still being switched on/i)).toBeNull()
       expect(
         screen.queryByText(/Alerts from the artists and venues you follow/i)
       ).toBeNull()
