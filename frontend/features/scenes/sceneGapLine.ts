@@ -6,7 +6,7 @@
 
 /**
  * `11 Phoenix bands have no listen link → Help finish Phoenix`, printed in the
- * accent register's micro-caps.
+ * accent register's label type.
  *
  * "Listen link", not the locked mock's "Bandcamp link". The count is over bands
  * with none of spotify, bandcamp, youtube or soundcloud, so naming one platform

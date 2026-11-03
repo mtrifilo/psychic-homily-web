@@ -27,7 +27,7 @@ export function StageFrame({ meta, children }: { meta: StageMeta; children: Reac
             <span className="font-data text-sm font-bold text-link">{meta.badge}</span>
             <h2 className="font-display text-xl font-bold text-foreground sm:text-2xl">{meta.title}</h2>
           </div>
-          <span className="hidden shrink-0 font-data text-[11px] uppercase tracking-wide text-muted-foreground sm:block">
+          <span className="hidden shrink-0 text-xs text-muted-foreground sm:block">
             {meta.difficulty}
           </span>
         </div>

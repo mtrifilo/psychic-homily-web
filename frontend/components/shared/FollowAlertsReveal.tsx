@@ -188,7 +188,7 @@ export function FollowAlertsReveal({
             void alertsQuery.refetch()
             void preferencesQuery.refetch()
           }}
-          className="font-data text-[11px]"
+          className="font-data text-xs"
         />
       </div>
     )
@@ -241,7 +241,7 @@ export function FollowAlertsReveal({
           label="turn a channel on"
           ariaLabel={`New-show alerts for ${entityName} are paused. Turn a channel on in alert settings.`}
           href={ALERTS_HREF}
-          className="font-data text-[11px]"
+          className="font-data text-xs"
         />
       )}
 
@@ -251,7 +251,7 @@ export function FollowAlertsReveal({
         <BracketLink
           label="set your area"
           href={ALERTS_AREA_HREF}
-          className="font-data text-[11px]"
+          className="font-data text-xs"
         />
       )}
 

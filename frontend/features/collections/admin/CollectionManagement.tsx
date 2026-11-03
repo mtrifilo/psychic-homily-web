@@ -287,7 +287,7 @@ export function CollectionManagement() {
               size="sm"
             />
             {sinceLabel && (
-              <span className="whitespace-nowrap text-[11px] leading-tight text-muted-foreground">
+              <span className="whitespace-nowrap text-xs leading-4 text-muted-foreground">
                 {sinceLabel}
               </span>
             )}

@@ -161,7 +161,7 @@ export function MarkdownEditor({
         {maxLength !== undefined && (
           <span
             className={cn(
-              'ml-auto text-[11px]',
+              'ml-auto text-xs',
               value.length > maxLength
                 ? 'text-destructive'
                 : 'text-muted-foreground'

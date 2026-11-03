@@ -15,11 +15,10 @@ import {
 } from '@/features/tags/types'
 
 /**
- * The label's type register per Figma `1666:2`: data-face micro-caps on the muted
+ * The label's type register: the sentence-case 12px label tier on the muted
  * tone, at the size the crew chip beside it wears.
  */
-const CREW_ROW_LABEL_CLASS =
-  'font-data text-[11px] uppercase tracking-[0.04em] text-muted-foreground'
+const CREW_ROW_LABEL_CLASS = 'text-xs text-muted-foreground'
 
 /**
  * The bookers this listing is credited to: the show's crew-category tags,
@@ -41,8 +40,8 @@ const CREW_ROW_LABEL_CLASS =
  * `role="list"` is explicit on the chip list because the label depends on it:
  * a list whose markers are off can lose its list semantics, and a generic
  * element drops `aria-labelledby` with them. The label element carries the
- * copy in sentence case and is uppercased in CSS, so a screen reader says the
- * phrase rather than spelling it.
+ * copy in sentence case, so a screen reader says the phrase rather than
+ * spelling it.
  */
 export function ShowCrewAttribution({ showId }: { showId: number }) {
   const { data } = useEntityTags('show', showId)

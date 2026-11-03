@@ -44,7 +44,7 @@ export function VenueCityChooser({ cities, params }: VenueCityChooserProps) {
         <div className="flex flex-wrap items-center gap-2">
           <span
             id="venues-busiest-label"
-            className="text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+            className="text-xs font-semibold text-muted-foreground"
           >
             Busiest
           </span>

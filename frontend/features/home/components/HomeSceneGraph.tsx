@@ -195,7 +195,7 @@ function ShowDateChip({ node }: { node: SceneGraphNode }) {
     // specificity, and Tailwind emits `.line-clamp-2` first, so `block` would
     // win and silently kill the clamp (`-webkit-line-clamp` only applies to
     // `display:-webkit-box`). line-clamp already establishes a block-level box.
-    <span className="line-clamp-2 max-w-[180px] rounded border border-green-500 bg-background px-2 py-[3px] font-data text-[10px] leading-tight text-foreground shadow-sm">
+    <span className="line-clamp-2 max-w-[180px] rounded border border-green-500 bg-background px-2 py-[3px] font-data text-xs leading-4 text-foreground shadow-sm">
       {showDate}{venueName ? ` · ${venueName}` : ''}
     </span>
   )
@@ -226,7 +226,7 @@ function HomeGraphLegend({
     // and the RTL getByLabelText assertion passes anyway — a false green.
     <div
       role="group"
-      className="flex flex-wrap items-center gap-x-[18px] gap-y-2 text-[11px] text-muted-foreground"
+      className="flex flex-wrap items-center gap-x-[18px] gap-y-2 text-xs text-muted-foreground"
       aria-label="Graph legend"
     >
       {orderEdgeTypes(types).map(type => (

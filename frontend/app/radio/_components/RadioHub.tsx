@@ -153,7 +153,7 @@ export default function RadioHub() {
  */
 function DialSectionHeading({ title }: { title: string }) {
   return (
-    <h2 className="mb-1 border-b border-border pb-1.5 font-data text-[11px] uppercase tracking-[1.2px] text-muted-foreground">
+    <h2 className="mb-1 border-b border-border pb-1.5 text-xs text-muted-foreground">
       {title}
     </h2>
   )

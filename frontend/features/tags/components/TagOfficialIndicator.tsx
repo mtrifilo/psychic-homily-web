@@ -38,7 +38,7 @@ export function TagOfficialIndicator({
       {size === 'md' && (
         // The marker's `text-primary` is for the icon (non-text, 3:1); the
         // word is small text, so it takes the link token (4.5:1).
-        <span className="text-[10px] font-medium uppercase tracking-wider text-link">
+        <span className="text-xs font-medium text-link">
           Official
         </span>
       )}

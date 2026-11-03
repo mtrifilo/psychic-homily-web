@@ -39,7 +39,7 @@ function dotLeaderFor(label: string): string {
 export function SignupIntentPanel() {
   return (
     <div className="space-y-4">
-      <p className="font-data text-[11px] uppercase tracking-[0.66px] text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         Psychic Homily account
       </p>
 

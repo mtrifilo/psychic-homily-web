@@ -108,7 +108,7 @@ export function TierAdvancementCard({ tier }: TierAdvancementCardProps) {
             )}
 
             <div>
-              <p className="font-data text-xs uppercase tracking-wider text-muted-foreground">
+              <p className="font-data text-xs text-muted-foreground">
                 Requirements
               </p>
               <ul className="mt-1.5 space-y-1 text-sm">

@@ -157,7 +157,7 @@ export function EpisodeArchiveTable({
                         the line labels itself; assistive tech has the header. */}
                     <span
                       aria-hidden="true"
-                      className="mr-2 font-data text-[10px] uppercase text-muted-foreground sm:hidden"
+                      className="mr-2 text-xs text-muted-foreground sm:hidden"
                     >
                       Played
                     </span>

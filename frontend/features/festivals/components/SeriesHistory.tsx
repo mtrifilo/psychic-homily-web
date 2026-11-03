@@ -75,8 +75,8 @@ export function SeriesHistory({ seriesSlug, editions, enabled = true }: SeriesHi
       {/* Returning Artists */}
       {data.returning_artists.length > 0 && (
         <div>
-          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-            Returning Artists ({data.returning_artists.length})
+          <h3 className="text-sm font-semibold text-muted-foreground mb-3">
+            Returning artists ({data.returning_artists.length})
           </h3>
           <div className="space-y-2">
             {data.returning_artists.slice(0, 20).map((ra) => (
@@ -110,8 +110,8 @@ export function SeriesHistory({ seriesSlug, editions, enabled = true }: SeriesHi
       {/* Newcomers */}
       {data.newcomers.length > 0 && (
         <div>
-          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-            {latestYear} Newcomers ({data.newcomers.length})
+          <h3 className="text-sm font-semibold text-muted-foreground mb-3">
+            {latestYear} newcomers ({data.newcomers.length})
           </h3>
           <div className="flex flex-wrap gap-1.5">
             {data.newcomers.map((n) => (

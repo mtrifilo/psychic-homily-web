@@ -196,7 +196,7 @@ export function ActivityHeatmap({ username }: ActivityHeatmapProps) {
             return (
               <div
                 key={`month-${wIdx}`}
-                className="text-[9px] text-muted-foreground leading-none"
+                className="text-xs text-muted-foreground leading-none"
                 style={{ width: 13, flexShrink: 0 }}
               >
                 {label ? label.label : ''}
@@ -212,7 +212,7 @@ export function ActivityHeatmap({ username }: ActivityHeatmapProps) {
             {DAY_LABELS.map((label, i) => (
               <div
                 key={`day-label-${i}`}
-                className="text-[9px] text-muted-foreground flex items-center"
+                className="text-xs text-muted-foreground flex items-center"
                 style={{ height: 13 }}
               >
                 {label}

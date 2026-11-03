@@ -116,7 +116,7 @@ function SceneStatusBand({
       data-testid="scene-status-band"
       className="-mx-4 -mt-8 mb-6 border-b border-border px-4 py-2.5 text-muted-foreground md:-mx-8 md:px-8"
     >
-      <p className="font-data text-[11px] uppercase tracking-widest">
+      <p className="text-xs">
         {parts.join(' · ')}
       </p>
     </div>

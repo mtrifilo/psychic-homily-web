@@ -432,10 +432,10 @@
   /* 92% opaque: the pill sits over a surface whose brightness varies a lot
    * (the dark globe in both themes, light or dark streets past it), and what
    * shows through moves the contrast of the credit text with its pill. At 92%
-   * the 11px credit clears 4.5:1 in both themes over anything beneath it. */
+   * the 12px credit clears 4.5:1 in both themes over anything beneath it. */
   background: color-mix(in srgb, var(--background) 92%, transparent);
   color: var(--muted-foreground);
-  font-size: 11px;
+  font-size: 12px;
   /* Wrap rather than run along the bottom edge into the Drift button
    * (bottom-center) if a future source adds another credit string. */
   max-width: min(38vw, 420px);
@@ -465,7 +465,6 @@
  * above through the container's own class. */
 .ph-mini-atlas.maplibregl-map .maplibregl-ctrl.maplibregl-ctrl-attrib {
   max-width: 100%;
-  font-size: 10px;
 }
 
 /* The Atlas sheet layout (panes under 900px) puts the credit top-left, under

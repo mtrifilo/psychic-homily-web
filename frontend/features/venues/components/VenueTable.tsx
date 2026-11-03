@@ -286,7 +286,7 @@ function SortableHeader({
           onClick={() => onSortChange(sortKey)}
           data-testid={`venue-sort-header-${sortKey}`}
           className={cn(
-            'inline-flex items-center gap-1 uppercase tracking-wider hover:text-foreground',
+            'inline-flex items-center gap-1 uppercase tracking-[0.08em] hover:text-foreground',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             isActive && 'text-link'
           )}
@@ -317,10 +317,10 @@ function QuietRoomsHeader() {
         className="block pt-4 sm:table-cell"
         data-testid="venues-quiet-group-header"
       >
-        <span className="flex items-center gap-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        <span className="flex items-center gap-3 text-xs font-semibold text-muted-foreground">
           <span className="whitespace-nowrap">
             Quiet rooms
-            <span className="hidden font-normal normal-case tracking-normal sm:inline">
+            <span className="hidden font-normal sm:inline">
               {' '}
               &middot; no upcoming shows &middot; last show shown instead
             </span>

@@ -92,10 +92,10 @@ export function ShowRow({
       aria-label={show.title}
       className={cn(SHOW_ROW_GRID, show.is_cancelled && 'opacity-60')}
     >
-      <div className="font-data text-[11px] leading-[14px]">
+      <div className="font-data text-xs leading-4">
         <div
           className={cn(
-            'whitespace-nowrap font-bold uppercase tracking-[0.4px] md:text-xs',
+            'whitespace-nowrap font-bold uppercase tracking-[0.4px]',
             past ? 'text-muted-foreground' : 'text-link'
           )}
         >

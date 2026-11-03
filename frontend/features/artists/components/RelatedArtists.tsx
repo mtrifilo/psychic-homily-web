@@ -1124,7 +1124,7 @@ function RecenteringGraph({
           ))}
         </div>
         {depth === 2 && (
-          <span className="shrink-0 text-[11px]">top {DEPTH_2_TOP_K} connections</span>
+          <span className="shrink-0 text-xs">top {DEPTH_2_TOP_K} connections</span>
         )}
       </div>
 
@@ -1216,7 +1216,7 @@ function RecenteringGraph({
       <div className="mt-3">
         <h3 className="text-xs font-semibold text-muted-foreground mb-1">Connections</h3>
         {/* Custom key hint (arrow/Enter are the standard tree keys; R is ours). */}
-        <p className="text-[11px] text-muted-foreground mb-1">
+        <p className="text-xs text-muted-foreground mb-1">
           Arrow keys to navigate · Enter to expand · <kbd className="font-sans">R</kbd> to re-center
         </p>
         <GraphAccessibleTree
@@ -1403,7 +1403,7 @@ function RelatedArtistRow({
           <Badge
             key={badge.type}
             variant="outline"
-            className={`text-[10px] px-1.5 py-0 ${badge.className}`}
+            className={`text-xs px-1.5 py-0 ${badge.className}`}
           >
             {badge.label}
           </Badge>
@@ -1450,7 +1450,7 @@ function RelatedArtistRow({
             <Badge
               key={badge.type}
               variant="outline"
-              className="text-[10px] px-1.5 py-0.5"
+              className="text-xs px-1.5 py-0.5"
             >
               {badge.label}
             </Badge>

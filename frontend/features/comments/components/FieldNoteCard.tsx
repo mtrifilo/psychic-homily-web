@@ -184,7 +184,7 @@ export function FieldNoteCard({
           {formatRelativeTime(comment.created_at)}
         </span>
         {comment.is_edited && (
-          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+          <Badge variant="secondary" className="text-xs px-1.5 py-0">
             Edited
           </Badge>
         )}
@@ -193,7 +193,7 @@ export function FieldNoteCard({
         {comment.visibility === 'pending_review' && isOwner && (
           <Badge
             variant="outline"
-            className="text-[10px] px-1.5 py-0 gap-1 border-pending-foreground text-pending-foreground"
+            className="text-xs px-1.5 py-0 gap-1 border-pending-foreground text-pending-foreground"
             data-testid="pending-review-badge"
           >
             <Clock className="h-2.5 w-2.5" />
@@ -309,7 +309,7 @@ export function FieldNoteCard({
           className="mt-2 rounded-md bg-primary/5 border border-primary/10 px-3 py-2 text-sm"
           data-testid="notable-moments"
         >
-          <span className="font-medium text-xs text-muted-foreground uppercase tracking-wider">
+          <span className="font-medium text-xs text-muted-foreground">
             Notable:
           </span>{' '}
           {sd.notable_moments}
@@ -436,7 +436,7 @@ export function FieldNoteCard({
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+            className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
             onClick={() => setIsEditHistoryOpen(true)}
             data-testid="admin-edit-history-button"
             aria-label="View edit history"

@@ -554,14 +554,14 @@ const CATEGORY_CHIP_TOKENS: Record<TagCategory, CategoryChipTokens> = {
   genre: { bg: 'bg-chart-6/10', text: 'text-chart-6', border: 'border-chart-6/20' },
   locale: { bg: 'bg-chart-8/10', text: 'text-chart-8', border: 'border-chart-8/20' },
   other: { bg: 'bg-muted', text: 'text-muted-foreground', border: 'border-border' },
-  // Figma `1402:789`: an unfilled hairline square on the border token, data-face
-  // uppercase on muted-foreground. Font SIZE is absent on purpose, so each
-  // surface keeps its own density.
+  // Figma `1402:789`: an unfilled hairline square on the border token, sentence
+  // case on muted-foreground. Font SIZE is absent on purpose, so each surface
+  // keeps its own density.
   crew: {
     bg: 'bg-transparent',
     text: 'text-muted-foreground',
     border: 'border-border',
-    shape: 'rounded-[2px] font-data uppercase tracking-[0.04em]',
+    shape: 'rounded-[2px]',
   },
 }
 
@@ -661,8 +661,8 @@ export function getTagChipClasses(tag: {
 
 /**
  * Every class the crew chip wears: the category's own look plus the box the
- * chip is drawn in (Figma `1402:789` and `1666:2` agree on it) at the 11px
- * micro-caps size both surfaces that render one use.
+ * chip is drawn in (Figma `1402:789` and `1666:2` agree on it) at the 12px
+ * label size both surfaces that render one use.
  *
  * The chip belongs to the crew tag rather than to any one page, so it is
  * composed here: a surface that built its own would drift from every other
@@ -674,7 +674,7 @@ export function getTagChipClasses(tag: {
  * unbroken token that cannot fit a line would otherwise widen the page.
  */
 export const CREW_CHIP_CLASS = cn(
-  'inline-flex max-w-full items-center break-words border px-2 py-1 text-[11px] leading-none',
+  'inline-flex max-w-full items-center break-words border px-2 py-1 text-xs leading-none',
   getCategoryChipClasses(TAG_CATEGORY_CREW)
 )
 

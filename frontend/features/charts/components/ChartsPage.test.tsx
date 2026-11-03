@@ -488,9 +488,9 @@ describe('ChartsPage', () => {
     render(<ChartsPage />)
 
     expect(screen.getAllByRole('heading', { level: 2 })).toHaveLength(8)
-    expect(screen.getByText('Hardest-Working Artists')).toBeInTheDocument()
-    expect(screen.getByText('Openers to Watch')).toBeInTheDocument()
-    expect(screen.getByText('Top Tags')).toBeInTheDocument()
+    expect(screen.getByText('Hardest-working artists')).toBeInTheDocument()
+    expect(screen.getByText('Openers to watch')).toBeInTheDocument()
+    expect(screen.getByText('Top tags')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Shoegaze' })).toHaveAttribute(
       'href',
       '/shows?tags=shoegaze&cities=all'
@@ -846,7 +846,7 @@ describe('ChartsPage', () => {
         'Unable to verify this scene. Your chart selection is preserved.'
       )
     ).toBeInTheDocument()
-    expect(screen.queryByText('Hardest-Working Artists')).not.toBeVisible()
+    expect(screen.queryByText('Hardest-working artists')).not.toBeVisible()
     const moduleCalls = mockScopedHook.mock.calls.filter(
       ([name]) => name !== 'scenes'
     )
@@ -863,7 +863,7 @@ describe('ChartsPage', () => {
     sceneListError = true
     render(<ChartsPage />)
 
-    expect(screen.getByText('Hardest-Working Artists')).toBeVisible()
+    expect(screen.getByText('Hardest-working artists')).toBeVisible()
     await user.click(screen.getByRole('button', { name: 'Retry chart scenes' }))
     expect(mockRefetchScenes).toHaveBeenCalledOnce()
   })

@@ -150,7 +150,7 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
   statsItems.push({
     label: 'Status',
     value: (
-      <Badge variant={getLabelStatusVariant(label.status)} className="text-[10px] px-1.5 py-0">
+      <Badge variant={getLabelStatusVariant(label.status)} className="text-xs px-1.5 py-0">
         {getLabelStatusLabel(label.status)}
       </Badge>
     ),

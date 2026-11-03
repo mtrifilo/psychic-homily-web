@@ -521,9 +521,8 @@ export function sheetLinkClassName(active: boolean): string {
 }
 
 /**
- * The data-face uppercase group-label token shared by the desktop menus
+ * The sentence-case 12px group-label token shared by the desktop menus
  * (BrowseMenu/ContributeMenu) and the mobile Browse sheet. Callers add their
  * own layout classes (margins/padding) on top.
  */
-export const navGroupLabelClassName =
-  'font-data text-[11px] font-bold uppercase tracking-[1.2px] text-muted-foreground'
+export const navGroupLabelClassName = 'text-xs font-bold text-muted-foreground'

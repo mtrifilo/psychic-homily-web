@@ -140,10 +140,10 @@ export function CompactShowRow({
           href={detailsHref}
           className="shrink-0 flex flex-col items-center justify-center w-12 rounded bg-muted/40 hover:bg-muted transition-colors py-1.5"
         >
-          <span className="text-[9px] font-bold tracking-widest uppercase text-link leading-none">
+          <span className="text-xs font-bold tracking-widest uppercase text-link leading-none">
             {dateBadge.dayOfWeek}
           </span>
-          <span className="text-[11px] font-semibold text-muted-foreground leading-tight mt-0.5">
+          <span className="text-xs font-semibold text-muted-foreground leading-4 mt-0.5">
             {dateBadge.monthDay}
           </span>
         </Link>

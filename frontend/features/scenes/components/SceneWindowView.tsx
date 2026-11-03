@@ -200,7 +200,7 @@ export function SceneWindowView({ data }: { data: SceneWindowData }) {
           alone would read as the window's total, which is the one number this
           page cannot verify. */}
       {truncated && (
-        <p className="mt-6 border-t border-border pt-3 font-data text-[11px] text-muted-foreground">
+        <p className="mt-6 border-t border-border pt-3 font-data text-xs text-muted-foreground">
           Showing the first {rendered}.{' '}
           <Link
             href={allUpcomingHref(data.city, data.state)}

@@ -153,7 +153,7 @@ function EmptyNight({
         <section className="mt-8">
           {/* The reader is being told we have nothing; the least we owe them is
               a path into each room's page here (PSY-1733). */}
-          <h2 className="font-data text-[11px] tracking-widest text-muted-foreground">
+          <h2 className="font-data text-xs tracking-widest text-muted-foreground">
             CHECK THE ROOMS DIRECTLY
           </h2>
           <RoomList venues={rooms.map(({ name, slug }) => ({ name, slug }))} />

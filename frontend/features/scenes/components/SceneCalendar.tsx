@@ -168,14 +168,14 @@ function SceneDateGroup({
   return (
     <section className="border-t border-border pt-4">
       <div className="flex items-baseline justify-between gap-4">
-        <h3 className="font-data text-[11px] uppercase tracking-widest">
+        <h3 className="font-data text-xs uppercase tracking-widest">
           {/* TONIGHT LEADS, per the mock: it is the word the reader is scanning
               for, and it comes from the backend's `is_tonight` against the
               scene's own 6am boundary — never from a clock on this side. */}
           {day.is_tonight && <span className="text-link">TONIGHT </span>}
           {formatSliceDateHeading(day.date)}
         </h3>
-        <span className="shrink-0 font-data text-[11px] text-muted-foreground">
+        <span className="shrink-0 font-data text-xs text-muted-foreground">
           {formatDayCountLine(shows.length)}
         </span>
       </div>

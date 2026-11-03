@@ -122,16 +122,16 @@ export function VenueRail({
           </button>
         </div>
 
-        <p className="mt-2 font-data text-[11px] uppercase leading-4 tracking-wide text-muted-foreground">
+        <p className="mt-2 text-xs leading-4 text-muted-foreground">
           {/* "metro venues" whenever the rows reach past the principal city
               (PSY-1574). The heading above names ONE city; a flat "12 venues"
               under it would read as a claim about Phoenix proper while the
               list also holds Tempe and Mesa. The last stat sums the venues'
               rolling `shows_this_week`, hence "in the next 7 days" — see
               `VenueWithShowCount.shows_this_week`. Same phrasing as the pulse
-              band and the globe tooltip; the "in" keeps "9 IN THE NEXT 7 DAYS"
-              from setting two numerals side by side in this uppercase data-face
-              strip, where every other segment reads "<number> <noun>". */}
+              band and the globe tooltip; the "in" keeps "9 in the next 7 days"
+              from setting two numerals side by side in this stats strip,
+              where every other segment reads "<number> <noun>". */}
           {stats.venueCount} {spansMetro ? 'metro ' : ''}
           {stats.venueCount === 1 ? 'venue' : 'venues'} · {stats.upcomingCount}{' '}
           upcoming · {stats.thisWeekCount} in the next 7 days
@@ -218,7 +218,7 @@ export function VenueRailTruncationNote({
 }) {
   if (!isVenueListTruncated(totalVenueCount, listedCount)) return null
   return (
-    <p className={`font-data text-[11px] leading-4 text-muted-foreground ${className ?? ''}`}>
+    <p className={`font-data text-xs leading-4 text-muted-foreground ${className ?? ''}`}>
       showing the {listedCount} busiest of {totalVenueCount}
     </p>
   )
@@ -356,7 +356,7 @@ export function VenueRailFilters({
         id={caveatId}
         className={
           filters.allAgesOnly
-            ? 'mt-2 font-data text-[11px] leading-4 text-muted-foreground'
+            ? 'mt-2 font-data text-xs leading-4 text-muted-foreground'
             : 'sr-only'
         }
       >
@@ -448,7 +448,7 @@ export function VenueRailProvenance({
   return (
     <p
       data-testid="rail-provenance"
-      className="font-data text-[11px] leading-4 text-muted-foreground"
+      className="font-data text-xs leading-4 text-muted-foreground"
     >
       {/* Full-strength muted, not a dimmed variant: at 11px an opacity
           step lands under the 4.5:1 contrast floor. The line's hierarchy
@@ -531,7 +531,7 @@ function EmptyRail({
 
 /** `touch` raises the chip to a 24px-tall target for touch layouts. */
 function chipClass(active: boolean, disabled = false, touch = false): string {
-  const base = `inline-flex items-center rounded-sm px-2 font-data text-[11px] leading-4 transition-colors ${
+  const base = `inline-flex items-center rounded-sm px-2 font-data text-xs leading-4 transition-colors ${
     touch ? 'min-h-6' : 'py-0.5'
   }`
   if (disabled) return `${base} bg-muted/50 text-muted-foreground/50`
@@ -613,7 +613,7 @@ function VenueRow({
           {venue.upcoming_show_count} upcoming
         </span>
       </div>
-      <p className="mt-1 font-data text-[11px] leading-4 text-muted-foreground">
+      <p className="mt-1 font-data text-xs leading-4 text-muted-foreground">
         {/* The rail is scoped to the METRO (PSY-1574), so a row can sit in a
             city the header doesn't name and outside the current frame. Leading
             the meta line with that city is what keeps such a row from reading
@@ -622,7 +622,7 @@ function VenueRow({
             where it would be noise on every row. */}
         {locality && (
           <>
-            <span className="uppercase tracking-wide text-foreground/70">
+            <span className="text-foreground/70">
               {locality}
             </span>{' '}
             ·{' '}

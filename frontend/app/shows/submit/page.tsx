@@ -39,7 +39,7 @@ function EmailVerificationRequired() {
     <div className="min-h-[calc(100vh-64px)] px-4 py-8">
       <div className="mx-auto max-w-xl">
         <div className="flex flex-col items-start gap-4 border border-border bg-card px-6 py-8 sm:px-11 sm:py-10">
-          <p className="font-data text-[11px] uppercase tracking-[0.66px] text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             Submission desk · Verification needed
           </p>
           <h1 className="font-display text-[26px] font-bold text-foreground">
@@ -65,7 +65,7 @@ function EmailVerificationRequired() {
               </Button>
             </div>
 
-            <VerificationResendStatus className="font-data text-[11px] uppercase tracking-[0.44px] text-link" />
+            <VerificationResendStatus className="text-xs text-link" />
 
             <VerificationResendSessionExpired>
               Your session has expired.{' '}

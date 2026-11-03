@@ -11,7 +11,7 @@ import {
   CommandList,
 } from '@/components/ui/command'
 // PSY-1019: rows are icon-less in the editorial re-skin (Figma 539:5) — the
-// uppercase data-face group headings carry the wayfinding, so names sit flush-left.
+// group headings carry the wayfinding, so names sit flush-left.
 // The Recent clock is the one deliberate exception: in the no-query state it
 // distinguishes "something you searched before" from a live result. The X on
 // the clear-recent action row (PSY-1071) marks it as an action, not a result.
@@ -275,13 +275,13 @@ const entityTypeLabels: Record<EntitySearchResult['entityType'], string> = {
   tag: 'Tags',
 }
 
-// PSY-1019 editorial group headings (Figma 539:5): the data face, uppercase,
-// letter-spaced — mirrors ContributeMenu's group labels. Applied per-group so
+// PSY-1019 editorial group headings (Figma 539:5): sentence-case 12px bold
+// labels that mirror ContributeMenu's group labels. Applied per-group so
 // tailwind-merge resolves it against CommandGroup's default heading styles on
 // the same element (deterministic; padding + muted color come from those
 // defaults). The shared CommandGroup primitive stays untouched for CityFilters.
 const groupClassName =
-  '[&_[cmdk-group-heading]]:font-data [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-bold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-[1.2px]'
+  '[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-bold'
 
 export function CommandPalette() {
   const router = useRouter()
@@ -625,7 +625,7 @@ export function CommandPalette() {
 
       {/* Keyboard hints as plain text; the <kbd> elements render in the code face
           through preflight's default, with no boxed-kbd chrome (Figma 539:5). */}
-      <div className="flex items-center gap-4 border-t border-border/50 px-4 py-2.5 font-data text-[11px] text-muted-foreground">
+      <div className="flex items-center gap-4 border-t border-border/50 px-4 py-2.5 font-data text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5">
           <kbd>&uarr;&darr;</kbd>
           navigate

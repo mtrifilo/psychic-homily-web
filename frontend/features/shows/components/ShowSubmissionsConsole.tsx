@@ -501,7 +501,7 @@ export function ShowSubmissionsConsole() {
       />
 
       <header className="mb-4 md:mb-7">
-        <div className="font-data text-[11px] font-bold uppercase tracking-[1.2px] text-muted-foreground">
+        <div className="text-xs font-bold text-muted-foreground">
           Contribute
         </div>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight md:text-[28px]">
@@ -623,7 +623,7 @@ export function ShowSubmissionsConsole() {
             <BracketLink
               label="contribution opportunities"
               href="/contribute"
-              className="font-data text-[11px]"
+              className="font-data text-xs"
             />
           </div>
         </div>

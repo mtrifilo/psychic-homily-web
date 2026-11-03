@@ -32,7 +32,7 @@ import type { SceneDetail } from '../types'
  * directly or through suggest-edit from the artist page.
  *
  * Accent-toned, which is the locked mock's one departure from the page's
- * micro-caps register: this is the only line on the page asking the reader for
+ * label register: this is the only line on the page asking the reader for
  * something.
  *
  * A bare div, not the siblings' `section`: the mock draws this module without a

@@ -88,9 +88,9 @@ export function FeaturedCollectionCard() {
         <div className="flex min-w-0 flex-1 flex-col">
           <p
             id="featured-collection-heading"
-            className="font-data text-[11px] font-bold uppercase tracking-[0.06em] text-link"
+            className="text-xs font-bold text-link"
           >
-            Featured Collection
+            Featured collection
           </p>
           <h2 className="mt-1 text-base font-semibold leading-snug">
             <Link href={collectionHref} className={linkClass}>
@@ -124,7 +124,7 @@ export function FeaturedCollectionCard() {
         </div>
       </div>
       {hasClosedRuns ? (
-        <p className="mt-2 font-data text-[11px] text-muted-foreground">
+        <p className="mt-2 font-data text-xs text-muted-foreground">
           <Link href="/charts/featured" className="text-link hover:underline focus-visible:underline focus-visible:outline-none">
             previously featured →
           </Link>

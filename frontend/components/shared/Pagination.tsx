@@ -312,7 +312,7 @@ export function Pagination({
             )
           )}
         </ul>
-        <p className="ml-auto text-[11px] text-muted-foreground">
+        <p className="ml-auto text-xs text-muted-foreground">
           {captionText}
         </p>
         <BoundaryControl

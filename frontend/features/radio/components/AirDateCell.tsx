@@ -66,7 +66,7 @@ export function AirDateCellContent({
     <>
       <span className="block">{dateLine}</span>
       {timeBlock && (
-        <span className="block text-[10px] normal-case text-muted-foreground/85">
+        <span className="block text-xs normal-case text-muted-foreground/85">
           {timeBlock}
         </span>
       )}

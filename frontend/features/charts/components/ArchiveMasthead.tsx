@@ -39,8 +39,8 @@ export function ArchiveMasthead({ window, now }: ArchiveMastheadProps) {
         </p>
       </div>
       <div className="flex flex-col items-start gap-2 md:items-end">
-        <span className="font-data text-[10px] font-bold uppercase tracking-[0.08em] text-link">
-          ARCHIVE
+        <span className="text-xs font-bold text-link">
+          Archive
         </span>
         <nav
           aria-label="Adjacent chart periods"
@@ -90,7 +90,7 @@ export function ArchiveMasthead({ window, now }: ArchiveMastheadProps) {
             </span>
           )}
         </nav>
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           {nav.viewingYear ? (
             'viewing the full year · pick a quarter to narrow'
           ) : (

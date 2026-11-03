@@ -193,7 +193,7 @@ function PendingEditRow({ edit }: PendingEditRowProps) {
             <div className="flex items-start gap-2">
               <AlertCircle className="h-4 w-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
               <div className="min-w-0 flex-1">
-                <p className="text-xs font-medium text-rose-700 dark:text-rose-400 uppercase tracking-wide">
+                <p className="text-xs font-medium text-rose-700 dark:text-rose-400">
                   Moderator response
                 </p>
                 {edit.rejection_reason_html ? (

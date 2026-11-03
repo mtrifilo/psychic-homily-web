@@ -46,7 +46,7 @@ export function RadioStationCard({ station }: RadioStationCardProps) {
           <EntityCardTitle name={station.name} href={stationUrl} />
 
           <div className="flex items-center gap-2 flex-wrap mt-1">
-            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+            <Badge variant="secondary" className="text-xs px-1.5 py-0">
               {broadcastLabel}
             </Badge>
             {station.frequency_mhz && (

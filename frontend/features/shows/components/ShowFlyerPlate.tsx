@@ -86,7 +86,7 @@ export function ShowFlyerPlate({
       {credit && (
         <figcaption
           data-testid="show-flyer-credit"
-          className="mt-2 font-data text-[11px] tracking-wide text-muted-foreground"
+          className="mt-2 font-data text-xs tracking-wide text-muted-foreground"
         >
           flyer via {credit}
         </figcaption>

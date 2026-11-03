@@ -165,7 +165,7 @@ export function ProfileSectionsEditor() {
               </p>
             </div>
             <div className="flex shrink-0 flex-col items-end gap-2">
-              <p className="font-data text-[11px] text-muted-foreground">
+              <p className="font-data text-xs text-muted-foreground">
                 {sections.length} / {MAX_SECTIONS} used
               </p>
               {canAddMore && (
@@ -173,7 +173,7 @@ export function ProfileSectionsEditor() {
                   variant="outline"
                   size="sm"
                   onClick={openCreateDialog}
-                  className="h-auto px-1 py-1 text-[11px] font-semibold"
+                  className="h-auto px-1 py-1 text-xs font-semibold"
                 >
                   + Add section
                 </Button>
@@ -201,7 +201,7 @@ export function ProfileSectionsEditor() {
                       {section.title}
                     </h4>
                     {!section.is_visible && (
-                      <span className="rounded border border-border px-1.5 py-0.5 font-data text-[10px] text-muted-foreground">
+                      <span className="rounded border border-border px-1.5 py-0.5 font-data text-xs text-muted-foreground">
                         Hidden
                       </span>
                     )}

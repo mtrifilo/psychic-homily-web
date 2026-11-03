@@ -38,7 +38,7 @@ export function UnreadCountBadge({ count, className }: UnreadCountBadgeProps) {
       // over the icon it overlays. Small rounded-rect (radius sm), NOT a pill —
       // Figma 1132:12 State B.
       className={cn(
-        // text-[0.625rem] (= 10px at default root), NOT text-[10px]: every
+        // text-[0.625rem] (= 10px at default root), NOT a px size: every
         // other dimension here is rem-based, so a px font size would leave the
         // digits fixed while the chip around them grew with the user's base
         // font size.

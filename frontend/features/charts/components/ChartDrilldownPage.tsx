@@ -326,7 +326,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
             >
               {artist.name}
             </Link>
-            <span className="block text-[11px] text-muted-foreground">
+            <span className="block text-xs text-muted-foreground">
               {location(artist.city, artist.state)}
             </span>
           </span>,
@@ -338,7 +338,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
               className={linkClass}
             >
               {artist.last_show_venue || formatDate(artist.last_show_date)}
-              <span className="block text-[11px] text-muted-foreground">
+              <span className="block text-xs text-muted-foreground">
                 {formatDate(artist.last_show_date)}
               </span>
             </Link>
@@ -358,7 +358,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
                   followFallback)
             }
             disabled={artistFollows.isLoading}
-            className="font-data text-[11px]"
+            className="font-data text-xs"
           />
         ),
       }))
@@ -379,7 +379,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
             >
               {artist.name}
             </Link>
-            <span className="block text-[11px] text-muted-foreground">
+            <span className="block text-xs text-muted-foreground">
               {location(artist.city, artist.state)}
             </span>
           </span>,
@@ -399,7 +399,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
                   followFallback)
             }
             disabled={artistFollows.isLoading}
-            className="font-data text-[11px]"
+            className="font-data text-xs"
           />
         ),
       }))
@@ -421,7 +421,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
               {showDisplayTitle(show.title, show.artist_names)}
             </Link>
             {show.artist_names.length > 0 ? (
-              <span className="block text-[11px] text-muted-foreground">
+              <span className="block text-xs text-muted-foreground">
                 {show.artist_names.join(', ')}
               </span>
             ) : null}
@@ -434,7 +434,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
             >
               {show.venue_name}
               {show.city ? (
-                <span className="block text-[11px] text-muted-foreground">
+                <span className="block text-xs text-muted-foreground">
                   {show.city}
                 </span>
               ) : null}
@@ -493,7 +493,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
                   followFallback)
             }
             disabled={venueFollows.isLoading}
-            className="font-data text-[11px]"
+            className="font-data text-xs"
           />
         ),
       }))
@@ -514,7 +514,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
             >
               {release.title}
             </Link>
-            <span className="block text-[11px] text-muted-foreground">
+            <span className="block text-xs text-muted-foreground">
               {getReleaseTypeLabel(release.release_type)}
             </span>
           </span>,
@@ -576,7 +576,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
                   followFallback)
             }
             disabled={artistFollows.isLoading}
-            className="font-data text-[11px]"
+            className="font-data text-xs"
           />
         ),
       }))
@@ -664,8 +664,8 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
           </div>
           <div className="flex flex-wrap items-center gap-3">
             {isArchiveWindow ? (
-              <span className="font-data text-[10px] font-bold uppercase tracking-[0.08em] text-link">
-                ARCHIVE
+              <span className="text-xs font-bold text-link">
+                Archive
               </span>
             ) : (
               <div
@@ -689,7 +689,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
                 ))}
               </div>
             )}
-            <label className="rounded-sm border border-border px-2 py-1 font-data text-[11px]">
+            <label className="rounded-sm border border-border px-2 py-1 font-data text-xs">
               <span className="sr-only">Chart scene</span>
               <select
                 value={selectedScene?.metro ?? ''}
@@ -717,7 +717,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
         )}
       >
         <table className="w-full min-w-[760px] border-collapse text-left text-xs">
-          <thead className="font-data text-[10px] uppercase tracking-[0.06em] text-muted-foreground">
+          <thead className="font-data text-xs uppercase tracking-[0.08em] text-muted-foreground">
             <tr className="border-b border-border">
               <th className="w-12 px-2 py-2 font-bold">#</th>
               {config.columns.map(column => (

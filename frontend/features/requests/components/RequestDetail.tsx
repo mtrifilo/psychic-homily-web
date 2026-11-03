@@ -294,7 +294,7 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
                   >
                     <ThumbsDown className="h-5 w-5" />
                   </button>
-                  <div className="text-[10px] text-muted-foreground mt-1 text-center">
+                  <div className="text-xs text-muted-foreground mt-1 text-center">
                     {request.upvotes} up / {request.downvotes} down
                   </div>
                 </div>

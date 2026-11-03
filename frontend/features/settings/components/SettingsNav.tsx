@@ -10,7 +10,7 @@ import {
   type SettingsSection,
 } from '../sections'
 
-const COUNT_CLASS = 'font-data text-[11px] text-muted-foreground'
+const COUNT_CLASS = 'font-data text-xs text-muted-foreground'
 
 function SectionCount({ section }: { section: SettingsSection }) {
   const count = settingsSectionCount(section)
@@ -119,7 +119,7 @@ export function SettingsJumpIndex({
     >
       <p
         id="settings-jump-index-label"
-        className="px-4 pb-2 pt-3 font-data text-[11px] uppercase tracking-[0.66px] text-muted-foreground"
+        className="px-4 pb-2 pt-3 text-xs text-muted-foreground"
       >
         On this page
       </p>

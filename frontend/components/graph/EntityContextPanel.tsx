@@ -65,7 +65,7 @@ const ENTITY_TYPE_PATH: Record<EntityPanelEntityType, string> = {
   festival: 'festivals',
 }
 
-/** Headed text payoff (NEXT SHOW / BILL); the label renders as data-face caps. */
+/** Headed text payoff (Next show / Bill); the label renders in the sentence-case label tier. */
 export interface EntityPanelLabeledPrimary {
   kind: 'labeled'
   label: string
@@ -122,7 +122,7 @@ function FieldLabel({
   return (
     <div
       className={cn(
-        'font-data text-[10px] uppercase tracking-wider text-muted-foreground',
+        'text-xs text-muted-foreground',
         className,
       )}
     >
@@ -229,7 +229,7 @@ export function EntityContextPanel({
 
       <Link
         href={pageHref}
-        className="inline-block font-data text-[11px] text-link hover:underline underline-offset-4"
+        className="inline-block font-data text-xs text-link hover:underline underline-offset-4"
       >
         [ Open page → ]
       </Link>

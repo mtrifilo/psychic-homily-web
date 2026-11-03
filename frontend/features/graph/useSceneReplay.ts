@@ -398,8 +398,8 @@ export function useSceneReplay(map: SceneMap | null): SceneReplayController {
 
 /**
  * The status text the header shows while a run is in flight, e.g.
- * `Replay · Mar 2019 · 412 on the map` — displayed upper case by the host's own
- * `uppercase` class, like every other data-face status line on this page.
+ * `Replay · Mar 2019 · 412 on the map`, rendered as written like every other
+ * status line on this page.
  *
  * A plain string builder rather than a component: it is written into the DOM by
  * a frame subscription, not rendered, so it must not depend on React at all.

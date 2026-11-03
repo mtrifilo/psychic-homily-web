@@ -400,7 +400,7 @@ function NodeRow({
         {displayedChildCount > 0 && (
           <Badge
             variant="secondary"
-            className="text-[10px] font-normal"
+            className="text-xs font-normal"
             data-testid="child-count-badge"
           >
             {displayedChildCount}{' '}
@@ -408,7 +408,7 @@ function NodeRow({
           </Badge>
         )}
         {node.is_official && (
-          <Badge variant="outline" className="text-[10px]">
+          <Badge variant="outline" className="text-xs">
             official
           </Badge>
         )}

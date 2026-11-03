@@ -181,7 +181,7 @@ interface BillCoArtistTableProps {
 function BillCoArtistTable({ title, rows, emptyText }: BillCoArtistTableProps) {
   return (
     <div>
-      <h3 className="text-sm font-semibold mb-2 text-muted-foreground uppercase tracking-wide">
+      <h3 className="text-sm font-semibold mb-2 text-muted-foreground">
         {title}
       </h3>
       {rows.length === 0 ? (

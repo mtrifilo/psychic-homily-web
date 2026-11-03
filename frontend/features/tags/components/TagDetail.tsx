@@ -391,7 +391,7 @@ function ActiveFilterBar({
       className="mb-6 flex flex-wrap items-center gap-2 rounded-lg border border-border/50 bg-muted/20 p-3"
       data-testid="active-filter-bar"
     >
-      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+      <span className="text-xs font-semibold text-muted-foreground">
         Filtering by
       </span>
       <span className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-0.5 text-sm">
@@ -467,7 +467,7 @@ function RelatedTagsRail({
       className="mt-12 border-t border-border/50 pt-6"
       data-testid="related-tags"
     >
-      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+      <h2 className="mb-2 text-xs font-semibold text-muted-foreground">
         Related tags
       </h2>
       <div className="flex flex-wrap items-center gap-2">

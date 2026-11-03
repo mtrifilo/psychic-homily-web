@@ -115,7 +115,7 @@ export function RequestCard({ request }: RequestCardProps) {
           <div className="flex items-center gap-2 flex-wrap mt-1">
             <span
               className={cn(
-                'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
+                'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
                 getEntityTypeColor(request.entity_type)
               )}
             >
@@ -123,7 +123,7 @@ export function RequestCard({ request }: RequestCardProps) {
             </span>
             <span
               className={cn(
-                'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
+                'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
                 getStatusColor(request.status)
               )}
             >

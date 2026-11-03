@@ -58,7 +58,7 @@ export function TagFacetSheet({
           <Filter className="mr-1.5 h-3.5 w-3.5" />
           {triggerLabel}
           {count > 0 && (
-            <span className="ml-1.5 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
+            <span className="ml-1.5 rounded-full bg-primary px-1.5 py-0.5 text-xs font-semibold text-primary-foreground">
               {count}
             </span>
           )}

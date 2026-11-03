@@ -233,7 +233,7 @@ export function VenuePanel({
   const identityLine = identity && (
     <p
       data-testid="venue-panel-identity"
-      className="mt-1 font-data text-[11px] leading-4 text-muted-foreground"
+      className="mt-1 font-data text-xs leading-4 text-muted-foreground"
     >
       {identity}
     </p>
@@ -282,7 +282,7 @@ export function VenuePanel({
         <p
           role="alert"
           data-testid="venue-panel-confirm-error"
-          className="mt-2 font-data text-[11px] leading-4 text-destructive"
+          className="mt-2 font-data text-xs leading-4 text-destructive"
         >
           {confirmError}
           {confirm.error?.status === 401 && (
@@ -315,7 +315,7 @@ export function VenuePanel({
           has a source to name. */}
       <p
         data-testid="venue-panel-provenance"
-        className="mt-2 font-data text-[11px] leading-4 text-muted-foreground"
+        className="mt-2 font-data text-xs leading-4 text-muted-foreground"
       >
         <span>UPDATED</span>{' '}
         {venue.updated_at ? formatTimeAgo(venue.updated_at) : 'unknown'}
@@ -327,7 +327,7 @@ export function VenuePanel({
   )
   const showsSection = (
     <>
-      <h3 className="px-4 pb-1 pt-3 font-data text-[11px] uppercase tracking-wide text-muted-foreground">
+      <h3 className="px-4 pb-1 pt-3 text-xs text-muted-foreground">
         Upcoming
         {!isLoading && !isError && (
           <> — {showCount} {showCount === 1 ? 'show' : 'shows'}</>
@@ -363,7 +363,7 @@ export function VenuePanel({
           {showCount > visible.length && (
             <AtlasPaneLink
               href={venueHref}
-              className="block px-4 py-2 font-data text-[11px] text-link underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              className="block px-4 py-2 font-data text-xs text-link underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
             >
               view all {showCount} →
             </AtlasPaneLink>
@@ -441,7 +441,7 @@ export function VenuePanel({
       >
         <header className="border-b border-border px-4 pb-3 pt-3">
           <div className="flex items-start justify-between gap-2">
-            <p className="font-data text-[11px] uppercase tracking-wide text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Venue
             </p>
             <button
@@ -541,7 +541,7 @@ function FieldNotesTeaser({ venue }: { venue: VenueWithShowCount }) {
     >
       {/* Parallel to the "Upcoming — 11 shows" heading above it, and the count
           is PLAIN TEXT, not a link. See the component's note. */}
-      <h3 className="font-data text-[11px] uppercase tracking-wide text-muted-foreground">
+      <h3 className="text-xs text-muted-foreground">
         Field notes — {total} {total === 1 ? 'note' : 'notes'}
       </h3>
 
@@ -561,7 +561,7 @@ function FieldNotesTeaser({ venue }: { venue: VenueWithShowCount }) {
         {text}
       </blockquote>
 
-      <p className="mt-1 font-data text-[11px] leading-4 text-muted-foreground">
+      <p className="mt-1 font-data text-xs leading-4 text-muted-foreground">
         <UserAttribution
           name={note.author_name}
           username={note.author_username}
@@ -620,7 +620,7 @@ function ShowRow({
 
   const body = (
     <>
-      <span className="w-16 shrink-0 pt-px font-data tabular-nums text-[11px] leading-4 text-link">
+      <span className="w-16 shrink-0 pt-px font-data tabular-nums text-xs leading-4 text-link">
         {date}
       </span>
       <span className="min-w-0 flex-1">
@@ -628,7 +628,7 @@ function ShowRow({
           {title}
         </span>
         {meta && (
-          <span className="mt-0.5 block font-data text-[11px] leading-4 text-muted-foreground">
+          <span className="mt-0.5 block font-data text-xs leading-4 text-muted-foreground">
             {meta}
           </span>
         )}

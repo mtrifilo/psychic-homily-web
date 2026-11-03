@@ -172,7 +172,7 @@ export function EdgeLegend({
                 aria-label={soloed ? 'Show all connection types' : `Show only ${label} connections`}
                 title={soloed ? 'Show all connection types' : `Show only ${label} connections`}
                 className={cn(
-                  'shrink-0 rounded-sm px-1 text-[10px] leading-4 text-muted-foreground hover:text-foreground hover:bg-muted/50',
+                  'shrink-0 rounded-sm px-1 text-xs leading-4 text-muted-foreground hover:text-foreground hover:bg-muted/50',
                   'focus-visible:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100',
                   soloed ? 'opacity-100 text-foreground font-medium' : 'opacity-0',
                 )}
@@ -186,7 +186,7 @@ export function EdgeLegend({
       {/* PSY-1334: solo disclosure — the filter must never be silent (same
           rule as the cap footnote below). */}
       {soloType && (
-        <div className="pt-1 mt-1 border-t border-border/40 max-w-[12rem] text-[10px] leading-tight text-muted-foreground/80">
+        <div className="pt-1 mt-1 border-t border-border/40 max-w-[12rem] text-xs leading-4 text-muted-foreground/80">
           Showing only {edgeTypeLabel(soloType)} connections
         </div>
       )}
@@ -199,7 +199,7 @@ export function EdgeLegend({
             <div className="w-4 h-px rounded-full bg-muted-foreground/60" />
             <div className="w-4 h-[3px] rounded-full bg-muted-foreground" />
           </div>
-          <span className="text-[10px] text-muted-foreground/80 leading-tight">
+          <span className="text-xs text-muted-foreground/80 leading-4">
             Thicker = stronger signal
           </span>
         </div>
@@ -207,7 +207,7 @@ export function EdgeLegend({
       {/* PSY-1258: cap-disclosure line — keeps a per-node edge cap visible instead of
           silently dropping edges. Width-capped so it doesn't stretch the floating legend. */}
       {footnote && (
-        <div className="pt-1 mt-1 border-t border-border/40 max-w-[12rem] text-[10px] leading-tight text-muted-foreground/80">
+        <div className="pt-1 mt-1 border-t border-border/40 max-w-[12rem] text-xs leading-4 text-muted-foreground/80">
           {footnote}
         </div>
       )}

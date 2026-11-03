@@ -93,7 +93,7 @@ function PrivacyLevelSelector({
             onClick={() => onChange(option.value)}
             aria-pressed={isActive}
             className={cn(
-              'rounded px-2 py-1 text-[11px] font-medium transition-colors',
+              'rounded px-2 py-1 text-xs font-medium transition-colors',
               'outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
               isActive
                 ? 'bg-foreground text-card'

@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 /**
  * A group of form controls named by a legend drawn as a labelled divider:
  * a rule, the legend in the kicker style, a rule. The legend is the group's
- * accessible name, so its text stays sentence case and `uppercase` styles it.
+ * accessible name, and its text is sentence case.
  *
  * Clearance is 24px above and below the divider row when the fieldset sits in
  * a `space-y-4` stack: above, the stack's 16px gap plus the legend's 8px top
@@ -23,7 +23,7 @@ export function DividerFieldset({
       <legend className="w-full py-2">
         <span className="flex items-center gap-2">
           <span aria-hidden="true" className="flex-1 border-t border-separator" />
-          <span className="shrink-0 font-data text-[11px] uppercase tracking-[0.66px] text-muted-foreground">
+          <span className="shrink-0 text-xs text-muted-foreground">
             {legend}
           </span>
           <span aria-hidden="true" className="flex-1 border-t border-separator" />

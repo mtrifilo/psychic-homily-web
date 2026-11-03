@@ -40,7 +40,7 @@ function SidebarBlock({
 }) {
   return (
     <section className="border-t border-border pt-3">
-      <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.04em] text-foreground">
+      <h3 className="mb-2 text-xs font-semibold text-foreground">
         {title}
       </h3>
       {children}
@@ -105,7 +105,7 @@ function TopScenesBlock({ scenes }: { scenes: PersonalTopScene[] }) {
             key={scene.slug || scene.metro}
             className="flex items-baseline gap-2 border-b border-border/60 py-1.5 last:border-b-0"
           >
-            <span className="w-4 shrink-0 font-data text-[10px] tabular-nums text-muted-foreground">
+            <span className="w-4 shrink-0 font-data text-xs tabular-nums text-muted-foreground">
               {rankLabel(index)}
             </span>
             <Link
@@ -134,7 +134,7 @@ function TopTagsBlock({ tags }: { tags: PersonalTopTag[] }) {
           <li key={tag.tag_id}>
             <Link
               href={`/tags/${tag.slug}`}
-              className="inline-block border border-border px-1.5 py-0.5 font-data text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-link"
+              className="inline-block border border-border px-1.5 py-0.5 font-data text-xs text-muted-foreground transition-colors hover:border-primary hover:text-link"
             >
               {tag.name}
             </Link>
@@ -156,7 +156,7 @@ function TopArtistsBlock({ artists }: { artists: PersonalTopArtist[] }) {
             key={artist.artist_id}
             className="flex items-baseline gap-2 border-b border-border/60 py-1.5 last:border-b-0"
           >
-            <span className="w-4 shrink-0 font-data text-[10px] tabular-nums text-muted-foreground">
+            <span className="w-4 shrink-0 font-data text-xs tabular-nums text-muted-foreground">
               {rankLabel(index)}
             </span>
             <Link
@@ -222,7 +222,7 @@ export function LibraryTasteSidebar() {
       className="w-full lg:w-80 lg:shrink-0"
       data-testid="library-taste-sidebar"
     >
-      <p className="mb-3 font-data text-[11px] font-bold uppercase tracking-[0.08em] text-muted-foreground">
+      <p className="mb-3 text-xs font-bold text-muted-foreground">
         Your taste
       </p>
       {isAuthLoading || stats.isLoading ? (

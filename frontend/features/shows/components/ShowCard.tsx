@@ -454,7 +454,7 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
           href={detailsHref}
           className="shrink-0 flex flex-col items-center justify-center rounded-md bg-muted/50 hover:bg-muted transition-colors w-14 sm:w-16 py-2"
         >
-          <span className="text-[10px] sm:text-xs font-bold tracking-widest uppercase text-muted-foreground leading-none">
+          <span className="text-xs font-bold tracking-widest uppercase text-muted-foreground leading-none">
             {dateBadge.dayOfWeek}
           </span>
           <span className="text-xs sm:text-sm font-semibold text-link leading-tight mt-0.5">

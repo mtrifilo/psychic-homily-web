@@ -62,7 +62,7 @@ export function RadioGuide({
           stationNetworks={stationNetworks}
         />
       </div>
-      <p className="mt-3 font-data text-[11px] text-muted-foreground/70">
+      <p className="mt-3 font-data text-xs text-muted-foreground/70">
         Scheduled programming only — unscheduled streams appear in the feed
         when their playlists land.
       </p>
@@ -82,7 +82,7 @@ function GuideGroup({
   if (rows.length === 0) return null
   return (
     <div>
-      <h3 className="mb-2 font-data text-xs uppercase tracking-wider text-muted-foreground">
+      <h3 className="mb-2 font-data text-xs text-muted-foreground">
         {label}
       </h3>
       <ul className="flex flex-col gap-1.5">

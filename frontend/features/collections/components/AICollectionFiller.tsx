@@ -939,7 +939,7 @@ function ExtractedRow({
             {item.matched_artist_id && (
               <Badge
                 variant="secondary"
-                className="text-[10px] px-1.5 py-0 shrink-0 bg-success text-success-foreground motion-safe:animate-in motion-safe:fade-in"
+                className="text-xs px-1.5 py-0 shrink-0 bg-success text-success-foreground motion-safe:animate-in motion-safe:fade-in"
               >
                 <CheckCircle2 className="h-3 w-3 mr-0.5" />
                 MATCH
@@ -948,7 +948,7 @@ function ExtractedRow({
             {hasSuggestions && (
               <Badge
                 variant="secondary"
-                className="text-[10px] px-1.5 py-0 shrink-0 bg-pending text-pending-foreground motion-safe:animate-in motion-safe:fade-in"
+                className="text-xs px-1.5 py-0 shrink-0 bg-pending text-pending-foreground motion-safe:animate-in motion-safe:fade-in"
               >
                 <AlertTriangle className="h-3 w-3 mr-0.5" />
                 PICK
@@ -962,7 +962,7 @@ function ExtractedRow({
             {isNew && (
               <Badge
                 variant="secondary"
-                className="text-[10px] px-1.5 py-0 shrink-0 bg-destructive/10 text-destructive motion-safe:animate-in motion-safe:fade-in"
+                className="text-xs px-1.5 py-0 shrink-0 bg-destructive/10 text-destructive motion-safe:animate-in motion-safe:fade-in"
               >
                 <AlertCircle className="h-3 w-3 mr-0.5" />
                 NEW

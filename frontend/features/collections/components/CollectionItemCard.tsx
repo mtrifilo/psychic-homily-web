@@ -216,8 +216,7 @@ export function CollectionItemCard({
           <span
             className={cn(
               'absolute left-1.5 top-1.5 rounded px-1.5 py-0.5',
-              'bg-black/60 text-white font-medium uppercase tracking-wide',
-              density === 'compact' ? 'text-[9px]' : 'text-[10px]'
+              'bg-black/60 text-xs font-medium text-white'
             )}
             aria-hidden="true"
           >
@@ -310,7 +309,7 @@ export function CollectionItemCard({
       {/* Attribution line — single source of truth for "added by". The
           list-view shows this on its own row; in grid we keep it inline
           but small so it doesn't compete with the image. */}
-      <p className="text-[10px] text-muted-foreground/80">
+      <p className="text-xs text-muted-foreground/80">
         added by {item.added_by_name}
       </p>
     </article>
@@ -443,7 +442,7 @@ function CollectionItemCardRemoveControl({
               data-testid={`collection-item-card-remove-error-${itemId}`}
               className={cn(
                 'flex max-w-[14rem] items-start gap-1 rounded-md',
-                'bg-background/95 px-2 py-1 text-[11px] text-destructive',
+                'bg-background/95 px-2 py-1 text-xs text-destructive',
                 'shadow-md ring-1 ring-destructive/40'
               )}
             >

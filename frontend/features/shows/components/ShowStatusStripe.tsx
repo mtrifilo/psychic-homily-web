@@ -62,7 +62,7 @@ export function ShowStatusStripe({ show, lifecycle }: ShowStatusStripeProps) {
       data-testid="show-status-stripe"
       className="w-full border-y border-border bg-muted text-foreground"
     >
-      <EntityDetailContainer className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 py-2 font-data text-[11px] uppercase tracking-[1.4px] sm:text-xs">
+      <EntityDetailContainer className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 py-2 text-xs">
         {segments.map((segment, index) => (
           // The separator is bonded to the segment that FOLLOWS it rather than
           // being a sibling, so a wrap can never strand a middot at the end of

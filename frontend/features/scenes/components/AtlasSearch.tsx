@@ -221,7 +221,7 @@ export function AtlasSearch({
           <Search className="h-3.5 w-3.5 shrink-0 opacity-60" aria-hidden />
           <span>Search scenes</span>
           <kbd
-            className="rounded border border-border px-1 text-[10px] leading-4"
+            className="rounded border border-border px-1 text-xs leading-4"
             aria-hidden
           >
             /

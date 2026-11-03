@@ -291,7 +291,7 @@ export function DayGroupedShowRow({
   const stripe = index % 2 === 0 ? 'bg-muted/20' : undefined
 
   const metaClass =
-    'font-data text-[11.5px] text-muted-foreground tabular-nums lg:text-[12.5px]'
+    'font-data text-xs text-muted-foreground tabular-nums lg:text-[12.5px]'
 
   const venueLabel = [venue?.name, showCity ? show.city : null, showCity ? show.state : null]
     .filter(Boolean)
@@ -572,7 +572,7 @@ export function DayGroupedShowListHeader({
 }) {
   return (
     <div
-      className="hidden items-baseline gap-2 border-b border-border px-2 pb-1 font-data text-[10px] font-bold uppercase tracking-[0.8px] text-muted-foreground lg:flex"
+      className="hidden items-baseline gap-2 border-b border-border px-2 pb-1 font-data text-xs font-bold uppercase tracking-[0.08em] text-muted-foreground lg:flex"
       aria-hidden="true"
       data-testid="show-list-header"
     >

@@ -95,7 +95,7 @@ export function ProfileFollowing({
             if (items.length === 0) return null
             return (
               <div key={row.type} className="flex items-baseline gap-3 text-sm">
-                <dt className="w-20 shrink-0 text-[11px] uppercase tracking-wider text-muted-foreground">
+                <dt className="w-20 shrink-0 text-xs text-muted-foreground">
                   {row.label}
                 </dt>
                 <dd className="min-w-0 flex-1 leading-relaxed">

@@ -48,7 +48,7 @@ function CityRow({ scene }: { scene: SceneListItem }) {
       >
         {scene.city}
       </span>
-      <span className="shrink-0 font-data text-[11px] text-muted-foreground">
+      <span className="shrink-0 font-data text-xs text-muted-foreground">
         {scene.state}
       </span>
       <span className="ml-auto shrink-0 pl-2 font-data text-sm text-muted-foreground">
@@ -110,14 +110,14 @@ export function ThisWeekByCity({
       <div className="flex items-baseline justify-between gap-4 pt-4">
         <h2
           id="this-week-by-city"
-          className="font-data text-[11px] tracking-widest text-muted-foreground"
+          className="font-data text-xs tracking-widest text-muted-foreground"
         >
           THIS WEEK, BY CITY
         </h2>
         {/* Two spellings of one range, swapped by CSS so neither needs JS: the
             weekdays are what make the range scannable, and they are the first
             thing to give at 390px. */}
-        <span className="font-data text-[11px] tracking-widest text-muted-foreground">
+        <span className="font-data text-xs tracking-widest text-muted-foreground">
           <span className="sm:hidden">
             {formatWeekRangeCompact(weekStart, weekEnd)}
           </span>

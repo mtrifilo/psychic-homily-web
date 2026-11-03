@@ -1813,7 +1813,7 @@ function GlobeMap({
           <div
             ref={statusChipRef}
             data-testid="atlas-status-chip"
-            className="rounded border border-border bg-background/90 px-2.5 py-1 font-data text-[11px] tracking-wide text-muted-foreground backdrop-blur"
+            className="rounded border border-border bg-background/90 px-2.5 py-1 font-data text-xs tracking-wide text-muted-foreground backdrop-blur"
             style={{ display: 'none' }}
           />
         </div>
@@ -1831,9 +1831,9 @@ function GlobeMap({
         <div ref={venueTooltipNameRef} className="text-sm text-foreground" />
         <div
           ref={venueTooltipMetaRef}
-          className="font-data text-[11px] text-muted-foreground"
+          className="font-data text-xs text-muted-foreground"
         />
-        <div ref={venueTooltipCtaRef} className="font-data text-[11px] text-link">
+        <div ref={venueTooltipCtaRef} className="font-data text-xs text-link">
           click for shows →
         </div>
       </div>

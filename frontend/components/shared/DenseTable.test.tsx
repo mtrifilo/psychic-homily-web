@@ -138,3 +138,37 @@ describe('DenseTableGroupHeader', () => {
     expect(tr?.className).toContain('custom-row-cls')
   })
 })
+
+// The 12px floor: a column head stays uppercase and tracked at 12px; a group
+// title is a label and reads in sentence case at 12px.
+describe('DenseTable label sizes', () => {
+  it('sets column heads at text-xs, uppercase, tracked at 0.08em', () => {
+    render(
+      <DenseTable>
+        <thead>
+          <tr>
+            <th>Date</th>
+          </tr>
+        </thead>
+      </DenseTable>
+    )
+    expect(screen.getByRole('table')).toHaveClass(
+      '[&_thead_th]:text-xs',
+      '[&_thead_th]:uppercase',
+      '[&_thead_th]:tracking-[0.08em]'
+    )
+  })
+
+  it('sets a group title at text-xs in sentence case', () => {
+    render(
+      <DenseTable>
+        <tbody>
+          <DenseTableGroupHeader title="Albums & EPs" colSpan={2} />
+        </tbody>
+      </DenseTable>
+    )
+    const th = screen.getByText('Albums & EPs').closest('th')
+    expect(th).toHaveClass('text-xs', 'text-muted-foreground')
+    expect(th?.className).not.toMatch(/\b(uppercase|tracking-\S+)\b/)
+  })
+})

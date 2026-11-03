@@ -17,8 +17,8 @@ function CollectionsList({ collections }: { collections: Collection[] }) {
 
   return (
     <div>
-      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-        In Collections
+      <h3 className="text-xs font-semibold text-muted-foreground mb-2">
+        In collections
       </h3>
       <div className="space-y-2">
         {collections.map(collection => (

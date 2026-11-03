@@ -61,7 +61,7 @@ export const adminNavGroups: AdminNavGroup[] = [
     items: [{ tab: 'dashboard', label: 'Dashboard', icon: LayoutDashboard }],
   },
   {
-    label: 'Moderation & Queues',
+    label: 'Moderation & queues',
     items: [
       { tab: 'moderation', label: 'Moderation', icon: ShieldCheck, badgeKey: 'moderation' },
       { tab: 'pending-shows', label: 'Pending Shows', icon: Clock, badgeKey: 'pendingShows' },
@@ -82,7 +82,7 @@ export const adminNavGroups: AdminNavGroup[] = [
     ],
   },
   {
-    label: 'Curation & Taxonomy',
+    label: 'Curation & taxonomy',
     items: [
       { tab: 'collections', label: 'Collections', icon: Library },
       { tab: 'tags', label: 'Tags', icon: Tags },
@@ -96,7 +96,7 @@ export const adminNavGroups: AdminNavGroup[] = [
     ],
   },
   {
-    label: 'Insights & System',
+    label: 'Insights & system',
     items: [
       { tab: 'analytics', label: 'Analytics', icon: BarChart3 },
       { tab: 'users', label: 'Users', icon: Users },

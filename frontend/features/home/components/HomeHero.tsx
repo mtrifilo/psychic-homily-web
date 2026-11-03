@@ -67,7 +67,7 @@ export function HomeHero() {
         >
           <Search className="size-5 shrink-0" aria-hidden />
           <span className="flex-1 truncate">Search shows, artists, labels…</span>
-          <kbd className="pointer-events-none hidden shrink-0 items-center rounded border border-input bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground sm:inline-flex">
+          <kbd className="pointer-events-none hidden shrink-0 items-center rounded border border-input bg-background px-1.5 py-0.5 text-xs text-muted-foreground sm:inline-flex">
             ⌘K
           </kbd>
         </button>

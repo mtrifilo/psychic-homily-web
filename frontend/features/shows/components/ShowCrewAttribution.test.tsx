@@ -184,12 +184,9 @@ describe('ShowCrewAttribution', () => {
       'border',
       'border-border',
       'bg-transparent',
-      'font-data',
-      'uppercase',
-      'tracking-[0.04em]',
       'px-2',
       'py-1',
-      'text-[11px]',
+      'text-xs',
       'text-muted-foreground',
     ]) {
       expect(chip).toHaveClass(cls)

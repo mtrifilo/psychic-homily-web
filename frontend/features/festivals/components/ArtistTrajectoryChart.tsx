@@ -28,7 +28,7 @@ function AppearanceRows({ data }: { data: ArtistTrajectory }) {
           linked festival name · billed-as. The previous tier-width bars
           encoded billing tier as decoration while truncating the festival
           name — the actual content — to 140px. */}
-      <div className="flex items-baseline gap-4 pb-1.5 border-b border-border/60 text-[11px] uppercase tracking-wider text-muted-foreground">
+      <div className="flex items-baseline gap-4 pb-1.5 border-b border-border/60 text-xs uppercase tracking-[0.08em] text-muted-foreground">
         <span className="w-12 shrink-0">Year</span>
         <span className="min-w-0 flex-1">Festival</span>
         <span className="w-28 shrink-0">Billed as</span>
@@ -57,7 +57,7 @@ function AppearanceRows({ data }: { data: ArtistTrajectory }) {
         ))}
       </div>
       {data.total_appearances > 1 && (
-        <div className="mt-2 font-data text-[11px] text-muted-foreground">
+        <div className="mt-2 font-data text-xs text-muted-foreground">
           {/* Factual count only — Rising/Steady trend judgments were removed
               (PSY-1056): our lineup history is incomplete, so any trend read
               off it is a guess. */}
@@ -95,7 +95,7 @@ export function ArtistTrajectoryChart({
     return (
       <div>
         <div className="flex items-baseline justify-between gap-2 mb-2">
-          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+          <h2 className="text-sm font-semibold text-muted-foreground">
             Festival appearances
           </h2>
           <BracketLink
@@ -110,7 +110,7 @@ export function ArtistTrajectoryChart({
 
   return (
     <div>
-      <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+      <h2 className="text-sm font-semibold text-muted-foreground mb-3">
         Festival appearances
       </h2>
       <AppearanceRows data={data} />
