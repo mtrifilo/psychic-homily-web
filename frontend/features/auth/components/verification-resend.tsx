@@ -356,6 +356,13 @@ export function VerificationResendSessionExpired({
   )
 }
 
+/**
+ * The words for a confirmed resend on the check-your-inbox cards (the sign-up
+ * card and the password reset's sent state), shown with `SentConfirmation`
+ * and spoken with `announceSent`.
+ */
+export const SENT_AGAIN = 'Sent again. Give it a minute to arrive.'
+
 /** The words for a send that failed, on every resend surface. */
 export const EMAIL_SEND_FAILED_MESSAGE =
   'We could not send that email just now. Please try again in a moment.'

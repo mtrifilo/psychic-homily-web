@@ -27,8 +27,8 @@ export function resetLinkSentMessage(email: string): string {
  * control, so a second send waits out the shared cooldown.
  *
  * `children` is the card's form; the confirmation renders above it (State 6S)
- * and the controls below it come from `ResetByEmailButton` and
- * `ResetByEmailNote`, which must sit inside.
+ * and the shared status, session and failure lines below it.
+ * `ResetByEmailButton` reads this provider, so it must sit inside `children`.
  */
 export function ResetByEmail({
   email,

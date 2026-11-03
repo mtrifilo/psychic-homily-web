@@ -1059,10 +1059,6 @@ func (s *UserService) UpdatePassword(userID uint, currentPassword, newPassword s
 	return nil
 }
 
-// passwordTooLongMessage is SetPassword's refusal for a password bcrypt cannot
-// hash (over 72 bytes).
-const passwordTooLongMessage = "Password is too long. Try a shorter one."
-
 // SetPassword gives an account that has no password its first one. It adds a
 // way into the account on the strength of the caller's session, so the account
 // and that session are judged under the row lock of the transaction that
@@ -1080,7 +1076,7 @@ func (s *UserService) SetPassword(userID uint, newPassword string, sessionsValid
 	// so that refusal is the caller's to fix, not a failure.
 	hashedPassword, err := s.HashPassword(newPassword)
 	if errors.Is(err, bcrypt.ErrPasswordTooLong) {
-		return apperrors.ErrValidationFailed(passwordTooLongMessage)
+		return apperrors.ErrPasswordTooLong()
 	}
 	if err != nil {
 		return err

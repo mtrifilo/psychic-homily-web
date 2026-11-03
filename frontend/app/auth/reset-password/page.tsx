@@ -12,6 +12,7 @@ import { PasswordInput } from '@/features/auth/components/settings/password-inpu
 import { newPasswordWithConfirmSchema } from '@/features/auth/components/settings/password-rules'
 import { formatPasswordConfirmError } from '@/features/auth/components/settings/password-confirm-errors'
 import { SESSIONS_SETTINGS_HREF } from '@/features/auth/components/settings/sessions'
+import { PASSWORD_SETTINGS_HREF } from '@/features/auth/components/settings/password-settings'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import {
   AuthErrorCode,
@@ -36,6 +37,11 @@ const SIGN_IN_HREF = '/auth'
 /** The link is malformed, expired, used, or no longer the account's. */
 function isLinkRefusal(error: unknown): boolean {
   return isAuthError(error) && error.code === AuthErrorCode.INVALID_TOKEN
+}
+
+/** The check was throttled: the link was not judged and still works. */
+function isThrottled(error: unknown): boolean {
+  return (error as { status?: number } | null)?.status === 429
 }
 
 function CenteredColumn({ children }: { children: ReactNode }) {
@@ -84,8 +90,14 @@ function StateCard({
   )
 }
 
-/** State 5: an expired, used or incomplete link. The password is untouched. */
+/**
+ * State 5: an expired, used or incomplete link. The password is untouched.
+ * A new link is asked for on the Sign in tab, or, for a reader who is signed
+ * in (whom /auth sends on), from Settings' Reset by email.
+ */
 function LinkNoLongerWorks() {
+  const { authStatus } = useAuthContext()
+  const requestHref = authStatus === 'authenticated' ? PASSWORD_SETTINGS_HREF : SIGN_IN_HREF
   return (
     <StateCard kicker="Password reset · link no longer works" title="That link no longer works.">
       <p className="text-sm leading-[22px] text-foreground">
@@ -94,7 +106,7 @@ function LinkNoLongerWorks() {
       </p>
       <div>
         <Button asChild>
-          <Link href={SIGN_IN_HREF}>Request a new link</Link>
+          <Link href={requestHref}>Request a new link</Link>
         </Button>
       </div>
       <p className="text-sm text-muted-foreground">
@@ -279,7 +291,7 @@ function ResetPasswordForm({
           </form.Field>
 
           <div className="space-y-1.5 border border-border bg-background px-4 py-3">
-            <p className="font-data text-[11px] uppercase tracking-[0.55px] text-muted-foreground">
+            <p className="font-data text-[11px] uppercase tracking-[0.66px] text-muted-foreground">
               When you set it
             </p>
             <p className="text-[13px] leading-5 text-foreground">
@@ -343,7 +355,8 @@ function ResetPasswordContent() {
   }
 
   if (check.isError) {
-    if (!isServerSideFailure(check.error)) return <LinkNoLongerWorks />
+    const throttled = isThrottled(check.error)
+    if (!throttled && !isServerSideFailure(check.error)) return <LinkNoLongerWorks />
     // The link was not judged, so it is still unspent and the same one is retried.
     return (
       <NoticeCard
@@ -351,8 +364,9 @@ function ResetPasswordContent() {
         title="Something went wrong"
         action={<Button onClick={() => void check.refetch()}>Try Again</Button>}
       >
-        We couldn&apos;t open your link because of a problem on our end. Your link still works.
-        Please try again in a moment.
+        {throttled
+          ? 'Too many requests from this network just now. Your link still works. Please try again in a minute.'
+          : "We couldn't open your link because of a problem on our end. Your link still works. Please try again in a moment."}
       </NoticeCard>
     )
   }

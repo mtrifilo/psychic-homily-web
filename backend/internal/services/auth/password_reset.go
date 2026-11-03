@@ -15,10 +15,6 @@ import (
 	"psychic-homily-backend/internal/services/shared"
 )
 
-// passwordResetTooLongMessage refuses a password bcrypt cannot hash (over 72
-// bytes), which the password validator's 128-character bound admits.
-const passwordResetTooLongMessage = "Password is too long. Try a shorter one."
-
 // PasswordResetAccount reads the account claims name and reports whether the
 // link may still set its password (contracts.AuthServiceInterface).
 func (s *AuthService) PasswordResetAccount(claims *contracts.PasswordResetTokenClaims) (*authm.User, error) {
@@ -46,7 +42,7 @@ func completePasswordReset(
 	// needs nothing from the row, so the row is not held while it runs.
 	newHash, err := hash(newPassword)
 	if errors.Is(err, bcrypt.ErrPasswordTooLong) {
-		return nil, apperrors.ErrValidationFailed(passwordResetTooLongMessage)
+		return nil, apperrors.ErrPasswordTooLong()
 	}
 	if err != nil {
 		return nil, err
@@ -64,10 +60,16 @@ func completePasswordReset(
 
 		// The row lock decides the race; the condition keeps the write to
 		// the hash the link was judged against even if a caller ever
-		// reaches here without the lock.
+		// reaches here without the lock. The failed-attempt lockout goes
+		// with the old password: the new one is proven by the mailbox, so it
+		// signs in at once on every device.
 		result := tx.Model(&authm.User{}).
 			Where("id = ? AND password_hash IS NOT DISTINCT FROM ?", account.ID, account.PasswordHash).
-			Update("password_hash", newHash)
+			Updates(map[string]any{
+				"password_hash":         newHash,
+				"failed_login_attempts": 0,
+				"locked_until":          nil,
+			})
 		if result.Error != nil {
 			return fmt.Errorf("failed to reset password: %w", result.Error)
 		}
@@ -75,6 +77,8 @@ func completePasswordReset(
 			return fmt.Errorf("user %d: %w", account.ID, contracts.ErrPasswordResetLinkSpent)
 		}
 		account.PasswordHash = &newHash
+		account.FailedLoginAttempts = 0
+		account.LockedUntil = nil
 
 		if err := shared.RevokeAllSessions(tx, account, time.Now()); err != nil {
 			return err

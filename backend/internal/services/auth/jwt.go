@@ -17,12 +17,13 @@ import (
 	"psychic-homily-backend/internal/services/shared"
 )
 
-// Session JWT claim values. The issuer and audience are shared by every token
-// this service mints; the subject distinguishes a full session token from the
-// short-lived single-purpose tokens (email-verification, magic-link,
-// account-recovery, password-reset). ValidateToken asserts all three so a leaked short-lived
-// token — which travels through email URLs, query strings, and browser history
-// — can never be replayed as a session credential.
+// Session JWT claim values. Every token this service mints carries the issuer;
+// only a session carries the audience. The subject distinguishes a full
+// session token from the short-lived single-purpose tokens
+// (email-verification, magic-link, account-recovery, password-reset).
+// ValidateToken asserts all three, so a leaked short-lived token, which
+// travels through email URLs, query strings and browser history, can never be
+// replayed as a session credential.
 const (
 	jwtIssuer         = "psychic-homily-backend"
 	jwtAudience       = "psychic-homily-users"

@@ -17,8 +17,9 @@ vi.mock('next/navigation', () => ({
 }))
 
 const mockSetUser = vi.fn()
+let mockAuthStatus = 'anonymous'
 vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => ({ setUser: mockSetUser }),
+  useAuthContext: () => ({ setUser: mockSetUser, authStatus: mockAuthStatus }),
 }))
 
 interface RequestState {
@@ -86,6 +87,7 @@ function expectLinkNoLongerWorks() {
 describe('Reset password page', () => {
   beforeEach(() => {
     mockToken = 'reset-link'
+    mockAuthStatus = 'anonymous'
     checkState = idle()
     completeState = submitted({})
     mockCheck.mockReset()
@@ -214,6 +216,29 @@ describe('Reset password page', () => {
     renderWithProviders(<ResetPasswordPage />)
 
     expect(screen.getByText('Something went wrong')).toBeInTheDocument()
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Try Again' }))
+    expect(mockCheckRefetch).toHaveBeenCalled()
+  })
+
+  // A signed-in reader is sent on by /auth, so a new link comes from Settings.
+  it('sends a signed-in reader to Settings for a new link', () => {
+    mockAuthStatus = 'authenticated'
+    checkState = checkRefused(refusal(AuthErrorCode.INVALID_TOKEN))
+    renderWithProviders(<ResetPasswordPage />)
+
+    expect(screen.getByRole('link', { name: 'Request a new link' })).toHaveAttribute(
+      'href',
+      '/profile?tab=settings#password'
+    )
+  })
+
+  // A throttled check did not judge the link, so it is not called spent.
+  it('offers a retry, not State 5, when the check is throttled', async () => {
+    checkState = checkRefused(Object.assign(new Error('Too Many Requests'), { status: 429 }))
+    renderWithProviders(<ResetPasswordPage />)
+
+    expect(screen.queryByRole('heading', { name: 'That link no longer works.' })).not.toBeInTheDocument()
+    expect(screen.getByText(/Your link still works/)).toBeInTheDocument()
     await userEvent.setup().click(screen.getByRole('button', { name: 'Try Again' }))
     expect(mockCheckRefetch).toHaveBeenCalled()
   })

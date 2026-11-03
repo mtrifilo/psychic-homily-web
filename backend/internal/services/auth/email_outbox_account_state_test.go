@@ -32,7 +32,7 @@ func (s *AuthEmailOutboxSuite) assertOnlyRowSkipped(reason string) {
 // An account closed between the request and the send gets no sign-in,
 // verification or password reset link, and the row is retired with the
 // closed-account reason.
-func (s *AuthEmailOutboxSuite) TestClosedAccount_GetsNoMagicLinkOrVerification() {
+func (s *AuthEmailOutboxSuite) TestClosedAccount_GetsNoOpenAccountEmail() {
 	for _, kind := range []authm.AuthEmailKind{authm.AuthEmailKindMagicLink, authm.AuthEmailKindVerification, authm.AuthEmailKindPasswordReset} {
 		for _, how := range []string{"deactivated", "soft-deleted"} {
 			s.Run(string(kind)+"/"+how, func() {

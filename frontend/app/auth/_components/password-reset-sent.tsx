@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react'
 import { useRequestPasswordReset } from '@/features/auth'
 import {
   EmailResend,
+  SENT_AGAIN,
   SentConfirmation,
   VerificationResendButton,
   VerificationResendFailed,
@@ -11,7 +12,6 @@ import {
   announceSent,
 } from '@/features/auth/components/verification-resend'
 import { formatResendWaitOnly } from '@/features/auth/hooks/useVerificationResendCooldown'
-import { SENT_AGAIN } from '@/app/auth/_components/check-inbox-interstitial'
 import { PASSWORD_RESET_EXPIRY_MINUTES } from '@/lib/password-reset'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -26,8 +26,8 @@ interface PasswordResetSentProps {
 /**
  * The Sign in tab's "Forgot password?" sent state, in place on /auth so the
  * address never travels through a URL. The request answers the same whether
- * or not an account uses the address, so every sentence here holds either
- * way: it says a link was sent IF an account uses it.
+ * or not an account uses the address, so the sentence naming the address
+ * says a link was sent IF an account uses it.
  *
  * Resend asks again for the same address through the shared resend control.
  * The request route needs no session, so the control's expired-session part
@@ -63,7 +63,7 @@ export function PasswordResetSent({ email, onBack }: PasswordResetSentProps) {
       </p>
 
       <div className="space-y-1.5 border border-border bg-background px-4 py-3">
-        <p className="font-data text-[11px] uppercase tracking-[0.55px] text-muted-foreground">
+        <p className="font-data text-[11px] uppercase tracking-[0.66px] text-muted-foreground">
           Nothing changes until you open it
         </p>
         <p className="text-[13px] leading-5 text-foreground">

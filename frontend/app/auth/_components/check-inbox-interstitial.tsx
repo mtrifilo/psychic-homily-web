@@ -3,6 +3,7 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import Link from 'next/link'
 import {
+  SENT_AGAIN,
   SentConfirmation,
   VerificationResend,
   VerificationResendButton,
@@ -38,9 +39,6 @@ const BROWSE_HREF = '/shows'
 
 /** The account-email fold, which is a tab on the profile page, not `/settings`. */
 const ACCOUNT_SETTINGS_HREF = '/profile?tab=settings'
-
-/** The check-your-inbox cards' confirmation of a resend, shown and announced. */
-export const SENT_AGAIN = 'Sent again. Give it a minute to arrive.'
 
 interface CheckInboxInterstitialProps {
   /** The address the account was created under. */

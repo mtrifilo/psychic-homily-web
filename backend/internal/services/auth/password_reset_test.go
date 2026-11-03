@@ -214,6 +214,28 @@ func (s *JWTIntegrationSuite) TestCompletePasswordReset_ReplacesThePasswordOnce(
 	s.ErrorIs(err, contracts.ErrPasswordResetLinkSpent, "opening a used link says it no longer works")
 }
 
+// The failed-attempt lockout goes with the old password, so the new one signs
+// in at once rather than after the lock runs out, and the next typo does not
+// relock the account.
+func (s *JWTIntegrationSuite) TestCompletePasswordReset_ClearsTheLockout() {
+	user := s.createActiveUser("reset-locked@test.com")
+	s.setPasswordHash(user.ID, "forgotten-password-1!")
+	lockedUntil := time.Now().Add(15 * time.Minute)
+	s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", user.ID).
+		Updates(map[string]any{"failed_login_attempts": 5, "locked_until": lockedUntil}).Error)
+	claims := s.resetClaimsFor(user.ID)
+
+	_, err := s.authSvc.CompletePasswordReset(claims, "owners-new-password-1!")
+	s.Require().NoError(err)
+
+	signedIn, err := usersvc.NewUserService(s.db).AuthenticateUserWithPassword("reset-locked@test.com", "owners-new-password-1!")
+	s.Require().NoError(err, "the new password signs in at once")
+	s.Equal(user.ID, signedIn.ID)
+	reloaded := s.reloadUser(user.ID)
+	s.Equal(0, reloaded.FailedLoginAttempts)
+	s.Nil(reloaded.LockedUntil)
+}
+
 // An account with no password gets one.
 func (s *JWTIntegrationSuite) TestCompletePasswordReset_SetsAPasswordWhereThereWasNone() {
 	user := s.createActiveUser("reset-no-password@test.com")
