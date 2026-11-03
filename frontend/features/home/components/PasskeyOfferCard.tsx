@@ -14,6 +14,7 @@ import { isSameUserId } from '@/features/auth/authUser'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useHydrated } from '@/lib/hooks/common/useHydrated'
 import { useLocalStorageEnum } from '@/lib/hooks/common/useLocalStorageEnum'
+import { cn } from '@/lib/utils'
 
 const REGISTER_FAILED = 'Your passkey was not added. Please try again.'
 
@@ -44,9 +45,12 @@ export function profileOffersPasskey(
 }
 
 /**
- * The signed-in home's offer to add a passkey, between the toolbar and the
- * first section. A card in the page, never a modal: the viewer is not stopped
- * on the way to their home.
+ * The signed-in home's offer to add a passkey, under the saved-shows module
+ * (or the first visible section; see `HomeLayoutRuntime`). A card in the page,
+ * never a modal: the viewer is not stopped on the way to their home.
+ *
+ * Its outer spacing is the caller's (`className`), because only the caller
+ * knows which side of it has a neighbour.
  *
  * It shows on every home visit while the account qualifies, until "Not now"
  * dismisses it for good for this account on this browser, or the account
@@ -54,10 +58,12 @@ export function profileOffersPasskey(
  */
 export function PasskeyOfferCard({
   onLeave,
+  className,
 }: {
   /** Called as the card leaves on a viewer's action, so the caller can move
    *  focus somewhere that stays on the page once the card is gone. */
   onLeave?: () => void
+  className?: string
 }) {
   const { user } = useAuthContext()
   const { data: profile } = useProfile()
@@ -68,15 +74,24 @@ export function PasskeyOfferCard({
   }
   // Keyed by account, so a second account on this browser is still offered,
   // and remounted with it, so no state carries from one account to the next.
-  return <PasskeyOffer key={user.id} userId={user.id} onLeave={onLeave} />
+  return (
+    <PasskeyOffer
+      key={user.id}
+      userId={user.id}
+      onLeave={onLeave}
+      className={className}
+    />
+  )
 }
 
 function PasskeyOffer({
   userId,
   onLeave,
+  className,
 }: {
   userId: string
   onLeave?: () => void
+  className?: string
 }) {
   // The server and the hydration render cannot read localStorage, so the card
   // joins the page one commit after hydration rather than flashing in the
@@ -102,7 +117,10 @@ function PasskeyOffer({
   return (
     <section
       aria-labelledby="passkey-offer-title"
-      className="mb-10 mt-10 flex flex-col gap-3.5 rounded-lg border border-border bg-card px-4 py-4 text-card-foreground sm:px-5"
+      className={cn(
+        'flex flex-col gap-3.5 rounded-lg border border-border bg-card px-4 py-4 text-card-foreground sm:px-5',
+        className
+      )}
     >
       <div className="flex flex-col gap-3.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className="flex min-w-0 items-start gap-3.5">

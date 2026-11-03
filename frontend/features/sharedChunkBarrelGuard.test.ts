@@ -47,7 +47,7 @@ const EVICTED: ReadonlyArray<readonly [string, () => Promise<object>, readonly s
       // home-barrel export would put the whole signed-in home wherever that
       // barrel is reachable.
       'HomeLayoutRuntime',
-      'CustomizeHomeToolbar',
+      'HomePageEndRow',
       'HomeSectionList',
     ],
   ],

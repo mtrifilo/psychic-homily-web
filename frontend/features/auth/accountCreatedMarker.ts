@@ -4,10 +4,11 @@ import { useHydrated } from '@/lib/hooks/common/useHydrated'
 import { isSameUserId, type UserIdLike } from './authUser'
 
 /**
- * Names the account a sign-up in this tab created, so the signed-in home can
- * greet it as new for the rest of the page load. Written by every sign-up path
- * at the moment it completes its claim; read once, by the home's saved-shows
- * module, and forgotten when the session ends.
+ * Names the account a sign-up in this tab created, so a signed-in surface can
+ * treat it as new for the rest of the page load. Written by every sign-up path
+ * at the moment it completes its claim and forgotten when the session ends.
+ * No surface reads it at present: the signed-in home's "Welcome" greeting was
+ * its only reader.
  *
  * sessionStorage, not a backend field: "created in this session" is a fact
  * about this tab, and the sign-up responses do not carry it. The stored value

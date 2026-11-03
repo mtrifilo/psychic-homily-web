@@ -5,6 +5,7 @@ import {
   resolveCityLinkSlot,
   resolveHomeLayout,
   resolveHomeLinkSlots,
+  resolvePasskeyOfferSlot,
   setHomeSectionVisibility,
   toHomeLayoutDocument,
   type HomeLayoutSectionEntry,
@@ -19,6 +20,18 @@ function document(sections: HomeLayoutSectionEntry[], version = 1) {
 function order(sections: { id: string }[]) {
   return sections.map(section => section.id)
 }
+
+describe('HOME_SECTIONS', () => {
+  it('ships radio before the scene graph', () => {
+    expect(DEFAULT_ORDER).toEqual([
+      'saved_shows',
+      'nearby_shows',
+      'community_stats',
+      'radio_shows',
+      'city_graph',
+    ])
+  })
+})
 
 describe('resolveHomeLayout', () => {
   it('falls back to the shipped order when nothing is stored', () => {
@@ -50,13 +63,44 @@ describe('resolveHomeLayout', () => {
       { id: 'saved_shows', visible: true },
       { id: 'nearby_shows', visible: false },
       { id: 'community_stats', visible: true },
-      { id: 'city_graph', visible: true },
       { id: 'radio_shows', visible: true },
+      { id: 'city_graph', visible: true },
     ])
 
     const resolved = resolveHomeLayout(stored)
     expect(order(resolved)).toEqual(DEFAULT_ORDER)
     expect(resolved[1]).toMatchObject({ id: 'nearby_shows', visible: false })
+  })
+
+  // A stored document names every section, so a viewer who saved a layout
+  // under an earlier default keeps that order: it is theirs, not the default.
+  it('keeps a full stored order written under an earlier default', () => {
+    const stored = document([
+      { id: 'saved_shows', visible: true },
+      { id: 'nearby_shows', visible: true },
+      { id: 'community_stats', visible: true },
+      { id: 'city_graph', visible: true },
+      { id: 'radio_shows', visible: true },
+    ])
+
+    expect(order(resolveHomeLayout(stored))).toEqual([
+      'saved_shows',
+      'nearby_shows',
+      'community_stats',
+      'city_graph',
+      'radio_shows',
+    ])
+  })
+
+  it('restores an omitted graph after radio, at its new default index', () => {
+    const stored = document(
+      DEFAULT_ORDER.filter(id => id !== 'city_graph').map(id => ({
+        id,
+        visible: true,
+      }))
+    )
+
+    expect(order(resolveHomeLayout(stored))).toEqual(DEFAULT_ORDER)
   })
 
   it('drops ids the registry no longer knows', () => {
@@ -116,8 +160,8 @@ describe('moveHomeSection', () => {
       'saved_shows',
       'community_stats',
       'nearby_shows',
-      'city_graph',
       'radio_shows',
+      'city_graph',
     ])
   })
 
@@ -125,26 +169,26 @@ describe('moveHomeSection', () => {
     const sections = resolveHomeLayout(null)
 
     expect(moveHomeSection(sections, 'saved_shows', 'up')).toBeNull()
-    expect(moveHomeSection(sections, 'radio_shows', 'down')).toBeNull()
+    expect(moveHomeSection(sections, 'city_graph', 'down')).toBeNull()
     expect(moveHomeSection([], 'radio_shows', 'up')).toBeNull()
   })
 
   it('moves a hidden section without changing anything else', () => {
     const hidden = setHomeSectionVisibility(
       resolveHomeLayout(null),
-      'city_graph',
+      'radio_shows',
       false
     )
-    const moved = moveHomeSection(hidden, 'city_graph', 'up')
+    const moved = moveHomeSection(hidden, 'radio_shows', 'up')
 
     expect(order(moved ?? [])).toEqual([
       'saved_shows',
       'nearby_shows',
-      'city_graph',
-      'community_stats',
       'radio_shows',
+      'community_stats',
+      'city_graph',
     ])
-    expect(moved?.find(s => s.id === 'city_graph')?.visible).toBe(false)
+    expect(moved?.find(s => s.id === 'radio_shows')?.visible).toBe(false)
   })
 })
 
@@ -172,8 +216,8 @@ describe('toHomeLayoutDocument', () => {
         { id: 'saved_shows', visible: true },
         { id: 'nearby_shows', visible: true },
         { id: 'community_stats', visible: true },
-        { id: 'city_graph', visible: true },
         { id: 'radio_shows', visible: false },
+        { id: 'city_graph', visible: true },
       ],
     })
   })
@@ -205,14 +249,14 @@ describe('resolveCityLinkSlot', () => {
     ).toBe('saved')
   })
 
-  it('hands it to the toolbar when both carriers are hidden', () => {
+  it('hands it to the page-end row when both carriers are hidden', () => {
     const both = setHomeSectionVisibility(
       setHomeSectionVisibility(sections, 'nearby_shows', false),
       'saved_shows',
       false
     )
 
-    expect(resolveCityLinkSlot(both)).toBe('toolbar')
+    expect(resolveCityLinkSlot(both)).toBe('pageEnd')
   })
 })
 
@@ -230,7 +274,7 @@ describe('resolveHomeLinkSlots', () => {
   it.each([
     ['nothing hidden', sections, 'nearby'],
     ['nearby hidden', hide('nearby_shows'), 'saved'],
-    ['nearby and saved hidden', hide('nearby_shows', 'saved_shows'), 'toolbar'],
+    ['nearby and saved hidden', hide('nearby_shows', 'saved_shows'), 'pageEnd'],
     // Saved hidden alone moves nothing: the nearby section still carries both.
     ['saved hidden', hide('saved_shows'), 'nearby'],
   ] as const)(
@@ -245,23 +289,23 @@ describe('resolveHomeLinkSlots', () => {
 
   it('sends the Discover row to the empty state, and only the Discover row', () => {
     expect(resolveHomeLinkSlots(allHidden, [], null)).toEqual({
-      cityLink: 'toolbar',
+      cityLink: 'pageEnd',
       discoverLinks: 'empty',
     })
   })
 
   // Every section hidden in the layout while the last one is still collapsing
   // on screen: the empty state has not rendered, so the row stays where it was
-  // before that hide instead of stopping in the toolbar on its way there.
+  // before that hide instead of stopping in the page-end row on its way there.
   it.each([
     ['nearby_shows', 'nearby'],
     ['saved_shows', 'saved'],
-    ['radio_shows', 'toolbar'],
+    ['radio_shows', 'pageEnd'],
   ] as const)(
     'keeps the Discover row where it was while %s collapses last',
     (id, slot) => {
       expect(resolveHomeLinkSlots(allHidden, [id], id)).toEqual({
-        cityLink: 'toolbar',
+        cityLink: 'pageEnd',
         discoverLinks: slot,
       })
     }
@@ -270,7 +314,7 @@ describe('resolveHomeLinkSlots', () => {
   // Two sections collapsing together: the one hidden last decides, so the row
   // does not hop back into a section hidden earlier that is still collapsing.
   it.each([
-    [['nearby_shows', 'radio_shows'], 'radio_shows', 'toolbar'],
+    [['nearby_shows', 'radio_shows'], 'radio_shows', 'pageEnd'],
     [['radio_shows', 'nearby_shows'], 'nearby_shows', 'nearby'],
     [['saved_shows', 'nearby_shows'], 'nearby_shows', 'nearby'],
   ] as const)(
@@ -281,4 +325,34 @@ describe('resolveHomeLinkSlots', () => {
       ).toBe(slot)
     }
   )
+})
+
+describe('resolvePasskeyOfferSlot', () => {
+  const sections = resolveHomeLayout(null)
+
+  it('puts the offer under saved shows while it is visible, wherever it sits', () => {
+    expect(resolvePasskeyOfferSlot(sections)).toBe('saved_shows')
+    const moved = moveHomeSection(
+      moveHomeSection(sections, 'saved_shows', 'down')!,
+      'saved_shows',
+      'down'
+    )!
+    expect(resolvePasskeyOfferSlot(moved)).toBe('saved_shows')
+  })
+
+  it('falls back to the first visible section when saved shows is hidden', () => {
+    expect(
+      resolvePasskeyOfferSlot(
+        setHomeSectionVisibility(sections, 'saved_shows', false)
+      )
+    ).toBe('nearby_shows')
+  })
+
+  // Collapsing sections are still rendered but hidden: the offer must not
+  // park under one of them.
+  it('answers null when nothing rendered is visible', () => {
+    const collapsing = sections.map(section => ({ ...section, visible: false }))
+    expect(resolvePasskeyOfferSlot(collapsing)).toBeNull()
+    expect(resolvePasskeyOfferSlot([])).toBeNull()
+  })
 })

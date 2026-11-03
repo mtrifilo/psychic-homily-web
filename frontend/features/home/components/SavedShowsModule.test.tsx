@@ -2,10 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import Link from 'next/link'
 import { SavedShowsModule } from './SavedShowsModule'
-import {
-  markAccountCreatedThisSession,
-  forgetAccountCreatedThisSession,
-} from '@/features/auth/accountCreatedMarker'
 import type { SavedShowResponse } from '@/features/shows/types'
 import type { HomeCityLinkSlot, HomeDiscoverLinksSlot } from '../sections'
 
@@ -89,8 +85,6 @@ function savedShow(
 }
 
 beforeEach(() => {
-  window.sessionStorage.clear()
-  forgetAccountCreatedThisSession()
   mockAuthStatus.mockReturnValue('authenticated')
   mockUseShowSaveCountBatch.mockReturnValue({ data: undefined })
   mockCityLinkSlot.mockReturnValue('nearby')
@@ -109,7 +103,7 @@ describe('SavedShowsModule', () => {
       error: null,
     })
 
-    render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule />)
 
     expect(
       screen.getByRole('heading', { name: 'Your upcoming shows', level: 2 })
@@ -117,15 +111,52 @@ describe('SavedShowsModule', () => {
     // The read is the full page; only the collapsed count is painted.
     expect(screen.getAllByRole('article')).toHaveLength(4)
     // The cap is 4 rows; the subline must still report every save.
-    expect(screen.getByText(/9 saved/)).toBeInTheDocument()
-    expect(screen.getByText(/soonest first/)).toBeInTheDocument()
+    expect(screen.getByText('9 saved · soonest first')).toBeInTheDocument()
     expect(screen.getByRole('article', { name: 'Show 1' })).toBeInTheDocument()
     expect(
-      screen.getByRole('link', { name: 'View all in Library →' })
-    ).toBeInTheDocument()
+      screen.getByRole('link', { name: 'All 9 saved shows in Library →' })
+    ).toHaveAttribute('href', '/library')
+  })
+
+  it('carries no call to action and no greeting in the header of a viewer with saves', () => {
+    mockUseSavedShows.mockReturnValue({
+      data: { shows: [savedShow(1)], total: 1 },
+      isPending: false,
+      error: null,
+    })
+
+    render(<SavedShowsModule />)
+
+    // The only button in the module is the row's own save control.
     expect(
-      screen.getByText('Past saved shows move to Library → Past automatically')
-    ).toBeInTheDocument()
+      screen.getAllByRole('button').map(button => button.textContent)
+    ).toEqual(['save-1'])
+    expect(
+      screen.getByRole('link', { name: 'All 1 saved show in Library →' })
+    ).toHaveAttribute('href', '/library')
+    expect(
+      screen.queryByRole('link', { name: 'Find a show' })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: /View all in Library/ })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Welcome/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/venue-local/)).not.toBeInTheDocument()
+  })
+
+  it('keeps only the calendar link in the footer', () => {
+    mockUseSavedShows.mockReturnValue({
+      data: { shows: [savedShow(1)], total: 1 },
+      isPending: false,
+      error: null,
+    })
+
+    render(<SavedShowsModule />)
+
+    expect(
+      screen.getByRole('link', { name: 'Subscribe to calendar →' })
+    ).toHaveAttribute('href', '/library#calendar-feed')
+    expect(screen.queryByText(/Past saved shows move/)).not.toBeInTheDocument()
   })
 
   it('reads exactly the rows it paints, soonest-first, scoped to the viewer', () => {
@@ -135,7 +166,7 @@ describe('SavedShowsModule', () => {
       error: null,
     })
 
-    render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule />)
 
     expect(mockUseSavedShows).toHaveBeenCalledWith({
       timeFilter: 'upcoming',
@@ -145,14 +176,14 @@ describe('SavedShowsModule', () => {
     })
   })
 
-  it('shows the prompt row and keeps the past-shows footer when nothing is saved', () => {
+  it('shows the prompt row and a Find a show button when nothing is saved', () => {
     mockUseSavedShows.mockReturnValue({
       data: { shows: [], total: 0 },
       isPending: false,
       error: null,
     })
 
-    render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule />)
 
     expect(
       screen.getByText('Nothing saved yet · tap ♡ on any show and it lands here')
@@ -160,13 +191,28 @@ describe('SavedShowsModule', () => {
     expect(
       screen.getByText('Save a show and it shows up here.')
     ).toBeInTheDocument()
+    // One line, as on the M2 board: the button below is the only call to
+    // action, so the row carries no link of its own.
     expect(
-      screen.getByRole('link', { name: 'Pick from this week ↓' })
-    ).toHaveAttribute('href', '#nearby')
-    // The zero-state viewer is exactly the one asking where past saves went.
+      screen.queryByText(/Upcoming first, past ones kept/)
+    ).not.toBeInTheDocument()
+    expect(screen.getAllByRole('link').map(link => link.textContent)).toEqual([
+      'Find a show',
+    ])
+    const findAShow = screen.getByRole('link', { name: 'Find a show' })
+    expect(findAShow).toHaveAttribute('href', '/shows')
+    // Full width on a phone, content-sized from `sm` up.
+    expect(findAShow).toHaveClass('w-full', 'sm:w-auto')
     expect(
-      screen.getByText('Past saved shows move to Library → Past automatically')
-    ).toBeInTheDocument()
+      findAShow.compareDocumentPosition(
+        screen.getByText('Save a show and it shows up here.')
+      ) & Node.DOCUMENT_POSITION_PRECEDING
+    ).toBeTruthy()
+    // No Library pointer and no footer: there is nothing saved to point at.
+    expect(screen.queryByRole('link', { name: /^All / })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'Subscribe to calendar →' })
+    ).not.toBeInTheDocument()
   })
 
   it('claims nothing about the viewer while the read is unresolved', () => {
@@ -176,7 +222,7 @@ describe('SavedShowsModule', () => {
       error: null,
     })
 
-    render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule />)
 
     expect(
       screen.getByRole('heading', { name: 'Your upcoming shows', level: 2 })
@@ -195,12 +241,17 @@ describe('SavedShowsModule', () => {
       error: new Error('boom'),
     })
 
-    render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule />)
 
     expect(
       screen.getByText('Unable to load your saved shows.')
     ).toBeInTheDocument()
     expect(screen.queryByText(/Nothing saved yet/)).not.toBeInTheDocument()
+    // Library stays reachable from the header, without a count it does not have.
+    expect(screen.getByRole('link', { name: 'Library →' })).toHaveAttribute(
+      'href',
+      '/library'
+    )
   })
 
   it('keeps the rows it already has when a refetch fails, and says so', () => {
@@ -210,7 +261,7 @@ describe('SavedShowsModule', () => {
       error: new Error('boom'),
     })
 
-    render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule />)
 
     expect(screen.getAllByRole('article')).toHaveLength(1)
     expect(
@@ -229,7 +280,7 @@ describe('SavedShowsModule', () => {
       error: null,
     })
 
-    render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule />)
 
     expect(mockUseSavedShows).toHaveBeenCalledWith(
       expect.objectContaining({ enabled: false, userId: undefined })
@@ -248,7 +299,7 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
     // must not offer to save it again.
     mockUseShowSaveCountBatch.mockReturnValue({ data: undefined })
 
-    render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule />)
 
     expect(saveButtonProps).toHaveBeenCalledWith(
       expect.objectContaining({ saveData: { save_count: 0, is_saved: true } })
@@ -265,7 +316,7 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
       data: { '1': { save_count: 7, is_saved: true } },
     })
 
-    render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule />)
 
     expect(saveButtonProps).toHaveBeenCalledWith(
       expect.objectContaining({ saveData: { save_count: 7, is_saved: true } })
@@ -280,10 +331,10 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
       error: null,
     })
 
-    const { container } = render(<SavedShowsModule nearbySectionId="nearby" />)
+    const { container } = render(<SavedShowsModule />)
 
     // Not a skeleton: an `enabled: false` query is pending forever, and a
-    // signed-out viewer must not be left under "Welcome back".
+    // signed-out viewer must not be left under "Your upcoming shows".
     expect(container).toBeEmptyDOMElement()
   })
 
@@ -298,7 +349,7 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
       error: null,
     })
 
-    render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule />)
 
     expect(mockRefresh).not.toHaveBeenCalled()
   })
@@ -311,7 +362,7 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
       error: null,
     })
 
-    render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule />)
 
     expect(
       screen.getByRole('heading', { name: 'Your upcoming shows', level: 2 })
@@ -326,7 +377,7 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
         error: null,
       })
 
-      render(<SavedShowsModule nearbySectionId="nearby" />)
+      render(<SavedShowsModule />)
 
       expect(
         screen.queryByRole('link', { name: /All upcoming shows/ })
@@ -341,7 +392,7 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
         error: null,
       })
 
-      render(<SavedShowsModule nearbySectionId="nearby" />)
+      render(<SavedShowsModule />)
 
       expect(
         screen.getByRole('link', { name: 'All upcoming shows in Phoenix, AZ →' })
@@ -356,7 +407,7 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
         error: new Error('nope'),
       })
 
-      render(<SavedShowsModule nearbySectionId="nearby" />)
+      render(<SavedShowsModule />)
 
       expect(
         screen.getByRole('link', { name: 'All upcoming shows in Phoenix, AZ →' })
@@ -365,42 +416,6 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
       expect(
         screen.queryByRole('link', { name: 'Subscribe to calendar →' })
       ).not.toBeInTheDocument()
-    })
-  })
-
-  describe('the zero state\'s way down to the nearby list', () => {
-    it('anchors to the nearby section while it is on the page', () => {
-      mockUseSavedShows.mockReturnValue({
-        data: { shows: [], total: 0 },
-        isPending: false,
-        error: null,
-      })
-
-      render(<SavedShowsModule nearbySectionId="nearby" />)
-
-      expect(
-        screen.getByRole('link', { name: 'Pick from this week ↓' })
-      ).toHaveAttribute('href', '#nearby')
-    })
-
-    // The anchor's target is one of the five hideable sections, so the link
-    // has to stop pointing at it once the viewer hides it.
-    it('sends the viewer to /shows once the nearby section is hidden', () => {
-      mockCityLinkSlot.mockReturnValue('saved')
-      mockUseSavedShows.mockReturnValue({
-        data: { shows: [], total: 0 },
-        isPending: false,
-        error: null,
-      })
-
-      render(<SavedShowsModule nearbySectionId="nearby" />)
-
-      expect(
-        screen.queryByRole('link', { name: 'Pick from this week ↓' })
-      ).not.toBeInTheDocument()
-      expect(
-        screen.getByRole('link', { name: 'Find one to save →' })
-      ).toHaveAttribute('href', '/shows')
     })
   })
 
@@ -415,13 +430,15 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
       })
 
       const { container } = render(
-        <SavedShowsModule nearbySectionId="nearby" />
+        <SavedShowsModule />
       )
 
       const row = screen.getByRole('navigation', { name: 'Discover' })
       expect(row).toHaveTextContent(
         'Discover:Shows in any city·Artists·Freeform Radio·Record Labels·Graph Observatory'
       )
+      // Omitted below `sm` on the signed-in home.
+      expect(row).toHaveClass('hidden', 'sm:flex')
       // Below the city link, as the module's last child.
       expect(container.querySelector('section')?.lastElementChild).toBe(row)
       const cityLink = screen.getByRole('link', {
@@ -442,14 +459,14 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
       mockDiscoverLinksSlot.mockReturnValue('saved')
       mockUseSavedShows.mockReturnValue(result)
 
-      render(<SavedShowsModule nearbySectionId="nearby" />)
+      render(<SavedShowsModule />)
 
       expect(
         screen.getByRole('navigation', { name: 'Discover' })
       ).toBeInTheDocument()
     })
 
-    it.each(['nearby', 'toolbar', 'empty'] as const)(
+    it.each(['nearby', 'pageEnd', 'empty'] as const)(
       'renders nothing for the row when the %s slot owns it',
       slot => {
         mockDiscoverLinksSlot.mockReturnValue(slot)
@@ -459,7 +476,7 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
           error: null,
         })
 
-        render(<SavedShowsModule nearbySectionId="nearby" />)
+        render(<SavedShowsModule />)
 
         expect(
           screen.queryByRole('navigation', { name: 'Discover' })
@@ -468,33 +485,15 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
     )
   })
 
-  describe('the eyebrow', () => {
-    beforeEach(() => {
-      mockUseSavedShows.mockReturnValue({
-        data: { shows: [], total: 0 },
-        isPending: false,
-        error: null,
-      })
+  it('greets nobody in the zero state either', () => {
+    mockUseSavedShows.mockReturnValue({
+      data: { shows: [], total: 0 },
+      isPending: false,
+      error: null,
     })
 
-    it('welcomes back an account that was not created in this tab', () => {
-      render(<SavedShowsModule nearbySectionId="nearby" />)
+    render(<SavedShowsModule />)
 
-      expect(screen.getByText('Welcome back')).toBeInTheDocument()
-      expect(screen.queryByText('Welcome')).not.toBeInTheDocument()
-    })
-
-    it('welcomes an account a sign-up in this tab just created, for the rest of the page', () => {
-      markAccountCreatedThisSession(42)
-      const { unmount } = render(<SavedShowsModule nearbySectionId="nearby" />)
-
-      expect(screen.getByText('Welcome')).toBeInTheDocument()
-      expect(screen.queryByText('Welcome back')).not.toBeInTheDocument()
-      // Read once: storage is cleared, and the answer holds for this page.
-      expect(window.sessionStorage.length).toBe(0)
-      unmount()
-      render(<SavedShowsModule nearbySectionId="nearby" />)
-      expect(screen.getByText('Welcome')).toBeInTheDocument()
-    })
+    expect(screen.queryByText(/^Welcome/)).not.toBeInTheDocument()
   })
 })

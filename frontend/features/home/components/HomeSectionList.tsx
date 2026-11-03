@@ -41,8 +41,9 @@ type MoveDirection = 'up' | 'down'
  * The write-failure copy, rendered by whichever surface HOSTS this list rather
  * than by the list itself: the popover unmounts when it closes and the write
  * outlives it, and two hosts rendering it at once would fire two live-region
- * alerts for one failure. The hosts are `HomeLayoutRuntime` (the toolbar row,
- * which outlives the popover) and the Settings `HomeLayoutSettings` card.
+ * alerts for one failure. The hosts are `HomePageEndRow` (the row carrying the
+ * Customize link, which outlives the popover) and the Settings
+ * `HomeLayoutSettings` card.
  */
 export const SAVE_FAILED_MESSAGE = 'Could not save your layout. Try again.'
 

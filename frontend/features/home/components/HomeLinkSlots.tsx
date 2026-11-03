@@ -12,7 +12,7 @@ import type {
  *
  * Both rows belong to the nearby section. Hiding that section would otherwise
  * take them with it, so ownership falls back to the saved-shows footer and
- * then to the toolbar row (and, for the Discover row, to the empty-state
+ * then to the page-end row (and, for the Discover row, to the empty-state
  * line). Every surface that can carry a row reads the same value, so "exactly
  * one renders it" is enforced rather than coordinated.
  *

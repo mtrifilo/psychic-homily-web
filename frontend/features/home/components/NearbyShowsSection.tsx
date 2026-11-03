@@ -8,7 +8,7 @@ import { NEXT_7_DAYS } from '@/features/shows/quickWindows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { cityLabel } from '@/components/filters/cityParams'
 import { HomeCityShowsLink } from './HomeCityShowsLink'
-import { HomeDiscoverLinks } from './HomeDiscoverLinks'
+import { SignedInHomeDiscoverLinks } from './HomeDiscoverLinks'
 import { useHomeCityLinkSlot, useHomeDiscoverLinksSlot } from './HomeLinkSlots'
 
 /** Rows the section paints, the count on the approved board. */
@@ -100,7 +100,7 @@ export function NearbyShowsSection({ id }: { id: string }) {
         excludedLabel={cityCount > 0 ? cityNames : undefined}
       />
 
-      {ownsDiscoverLinks && <HomeDiscoverLinks className="pt-2" />}
+      {ownsDiscoverLinks && <SignedInHomeDiscoverLinks className="pt-2" />}
     </section>
   )
 }

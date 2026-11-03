@@ -6,14 +6,16 @@ import { NearbyShowsSection } from './NearbyShowsSection'
 import { SavedShowsModule } from './SavedShowsModule'
 import type { HomeLayoutDocument } from '../sections'
 
-/** Anchor target for the zero state's "Pick from this week ↓". */
+/** The nearby section's element id. */
 const NEARBY_SECTION_ID = 'home-shows-near-you'
 
 /**
  * The signed-in home: the viewer's saved shows in place of the
- * logged-out wordmark hero, with the general "Upcoming shows" section dropped
- * — /shows stays one click away via "Find a show" and the nearby section's
- * city link.
+ * logged-out wordmark hero, with the general "Upcoming shows" section dropped.
+ * /shows stays one click away through the city link, which cascades from the
+ * nearby section to the saved-shows footer to the page-end row so some
+ * surface always carries it, and through "Find a show" in the zero-saves
+ * state.
  *
  * It holds the map from registry id to component, which is the one thing the
  * isomorphic registry (`../sections`) must not carry. Order and visibility
@@ -46,7 +48,7 @@ export function SignedInHome({
     <HomeLayoutRuntime
       initialLayout={layout}
       sections={{
-        saved_shows: <SavedShowsModule nearbySectionId={NEARBY_SECTION_ID} />,
+        saved_shows: <SavedShowsModule />,
         nearby_shows: <NearbyShowsSection id={NEARBY_SECTION_ID} />,
         community_stats: <CommunityPulseBand />,
         city_graph: <HomeSceneGraph />,

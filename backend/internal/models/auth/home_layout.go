@@ -32,14 +32,20 @@ const (
 	HomeSectionRadioShows     = "radio_shows"
 )
 
-// knownHomeSections is the whitelist, in the order the sections are intended
-// to ship in. The backend is its single home: an id the server does not know
-// can never be rendered, so accepting one would store a section the user can
-// neither see nor remove.
+// knownHomeSections is the whitelist. The backend is its single home: an id
+// the server does not know can never be rendered, so accepting one would store
+// a section the user can neither see nor remove.
+//
+// The default render order is the frontend registry's (HOME_SECTIONS in
+// frontend/features/home/sections.ts): saved_shows, nearby_shows,
+// community_stats, radio_shows, city_graph. This slice's own order is not
+// that order: it spells the enum tag on HomeLayoutSection.ID (see
+// homeSectionVocabularyCSV), and nothing reads it as a render order.
 //
 // A document may OMIT ids, and Validate accepts that on the CONTRACT that a
-// client appends any known section the document leaves out, in this order.
-// That is what lets a new section ship without rewriting stored rows. The
+// client restores any known section the document leaves out at its index in
+// that default order. That is what lets a new section ship without rewriting
+// stored rows. The
 // consuming frontend is not built yet (PSY-2104), so nothing enforces its half
 // of that contract today.
 //

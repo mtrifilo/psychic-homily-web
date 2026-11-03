@@ -23,13 +23,13 @@ vi.mock('@/features/auth/hooks/useAuth', () => ({
 }))
 
 const CUSTOM: HomeLayoutDocument = toHomeLayoutDocument(
-  moveHomeSection(resolveHomeLayout(null), 'radio_shows', 'up')!
+  moveHomeSection(resolveHomeLayout(null), 'city_graph', 'up')!
 )
 
 const CUSTOM_TWO_STEPS: HomeLayoutDocument = toHomeLayoutDocument(
   moveHomeSection(
-    moveHomeSection(resolveHomeLayout(null), 'radio_shows', 'up')!,
-    'radio_shows',
+    moveHomeSection(resolveHomeLayout(null), 'city_graph', 'up')!,
+    'city_graph',
     'up'
   )!
 )
@@ -83,8 +83,8 @@ describe('useHomeLayout', () => {
       'saved_shows',
       'nearby_shows',
       'community_stats',
-      'radio_shows',
       'city_graph',
+      'radio_shows',
     ])
   })
 
@@ -312,7 +312,7 @@ describe('concurrent writes', () => {
     })
 
     const first = toHomeLayoutDocument(
-      moveHomeSection(resolveHomeLayout(null), 'radio_shows', 'up')!
+      moveHomeSection(resolveHomeLayout(null), 'city_graph', 'up')!
     )
     act(() => result.current.mutate(first))
     await waitFor(() => expect(pending).toHaveLength(1))

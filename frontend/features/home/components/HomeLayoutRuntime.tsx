@@ -11,32 +11,35 @@ import {
 } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthContext } from '@/lib/context/AuthContext'
-// Concrete module path, not the `@/components/shared` barrel: this component
-// is reachable from the home route. See features/sharedChunkBarrelGuard.test.ts.
-import { InlineErrorBanner } from '@/components/shared/InlineErrorBanner'
 import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 import { animateSlotHeight, useFlipReorder } from '../homeLayoutMotion'
-import { useHomeLayout, useHomeLayoutWriteFailed } from '../hooks/useHomeLayout'
+import { useHomeLayout } from '../hooks/useHomeLayout'
 import {
   resolveHomeLinkSlots,
+  resolvePasskeyOfferSlot,
   type HomeLayoutDocument,
   type HomeSectionId,
 } from '../sections'
-import { CustomizeHomeToolbar } from './CustomizeHomeToolbar'
-import { HomeDiscoverLinks } from './HomeDiscoverLinks'
+import { SignedInHomeDiscoverLinks } from './HomeDiscoverLinks'
 import { HomeLinkSlotsProvider } from './HomeLinkSlots'
+import { HomePageEndRow } from './HomePageEndRow'
 import { PasskeyOfferCard } from './PasskeyOfferCard'
-import {
-  SAVE_FAILED_MESSAGE,
-  type HomeVisibilityChange,
-} from './HomeSectionList'
+import type { HomeVisibilityChange } from './HomeSectionList'
 
 /** A section mid-show or mid-hide, and which way it is going. */
 type SlotTransition = 'collapse' | 'expand'
 
+/** A staged transition, and whether the section was visible before the first
+ *  gesture of the chain that staged it (a reversal mid-flight keeps the
+ *  value the interrupted transition recorded). */
+interface StagedTransition {
+  direction: SlotTransition
+  wasVisible: boolean
+}
+
 /**
- * The signed-in home's client shell: the toolbar, and the sections in this
- * viewer's order.
+ * The signed-in home's client shell: the sections in this viewer's order, then
+ * the page-end row that carries "Customize home →".
  *
  * `sections` arrives already rendered by the SERVER component above, one entry
  * per registry id. Every section is handed over whether or not it is visible,
@@ -57,23 +60,23 @@ export function HomeLayoutRuntime({
   const { authStatus } = useAuthContext()
   const router = useRouter()
   const { sections: layout } = useHomeLayout(initialLayout)
-  const hasWriteFailed = useHomeLayoutWriteFailed()
-  const [isPopoverOpen, setPopoverOpen] = useState(false)
   const headingRef = useRef<HTMLHeadingElement>(null)
   // Counts the passkey offer's exits. Focus moves in an effect, after the
   // commit that removed the card: a modal the card opened still traps focus
   // until that commit, and would pull a focus moved any earlier back inside.
+  // Without scrolling: the card sits below the viewer's shows, and the
+  // heading is visually hidden, so scrolling to it would only jump the page.
   const [offerExits, setOfferExits] = useState(0)
   useEffect(() => {
-    if (offerExits > 0) headingRef.current?.focus()
+    if (offerExits > 0) headingRef.current?.focus({ preventScroll: true })
   }, [offerExits])
 
   // The server picked this variant from the viewer's cookie; signing out
   // without navigating leaves it mounted. This guard lives HERE, on the shell
   // that is always present, rather than inside a section a viewer can hide:
   // parked in the saved-shows module it disappeared with that section, and a
-  // viewer who had hidden it kept the signed-in page, the toolbar, and the
-  // previous account's layout after signing out.
+  // viewer who had hidden it kept the signed-in page, the Customize control,
+  // and the previous account's layout after signing out.
   useEffect(() => {
     if (authStatus === 'anonymous') router.refresh()
   }, [authStatus, router])
@@ -83,7 +86,7 @@ export function HomeLayoutRuntime({
   // animation nobody asked for. A MAP, not one id, so toggling a second
   // section does not yank the first out mid-animation.
   const [transitions, setTransitions] = useState<
-    ReadonlyMap<HomeSectionId, SlotTransition>
+    ReadonlyMap<HomeSectionId, StagedTransition>
   >(() => new Map())
 
   // Direction-aware: a cancel fires this too, and a re-show staged DURING a
@@ -92,7 +95,7 @@ export function HomeLayoutRuntime({
   const settleTransition = useCallback(
     (id: HomeSectionId, direction: SlotTransition) => {
       setTransitions(current => {
-        if (current.get(id) !== direction) return current
+        if (current.get(id)?.direction !== direction) return current
         const next = new Map(current)
         next.delete(id)
         return next
@@ -122,10 +125,14 @@ export function HomeLayoutRuntime({
       }
       setTransitions(current => {
         const next = new Map(current)
+        const interrupted = current.get(change.id)
         // Deleted first so the map's insertion order stays staging order: its
         // last key is the most recently staged section (see `lastStaged`).
         next.delete(change.id)
-        next.set(change.id, change.visible ? 'expand' : 'collapse')
+        next.set(change.id, {
+          direction: change.visible ? 'expand' : 'collapse',
+          wasVisible: interrupted ? interrupted.wasVisible : !change.visible,
+        })
         return next
       })
     },
@@ -149,6 +156,67 @@ export function HomeLayoutRuntime({
     () => ({ cityLink, discoverLinks }),
     [cityLink, discoverLinks]
   )
+  // Placed by each section's visibility BEFORE the gestures still in flight
+  // on it: the offer moves only once the section settles, a reversal
+  // mid-animation included. Moving it in the commit that starts a height
+  // animation would shift everything below by the card's height on the first
+  // frame, the Customize link and its open popover included. A move at the
+  // settle only reorders the column, whose height it does not change, so
+  // nothing below the last section moves.
+  const offerAfter = resolvePasskeyOfferSlot(
+    rendered.map(section => {
+      const staged = transitions.get(section.id)
+      return staged ? { ...section, visible: staged.wasVisible } : section
+    })
+  )
+  const offerIndex = offerAfter
+    ? rendered.findIndex(section => section.id === offerAfter)
+    : rendered.length - 1
+  // The offer is followed by a section unless it sits at the end of the
+  // column, and takes its gap from whichever side has no slot spacer.
+  const isOfferLast = allHidden || offerIndex === rendered.length - 1
+
+  // ONE keyed list for the sections, the offer and the empty-state line, so
+  // the offer is the same element wherever it lands: it moves between
+  // positions without remounting, and keeps its state (a passkey just added,
+  // an error on screen) when the viewer hides or reorders the section above.
+  const column: ReactNode[] = []
+  const offer = (
+    <div key="passkey-offer" ref={register('passkey-offer')}>
+      {/* Focus goes to the page heading when the card leaves, so a keyboard
+          viewer continues from the top of the home, not from the document. */}
+      <PasskeyOfferCard
+        className={isOfferLast ? 'mt-14' : 'mb-14'}
+        onLeave={() => setOfferExits(count => count + 1)}
+      />
+    </div>
+  )
+  if (allHidden) {
+    column.push(
+      <div key="empty" className="mt-2 flex flex-col gap-2">
+        <p className="text-sm text-muted-foreground">
+          You have hidden every section.
+        </p>
+        {discoverLinks === 'empty' && <SignedInHomeDiscoverLinks />}
+      </div>
+    )
+  }
+  rendered.forEach((section, index) => {
+    column.push(
+      <HomeSectionSlot
+        key={section.id}
+        id={section.id}
+        registerRef={register(section.id)}
+        transition={transitions.get(section.id)?.direction}
+        isLast={index === rendered.length - 1}
+        onSettled={settleTransition}
+      >
+        {sections[section.id]}
+      </HomeSectionSlot>
+    )
+    if (index === offerIndex) column.push(offer)
+  })
+  if (allHidden) column.push(offer)
 
   // Say nothing rather than address a viewer who is no longer there. The
   // effect above has already asked the server for the anonymous page.
@@ -164,65 +232,22 @@ export function HomeLayoutRuntime({
           Home
         </h1>
 
-        <CustomizeHomeToolbar
-          open={isPopoverOpen}
-          onOpenChange={setPopoverOpen}
+        {/* The gap between sections rides INSIDE each slot rather than on this
+            container: on the container it survives the height animation and
+            vanishes at unmount, snapping everything below up by its full
+            height. It also cannot be padding on the slot itself, because
+            padding floors a border-box element's rendered height, so the slot
+            would stop 56px short of collapsing and drop that at unmount
+            instead. */}
+        <div className="mt-4 flex w-full flex-col">{column}</div>
+
+        {/* Outside the column and never conditional: the popover it anchors
+            must survive the page emptying while it is open. */}
+        <HomePageEndRow
           initialLayout={initialLayout}
           onBeforeChange={handleBeforeChange}
+          className={allHidden ? 'mt-6' : 'mt-12'}
         />
-
-        {/* The failure line lives on the ALWAYS-present toolbar row, not only
-            inside the popover: the write outlives the popover, so a viewer who
-            closed it would otherwise watch their change silently undo itself
-            with no explanation anywhere. */}
-        {hasWriteFailed && (
-          <div className="mt-3">
-            <InlineErrorBanner>{SAVE_FAILED_MESSAGE}</InlineErrorBanner>
-          </div>
-        )}
-
-        {/* Above every section, not inside one: the sections are hideable and
-            reorderable, and the offer must not move or vanish with them. */}
-        {/* Focus goes to the page heading when the card leaves, so a keyboard
-            viewer continues from the top of the home, not from the document. */}
-        <PasskeyOfferCard onLeave={() => setOfferExits(count => count + 1)} />
-
-        {allHidden ? (
-          <div className="mt-6 flex flex-col gap-2">
-            <p className="text-sm text-muted-foreground">
-              You have hidden every section.{' '}
-              <button
-                type="button"
-                onClick={() => setPopoverOpen(true)}
-                className="font-medium text-link transition-colors hover:underline underline-offset-4"
-              >
-                Customize home →
-              </button>
-            </p>
-            {discoverLinks === 'empty' && <HomeDiscoverLinks />}
-          </div>
-        ) : (
-          // The gap rides INSIDE each slot rather than on the container: on
-          // the container it survives the height animation and vanishes at
-          // unmount, snapping everything below up by its full height. It also
-          // cannot be padding on the slot itself, because padding floors a
-          // border-box element's rendered height, so the slot would stop 56px
-          // short of collapsing and drop that at unmount instead.
-          <div className="mt-4 flex w-full flex-col">
-            {rendered.map((section, index) => (
-              <HomeSectionSlot
-                key={section.id}
-                id={section.id}
-                registerRef={register(section.id)}
-                transition={transitions.get(section.id)}
-                isLast={index === rendered.length - 1}
-                onSettled={settleTransition}
-              >
-                {sections[section.id]}
-              </HomeSectionSlot>
-            ))}
-          </div>
-        )}
       </div>
     </HomeLinkSlotsProvider>
   )

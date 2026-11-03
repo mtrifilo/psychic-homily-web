@@ -47,3 +47,11 @@ export function HomeDiscoverLinks({ className }: { className?: string }) {
     </nav>
   )
 }
+
+/**
+ * The row as the signed-in home renders it, in every slot it relocates to:
+ * omitted below `sm`, where that home carries no Discover row.
+ */
+export function SignedInHomeDiscoverLinks({ className }: { className?: string }) {
+  return <HomeDiscoverLinks className={cn('hidden sm:flex', className)} />
+}

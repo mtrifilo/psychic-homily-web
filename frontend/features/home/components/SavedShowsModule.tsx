@@ -18,10 +18,10 @@ import {
   useSavedShows,
   useShowSaveCountBatch,
 } from '@/features/shows/hooks/useSavedShows'
-import { useAccountCreatedThisSession } from '@/features/auth/accountCreatedMarker'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { ResolvedHomeCityShowsLink } from './HomeCityShowsLink'
-import { HomeDiscoverLinks } from './HomeDiscoverLinks'
+import { cn } from '@/lib/utils'
+import { HOME_ACCENT_LINK_CLASS, ResolvedHomeCityShowsLink } from './HomeCityShowsLink'
+import { SignedInHomeDiscoverLinks } from './HomeDiscoverLinks'
 import { useHomeCityLinkSlot, useHomeDiscoverLinksSlot } from './HomeLinkSlots'
 
 /**
@@ -58,26 +58,14 @@ type ModuleState = 'loading' | 'error' | 'empty' | 'rows'
  * `total` (not `shows.length`) drives the subline and the zero state: the read
  * is capped, so the row count says nothing about how many saves exist.
  */
-export function SavedShowsModule({
-  nearbySectionId,
-}: {
-  /** Anchor for "Pick from this week ↓", the zero state's way down to the
-   *  nearby list. */
-  nearbySectionId: string
-}) {
+export function SavedShowsModule() {
   const { user, authStatus } = useAuthContext()
   const isAuthenticated = authStatus === 'authenticated'
-  const isNewAccount = useAccountCreatedThisSession(user?.id)
   // Takes the city link and the Discover row only when the nearby section that
   // normally carries them is hidden. The footer is where they go, next to the
   // other lines that point off this module.
-  const cityLinkSlot = useHomeCityLinkSlot()
-  const ownsCityLink = cityLinkSlot === 'saved'
+  const ownsCityLink = useHomeCityLinkSlot() === 'saved'
   const ownsDiscoverLinks = useHomeDiscoverLinksSlot() === 'saved'
-  // The zero state's "Pick from this week ↓" scrolls to the nearby section. It
-  // only still owns the city link while it is on the page, so that is also the
-  // test for whether the anchor exists to scroll to.
-  const hasNearbySection = cityLinkSlot === 'nearby'
 
   // Exactly the rows painted. The server prefetches this same key for the
   // first paint (app/_components/HomeContentSlot.tsx), so the key must stay
@@ -114,9 +102,8 @@ export function SavedShowsModule({
           ? 'empty'
           : 'rows'
   const isStale = state === 'rows' && !!error
-  // Shown in the zero state too: it is the only line that explains where a
-  // viewer's past saves went, and that viewer is the one asking.
-  const showsFooter = state === 'rows' || state === 'empty'
+  // A calendar feed is worth offering only to a viewer with saves to put in it.
+  const showsFooter = state === 'rows'
 
   // The server picked this variant from the viewer's cookie; a viewer who signs
   // out without navigating leaves it mounted. Say nothing rather than address
@@ -128,47 +115,54 @@ export function SavedShowsModule({
       aria-labelledby="signed-in-home-heading"
       className="flex w-full flex-col gap-4 pt-2"
     >
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0">
-          <p className="font-data text-[11px] uppercase tracking-wider text-muted-foreground">
-            {isNewAccount ? 'Welcome' : 'Welcome back'}
+      {/* No call to action here: a viewer with saves, or whose saves failed
+          to load, is pointed at Library; only the zero state offers "Find a
+          show", under its prompt row. */}
+      <div className="min-w-0">
+        {/* h2, not h1: this section is hideable, and the page's h1 lives on
+            the layout shell so the document outline survives hiding it. */}
+        <h2
+          id="signed-in-home-heading"
+          className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl"
+        >
+          Your upcoming shows
+        </h2>
+        {(state === 'rows' || state === 'error') && (
+          <div className="mt-1.5 flex items-baseline justify-between gap-x-4">
+            {state === 'rows' && (
+              <p className="min-w-0 text-sm text-muted-foreground">
+                {total} saved · soonest first
+              </p>
+            )}
+            <Link
+              href="/library"
+              className={cn(HOME_ACCENT_LINK_CLASS, 'ml-auto shrink-0')}
+            >
+              {state === 'rows' ? (
+                <>
+                  All {total}{' '}
+                  <span className="sr-only">
+                    {total === 1 ? 'saved show' : 'saved shows'} in Library
+                  </span>{' '}
+                  →
+                </>
+              ) : (
+                // No count: a read that failed has none to give.
+                'Library →'
+              )}
+            </Link>
+          </div>
+        )}
+        {state === 'empty' && (
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            Nothing saved yet · tap ♡ on any show and it lands here
           </p>
-          {/* h2, not h1: this section is hideable, and the page's h1 lives on
-              the layout shell so the document outline survives hiding it. */}
-          <h2
-            id="signed-in-home-heading"
-            className="mt-1 text-3xl font-semibold tracking-tight text-foreground sm:text-4xl"
-          >
-            Your upcoming shows
-          </h2>
-          {state === 'rows' && (
-            <p className="mt-1.5 text-sm text-muted-foreground">
-              {total} saved · soonest first · times are venue-local
-            </p>
-          )}
-          {state === 'empty' && (
-            <p className="mt-1.5 text-sm text-muted-foreground">
-              Nothing saved yet · tap ♡ on any show and it lands here
-            </p>
-          )}
-          {state === 'loading' && (
-            // Reserves the subline's line box so the settled copy does not
-            // push the rows down when it arrives.
-            <Skeleton className="mt-2 h-4 w-64" aria-hidden />
-          )}
-        </div>
-
-        <div className="flex shrink-0 items-center gap-4">
-          <Link
-            href="/library"
-            className="text-sm font-medium text-muted-foreground transition-colors hover:text-link hover:underline underline-offset-4"
-          >
-            View all in Library →
-          </Link>
-          <Button asChild size="lg">
-            <Link href="/shows">Find a show</Link>
-          </Button>
-        </div>
+        )}
+        {state === 'loading' && (
+          // Reserves the subline's line box so the settled copy does not
+          // push the rows down when it arrives.
+          <Skeleton className="mt-2 h-4 w-64" aria-hidden />
+        )}
       </div>
 
       {state === 'error' && (
@@ -194,32 +188,17 @@ export function SavedShowsModule({
           >
             - - -
           </div>
-          <div className="min-w-0 self-center">
-            <p className="text-sm font-medium leading-tight text-foreground md:text-[15px]">
-              Save a show and it shows up here.
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground md:text-[13px]">
-              Upcoming first, past ones kept as your record in Library.
-            </p>
-          </div>
-          <div className="col-start-2 mt-1 font-data text-[11px] md:col-start-3 md:row-start-1 md:mt-0 md:self-center">
-            {hasNearbySection ? (
-              <a
-                href={`#${nearbySectionId}`}
-                className="whitespace-nowrap text-link transition-colors hover:underline underline-offset-4"
-              >
-                Pick from this week ↓
-              </a>
-            ) : (
-              <Link
-                href="/shows"
-                className="whitespace-nowrap text-link transition-colors hover:underline underline-offset-4"
-              >
-                Find one to save →
-              </Link>
-            )}
-          </div>
+          {/* One line: the "Find a show" button below is the call to action. */}
+          <p className="min-w-0 self-center text-sm font-medium leading-tight text-foreground md:text-[15px]">
+            Save a show and it shows up here.
+          </p>
         </div>
+      )}
+
+      {state === 'empty' && (
+        <Button asChild size="lg" className="w-full sm:w-auto sm:self-start">
+          <Link href="/shows">Find a show</Link>
+        </Button>
       )}
 
       {state === 'rows' && (
@@ -257,31 +236,24 @@ export function SavedShowsModule({
       )}
 
       {(showsFooter || ownsCityLink) && (
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 font-data text-[11px] text-muted-foreground">
-          {showsFooter && (
-            <span>Past saved shows move to Library → Past automatically</span>
+        <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1 font-data text-[11px]">
+          {ownsCityLink && (
+            <ResolvedHomeCityShowsLink className="font-data text-[11px]" />
           )}
-          {/* ml-auto, not justify-between alone: the left line is absent when
-              this row exists only to carry the relocated city link. */}
-          <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1">
-            {ownsCityLink && (
-              <ResolvedHomeCityShowsLink className="font-data text-[11px] text-link transition-colors hover:underline underline-offset-4" />
-            )}
-            {showsFooter && (
-              <Link
-                href="/library#calendar-feed"
-                className="text-link transition-colors hover:underline underline-offset-4"
-              >
-                Subscribe to calendar →
-              </Link>
-            )}
-          </div>
+          {showsFooter && (
+            <Link
+              href="/library#calendar-feed"
+              className="text-muted-foreground transition-colors hover:text-link hover:underline underline-offset-4"
+            >
+              Subscribe to calendar →
+            </Link>
+          )}
         </div>
       )}
 
       {/* The footer's last line, in every module state, loading and error
           included: while this slot owns the row, no other surface renders it. */}
-      {ownsDiscoverLinks && <HomeDiscoverLinks />}
+      {ownsDiscoverLinks && <SignedInHomeDiscoverLinks />}
     </section>
   )
 }
