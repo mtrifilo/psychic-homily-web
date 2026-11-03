@@ -111,7 +111,7 @@ function LinkNoLongerWorks() {
       </div>
       <p className="text-sm text-muted-foreground">
         Already set a new password?{' '}
-        <Link href={SIGN_IN_HREF} className="underline underline-offset-4 hover:text-primary">
+        <Link href={SIGN_IN_HREF} className="underline underline-offset-4 hover:text-link">
           Sign in
         </Link>
         .
@@ -316,7 +316,7 @@ function ResetPasswordForm({
           <div className="flex justify-center">
             <Link
               href={SIGN_IN_HREF}
-              className="text-sm text-muted-foreground underline underline-offset-4 hover:text-primary"
+              className="text-sm text-muted-foreground underline underline-offset-4 hover:text-link"
             >
               Cancel and go back to sign in
             </Link>

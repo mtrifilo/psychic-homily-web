@@ -60,7 +60,7 @@ export function ResetByEmail({
       <VerificationResendStatus
         format={formatResendWaitOnly}
         announce={announceSent(sentMessage)}
-        className="font-data text-[11px] uppercase tracking-[0.66px] text-primary"
+        className="font-data text-[11px] uppercase tracking-[0.66px] text-link"
       />
       <ResetSessionExpired signInAgainHref={signInAgainHref} />
       <VerificationResendFailed />

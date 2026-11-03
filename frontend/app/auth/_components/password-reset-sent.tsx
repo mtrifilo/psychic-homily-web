@@ -91,7 +91,7 @@ export function PasswordResetSent({ email, onBack }: PasswordResetSentProps) {
         <VerificationResendStatus
           format={formatResendWaitOnly}
           announce={announceSent(SENT_AGAIN)}
-          className="font-data text-[11px] uppercase tracking-[0.66px] text-primary"
+          className="font-data text-[11px] uppercase tracking-[0.66px] text-link"
         />
         <VerificationResendFailed />
       </EmailResend>
