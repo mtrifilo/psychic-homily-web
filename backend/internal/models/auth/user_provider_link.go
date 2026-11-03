@@ -30,8 +30,9 @@ func (u *User) MayConnectProvider() bool {
 // verified it is the mailbox holder and the held identity and the password
 // are someone else's. Confirming the verification signs no one in. The
 // holder can then sign in by a magic link and disconnect the identity in
-// Settings; nothing clears a password someone else set, and nothing here
-// undoes a verification.
+// Settings; a later Google sign-in's emailed link then clears the password
+// (the mailbox proof clears it on any account). Nothing here undoes a
+// verification.
 //
 // The sign-in that offers the pending link, the collision state's read and
 // the proof all ask it, so they agree on which accounts the proof may

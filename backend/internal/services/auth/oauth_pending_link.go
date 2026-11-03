@@ -26,9 +26,10 @@ import (
 // transaction that acts on it, so whichever lands first is the only one that
 // acts, and the other is refused. A refused password proof rolls its
 // consumption back, whatever the refusal, so an emailed link already sent for
-// the pending link still works; on an address never verified that mailbox
-// proof succeeds where the password proof is refused
-// (authm.User.MailboxProofMayReplaceIdentity).
+// the pending link can still be followed. Where the password proof met
+// CodeOAuthProviderAlreadyLinked on an address never verified, that mailbox
+// proof succeeds (authm.User.MailboxProofMayReplaceIdentity); the other
+// refusals meet it too.
 
 var errPendingLinkAccountMismatch = errors.New("pending link names another account or address")
 

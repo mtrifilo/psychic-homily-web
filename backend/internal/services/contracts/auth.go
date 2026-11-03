@@ -316,7 +316,8 @@ type AuthServiceInterface interface {
 	// account, and CodeOAuthProviderAlreadyLinked when user holds another
 	// identity from the provider, whether or not its address is verified. A
 	// refusal leaves the pending link in place, so an emailed link already
-	// sent for it still works.
+	// sent for it can still be followed (CompleteOAuthLinkByEmail decides it
+	// on its own terms).
 	LinkOAuthWithPassword(token string, user *authm.User) (linked bool, err error)
 	// CompleteOAuthLinkByEmail finishes the pending link an emailed sign-in
 	// link names. In one transaction it consumes the pending link, removes
