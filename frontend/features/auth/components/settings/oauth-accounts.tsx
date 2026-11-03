@@ -248,7 +248,7 @@ export function OAuthAccounts() {
               <Button
                 variant="link"
                 size="sm"
-                className="h-auto shrink-0 px-0 text-primary"
+                className="h-auto shrink-0 px-0 text-link"
                 onClick={() => setUnlinkProvider('google')}
                 disabled={unlinkMutation.isPending}
               >

@@ -80,6 +80,18 @@ describe('EntityCardTitle', () => {
     expect(heading.className).toContain('text-xl')
   })
 
+  it.each([
+    ['compact', 'group-hover:text-link'],
+    ['comfortable', 'group-hover:text-link'],
+    ['expanded', 'group-hover:text-primary'],
+  ] as const)('hovers the %s title to %s', (density, hover) => {
+    render(<EntityCardTitle name="Foo" href="/foo" density={density} />)
+
+    const tokens = screen.getByRole('heading', { level: 3, name: 'Foo' }).className.split(' ')
+    expect(tokens).toContain(hover)
+    expect(tokens.filter(t => t.startsWith('group-hover:text-'))).toHaveLength(1)
+  })
+
   it('uses truncate for density="compact"', () => {
     render(<EntityCardTitle name="Foo" href="/foo" density="compact" />)
 
@@ -118,7 +130,7 @@ describe('EntityCardTitle', () => {
     render(<EntityCardTitle name="Foo" href="/foo" />)
 
     const heading = screen.getByRole('heading', { level: 3, name: 'Foo' })
-    expect(heading.className).toContain('group-hover:text-primary')
+    expect(heading.className).toContain('group-hover:text-link')
   })
 
   it('keeps the link className stable across density values', () => {

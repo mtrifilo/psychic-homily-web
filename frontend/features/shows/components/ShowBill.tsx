@@ -109,7 +109,7 @@ export function ShowBill({
                 {index > 0 && ', '}
                 <ArtistLink
                   artist={artist}
-                  className={restrained ?? 'hover:text-primary hover:underline'}
+                  className={restrained ?? 'hover:text-link hover:underline'}
                 />
               </span>
             ))}

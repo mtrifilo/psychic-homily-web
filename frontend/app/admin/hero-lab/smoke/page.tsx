@@ -180,7 +180,7 @@ export default function HeroLabPage() {
       <header className="mb-8">
         <a
           href="/admin/hero-lab"
-          className="font-data text-xs text-primary underline-offset-4 hover:underline"
+          className="font-data text-xs text-link underline-offset-4 hover:underline"
         >
           ← Hero Lab (A–E gallery)
         </a>
@@ -198,7 +198,7 @@ export default function HeroLabPage() {
         {/* 1 — Full-bleed glow layer */}
         <section aria-label="Full-bleed glow layer">
           <h2 className="mb-1 font-display text-lg font-bold text-foreground">
-            <span className="text-primary">1</span> Full-bleed glow layer
+            <span className="text-link">1</span> Full-bleed glow layer
           </h2>
           <p className="mb-3 max-w-[760px] text-sm text-muted-foreground">
             The glow lives on a layer spanning the whole hero, so it has no nearby edge to clip — it fades
@@ -210,7 +210,7 @@ export default function HeroLabPage() {
         {/* 2 — Oversized canvas */}
         <section aria-label="Oversized canvas">
           <h2 className="mb-1 font-display text-lg font-bold text-foreground">
-            <span className="text-primary">2</span> Oversized canvas (padded)
+            <span className="text-link">2</span> Oversized canvas (padded)
           </h2>
           <p className="mb-3 max-w-[760px] text-sm text-muted-foreground">
             The pool stays on the wordmark canvas, but the letters are inset so the pool fully fades inside the
@@ -224,7 +224,7 @@ export default function HeroLabPage() {
         {/* 3 — Cells only */}
         <section aria-label="Cells only">
           <h2 className="mb-1 font-display text-lg font-bold text-foreground">
-            <span className="text-primary">3</span> Cells only (no pool)
+            <span className="text-link">3</span> Cells only (no pool)
           </h2>
           <p className="mb-3 max-w-[760px] text-sm text-muted-foreground">
             No floating gradient at all — only the dots ignite and lean toward the cursor. Nothing to clip,
@@ -238,7 +238,7 @@ export default function HeroLabPage() {
         {/* 4 — Cells + photoreal stage smoke */}
         <section aria-label="Cells plus stage smoke">
           <h2 className="mb-1 font-display text-lg font-bold text-foreground">
-            <span className="text-primary">4</span> Cells + photoreal stage smoke
+            <span className="text-link">4</span> Cells + photoreal stage smoke
           </h2>
           <p className="mb-3 max-w-[760px] text-sm text-muted-foreground">
             Option 3, but on a &ldquo;stage&rdquo;: real smoke footage composited with screen blend so haze
@@ -251,7 +251,7 @@ export default function HeroLabPage() {
         {/* 5 — Cells + interactive 2D fluid smoke */}
         <section aria-label="Cells plus fluid smoke">
           <h2 className="mb-1 font-display text-lg font-bold text-foreground">
-            <span className="text-primary">5</span> Cells + interactive fluid smoke
+            <span className="text-link">5</span> Cells + interactive fluid smoke
           </h2>
           <p className="mb-3 max-w-[760px] text-sm text-muted-foreground">
             A real Navier&ndash;Stokes fluid sim (webgl-fluid). Move the cursor over it: the haze genuinely
@@ -264,7 +264,7 @@ export default function HeroLabPage() {
         {/* 6 — Cells + volumetric smoke billowing in from both sides */}
         <section aria-label="Cells plus volumetric smoke">
           <h2 className="mb-1 font-display text-lg font-bold text-foreground">
-            <span className="text-primary">6</span> Cells + volumetric stage fog (rolling, full-frame)
+            <span className="text-link">6</span> Cells + volumetric stage fog (rolling, full-frame)
           </h2>
           <p className="mb-3 max-w-[760px] text-sm text-muted-foreground">
             A raymarched 3D noise volume (custom shader) — neutral-gray fog that FILLS the frame and rolls /
@@ -284,7 +284,7 @@ export default function HeroLabPage() {
         {/* 7 — Cells + screen-space radial god-rays */}
         <section aria-label="Cells plus god-rays">
           <h2 className="mb-1 font-display text-lg font-bold text-foreground">
-            <span className="text-primary">7</span> Cells + screen-space god-rays (crisp beams)
+            <span className="text-link">7</span> Cells + screen-space god-rays (crisp beams)
           </h2>
           <p className="mb-3 max-w-[760px] text-sm text-muted-foreground">
             Post-process radial light-scattering (GPU Gems 3) — the bright wordmark + a backlight throw crisp

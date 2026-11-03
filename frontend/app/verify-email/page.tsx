@@ -86,7 +86,7 @@ function RadarRow({
     >
       <p
         className={`font-data text-xs ${
-          highlighted ? 'font-bold text-primary' : 'text-muted-foreground'
+          highlighted ? 'font-bold text-link' : 'text-muted-foreground'
         }`}
       >
         {label}
@@ -177,7 +177,7 @@ function DeadLinkLanding({ reason }: { reason: 'expired' | 'invalid' }) {
 
       <VerificationResend service="verify_email">
         <FreshLinkAction />
-        <VerificationResendStatus className={`${KICKER} text-primary`} />
+        <VerificationResendStatus className={`${KICKER} text-link`} />
         <VerificationResendFailed />
         <VerificationResendSessionExpired>
           Your session has expired. Sign in again to send a fresh link.

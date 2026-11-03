@@ -372,7 +372,7 @@ function SavedReleaseCard({ release }: { release: SavedReleaseResponse }) {
         <div className="min-w-0 flex-1">
           <Link
             href={`/releases/${release.slug || release.id}`}
-            className="block truncate text-[15px] font-medium leading-tight transition-colors hover:text-primary"
+            className="block truncate text-[15px] font-medium leading-tight transition-colors hover:text-link"
           >
             {release.title}
           </Link>
@@ -382,7 +382,7 @@ function SavedReleaseCard({ release }: { release: SavedReleaseResponse }) {
                 {index > 0 ? ' · ' : null}
                 <Link
                   href={`/artists/${artist.slug || artist.id}`}
-                  className="text-primary transition-colors hover:text-primary/80"
+                  className="text-link hover:underline"
                 >
                   {artist.name}
                 </Link>
@@ -603,7 +603,7 @@ function FollowingEntityCard({
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <Link
           href={href}
-          className="min-w-0 truncate text-[15px] font-medium leading-tight transition-colors hover:text-primary"
+          className="min-w-0 truncate text-[15px] font-medium leading-tight transition-colors hover:text-link"
         >
           {entity.name}
         </Link>

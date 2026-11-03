@@ -22,7 +22,7 @@ import { TEASER_MOTIF, buildGraphWeekMotif, type GraphWeekMotif } from '../graph
 function GraphWeekShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6 sm:py-14">
-      <p className="font-data text-[10px] uppercase tracking-[0.2em] text-primary">
+      <p className="font-data text-[10px] uppercase tracking-[0.2em] text-link">
         The Map of the Scene
       </p>
       <h1 className="mt-2 font-display text-4xl font-medium sm:text-5xl">
@@ -31,7 +31,7 @@ function GraphWeekShell({ children }: { children: React.ReactNode }) {
       {children}
       <Link
         href="/graph"
-        className="mt-6 inline-flex items-center gap-1.5 text-sm font-medium text-primary underline-offset-4 hover:underline"
+        className="mt-6 inline-flex items-center gap-1.5 text-sm font-medium text-link underline-offset-4 hover:underline"
       >
         Open the map of the scene
         <ArrowRight className="size-3.5" aria-hidden="true" />
@@ -47,7 +47,7 @@ export function GraphWeekContent({ view }: { view: ResolvedGraphWeek }) {
 
   return (
     <GraphWeekShell>
-      <p className="mt-4 font-data text-sm uppercase tracking-wider text-primary">
+      <p className="mt-4 font-data text-sm uppercase tracking-wider text-link">
         {formatGraphWeekCounts(week)}
       </p>
       <p className="mt-1 font-data text-xs uppercase tracking-wider text-muted-foreground">

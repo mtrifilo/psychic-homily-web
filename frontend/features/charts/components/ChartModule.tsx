@@ -37,7 +37,7 @@ export function ChartModule({
         {fullListHref ? (
           <Link
             href={fullListHref}
-            className="shrink-0 text-[10px] text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="shrink-0 text-[10px] text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             full list →
           </Link>

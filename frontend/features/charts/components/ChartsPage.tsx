@@ -125,7 +125,7 @@ function countLabel(count: number, singular: string, plural = `${singular}s`) {
 }
 
 const linkClass =
-  'hover:text-primary focus-visible:text-primary focus-visible:outline-none'
+  'hover:text-link focus-visible:text-link focus-visible:outline-none'
 
 function location(city: string, state: string): string {
   return [city, state].filter(Boolean).join(', ')
@@ -221,7 +221,7 @@ function SceneSwitcher({
     'inline-flex items-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60',
     treatment === 'chip'
       ? 'gap-1 rounded-sm border border-border px-2 py-1 font-data text-[11px] hover:border-foreground/50'
-      : 'gap-2 text-left font-display text-3xl font-bold leading-none text-primary hover:text-primary/80'
+      : 'gap-2 text-left font-display text-3xl font-bold leading-none text-primary hover:underline'
   )
 
   if (isError) {
@@ -350,7 +350,7 @@ function FreshlyAddedTicker({ items }: { items: FreshlyAddedItem[] }) {
           </span>
         ))}
       </p>
-      <span aria-disabled="true" className="shrink-0 text-xs text-primary">
+      <span aria-disabled="true" className="shrink-0 text-xs text-link">
         View the firehose →
       </span>
     </section>
@@ -706,7 +706,7 @@ export function ChartsPage({
           <button
             type="button"
             onClick={() => void sceneList.refetch()}
-            className="font-data text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="font-data text-xs text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             Try again
           </button>

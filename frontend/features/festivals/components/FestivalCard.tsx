@@ -39,7 +39,7 @@ export function FestivalCard({
         )}
         <Link
           href={festivalUrl}
-          className="font-medium text-sm truncate flex-1 hover:text-primary"
+          className="font-medium text-sm truncate flex-1 hover:text-link"
         >
           {festival.name}
         </Link>

@@ -25,7 +25,7 @@ export function GeoDefaultAffordance({
       <button
         type="button"
         onClick={onChange}
-        className="text-primary hover:underline underline-offset-4"
+        className="text-link hover:underline underline-offset-4"
         data-testid="geo-default-change"
       >
         change

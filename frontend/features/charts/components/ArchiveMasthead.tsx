@@ -10,7 +10,7 @@ import {
 } from '../calendarWindows'
 
 const linkClass =
-  'hover:text-primary focus-visible:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+  'hover:text-link focus-visible:text-link focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 
 interface ArchiveMastheadProps {
   window: ChartCalendarWindow
@@ -39,7 +39,7 @@ export function ArchiveMasthead({ window, now }: ArchiveMastheadProps) {
         </p>
       </div>
       <div className="flex flex-col items-start gap-2 md:items-end">
-        <span className="font-data text-[10px] font-bold uppercase tracking-[0.08em] text-primary">
+        <span className="font-data text-[10px] font-bold uppercase tracking-[0.08em] text-link">
           ARCHIVE
         </span>
         <nav
@@ -69,7 +69,7 @@ export function ArchiveMasthead({ window, now }: ArchiveMastheadProps) {
                     aria-current={quarter.current ? 'page' : undefined}
                     className={cn(
                       linkClass,
-                      quarter.current && 'text-primary underline underline-offset-4'
+                      quarter.current && 'text-link underline underline-offset-4'
                     )}
                   >
                     {quarter.label}

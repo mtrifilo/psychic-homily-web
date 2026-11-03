@@ -34,7 +34,7 @@ export function LabelCard({ label, density = 'comfortable' }: LabelCardProps) {
       <article className="flex items-center gap-3 px-3 py-1.5 hover:bg-muted/50 rounded-md transition-colors">
         <Link
           href={labelUrl}
-          className="font-medium text-sm truncate flex-1 hover:text-primary"
+          className="font-medium text-sm truncate flex-1 hover:text-link"
         >
           {label.name}
         </Link>

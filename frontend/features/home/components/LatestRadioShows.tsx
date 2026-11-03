@@ -141,7 +141,7 @@ export function LatestRadioShows() {
         </h2>
         <Link
           href="/radio"
-          className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary hover:underline underline-offset-4"
+          className="text-sm font-medium text-muted-foreground transition-colors hover:text-link hover:underline underline-offset-4"
         >
           Browse all stations →
         </Link>

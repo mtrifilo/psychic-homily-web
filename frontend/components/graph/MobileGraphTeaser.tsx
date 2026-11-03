@@ -2,7 +2,7 @@ import Link from 'next/link'
 
 /**
  * The map link's type treatment: underlined body copy hovering to `foreground`
- * rather than the `primary` of the prose links elsewhere. Exported because the
+ * rather than the orange `link` of the prose links elsewhere. Exported because the
  * scene section offers the same target from its desktop foot, where the
  * surrounding copy and spacing differ but the link should not.
  */

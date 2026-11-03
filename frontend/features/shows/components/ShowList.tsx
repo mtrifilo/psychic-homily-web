@@ -791,7 +791,7 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
           >
             <p>That page is past the end of this list.</p>
             <p className="mt-2 text-sm">
-              <Link href={pageHref(1)} className="text-primary hover:underline">
+              <Link href={pageHref(1)} className="text-link hover:underline">
                 Back to the first page
               </Link>
             </p>
@@ -825,7 +825,7 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
                               { city: city.city, state: city.state },
                             ])
                           }
-                          className="text-primary hover:underline"
+                          className="text-link hover:underline"
                           data-testid={`shows-suggest-city-${city.city}-${city.state}`
                             .toLowerCase()
                             .replace(/\s+/g, '-')}
@@ -842,7 +842,7 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
                     <button
                       type="button"
                       onClick={handleSameTagsAllCities}
-                      className="text-primary hover:underline"
+                      className="text-link hover:underline"
                       data-testid="shows-suggest-same-tags-all-cities"
                     >
                       Same tags, all cities
@@ -851,7 +851,7 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
                   <button
                     type="button"
                     onClick={handleClearFilters}
-                    className="text-primary hover:underline"
+                    className="text-link hover:underline"
                   >
                     Clear filters
                   </button>

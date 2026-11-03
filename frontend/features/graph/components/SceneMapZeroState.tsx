@@ -202,7 +202,7 @@ function MapPitchLine({ map }: { map: SceneMap }) {
       {map.regions.length.toLocaleString()} regions of the scene.{' '}
       <a
         href={`#${SCENE_MAP_LIST_ANCHOR}`}
-        className="text-primary underline-offset-4 hover:underline"
+        className="text-link underline-offset-4 hover:underline"
       >
         Browse the map as a list
       </a>
@@ -231,7 +231,7 @@ function IsolateBand({ count, dimmed }: { count: number; dimmed: boolean }) {
       {isolateShelfCaption(count)}.{' '}
       <Link
         href="/contribute"
-        className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline"
+        className="inline-flex items-center gap-1 text-link underline-offset-4 hover:underline"
       >
         Add a show or a label to put one on the map
         <ArrowRight className="size-3" aria-hidden="true" />
@@ -397,7 +397,7 @@ function SceneMapList({
                     <button
                       type="button"
                       onClick={() => onSelectArtist(node)}
-                      className="flex w-full items-center justify-between gap-3 py-2 text-left text-sm hover:text-primary"
+                      className="flex w-full items-center justify-between gap-3 py-2 text-left text-sm hover:text-link"
                     >
                       <span>{node.name}</span>
                       {node.hasUpcomingShow && (

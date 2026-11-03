@@ -158,7 +158,7 @@ function TierSection({ tierGroup }: { tierGroup: TierGroup }) {
       <h4
         className={cn(
           'uppercase tracking-wider mb-3',
-          tier === 'headliner' && 'text-xs font-bold text-primary/80',
+          tier === 'headliner' && 'text-xs font-bold text-link',
           tier === 'sub_headliner' && 'text-xs font-semibold text-muted-foreground',
           tier !== 'headliner' &&
             tier !== 'sub_headliner' &&
@@ -183,7 +183,7 @@ function TierSection({ tierGroup }: { tierGroup: TierGroup }) {
             <Link
               href={artist.artist_slug ? `/artists/${artist.artist_slug}` : '#'}
               className={cn(
-                'transition-colors hover:text-primary',
+                'transition-colors hover:text-link',
                 tier === 'headliner' &&
                   'text-xl md:text-2xl font-black text-foreground',
                 tier === 'sub_headliner' &&

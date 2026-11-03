@@ -63,7 +63,7 @@ export function PercentileRankings({ username }: PercentileRankingsProps) {
       <SectionHeader
         title="Percentile rankings"
         action={
-          <span className="font-data text-xs text-primary">
+          <span className="font-data text-xs text-link">
             overall · top {100 - rankings.overall_score}%
           </span>
         }

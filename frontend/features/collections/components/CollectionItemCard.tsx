@@ -227,7 +227,7 @@ export function CollectionItemCard({
 
         <p
           className={cn(
-            'font-medium text-foreground group-hover:text-primary transition-colors',
+            'font-medium text-foreground group-hover:text-link transition-colors',
             'line-clamp-2',
             TITLE_SIZE_CLASSES[density]
           )}

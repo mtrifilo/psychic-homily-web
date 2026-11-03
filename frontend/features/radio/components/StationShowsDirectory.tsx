@@ -134,7 +134,7 @@ function ShowRow({
       <td>
         <Link
           href={`/radio/${stationSlug}/${show.slug}`}
-          className="font-medium text-foreground hover:text-primary transition-colors"
+          className="font-medium text-foreground hover:text-link transition-colors"
         >
           {show.name}
         </Link>

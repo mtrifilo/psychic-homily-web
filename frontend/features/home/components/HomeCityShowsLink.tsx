@@ -26,10 +26,10 @@ export function homeCityShowsLink(cities: readonly CityState[]): {
   return { href, label }
 }
 
-/** The home surfaces' primary-link chrome, shared so the relocated city link
+/** The home surfaces' orange link chrome, shared so the relocated city link
  *  and the popover's "All settings" link cannot drift apart. */
-export const PRIMARY_LINK_CLASS =
-  'text-sm font-medium text-primary transition-colors hover:underline underline-offset-4'
+export const HOME_ACCENT_LINK_CLASS =
+  'text-sm font-medium text-link transition-colors hover:underline underline-offset-4'
 
 /** Presentational form, for a caller that already owns a city selection. */
 export function HomeCityShowsLink({
@@ -41,7 +41,7 @@ export function HomeCityShowsLink({
 }) {
   const { href, label } = homeCityShowsLink(cities)
   return (
-    <Link href={href} className={cn(PRIMARY_LINK_CLASS, className)}>
+    <Link href={href} className={cn(HOME_ACCENT_LINK_CLASS, className)}>
       {label}
     </Link>
   )

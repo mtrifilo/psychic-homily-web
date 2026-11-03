@@ -12,7 +12,7 @@ describe('ShowBill link treatment', () => {
   it('keeps its own hover styling when no treatment is asked for', () => {
     render(<ShowBill artists={BILL} isCancelled={false} isSoldOut={false} />)
     expect(screen.getByRole('link', { name: 'Lead Act' }).className).toBe(
-      'hover:text-primary hover:underline'
+      'hover:text-link hover:underline'
     )
     expect(screen.getByRole('link', { name: 'Opening Act' }).className).toBe(
       'hover:text-foreground hover:underline'

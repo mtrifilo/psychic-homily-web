@@ -837,7 +837,7 @@ export function AtlasGlobe() {
         onClick={handleDrift}
         aria-label="Drift to a random scene"
         className={cn(
-          'rounded-full border border-border bg-background/90 px-4 py-2 text-sm font-medium text-foreground backdrop-blur transition-colors hover:border-primary hover:text-primary',
+          'rounded-full border border-border bg-background/90 px-4 py-2 text-sm font-medium text-foreground backdrop-blur transition-colors hover:border-primary hover:text-link',
           sheetLayout
             ? 'pointer-events-auto shrink-0'
             : 'absolute bottom-4 left-1/2 z-10 -translate-x-1/2',
@@ -1079,7 +1079,7 @@ export function AtlasGlobe() {
         No scenes to place on the map yet.{' '}
         <AtlasPaneLink
           href="/scenes"
-          className="text-primary underline-offset-4 hover:underline"
+          className="text-link underline-offset-4 hover:underline"
         >
           Browse scenes →
         </AtlasPaneLink>

@@ -92,7 +92,7 @@ export function VenueCard({ venue }: VenueCardProps) {
                 {venue.slug ? (
                   <Link
                     href={`/venues/${venue.slug}`}
-                    className="hover:text-primary transition-colors"
+                    className="hover:text-link transition-colors"
                     onClick={e => e.stopPropagation()}
                   >
                     {venue.name}
@@ -140,7 +140,7 @@ export function VenueCard({ venue }: VenueCardProps) {
             <span
               className={`text-sm font-medium px-2 py-1 rounded-full ${
                 hasShows
-                  ? 'bg-primary/10 text-primary'
+                  ? 'bg-primary/10 text-link'
                   : 'bg-muted text-muted-foreground'
               }`}
             >
@@ -183,7 +183,7 @@ export function VenueCard({ venue }: VenueCardProps) {
                 <div className="text-center pt-3">
                   <Link
                     href={`/venues/${venue.slug}`}
-                    className="text-sm text-primary hover:underline"
+                    className="text-sm text-link hover:underline"
                   >
                     View all {data.total} shows
                   </Link>

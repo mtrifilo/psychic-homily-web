@@ -194,7 +194,7 @@ export function HomeLayoutRuntime({
               <button
                 type="button"
                 onClick={() => setPopoverOpen(true)}
-                className="font-medium text-primary transition-colors hover:underline underline-offset-4"
+                className="font-medium text-link transition-colors hover:underline underline-offset-4"
               >
                 Customize home →
               </button>

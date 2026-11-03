@@ -107,11 +107,11 @@ export function PlaylistTable({ plays, live = false }: PlaylistTableProps) {
                   <td
                     className={cn(
                       'whitespace-nowrap font-data text-xs tabular-nums',
-                      isNewest ? 'text-primary font-medium' : 'text-primary/90'
+                      isNewest ? 'text-link font-medium' : 'text-link'
                     )}
                   >
                     {newestIsFresh && (
-                      <span aria-hidden="true">{'▸'} </span>
+                      <span aria-hidden="true" className="text-primary">{'▸'} </span>
                     )}
                     {time ?? ''}
                   </td>
@@ -126,7 +126,7 @@ export function PlaylistTable({ plays, live = false }: PlaylistTableProps) {
                       {play.artist_slug ? (
                         <Link
                           href={`/artists/${play.artist_slug}`}
-                          className="font-medium text-primary hover:text-primary/80 transition-colors"
+                          className="font-medium text-link hover:underline"
                         >
                           {play.artist_name}
                         </Link>
@@ -172,7 +172,7 @@ export function PlaylistTable({ plays, live = false }: PlaylistTableProps) {
                       {play.is_live_performance && (
                         <Badge
                           variant="outline"
-                          className={`${BADGE_CLASSES} border-primary/40 text-primary`}
+                          className={`${BADGE_CLASSES} border-primary/40 text-link`}
                         >
                           LIVE
                         </Badge>

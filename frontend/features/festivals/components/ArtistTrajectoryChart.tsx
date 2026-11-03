@@ -45,7 +45,7 @@ function AppearanceRows({ data }: { data: ArtistTrajectory }) {
             <span className="min-w-0 flex-1 font-medium">
               <Link
                 href={`/festivals/${entry.festival_slug}`}
-                className="hover:text-primary hover:underline"
+                className="hover:text-link hover:underline"
               >
                 {entry.festival_name}
               </Link>

@@ -760,7 +760,7 @@ function CollectionItemRow({
           <div className="flex items-center gap-2">
             <Link
               href={getEntityUrl(item.entity_type, item.entity_slug)}
-              className="font-medium text-foreground hover:text-primary transition-colors truncate"
+              className="font-medium text-foreground hover:text-link transition-colors truncate"
             >
               {item.entity_name}
             </Link>

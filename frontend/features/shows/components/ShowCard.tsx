@@ -33,7 +33,7 @@ function ArtistLink({ artist, className }: { artist: ArtistResponse; className?:
     return (
       <Link
         href={`/artists/${artist.slug}`}
-        className={`hover:text-primary underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors ${className || ''}`}
+        className={`hover:text-link underline underline-offset-4 decoration-border hover:decoration-primary/50 transition-colors ${className || ''}`}
       >
         {artist.name}
       </Link>
@@ -81,7 +81,7 @@ function SupportLine({ artists }: { artists: ArtistResponse[] }) {
           {index > 0 && (
             <span className="text-muted-foreground/50">, </span>
           )}
-          <ArtistLink artist={artist} className="text-muted-foreground hover:text-primary" />
+          <ArtistLink artist={artist} className="text-muted-foreground hover:text-link" />
           <SetTypeLabel setType={artist.set_type} />
         </span>
       ))}
@@ -184,7 +184,7 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
         {/* Inline date */}
         <Link
           href={detailsHref}
-          className="text-xs text-muted-foreground shrink-0 w-20 hover:text-primary transition-colors"
+          className="text-xs text-muted-foreground shrink-0 w-20 hover:text-link transition-colors"
         >
           {dateBadge.dayOfWeek} {dateBadge.monthDay}
         </Link>
@@ -192,7 +192,7 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
         {/* Artist line: headliner w/ support */}
         <Link
           href={detailsHref}
-          className="font-medium text-sm truncate flex-1 hover:text-primary transition-colors"
+          className="font-medium text-sm truncate flex-1 hover:text-link transition-colors"
         >
           {headlinerText}
           <InlineSupportText artists={support} />
@@ -207,7 +207,7 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
             {venue.slug ? (
               <Link
                 href={`/venues/${venue.slug}`}
-                className="hover:text-primary transition-colors"
+                className="hover:text-link transition-colors"
               >
                 {venue.name}
               </Link>
@@ -258,7 +258,7 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
             <span className="text-xs sm:text-sm font-bold tracking-widest uppercase text-muted-foreground leading-none">
               {dateBadge.dayOfWeek}
             </span>
-            <span className="text-sm sm:text-base font-semibold text-primary leading-tight mt-1">
+            <span className="text-sm sm:text-base font-semibold text-link leading-tight mt-1">
               {dateBadge.monthDay}
             </span>
           </Link>
@@ -282,12 +282,12 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
                       {venue.slug ? (
                         <Link
                           href={`/venues/${venue.slug}`}
-                          className="text-primary/80 hover:text-primary font-medium transition-colors"
+                          className="text-link hover:underline font-medium"
                         >
                           {venue.name}
                         </Link>
                       ) : (
-                        <span className="text-primary/80 font-medium">
+                        <span className="text-link font-medium">
                           {venue.name}
                         </span>
                       )}
@@ -457,7 +457,7 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
           <span className="text-[10px] sm:text-xs font-bold tracking-widest uppercase text-muted-foreground leading-none">
             {dateBadge.dayOfWeek}
           </span>
-          <span className="text-xs sm:text-sm font-semibold text-primary leading-tight mt-0.5">
+          <span className="text-xs sm:text-sm font-semibold text-link leading-tight mt-0.5">
             {dateBadge.monthDay}
           </span>
         </Link>
@@ -482,12 +482,12 @@ export function ShowCard({ show, isAdmin, userId, saveData, density = 'comfortab
                     {venue.slug ? (
                       <Link
                         href={`/venues/${venue.slug}`}
-                        className="text-primary/80 hover:text-primary font-medium transition-colors"
+                        className="text-link hover:underline font-medium"
                       >
                         {venue.name}
                       </Link>
                     ) : (
-                      <span className="text-primary/80 font-medium">
+                      <span className="text-link font-medium">
                         {venue.name}
                       </span>
                     )}

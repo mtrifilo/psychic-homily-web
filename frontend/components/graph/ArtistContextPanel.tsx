@@ -115,7 +115,7 @@ export function ArtistContextPanel({
       className={cn('max-h-[85%] p-4 space-y-2.5', className)}
       header={
         <div className="space-y-0.5">
-          <FieldLabel className="text-primary">Selected</FieldLabel>
+          <FieldLabel className="text-link">Selected</FieldLabel>
           <h3 className="text-base font-semibold leading-tight text-foreground">
             {artistName}
           </h3>
@@ -229,7 +229,7 @@ export function ArtistContextPanel({
           <button
             type="button"
             onClick={onCenter}
-            className="font-data text-[11px] text-primary hover:underline underline-offset-4"
+            className="font-data text-[11px] text-link hover:underline underline-offset-4"
           >
             [ Center here ⌾ ]
           </button>
@@ -239,7 +239,7 @@ export function ArtistContextPanel({
           // while the card loads or after a failed fetch (the panel replaced
           // click-to-navigate, so it must never strand the user pathless).
           href={`/artists/${encodeURIComponent(card?.slug ?? artistSlug)}`}
-          className="inline-block font-data text-[11px] text-primary hover:underline underline-offset-4"
+          className="inline-block font-data text-[11px] text-link hover:underline underline-offset-4"
         >
           [ Open page → ]
         </Link>

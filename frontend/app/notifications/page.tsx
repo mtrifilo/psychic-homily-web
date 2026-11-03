@@ -75,7 +75,7 @@ export default function NotificationInboxPage() {
           <h1 className="text-2xl font-semibold">
             Notifications
             {unreadCount > 0 && (
-              <span className="ml-2 align-middle font-data text-xs font-normal text-primary">
+              <span className="ml-2 align-middle font-data text-xs font-normal text-link">
                 {unreadCount} unread
               </span>
             )}
@@ -101,14 +101,14 @@ export default function NotificationInboxPage() {
             label="unread"
             onClick={() => setView('unread')}
             active={view === 'unread'}
-            className={cn('font-data text-xs', view === 'unread' && 'text-primary')}
+            className={cn('font-data text-xs', view === 'unread' && 'text-link')}
             ariaLabel="Show unread notifications first"
           />
           <BracketLink
             label="all"
             onClick={() => setView('all')}
             active={view === 'all'}
-            className={cn('font-data text-xs', view === 'all' && 'text-primary')}
+            className={cn('font-data text-xs', view === 'all' && 'text-link')}
             ariaLabel="Show all notifications interleaved"
           />
         </div>

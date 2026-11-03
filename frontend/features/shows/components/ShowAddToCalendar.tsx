@@ -208,7 +208,7 @@ export function ShowAddToCalendar({
             target="_blank"
             rel="noopener noreferrer"
             onClick={handleCalendarAction}
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:text-primary/80"
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-link hover:underline"
           >
             Google Calendar
             <ExternalLink className="h-3.5 w-3.5" />
@@ -216,7 +216,7 @@ export function ShowAddToCalendar({
           <a
             href={icsUrl}
             onClick={handleCalendarAction}
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:text-primary/80"
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-link hover:underline"
           >
             Apple / Outlook (.ics)
             <Download className="h-3.5 w-3.5" />

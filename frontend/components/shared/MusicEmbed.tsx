@@ -313,7 +313,7 @@ export function MusicEmbed({
           href={embed.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center gap-2 text-primary hover:underline text-sm"
+          className="flex items-center gap-2 text-link hover:underline text-sm"
         >
           {embed.label}
           <ExternalLink className="h-4 w-4" />

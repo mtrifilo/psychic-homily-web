@@ -31,10 +31,13 @@ export interface EntityCardTitleProps {
   ariaLabel?: string
 }
 
+// The hover tone follows the size: text under the WCAG large-text threshold
+// (18.66px bold) hovers to the link token, which clears 4.5:1; the 20px bold
+// expanded title is large text and keeps primary.
 const HEADING_CLASSES: Record<EntityCardTitleDensity, string> = {
-  compact: 'font-medium text-sm truncate',
-  comfortable: 'font-bold text-base line-clamp-2',
-  expanded: 'font-bold text-xl line-clamp-2',
+  compact: 'font-medium text-sm truncate group-hover:text-link',
+  comfortable: 'font-bold text-base line-clamp-2 group-hover:text-link',
+  expanded: 'font-bold text-xl line-clamp-2 group-hover:text-primary',
 }
 
 /**
@@ -65,7 +68,7 @@ export function EntityCardTitle({
       aria-label={ariaLabel ?? name}
     >
       <h3
-        className={`${headingClass} text-foreground group-hover:text-primary transition-colors`}
+        className={`${headingClass} text-foreground transition-colors`}
         title={name}
       >
         {name}

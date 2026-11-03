@@ -48,7 +48,7 @@ export function SignInPrompt({
     <p className="text-sm text-muted-foreground mb-6" data-testid={testId}>
       <Link
         href={buildAuthHref(returnTo)}
-        className="text-primary hover:underline"
+        className="text-link hover:underline"
       >
         Sign in
       </Link>{' '}

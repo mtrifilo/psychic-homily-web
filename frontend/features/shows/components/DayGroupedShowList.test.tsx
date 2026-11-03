@@ -236,7 +236,7 @@ describe('DayGroupedShowList', () => {
           'font-bold',
           'tracking-[1px]',
           'uppercase',
-          'text-primary',
+          'text-link',
           'pt-3.5',
           'pb-1.5',
           'sticky',

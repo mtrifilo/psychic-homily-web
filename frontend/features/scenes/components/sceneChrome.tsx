@@ -30,21 +30,21 @@ export const SCENE_LINK_INTERACTION_CLASS =
 
 /**
  * A scene-page link in the accent register: `SceneSectionHeading`'s data-face
- * micro-caps type at the same size, toned `text-primary`.
+ * micro-caps type at the same size, toned `text-link`.
  *
- * Hover UNDERLINES rather than recolouring. Against this primary base,
- * `hover:text-foreground` is a step DOWN in contrast, so hovering would make
+ * Hover UNDERLINES rather than recolouring. Against this accent base,
+ * `hover:text-foreground` is a step DOWN in emphasis, so hovering would make
  * the link recede.
  *
  * The focus ring is offset rather than inset because these are inline text
  * links with no box of their own to ring inside.
  *
- * `--primary` against `--background` in LIGHT mode measures about 3.7:1, under
- * the 4.5:1 AA floor for text at this size. Dark mode clears it comfortably.
- * The tone is the wave's locked accent register rather than this constant's
- * choice, so changing it is a design decision about every surface that uses it.
+ * The tone is the link token: 4.5:1 or better for text at this size on the
+ * light background, card, muted, secondary and sidebar surfaces, but not on
+ * the accent fills (see `--link` in globals.css). Changing the tone changes
+ * every scene surface that uses this constant.
  */
-export const SCENE_ACCENT_LINK_CLASS = `rounded-sm font-data text-[11px] uppercase tracking-widest text-primary ${SCENE_LINK_INTERACTION_CLASS}`
+export const SCENE_ACCENT_LINK_CLASS = `rounded-sm font-data text-[11px] uppercase tracking-widest text-link ${SCENE_LINK_INTERACTION_CLASS}`
 
 /**
  * One named entity, linked to its own page when it has one.
@@ -203,7 +203,7 @@ export type TrackedRoom = {
  * underline is carried rather than left to hover, because a touch reader never
  * hovers and would see no affordance at all.
  */
-export const SCENE_PROSE_LINK_CLASS = 'underline underline-offset-4 hover:text-primary'
+export const SCENE_PROSE_LINK_CLASS = 'underline underline-offset-4 hover:text-link'
 
 /** Enough to name an entity and, when it has a slug, link to its own page. */
 export type NamedEntity = {

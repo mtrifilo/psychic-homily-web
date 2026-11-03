@@ -78,12 +78,12 @@ import type { NavDestination, NavLink } from './navData'
 // Product Designs XakQQ0nYGqnt77PrHKO9IE, boards 1955:90 and 1955:118.
 // scripts/chrome-perf.mjs times the pending paint by the same marker.
 const pendingTabClassName =
-  'has-[[data-tab-pending]]:text-primary group-has-[[data-tab-pending]]/tabbar:not-has-[[data-tab-pending]]:text-muted-foreground'
+  'has-[[data-tab-pending]]:text-link group-has-[[data-tab-pending]]/tabbar:not-has-[[data-tab-pending]]:text-muted-foreground'
 
 function tabClassName(active: boolean): string {
   return cn(
     'flex h-full flex-col items-center justify-center gap-1 text-[11px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50',
-    active ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
+    active ? 'text-link' : 'text-muted-foreground hover:text-foreground',
     pendingTabClassName
   )
 }
@@ -159,10 +159,10 @@ function SheetNavLink({
         }
         className={cn(
           sheetLinkClassName(active),
-          // The Contribute menu's "+ Submit a show" CTA keeps its primary-color
+          // The Contribute menu's "+ Submit a show" CTA keeps its orange link
           // treatment in the sheet (Figma 460:3 — same rule the desktop menu
           // applies via navData's submitPrimary flag).
-          item.submitPrimary && !active && 'text-primary hover:text-primary'
+          item.submitPrimary && !active && 'text-link hover:text-link'
         )}
       >
         {Icon && <Icon className="size-4" aria-hidden />}

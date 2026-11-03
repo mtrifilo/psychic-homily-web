@@ -141,7 +141,7 @@ export function VenueMiniAtlasPane({
       <div className="mt-2 text-right">
         <Link
           href={atlasCityHref(scopeCity.city, scopeCity.state)}
-          className="inline-flex min-h-11 items-center text-xs text-primary hover:underline underline-offset-4"
+          className="inline-flex min-h-11 items-center text-xs text-link hover:underline underline-offset-4"
           data-testid="venue-mini-atlas-open"
         >
           Open {label} in the Atlas &#8599;

@@ -352,7 +352,7 @@ function EntitySection({
         {showAllUrl && (
           <Link
             href={showAllUrl}
-            className="shrink-0 text-sm font-medium text-primary hover:underline"
+            className="shrink-0 text-sm font-medium text-link hover:underline"
             data-testid={`tag-section-showall-${group.entity_type}`}
           >
             Show all {group.count} &rarr;
@@ -533,7 +533,7 @@ function AddTagPivot({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-3 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-primary/5"
+        className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-3 py-1.5 text-sm font-medium text-link transition-colors hover:bg-primary/5"
         data-testid="add-tag-pivot-trigger"
       >
         + add another tag to filter

@@ -62,7 +62,7 @@ const WINDOW_LABELS: Record<RollingChartWindow, string> = {
   all_time: 'All Time',
 }
 const linkClass =
-  'hover:text-primary focus-visible:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+  'hover:text-link focus-visible:text-link focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 
 interface DrilldownRow {
   key: string
@@ -643,7 +643,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
       <header className="space-y-4">
         <Link
           href={chartsBackHref}
-          className="font-data text-xs text-primary hover:underline"
+          className="font-data text-xs text-link hover:underline"
         >
           {chartsBackLabel}
         </Link>
@@ -664,7 +664,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
           </div>
           <div className="flex flex-wrap items-center gap-3">
             {isArchiveWindow ? (
-              <span className="font-data text-[10px] font-bold uppercase tracking-[0.08em] text-primary">
+              <span className="font-data text-[10px] font-bold uppercase tracking-[0.08em] text-link">
                 ARCHIVE
               </span>
             ) : (
@@ -748,7 +748,7 @@ export function ChartDrilldownPage({ module }: { module: ChartModuleSlug }) {
                   <button
                     type="button"
                     onClick={() => void sceneList.refetch()}
-                    className="mt-2 font-data text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="mt-2 font-data text-xs text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     Try again
                   </button>

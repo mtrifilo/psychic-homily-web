@@ -125,7 +125,7 @@ function ItemRow({ item }: { item: DataQualityItem }) {
             href={entityUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="font-medium text-foreground hover:text-primary hover:underline"
+            className="font-medium text-foreground hover:text-link hover:underline"
           >
             {item.name}
           </a>

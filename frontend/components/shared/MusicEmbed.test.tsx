@@ -598,7 +598,7 @@ describe('MusicEmbed slim size', () => {
     const src =
       (await screen.findByTitle('Test Artist on Bandcamp')).getAttribute('src') ?? ''
     expect(src).toContain('bgcol=f4f1ea')
-    expect(src).toContain('linkcol=d2541b')
+    expect(src).toContain('linkcol=a84015')
   })
 
   // The colours are baked into the src, so a player that kept its element

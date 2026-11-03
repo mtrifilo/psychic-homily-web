@@ -114,7 +114,7 @@ export function ImportDropZone({
       <div className="flex flex-col items-center justify-center text-center">
         {selectedFile ? (
           <>
-            <div className="flex items-center gap-2 text-primary">
+            <div className="flex items-center gap-2 text-link">
               <FileText className="h-8 w-8" />
               <span className="font-medium">{selectedFile}</span>
               <button

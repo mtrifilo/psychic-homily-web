@@ -161,7 +161,7 @@ export function SavedShowsModule({
         <div className="flex shrink-0 items-center gap-4">
           <Link
             href="/library"
-            className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary hover:underline underline-offset-4"
+            className="text-sm font-medium text-muted-foreground transition-colors hover:text-link hover:underline underline-offset-4"
           >
             View all in Library →
           </Link>
@@ -206,14 +206,14 @@ export function SavedShowsModule({
             {hasNearbySection ? (
               <a
                 href={`#${nearbySectionId}`}
-                className="whitespace-nowrap text-primary transition-colors hover:underline underline-offset-4"
+                className="whitespace-nowrap text-link transition-colors hover:underline underline-offset-4"
               >
                 Pick from this week ↓
               </a>
             ) : (
               <Link
                 href="/shows"
-                className="whitespace-nowrap text-primary transition-colors hover:underline underline-offset-4"
+                className="whitespace-nowrap text-link transition-colors hover:underline underline-offset-4"
               >
                 Find one to save →
               </Link>
@@ -265,12 +265,12 @@ export function SavedShowsModule({
               this row exists only to carry the relocated city link. */}
           <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1">
             {ownsCityLink && (
-              <ResolvedHomeCityShowsLink className="font-data text-[11px] text-primary transition-colors hover:underline underline-offset-4" />
+              <ResolvedHomeCityShowsLink className="font-data text-[11px] text-link transition-colors hover:underline underline-offset-4" />
             )}
             {showsFooter && (
               <Link
                 href="/library#calendar-feed"
-                className="text-primary transition-colors hover:underline underline-offset-4"
+                className="text-link transition-colors hover:underline underline-offset-4"
               >
                 Subscribe to calendar →
               </Link>

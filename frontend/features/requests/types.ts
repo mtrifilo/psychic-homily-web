@@ -142,8 +142,8 @@ export function getEntityTypeColor(entityType: string): string {
  * raw Tailwind hues. Status semantics drive the hue choice:
  *   pending             → chart-3 (gold)  — waiting/attention
  *   in_progress         → chart-6 (denim) — active work
- *   pending_fulfillment → primary         — needs the owner's review (matches
- *                                            the app's primary call-to-action)
+ *   pending_fulfillment → primary tint, link-token text: needs the owner's
+ *                         review, in the app's orange call-to-action register
  *   fulfilled           → chart-2 (green) — done
  *   rejected            → destructive     — terminal-negative
  *   cancelled / unknown → muted           — inert
@@ -155,7 +155,7 @@ export function getStatusColor(status: string): string {
     case 'in_progress':
       return 'bg-chart-6/15 text-chart-6'
     case 'pending_fulfillment':
-      return 'bg-primary/15 text-primary'
+      return 'bg-primary/15 text-link'
     case 'fulfilled':
       return 'bg-chart-2/15 text-chart-2'
     case 'rejected':

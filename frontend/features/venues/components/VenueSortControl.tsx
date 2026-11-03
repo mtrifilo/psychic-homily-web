@@ -68,7 +68,7 @@ export function VenueSortControl({
               className={cn(
                 'inline-flex items-center gap-1 hover:text-foreground',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                sort === key ? 'text-primary' : 'text-muted-foreground'
+                sort === key ? 'text-link' : 'text-muted-foreground'
               )}
             >
               {VENUE_SORT_LABELS[key]}

@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { HomeSectionList, type HomeVisibilityChange } from './HomeSectionList'
-import { PRIMARY_LINK_CLASS, ResolvedHomeCityShowsLink } from './HomeCityShowsLink'
+import { HOME_ACCENT_LINK_CLASS, ResolvedHomeCityShowsLink } from './HomeCityShowsLink'
 import { HomeDiscoverLinks } from './HomeDiscoverLinks'
 import { useHomeCityLinkSlot, useHomeDiscoverLinksSlot } from './HomeLinkSlots'
 import {
@@ -103,7 +103,7 @@ export function CustomizeHomeToolbar({
             onBeforeChange={onBeforeChange}
             className="border-t border-border"
             footerAction={
-              <Link href={HOME_LAYOUT_SETTINGS_HREF} className={PRIMARY_LINK_CLASS}>
+              <Link href={HOME_LAYOUT_SETTINGS_HREF} className={HOME_ACCENT_LINK_CLASS}>
                 All settings →
               </Link>
             }

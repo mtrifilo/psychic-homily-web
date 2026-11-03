@@ -133,7 +133,7 @@ function DayGroupSection({
             // through the heading. `z-20` keeps it over those rows and under
             // the top bar (z-50) and any overlay.
             'bg-background px-2 pb-1.5 pt-3.5',
-            'font-data text-sm font-bold uppercase tracking-[1px] text-primary'
+            'font-data text-sm font-bold uppercase tracking-[1px] text-link'
           )}
         >
           <span className="shrink-0">

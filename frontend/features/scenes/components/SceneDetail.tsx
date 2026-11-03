@@ -150,7 +150,7 @@ export function SceneDetailView({
           </p>
           <Link
             href="/scenes"
-            className="text-sm text-primary hover:underline"
+            className="text-sm text-link hover:underline"
           >
             Browse all scenes
           </Link>
@@ -294,7 +294,7 @@ export function SceneDetailView({
               </p>
               <Link
                 href="/festivals"
-                className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-link hover:underline"
               >
                 View festivals
                 <ArrowRight className="h-3.5 w-3.5" />

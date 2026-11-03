@@ -28,7 +28,7 @@ export function ZeroResultSceneSuggestions({
             <button
               type="button"
               onClick={() => onSelect(scene.metro)}
-              className="text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               data-testid={`chart-suggest-scene-${scene.metro}`}
             >
               {scene.city}

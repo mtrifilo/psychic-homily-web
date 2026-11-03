@@ -94,7 +94,7 @@ export function StationOnAirBox({ station }: StationOnAirBoxProps) {
         {showUrl ? (
           <Link
             href={showUrl}
-            className="text-lg font-semibold text-foreground hover:text-primary transition-colors"
+            className="text-lg font-semibold text-foreground hover:text-link transition-colors"
           >
             {showLabel}
           </Link>
@@ -116,7 +116,7 @@ export function StationOnAirBox({ station }: StationOnAirBoxProps) {
           {current.artist_slug ? (
             <Link
               href={`/artists/${current.artist_slug}`}
-              className="text-sm font-semibold text-foreground hover:text-primary transition-colors"
+              className="text-sm font-semibold text-foreground hover:text-link transition-colors"
             >
               {current.artist_name}
             </Link>
@@ -143,7 +143,7 @@ export function StationOnAirBox({ station }: StationOnAirBoxProps) {
           <BracketLink
             label="Open latest playlist →"
             href={playlistUrl}
-            className="text-primary hover:text-primary/80"
+            variant="accent"
           />
           {latestDate && (
             <span className="font-data text-xs text-muted-foreground">

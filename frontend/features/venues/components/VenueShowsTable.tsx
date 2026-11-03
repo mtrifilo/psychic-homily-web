@@ -83,7 +83,7 @@ const ShowRow = memo(function ShowRow({
       >
         <Link
           href={`/shows/${show.slug || show.id}`}
-          className="hover:text-primary hover:underline underline-offset-2"
+          className="hover:text-link hover:underline underline-offset-2"
         >
           {formatShowDate(show.event_date, state, false, zone.venueTimezone)}
         </Link>

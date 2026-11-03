@@ -46,7 +46,7 @@ const LINK_REFUSAL_CODES: ReadonlySet<string> = new Set([
   AuthErrorCode.OAUTH_PROVIDER_ALREADY_LINKED,
 ])
 
-const LINK_CLASS = 'font-medium underline underline-offset-4 hover:text-primary'
+const LINK_CLASS = 'font-medium underline underline-offset-4 hover:text-link'
 
 /**
  * The state's copy that depends on the proofs offered: both proofs, where

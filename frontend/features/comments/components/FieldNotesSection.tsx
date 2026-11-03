@@ -261,7 +261,7 @@ export function FieldNotesSection({
           {/* Load more */}
           {data?.has_more && (
             <div className="mt-4 text-center">
-              <button className="text-sm text-primary hover:underline">
+              <button className="text-sm text-link hover:underline">
                 Load more field notes
               </button>
             </div>

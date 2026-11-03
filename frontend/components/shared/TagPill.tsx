@@ -46,7 +46,7 @@ export function TagPill({
     <>
       <span>{label}</span>
       {voteCount !== undefined && (
-        <span className="text-primary/70 font-data">
+        <span className="text-link font-data">
           {voteCount >= 0 ? `+${voteCount}` : voteCount}
         </span>
       )}

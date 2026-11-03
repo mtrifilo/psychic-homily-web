@@ -43,9 +43,9 @@ export function EntityChartRankBadge({
       </p>
       <Link
         href={href}
-        className="flex items-start gap-2 text-xs leading-normal text-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex items-start gap-2 text-xs leading-normal text-foreground hover:text-link focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <span className="shrink-0 font-data text-primary">
+        <span className="shrink-0 font-data text-link">
           No. {data.rank}
         </span>
         <span>{copy}</span>

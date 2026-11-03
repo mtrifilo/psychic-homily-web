@@ -158,7 +158,7 @@ function ShowListenCard({ card }: { card: ListenCard }) {
     artist.slug ? (
       <Link
         href={`/artists/${artist.slug}`}
-        className="text-foreground transition-colors hover:text-primary"
+        className="text-foreground transition-colors hover:text-link"
       >
         {artist.name}
       </Link>

@@ -326,7 +326,7 @@ export function ArtistList() {
   const emptyState = isPastLastPage ? (
     <p>
       That page is past the end of the list.{' '}
-      <Link href={artistPageHref(1)} className="text-primary hover:underline">
+      <Link href={artistPageHref(1)} className="text-link hover:underline">
         Back to the first page
       </Link>
       .
@@ -341,7 +341,7 @@ export function ArtistList() {
       {hasAnyFilter && (
         <button
           onClick={handleClearFilters}
-          className="mt-4 text-primary hover:underline"
+          className="mt-4 text-link hover:underline"
         >
           Clear filters
         </button>

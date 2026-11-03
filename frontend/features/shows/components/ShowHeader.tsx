@@ -99,7 +99,7 @@ function BillLabels({
   return (
     <>
       {' '}
-      <span className={cn('font-data font-normal text-primary', className)}>
+      <span className={cn('font-data font-normal text-link', className)}>
         {/* The space after the connective is its own text node, not a trailing
             space inside the span: accessible-name computation trims each node,
             which is how "on Epic" becomes "onEpic". Two adjacent whitespace
@@ -333,7 +333,7 @@ export function ShowHeader({
               which renders mark and which do not: the gig timeline spine below
               prints this same day unmarked, because its zone arrives already
               resolved. */}
-          <span className="text-lg font-bold text-primary">
+          <span className="text-lg font-bold text-link">
             {showPageDate(show.event_date, timing.state, timing.timezone)}
           </span>
           {/* Through the shared derivation, not `show.is_sold_out` directly.
@@ -388,7 +388,7 @@ export function ShowHeader({
               {artist.slug ? (
                 <Link
                   href={`/artists/${artist.slug}`}
-                  className="hover:text-primary transition-colors"
+                  className="hover:text-link transition-colors"
                 >
                   {artist.name}
                 </Link>

@@ -1277,7 +1277,7 @@ function BreadcrumbNav({ chips, currentName, onJump, onReset }: BreadcrumbNavPro
         </span>
       ))}
       <span
-        className="px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium"
+        className="px-2 py-0.5 rounded-full bg-primary/10 text-link font-medium"
         aria-current="page"
       >
         {currentName}
@@ -1374,8 +1374,8 @@ function RelatedArtistRow({
   })
 
   return (
-    // No hover fill: the name is an accent link, and `link` text is not AA on
-    // a muted surface. Below `sm` the row wraps so the reason line takes a
+    // No hover fill: the name is an accent link and its underline carries the
+    // row's hover. Below `sm` the row wraps so the reason line takes a
     // full-width second line; at `sm` and up it is one unwrapped line.
     <div className="flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-1.5 py-2 sm:px-3 rounded-md">
       <Link

@@ -184,7 +184,7 @@ export function HomeSectionList({
         size="sm"
         onClick={handleReset}
         disabled={!canReset || isResetting}
-        className="h-auto p-0 text-sm text-muted-foreground no-underline hover:text-primary"
+        className="h-auto p-0 text-sm text-muted-foreground no-underline hover:text-link"
       >
         Reset to default
       </Button>

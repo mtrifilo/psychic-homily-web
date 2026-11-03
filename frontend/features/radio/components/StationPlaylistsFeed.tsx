@@ -124,7 +124,7 @@ function PlaylistRow({ row }: { row: RadioStationEpisodeRow }) {
       <td>
         <Link
           href={showUrl}
-          className="font-medium text-foreground hover:text-primary transition-colors"
+          className="font-medium text-foreground hover:text-link transition-colors"
         >
           {row.show_name}
         </Link>

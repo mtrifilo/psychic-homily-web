@@ -88,7 +88,7 @@ export function ShowArtistMusicPanel({
                 {artist.slug ? (
                   <Link
                     href={`/artists/${artist.slug}`}
-                    className="font-medium transition-colors hover:text-primary"
+                    className="font-medium transition-colors hover:text-link"
                   >
                     {artist.name}
                   </Link>

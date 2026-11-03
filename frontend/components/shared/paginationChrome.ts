@@ -9,7 +9,7 @@ import type { MouseEvent } from 'react'
  */
 
 export const navLinkClass =
-  'rounded-sm text-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+  'rounded-sm text-foreground transition-colors hover:text-link focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 
 /**
  * The filter-strip row: horizontally scrollable below `sm`, wrapping above it.
@@ -31,7 +31,7 @@ export const navStripSeparatorClass = 'mr-2 text-muted-foreground'
  * color: color alone is not a sufficient distinction (WCAG 1.4.1).
  */
 export const navCurrentClass =
-  'font-bold text-primary underline underline-offset-4'
+  'font-bold text-link underline underline-offset-4'
 
 /**
  * Locale is pinned rather than left to the runtime. These counts render on the

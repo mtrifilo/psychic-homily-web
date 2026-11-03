@@ -83,12 +83,15 @@ describe('BANDCAMP_THEME_COLORS', () => {
   const lightBlock = css.slice(css.indexOf('/* Light mode'), darkStart)
   const darkBlock = css.slice(darkStart)
 
-  it('paints the light player in the light page background and primary', () => {
+  it('paints the light player in the light page background and link', () => {
     expect(tokenIn(lightBlock, '--background')).toBe(BANDCAMP_THEME_COLORS.light.bgcol)
-    expect(tokenIn(lightBlock, '--primary')).toBe(BANDCAMP_THEME_COLORS.light.linkcol)
+    expect(tokenIn(lightBlock, '--link')).toBe(BANDCAMP_THEME_COLORS.light.linkcol)
   })
 
-  it('paints the dark player in the dark page background and primary', () => {
+  // Dark `--link` is `var(--primary)`, so the dark player's link colour is
+  // primary's hex.
+  it('paints the dark player in the dark page background and link', () => {
+    expect(darkBlock).toMatch(/--link:\s*var\(--primary\);/)
     expect(tokenIn(darkBlock, '--background')).toBe(BANDCAMP_THEME_COLORS.dark.bgcol)
     expect(tokenIn(darkBlock, '--primary')).toBe(BANDCAMP_THEME_COLORS.dark.linkcol)
   })

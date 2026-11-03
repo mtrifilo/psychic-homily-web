@@ -59,7 +59,7 @@ export function ProfileFieldNotes({ username }: ProfileFieldNotesProps) {
               {note.show_slug ? (
                 <Link
                   href={`/shows/${note.show_slug}#field-notes`}
-                  className="hover:text-primary hover:underline"
+                  className="hover:text-link hover:underline"
                 >
                   {showDisplayTitle(note.show_title, null)}
                 </Link>

@@ -107,7 +107,7 @@ export function ProfileFollowing({
                       {f.slug ? (
                         <Link
                           href={row.href(f.slug)}
-                          className="hover:text-primary hover:underline"
+                          className="hover:text-link hover:underline"
                         >
                           {f.name}
                         </Link>

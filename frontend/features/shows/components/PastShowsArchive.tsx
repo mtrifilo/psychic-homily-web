@@ -754,7 +754,7 @@ export function PastShowsArchive<T extends ArchiveRow>({
           <span>Could not load the other years.</span>
           <Link
             href={buildHref(null, 1)}
-            className="font-data text-xs text-primary hover:underline"
+            className="font-data text-xs text-link hover:underline"
           >
             Show every year
           </Link>
@@ -840,13 +840,13 @@ function PastShowsBody<T>({
         <button
           type="button"
           onClick={onRetry}
-          className="font-data text-xs text-primary hover:underline"
+          className="font-data text-xs text-link hover:underline"
         >
           [Try again]
         </button>
         <Link
           href={buildHref(activeYear, 1)}
-          className="font-data text-xs text-primary hover:underline"
+          className="font-data text-xs text-link hover:underline"
         >
           Back to the first page
         </Link>
@@ -865,7 +865,7 @@ function PastShowsBody<T>({
         That page is past the end of this archive.{' '}
         <Link
           href={buildHref(activeYear, 1)}
-          className="text-primary hover:underline"
+          className="text-link hover:underline"
         >
           Back to the first page
         </Link>
@@ -895,7 +895,7 @@ function PastShowsBody<T>({
             No past shows in {activeYear}.{' '}
             <Link
               href={buildHref(null, 1)}
-              className="text-primary hover:underline"
+              className="text-link hover:underline"
             >
               Show every year
             </Link>

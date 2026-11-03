@@ -1801,7 +1801,7 @@ function GatedExternalValue({ value }: { value: string }) {
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="text-primary hover:underline"
+      className="text-link hover:underline"
     >
       {value}
     </a>

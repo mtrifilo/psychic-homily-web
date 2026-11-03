@@ -315,7 +315,7 @@ export function ArtistNodeTooltip({
       )}
       {/* PSY-1259 actions. Each is pointer-events-auto so it's clickable through the
           hoverable tooltip (PSY-1218). Rendered only when the host wires the callback. */}
-      <div className="mt-1.5 flex flex-col gap-0.5 text-primary">
+      <div className="mt-1.5 flex flex-col gap-0.5 text-link">
         {onExpand && (
           <button
             type="button"

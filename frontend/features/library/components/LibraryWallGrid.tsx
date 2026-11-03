@@ -97,7 +97,7 @@ function WallTile({
       <div className="min-w-0">
         <Link
           href={href}
-          className="block truncate text-[13px] font-medium leading-tight transition-colors hover:text-primary"
+          className="block truncate text-[13px] font-medium leading-tight transition-colors hover:text-link"
         >
           {name}
         </Link>

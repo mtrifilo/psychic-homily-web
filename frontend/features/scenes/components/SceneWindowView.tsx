@@ -95,14 +95,14 @@ function QuietWindow({ data }: { data: SceneWindowData }) {
         {data.widerWindow ? (
           <Link
             href={sceneWindowHref(data.slug, data.widerWindow)}
-            className="text-primary underline underline-offset-4"
+            className="text-link underline underline-offset-4"
           >
             Try {SCENE_WINDOW_LABEL[data.widerWindow].toLowerCase()} in {data.city} →
           </Link>
         ) : (
           <Link
             href={allUpcomingHref(data.city, data.state)}
-            className="text-primary underline underline-offset-4"
+            className="text-link underline underline-offset-4"
           >
             All upcoming in {data.city} →
           </Link>

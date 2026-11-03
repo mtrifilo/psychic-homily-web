@@ -192,7 +192,7 @@ export function LabelList() {
             {hasFilters && (
               <button
                 onClick={clearFilters}
-                className="mt-4 text-primary hover:underline"
+                className="mt-4 text-link hover:underline"
               >
                 View all labels
               </button>

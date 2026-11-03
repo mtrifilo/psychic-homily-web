@@ -137,7 +137,7 @@ function SubmissionShowCard({
     >
       <div className="flex flex-col md:flex-row">
         <div className="mb-2 w-full md:mb-0 md:w-1/5 md:pr-4">
-          <p className="text-sm font-bold tracking-wide text-primary">
+          <p className="text-sm font-bold tracking-wide text-link">
             {formatShowDate(
               show.event_date,
               timing.state,
@@ -209,14 +209,14 @@ function SubmissionShowCard({
                     {artist.slug ? (
                       <Link
                         href={`/artists/${artist.slug}`}
-                        className="underline decoration-border underline-offset-4 transition-colors hover:text-primary hover:decoration-primary/50"
+                        className="underline decoration-border underline-offset-4 transition-colors hover:text-link hover:decoration-primary/50"
                       >
                         {artist.name}
                       </Link>
                     ) : instagramHref ? (
                       <a
                         href={instagramHref}
-                        className="underline decoration-border underline-offset-4 transition-colors hover:text-primary hover:decoration-primary/50"
+                        className="underline decoration-border underline-offset-4 transition-colors hover:text-link hover:decoration-primary/50"
                         target="_blank"
                         rel="noopener noreferrer"
                       >
@@ -352,12 +352,12 @@ function SubmissionShowCard({
               (venue.slug ? (
                 <Link
                   href={`/venues/${venue.slug}`}
-                  className="font-medium text-primary/80 transition-colors hover:text-primary"
+                  className="font-medium text-link hover:underline"
                 >
                   {venue.name}
                 </Link>
               ) : (
-                <span className="font-medium text-primary/80">
+                <span className="font-medium text-link">
                   {venue.name}
                 </span>
               ))}
@@ -383,7 +383,7 @@ function SubmissionShowCard({
                 <span>&nbsp;•&nbsp;</span>
                 <Link
                   href={`/shows/${show.slug || show.id}`}
-                  className="text-primary/80 underline underline-offset-2 transition-colors hover:text-primary"
+                  className="text-link underline underline-offset-2 hover:no-underline"
                 >
                   Details
                 </Link>

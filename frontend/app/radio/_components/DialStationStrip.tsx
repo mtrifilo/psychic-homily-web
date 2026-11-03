@@ -125,7 +125,8 @@ export function DialStationStrip({ station }: DialStationStripProps) {
           <BracketLink
             label={playlistAction.label}
             href={playlistAction.href}
-            className="font-data text-xs text-primary hover:text-primary/80"
+            variant="accent"
+            className="font-data text-xs"
           />
         )}
       </div>
@@ -226,7 +227,7 @@ function OnAirBlock({ stationSlug }: { stationSlug: string }) {
         {data.show ? (
           <Link
             href={`/radio/${stationSlug}/${data.show.slug}`}
-            className="text-[15px] font-semibold text-foreground transition-colors hover:text-primary"
+            className="text-[15px] font-semibold text-foreground transition-colors hover:text-link"
           >
             {showLabel}
           </Link>
@@ -251,7 +252,7 @@ function OnAirBlock({ stationSlug }: { stationSlug: string }) {
           {current.artist_slug ? (
             <Link
               href={`/artists/${current.artist_slug}`}
-              className="text-sm font-medium text-foreground transition-colors hover:text-primary"
+              className="text-sm font-medium text-foreground transition-colors hover:text-link"
             >
               {current.artist_name}
             </Link>
@@ -266,7 +267,7 @@ function OnAirBlock({ stationSlug }: { stationSlug: string }) {
             </span>
           )}
           {current.rotation_status && (
-            <span className="font-data text-[11px] lowercase text-primary">
+            <span className="font-data text-[11px] lowercase text-link">
               {getRotationStatusLabel(current.rotation_status)}
             </span>
           )}
@@ -345,7 +346,7 @@ function DialChannelRow({
           {nowPlaying.show ? (
             <Link
               href={`/radio/${channel.slug}/${nowPlaying.show.slug}`}
-              className="transition-colors hover:text-primary"
+              className="transition-colors hover:text-link"
             >
               {showLabel}
             </Link>
@@ -376,7 +377,8 @@ function DialChannelRow({
           label="listen"
           href={channelWebsiteHref}
           external
-          className="font-data text-xs text-primary hover:text-primary/80"
+          variant="accent"
+          className="font-data text-xs"
           // Names the channel: this row repeats per channel and again per
           // station, so a bare "listen" would announce identically down the
           // whole dial with nothing to tell the streams apart.

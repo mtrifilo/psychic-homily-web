@@ -102,8 +102,8 @@ describe('getStatusColor', () => {
     expect(getStatusColor('pending')).toBe('bg-chart-3/15 text-chart-3')
   })
 
-  it('returns a primary class for pending_fulfillment', () => {
-    expect(getStatusColor('pending_fulfillment')).toContain('primary')
+  it('sets pending_fulfillment text in the link token on a primary tint', () => {
+    expect(getStatusColor('pending_fulfillment')).toBe('bg-primary/15 text-link')
   })
 
   it('binds fulfilled to the green chart token', () => {

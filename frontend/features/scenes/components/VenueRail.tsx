@@ -116,7 +116,7 @@ export function VenueRail({
           <button
             type="button"
             onClick={onBackToGlobe}
-            className="font-data text-xs text-muted-foreground underline-offset-4 transition-colors hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="font-data text-xs text-muted-foreground underline-offset-4 transition-colors hover:text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             ← globe
           </button>
@@ -609,7 +609,7 @@ function VenueRow({
     >
       <div className="flex items-baseline justify-between gap-3">
         <span className="truncate text-sm text-foreground">{venue.name}</span>
-        <span className="shrink-0 font-data text-xs text-primary">
+        <span className="shrink-0 font-data text-xs text-link">
           {venue.upcoming_show_count} upcoming
         </span>
       </div>

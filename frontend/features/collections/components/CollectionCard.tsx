@@ -153,7 +153,7 @@ export function CollectionCard({ collection }: CollectionCardProps) {
         <div className="flex-1 min-w-0">
           <Link href={`/collections/${collection.slug}`} className="block group">
             <h3
-              className="font-bold text-foreground group-hover:text-primary transition-colors line-clamp-1"
+              className="font-bold text-foreground group-hover:text-link transition-colors line-clamp-1"
               title={collection.title}
             >
               {collection.title}
@@ -238,7 +238,7 @@ export function CollectionCard({ collection }: CollectionCardProps) {
                     'inline-flex items-center rounded-full border px-2 py-0.5',
                     'text-[10px] font-medium transition-colors',
                     'border-border/60 bg-muted/30 text-muted-foreground',
-                    'hover:border-primary/40 hover:bg-primary/10 hover:text-primary'
+                    'hover:border-primary/40 hover:bg-primary/10 hover:text-link'
                   )}
                   title={tag.name}
                 >
@@ -309,8 +309,8 @@ export function CollectionCard({ collection }: CollectionCardProps) {
                   }
                   className={cn(
                     'flex items-center gap-1 transition-colors',
-                    'hover:text-primary',
-                    collection.user_likes_this && 'text-primary'
+                    'hover:text-link',
+                    collection.user_likes_this && 'text-link'
                   )}
                   data-testid="collection-like-button"
                 >

@@ -131,7 +131,7 @@ function EmptyNight({
         <p className="mt-5">
           <Link
             href={showHref(nextShow)}
-            className="text-primary underline underline-offset-4"
+            className="text-link underline underline-offset-4"
           >
             Next on our calendar:{' '}
             {formatPointerDay(day.date, nextShow.event_date, day.is_tonight)},{' '}

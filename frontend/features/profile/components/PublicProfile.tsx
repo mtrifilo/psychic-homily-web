@@ -79,11 +79,11 @@ function ShareButton({ username }: { username: string }) {
     <button
       type="button"
       onClick={handleShare}
-      className="text-sm font-semibold hover:text-primary"
+      className="text-sm font-semibold hover:text-link"
       aria-label="Copy a link to this profile"
     >
       {state === 'copied' ? (
-        <span className="text-primary">Copied ✓</span>
+        <span className="text-link">Copied ✓</span>
       ) : state === 'failed' ? (
         <span className="text-destructive">Copy failed</span>
       ) : (

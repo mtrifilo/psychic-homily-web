@@ -52,7 +52,7 @@ const MIN_BAR_FRACTION = 0.08
  * a mistake every time someone finds it.
  */
 export const MAP_CARD_CHIP_CLASS =
-  'inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-1 font-data text-[10px] uppercase tracking-wider text-primary transition-colors hover:border-primary/60 hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background'
+  'inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-1 font-data text-[10px] uppercase tracking-wider text-link transition-colors hover:border-primary/60 hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background'
 
 export interface ReplayScrubberProps {
   replay: SceneReplayController

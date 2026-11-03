@@ -363,7 +363,7 @@ export function VenuePanel({
           {showCount > visible.length && (
             <AtlasPaneLink
               href={venueHref}
-              className="block px-4 py-2 font-data text-[11px] text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              className="block px-4 py-2 font-data text-[11px] text-link underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
             >
               view all {showCount} →
             </AtlasPaneLink>
@@ -379,7 +379,7 @@ export function VenuePanel({
     <AtlasPaneLink
       href={venueHref}
       className={cn(
-        'font-data text-xs text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'font-data text-xs text-link underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         isSheet && ATLAS_LINK_TARGET_CLASS,
       )}
     >
@@ -620,7 +620,7 @@ function ShowRow({
 
   const body = (
     <>
-      <span className="w-16 shrink-0 pt-px font-data tabular-nums text-[11px] leading-4 text-primary">
+      <span className="w-16 shrink-0 pt-px font-data tabular-nums text-[11px] leading-4 text-link">
         {date}
       </span>
       <span className="min-w-0 flex-1">

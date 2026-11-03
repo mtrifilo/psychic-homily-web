@@ -34,14 +34,14 @@ import { useHoverIntentMenu } from './useHoverIntentMenu'
 // traverse every item across both columns in DOM order, and Escape returns
 // focus to the trigger.
 
-// Per-item color: primary (orange + semibold) for the "+ Submit a show"
+// Per-item color: link (orange + semibold) for the "+ Submit a show"
 // call-to-action, muted for the trailing "hub" / external links, foreground
 // for the rest — matching the Figma panel. The color is pinned on the focus
 // state too so the item keeps its own color (the default item chrome would
 // otherwise swap to accent-foreground on hover/keyboard focus).
 function itemClassName(item: NavLinkData): string {
   if (item.submitPrimary) {
-    return 'font-semibold text-primary focus:text-primary'
+    return 'font-semibold text-link focus:text-link'
   }
   const trailing = item.external || item.href === '/contribute'
   return cn(

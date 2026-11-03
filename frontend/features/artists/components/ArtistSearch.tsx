@@ -167,7 +167,7 @@ export const ArtistSearch = forwardRef<HTMLInputElement, {
               Search is unavailable.
               <button
                 type="button"
-                className="shrink-0 text-primary hover:underline underline-offset-4"
+                className="shrink-0 text-link hover:underline underline-offset-4"
                 onMouseDown={event => {
                   event.preventDefault()
                   void refetch()
