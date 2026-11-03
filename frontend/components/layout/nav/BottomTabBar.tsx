@@ -34,19 +34,16 @@ import type { NavDestination, NavGroup, NavLink } from './navData'
 // The persistent mobile bottom tab bar (PSY-1020, Figma Navigation 540:8 —
 // Option A, the user-approved pattern; the hamburger-sheet Option B 542:6 is the
 // fallback record only). Five tabs: three plain links, then Browse and Account.
-// The links are Home · Shows · Radio for a viewer not settled as signed in and
-// Home · Shows · Library once signed in, with Radio moving into the Browse
-// sheet (navData's mobileNavFor holds both, P1a boards 2076:26 / 2077:22).
-// Browse opens the long-tail bottom sheet (every desktop
-// Browse/Contribute/Editorial destination, composed in navData: one source of
-// truth, no forked lists). Account opens a sheet for every viewer, ending in
-// the legal rows (Cookie preferences, Privacy, Terms): for a viewer not
-// settled as signed in
-// (anonymous, and unsettled too) a Sign in link back to the current page; once
-// signed in, the UserMenu entries and Sign out, with the unread-notification
-// badge on both the tab and the sheet's Notifications row (below `sm` the top
-// bar's bell is hidden, so without this there is no unread affordance on a
-// phone at all).
+// The links and the Browse sheet's rows depend on the viewer; navData's
+// mobileNavFor holds each viewer's set. Browse opens the long-tail bottom
+// sheet (every desktop Browse/Contribute/Editorial destination, composed in
+// navData: one source of truth, no forked lists). Account opens a sheet for
+// every viewer, ending in the legal rows (Cookie preferences, Privacy,
+// Terms): for a viewer not settled as signed in (anonymous, and unsettled
+// too) a Sign in link back to the current page; once signed in, the UserMenu
+// entries and Sign out, with the unread-notification badge on both the tab
+// and the sheet's Notifications row (below `sm` the top bar's bell is hidden,
+// so without this there is no unread affordance on a phone at all).
 //
 // Rendered by AppShell below `xl` on every page — matching PrimaryNav's
 // xl:flex, so the lg–xl band (tablets) keeps a primary nav; AppShell adds the
@@ -421,14 +418,11 @@ export function BottomTabBar() {
   // type for the rule.
   const isSettledAuthenticated = authStatus === 'authenticated' && user !== null
 
-  // The bar's tab set follows the same signal. AuthHydrator seeds the profile
-  // this context reads before the shell renders, so the server HTML already
-  // carries the viewer's bar and hydration does not change it. Only a viewer
-  // the server could not answer for (a backend failure leaves the context
-  // 'pending') settles on the client; the third tab then swaps in place and
-  // the five columns do not move.
+  // The bar's tab set follows the same signal, which AuthHydrator seeds before
+  // the shell renders: the server HTML carries the viewer's bar, and only a
+  // context left 'pending' by a backend failure swaps it on the client.
   const navViewer = isSettledAuthenticated ? 'signed-in' : 'signed-out'
-  const { primaryTabs, browseGroups, browseHrefs } = mobileNavFor(navViewer)
+  const { primaryTabs, browseGroups, sheetHrefs } = mobileNavFor(navViewer)
 
   // The canonical account list (navData, PSY-1821) with the username-aware
   // Profile href already resolved. Admin stays in the list (adminOnly) so the
@@ -450,7 +444,7 @@ export function BottomTabBar() {
       ? accountItems.some(i => isActive(i.href)) || isActive(PROFILE_CLAIM_HREF)
       : isActive(AUTH_PATH))
   const browseActive =
-    !primaryActive && !accountActive && browseHrefs.some(isActive)
+    !primaryActive && !accountActive && sheetHrefs.some(isActive)
 
   return (
     <nav

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Bell, Library } from 'lucide-react'
 import {
-  PROFILE_CLAIM_HREF, accountNavItems, buildDestinationIndex, mobileNavFor,
+  MOBILE_NAV_VIEWERS, PROFILE_CLAIM_HREF, accountNavItems, buildDestinationIndex, mobileNavFor,
   navDestination, profileHref, sidebarAccountItems, sidebarGroups, visibleNavItems,
 } from './navData'
 import type { MobileNavViewer } from './navData'
@@ -48,7 +48,6 @@ describe('accountNavItems', () => {
 })
 
 describe('mobileNavFor', () => {
-  const viewers: MobileNavViewer[] = ['signed-in', 'signed-out']
   const labels = (viewer: MobileNavViewer) =>
     mobileNavFor(viewer).primaryTabs.map(t => t.label)
   const discover = (viewer: MobileNavViewer) =>
@@ -67,22 +66,15 @@ describe('mobileNavFor', () => {
     expect(discover('signed-out')).toEqual(['Graph', 'Atlas'])
   })
 
-  // The bar renders a literal grid-cols-5; a viewer with a different tab
-  // count would wrap a tab outside the fixed bar height.
-  it('keeps the tab count the same for every viewer', () => {
-    const counts = viewers.map(v => mobileNavFor(v).primaryTabs.length)
-    expect(new Set(counts).size).toBe(1)
-  })
-
   it('never lists a destination in both the bar and the Browse sheet', () => {
-    for (const viewer of viewers) {
-      const { primaryTabs, browseHrefs } = mobileNavFor(viewer)
-      for (const tab of primaryTabs) expect(browseHrefs, viewer).not.toContain(tab.href)
+    for (const viewer of MOBILE_NAV_VIEWERS) {
+      const { primaryTabs, sheetHrefs } = mobileNavFor(viewer)
+      for (const tab of primaryTabs) expect(sheetHrefs, viewer).not.toContain(tab.href)
     }
   })
 
   it('resolves every tab through the canonical tables', () => {
-    for (const viewer of viewers) {
+    for (const viewer of MOBILE_NAV_VIEWERS) {
       for (const tab of mobileNavFor(viewer).primaryTabs) {
         expect(tab).toEqual(navDestination(tab.href))
       }
@@ -181,7 +173,7 @@ describe('composition integrity', () => {
       ...sidebarGroups.map(g => g.items),
       sidebarAccountItems(null),
       accountNavItems(null),
-      ...(['signed-in', 'signed-out'] as const).flatMap(viewer =>
+      ...MOBILE_NAV_VIEWERS.flatMap(viewer =>
         mobileNavFor(viewer).browseGroups.filter(g => g.label !== 'Scenes').map(g => g.items)
       ),
     ]

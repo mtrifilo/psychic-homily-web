@@ -427,7 +427,8 @@ export function navItemClassName(active?: boolean): string {
  * an anonymous viewer and one whose auth has not settled both get
  * 'signed-out', the same split the bar's Account cell makes.
  */
-export type MobileNavViewer = 'signed-in' | 'signed-out'
+export const MOBILE_NAV_VIEWERS = ['signed-in', 'signed-out'] as const
+export type MobileNavViewer = (typeof MOBILE_NAV_VIEWERS)[number]
 
 /** One viewer's mobile chrome: the bar's link tabs and the Browse sheet. */
 export interface MobileNav {
@@ -440,7 +441,7 @@ export interface MobileNav {
   /** The Browse tab's long-tail sheet, in sheet order. */
   browseGroups: NavGroup[]
   /** Every in-app href of browseGroups: the routes that light the Browse tab. */
-  browseHrefs: string[]
+  sheetHrefs: string[]
 }
 
 /**
@@ -481,7 +482,7 @@ function composeMobileNav(
     primaryTabs,
     browseGroups,
     // External links are excluded; they never match a pathname.
-    browseHrefs: browseGroups.flatMap(g =>
+    sheetHrefs: browseGroups.flatMap(g =>
       g.items.filter(i => !i.external).map(i => i.href)
     ),
   }

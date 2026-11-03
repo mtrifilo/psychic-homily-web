@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event'
 import { BottomTabBar } from './BottomTabBar'
 import { primaryLinks } from './PrimaryNav'
-import { legalSheetRows, mobileNavFor, sidebarGroups } from './navData'
+import { MOBILE_NAV_VIEWERS, legalSheetRows, mobileNavFor, sidebarGroups } from './navData'
 import { BOTTOM_TAB_BAR_BOX } from '@/test/layoutContracts'
 import type { AuthStatus } from '@/lib/context/AuthContext'
 import { makeAuthFixture, type MockAuthContextValue } from '@/test/authFixture'
@@ -66,6 +66,11 @@ vi.mock('next-themes', () => ({
   }),
 }))
 
+/** The bar's tab row: the grid whose children are the five cells. */
+function barGrid(container: HTMLElement): Element | null {
+  return container.querySelector('nav[aria-label="Mobile navigation"] > div')
+}
+
 function authedAs(user: MockUser) {
   mockAuthContext.mockReturnValue(authFixture({ user, authStatus: 'authenticated' }))
 }
@@ -86,11 +91,11 @@ describe('BottomTabBar', () => {
   // composed from the account tables (which the mobile sheets don't render).
   // Checked per viewer: the bar's tabs differ by viewer, so a destination one
   // viewer's bar drops (Radio, once signed in) must land in that viewer's sheet.
-  it.each(['signed-in', 'signed-out'] as const)(
+  it.each(MOBILE_NAV_VIEWERS)(
     'keeps every desktop primary + rail destination reachable on mobile for a %s viewer',
     viewer => {
-      const { primaryTabs, browseHrefs } = mobileNavFor(viewer)
-      const mobile = [...primaryTabs.map(t => t.href), ...browseHrefs]
+      const { primaryTabs, sheetHrefs } = mobileNavFor(viewer)
+      const mobile = [...primaryTabs.map(t => t.href), ...sheetHrefs]
       for (const link of [...primaryLinks, ...sidebarGroups.flatMap(g => g.items)]) {
         if (link.external) continue
         expect(mobile).toContain(link.href)
@@ -102,12 +107,12 @@ describe('BottomTabBar', () => {
   // Browse + Account). A tab added without updating the grid class would wrap
   // Account onto a second row outside the fixed bar height — this asserts the
   // RELATIONSHIP, so it fails on the mismatch, not on a correct 4-tab change.
-  it.each(['signed-in', 'signed-out'] as const)(
+  it.each(MOBILE_NAV_VIEWERS)(
     'pins the bar grid to primaryTabs + Browse + Account for a %s viewer',
     viewer => {
       if (viewer === 'signed-in') authedAs({ email: 'user@test.com', is_admin: false })
       const { container } = render(<BottomTabBar />)
-      const grid = container.querySelector('nav[aria-label="Mobile navigation"] > div')
+      const grid = barGrid(container)
       const columns = mobileNavFor(viewer).primaryTabs.length + 2
       expect(grid?.className).toContain(`grid-cols-${columns}`)
       expect(grid?.children).toHaveLength(columns)
@@ -161,7 +166,7 @@ describe('BottomTabBar', () => {
     // positively rather than blacklisting one wrong spelling.
     it('derives the tab row from the bar box instead of restating a height', () => {
       const { container } = render(<BottomTabBar />)
-      const grid = container.querySelector('nav[aria-label="Mobile navigation"] > div')
+      const grid = barGrid(container)
       expect(grid).toHaveClass('h-full')
     })
 
@@ -204,7 +209,7 @@ describe('BottomTabBar', () => {
     it('gives a signed-in viewer Library in the third tab, in place of Radio', () => {
       authedAs({ email: 'user@test.com', is_admin: false })
       const { container } = render(<BottomTabBar />)
-      const grid = container.querySelector('nav[aria-label="Mobile navigation"] > div')!
+      const grid = barGrid(container)!
       const links = [...grid.querySelectorAll(':scope > a')]
       expect(links.map(a => a.textContent)).toEqual(['Home', 'Shows', 'Library'])
       expect(screen.getByRole('link', { name: 'Library' })).toHaveAttribute('href', '/library')
@@ -700,9 +705,7 @@ describe('BottomTabBar', () => {
       const cellOf = (authStatus: AuthStatus) => {
         mockAuthContext.mockReturnValue(authFixture({ authStatus }))
         const { container, unmount } = render(<BottomTabBar />)
-        const grid = container.querySelector(
-          'nav[aria-label="Mobile navigation"] > div'
-        )
+        const grid = barGrid(container)
         const shape = {
           gridChildren: grid?.children.length,
           account: grid?.lastElementChild?.outerHTML.replace(
