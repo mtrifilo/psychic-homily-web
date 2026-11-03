@@ -30,6 +30,7 @@ import { Eye, Pencil } from 'lucide-react'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { tabularNumsIfDigitsOnly } from '@/lib/tabularNums'
 
 /**
  * Tags the preview is allowed to render. Mirrors the bluemonday allowlist in
@@ -124,6 +125,9 @@ export function MarkdownEditor({
     return sanitizePreview(rendered)
   }, [value])
 
+  const currentLength = value.length.toLocaleString()
+  const lengthLimit = maxLength?.toLocaleString()
+
   return (
     <div className={cn('space-y-2', className)} data-testid="markdown-editor">
       {/* Mode toggle */}
@@ -163,8 +167,11 @@ export function MarkdownEditor({
                 : 'text-muted-foreground'
             )}
             aria-live="polite"
+            data-testid="markdown-editor-char-count"
           >
-            {value.length.toLocaleString()} / {maxLength.toLocaleString()}
+            <span className={tabularNumsIfDigitsOnly(currentLength)}>{currentLength}</span>
+            {' / '}
+            <span className={tabularNumsIfDigitsOnly(lengthLimit)}>{lengthLimit}</span>
           </span>
         )}
       </div>
