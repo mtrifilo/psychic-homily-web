@@ -270,13 +270,14 @@ function HomeGraphLegend({
 const ForceGraphView = createLazyForceGraphView(<SceneGraphSkeleton />)
 
 /**
- * What the section becomes below the canvas gate. `teaser` is the logged-out
- * homepage's line of body text into the music map. `linkRow` is the signed-in
- * home's form: one hairline-ruled row, "Scene graph · {city}, mapped →",
- * standing as the section's heading and pointing at the same scene-scoped
- * route as the desktop "Open the graph →" link. Its Customize row promises
- * exactly that ("A link on phones"), so the two forms must not converge
- * without that copy changing in `../sections`.
+ * What the section becomes below the canvas gate. Both forms link to the
+ * music map (`/graph`), not to this scene's page: at this width the scene
+ * page's own graph section is itself one line of link, and the map takes no
+ * scene or city parameter. `teaser` is the logged-out homepage's line of body
+ * text. `linkRow` is the signed-in home's form: one hairline-ruled row,
+ * "Scene graph · {city}, mapped →", standing as the section's heading. Its
+ * Customize row promises exactly that ("A link on phones"), so the two forms
+ * must not converge without that copy changing in `../sections`.
  */
 export type HomeSceneGraphNarrowForm = 'teaser' | 'linkRow'
 
@@ -583,17 +584,15 @@ function HomeSceneGraphSection({
             can't shift the radio section below when the state settles. */}
         {containerWidth === null && <SceneGraphSkeleton />}
 
-        {/* The section's sub-640px form (PSY-511 gates the canvas off here).
-            The teaser targets the map rather than this scene's page, whose own
-            graph section collapses to one line at this width; the link row
-            deliberately names this scene and targets its page instead. */}
+        {/* The section's sub-640px form (PSY-511 gates the canvas off here);
+            see HomeSceneGraphNarrowForm for why both forms target the map. */}
         {asLinkRow && (
           <h2
             id="home-scene-graph-heading"
             className="border-y border-border text-[15px] font-normal leading-6 text-foreground"
           >
             <Link
-              href={sceneGraphHref}
+              href={graphRootHref()}
               className="block py-3 transition-colors hover:underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             >
               Scene graph · {scene.city}, mapped <span aria-hidden="true">→</span>

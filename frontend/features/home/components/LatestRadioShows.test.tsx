@@ -146,9 +146,9 @@ describe('LatestRadioShows', () => {
       )
       expect(screen.queryByRole('link', { name: /browse all stations/i })).toBeNull()
       expect(screen.getAllByRole('listitem')).toHaveLength(3)
-      expect(rowFor(/^KEXP · Seattle/)).toHaveAttribute('href', '/radio/kexp')
-      expect(rowFor(/^WFMU · Jersey City/)).toHaveAttribute('href', '/radio/wfmu')
-      expect(rowFor(/^NTS · London/)).toHaveAttribute('href', '/radio/nts-radio')
+      expect(rowFor(/^KEXP, Seattle/)).toHaveAttribute('href', '/radio/kexp')
+      expect(rowFor(/^WFMU, Jersey City/)).toHaveAttribute('href', '/radio/wfmu')
+      expect(rowFor(/^NTS, London/)).toHaveAttribute('href', '/radio/nts-radio')
     })
 
     it('shows "station · show" over "city · live now" with a live dot when on air', () => {
@@ -161,23 +161,27 @@ describe('LatestRadioShows', () => {
         data: { on_air: slug === 'wfmu' },
       }))
       render(<LatestRadioShows variant="rows" />)
-      const wfmu = rowFor(/^WFMU · Jersey City/)
+      const wfmu = rowFor(/^WFMU · Strength Through Failure/)
       expect(wfmu).toHaveTextContent('WFMU · Strength Through Failure')
       expect(wfmu).toHaveTextContent('Jersey City · live now')
       expect(wfmu.querySelector('[data-live]')).not.toBeNull()
-      expect(rowFor(/^KEXP · Seattle/).querySelector('[data-live]')).toBeNull()
-      // Rows drop the artist line; the accessible name still carries it.
+      expect(rowFor(/^KEXP, Seattle/).querySelector('[data-live]')).toBeNull()
+      // The name opens with the visible text in visual order (WCAG 2.5.3);
+      // the artists the row does not show follow it.
       expect(screen.queryByText('Stereolab · Broadcast · Pram')).toBeNull()
       expect(wfmu).toHaveAccessibleName(
-        'WFMU · Jersey City — live now — latest: Strength Through Failure with Stereolab, Broadcast, Pram. Open the station page.'
+        'WFMU · Strength Through Failure, Jersey City · live now. Latest show with Stereolab, Broadcast, Pram. Open the station page.'
       )
     })
 
     it('falls back to "city · vibe" off air and the call sign alone with no episode', () => {
       useStationEpisodes.mockReturnValue({ data: { episodes: [], total: 0 } })
       render(<LatestRadioShows variant="rows" />)
-      const kexp = rowFor(/^KEXP · Seattle/)
+      const kexp = rowFor(/^KEXP, Seattle/)
       expect(kexp).toHaveTextContent(/^KEXP\s*Seattle · Eclectic host’s-choice$/)
+      expect(kexp).toHaveAccessibleName(
+        'KEXP, Seattle · Eclectic host’s-choice. Open the station page.'
+      )
       expect(kexp).not.toHaveTextContent(/live now/)
       expect(kexp.querySelector('[data-live]')).toBeNull()
     })
@@ -186,7 +190,7 @@ describe('LatestRadioShows', () => {
       useStationEpisodes.mockReturnValue({ data: undefined, error: new Error('404') })
       useStationNowPlaying.mockReturnValue({ data: undefined, error: new Error('404') })
       render(<LatestRadioShows variant="rows" />)
-      expect(rowFor(/^NTS · London/)).toHaveTextContent('London · Global, two live channels')
+      expect(rowFor(/^NTS, London/)).toHaveTextContent('London · Global, two live channels')
       expect(screen.queryByText(/live now/)).toBeNull()
     })
   })

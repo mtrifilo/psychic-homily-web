@@ -65,7 +65,7 @@ const STATIONS: ReadonlyArray<StationEditorial> = [
 ]
 
 /** Max artist names in the card's artist line and in both forms' accessible
- *  name (the row shows no artist line). */
+ *  names (the row shows no artist line). */
 const ARTIST_PREVIEW_CAP = 3
 
 /**
@@ -93,11 +93,15 @@ function useStationPreview(editorial: StationEditorial) {
     .slice(0, ARTIST_PREVIEW_CAP)
   const live = nowPlaying?.on_air === true
 
-  // aria-label REPLACES the accessible name computed from the link's content.
-  // One composition serves both forms: station · city, live status, latest
-  // show, up to ARTIST_PREVIEW_CAP artists. The editorial vibe is not in it,
-  // and the row's visible line order (station · show over city) is not the
-  // name's order, so the name is not a superset of the visible text.
+  return { latest, artists, live }
+}
+
+function StationCard({ editorial }: { editorial: StationEditorial }) {
+  const { latest, artists, live } = useStationPreview(editorial)
+
+  // aria-label REPLACES the accessible name computed from the card's content.
+  // It opens with the card's first visible line (station · city), then the
+  // live status, latest show, and up to ARTIST_PREVIEW_CAP artists.
   const ariaLabel = [
     `${editorial.station} · ${editorial.city}`,
     live ? '— live now' : '',
@@ -108,12 +112,6 @@ function useStationPreview(editorial: StationEditorial) {
     .filter(Boolean)
     .join(' ')
     .replace(' .', '.')
-
-  return { latest, artists, live, ariaLabel }
-}
-
-function StationCard({ editorial }: { editorial: StationEditorial }) {
-  const { latest, artists, live, ariaLabel } = useStationPreview(editorial)
 
   return (
     <Link
@@ -159,7 +157,23 @@ function StationCard({ editorial }: { editorial: StationEditorial }) {
  * station is off air so every row's text starts on the same edge.
  */
 function StationRow({ editorial }: { editorial: StationEditorial }) {
-  const { latest, live, ariaLabel } = useStationPreview(editorial)
+  const { latest, artists, live } = useStationPreview(editorial)
+  const title = latest
+    ? `${editorial.station} · ${latest.show_name}`
+    : editorial.station
+  const detail = `${editorial.city} · ${live ? 'live now' : editorial.vibe}`
+
+  // aria-label REPLACES the accessible name computed from the row's content.
+  // It opens with the row's visible text in visual order, so a speech user
+  // can say what they see (WCAG 2.5.3), then the latest show's artists the row
+  // does not show.
+  const ariaLabel = [
+    `${title}, ${detail}.`,
+    artists.length > 0 ? `Latest show with ${artists.join(', ')}.` : '',
+    'Open the station page.',
+  ]
+    .filter(Boolean)
+    .join(' ')
 
   return (
     <Link
@@ -174,11 +188,10 @@ function StationRow({ editorial }: { editorial: StationEditorial }) {
       />
       <span className="flex min-w-0 flex-1 flex-col gap-px">
         <span className="truncate text-sm leading-[18px] text-foreground">
-          {editorial.station}
-          {latest && ` · ${latest.show_name}`}
+          {title}
         </span>
         <span className="truncate text-xs leading-[14px] text-muted-foreground">
-          {editorial.city} · {live ? 'live now' : editorial.vibe}
+          {detail}
         </span>
       </span>
       <ChevronRight

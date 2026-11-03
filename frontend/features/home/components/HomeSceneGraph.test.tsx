@@ -708,8 +708,8 @@ describe('HomeSceneGraph', () => {
   })
 
   // The signed-in home's narrow form: one row that names this scene, stands as
-  // the section's heading, and targets the same scene-scoped route as the
-  // desktop "Open the graph →" link.
+  // the section's heading, and links to the music map in one tap (the scene
+  // page's graph section is itself only a link at this width).
   describe('linkRow narrow form', () => {
     it('renders one heading-tier link row to the scene graph below the breakpoint', async () => {
       setContainerWidth(500)
@@ -718,7 +718,7 @@ describe('HomeSceneGraph', () => {
       const row = await screen.findByRole('link', {
         name: 'Scene graph · Chicago, mapped',
       })
-      expect(row).toHaveAttribute('href', '/scenes/chicago-il#graph')
+      expect(row).toHaveAttribute('href', '/graph')
       expect(row.closest('h2')).not.toBeNull()
       // The row names the section landmark.
       expect(
@@ -741,13 +741,13 @@ describe('HomeSceneGraph', () => {
       )
     })
 
-    it('follows the geo-picked scene in the row copy and href', async () => {
+    it('follows the geo-picked scene in the row copy', async () => {
       setContainerWidth(500)
       useGeoDefaultScene.mockReturnValue({ city: 'Phoenix', state: 'AZ' })
       render(<HomeSceneGraph narrowForm="linkRow" />)
       expect(
         await screen.findByRole('link', { name: 'Scene graph · Phoenix, mapped' })
-      ).toHaveAttribute('href', '/scenes/phoenix-az#graph')
+      ).toHaveAttribute('href', '/graph')
     })
 
     it('keeps the canvas section unchanged at canvas widths', async () => {
