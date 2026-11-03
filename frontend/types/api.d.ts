@@ -12890,6 +12890,8 @@ export interface components {
              * @description When the pending link expires, when status is pending. The browser's cookie that names it lapses at most 10 minutes after the Google sign-in that started it, which can be sooner once its emailed link has been asked for.
              */
             expires_at?: string;
+            /** @description When status is pending: true when the account's address was never verified and it holds another identity from the provider, which the emailed link replaces and which refuses the password proof. Always false when status is expired. */
+            replaces_identity: boolean;
             /**
              * @description pending: the collision state can be shown. expired: the pending link is expired, already used, or not this browser's.
              * @enum {string}

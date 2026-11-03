@@ -313,14 +313,13 @@ func (s *UserService) FindOrCreateUserFromOAuthIdentity(identity contracts.OAuth
 			// that it was verified once: the mailbox proof is a link sent
 			// there, and an identity that does not hold the mailbox now must
 			// not be joined by whoever does clicking it. An account that may
-			// not sign in, or whose verified address already holds an
-			// identity from this provider, keeps the plain refusal. On an
-			// address never verified, nothing proved that the holder of such
-			// an identity holds the mailbox, and the mailbox proof replaces
-			// it, so the offer stands.
+			// not sign in, or that holds an identity from this provider the
+			// mailbox proof would not replace
+			// (authm.User.MailboxProofReplacesIdentity), keeps the plain
+			// refusal.
 			if existingUser.CanSignIn() && identity.EmailVerified && identity.EmailAuthoritative {
 				keepsHeldIdentity := false
-				if existingUser.EmailVerified {
+				if !existingUser.MailboxProofReplacesIdentity() {
 					holds, err := s.accountHoldsProviderIdentity(existingUser.ID, provider)
 					if err != nil {
 						return nil, err

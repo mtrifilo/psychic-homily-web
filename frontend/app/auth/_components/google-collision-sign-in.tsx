@@ -36,7 +36,9 @@ function isPendingLinkGone(error: unknown): boolean {
 /**
  * The password proof's refusals to attach the Google identity: the identity
  * is attached to another account, or the account holds a different Google
- * identity. The backend spends the pending link on them.
+ * identity. The backend leaves the pending link in place on them, so an
+ * emailed link already sent still works; the page leaves the collision state
+ * with the refusal's own words.
  */
 const LINK_REFUSAL_CODES: ReadonlySet<string> = new Set([
   AuthErrorCode.OAUTH_IDENTITY_IN_USE,
@@ -48,6 +50,13 @@ const LINK_CLASS = 'font-medium underline underline-offset-4 hover:text-primary'
 interface GoogleCollisionSignInProps {
   /** The address the account and the Google identity share. */
   email: string
+  /**
+   * The account's address was never verified and it holds another Google
+   * identity (the pending-link read's replaces_identity). The password proof
+   * is refused on such an account, so only the emailed link is offered, and
+   * the copy says that it replaces the connected Google account.
+   */
+  replacesIdentity: boolean
   /** Where the reader lands after signing in, already through sanitizeReturnTo. */
   returnTo: string
   /**
@@ -65,11 +74,13 @@ interface GoogleCollisionSignInProps {
 /**
  * The Sign in tab's collision state: the Google sign-in's verified address
  * belongs to an account, and the person proves it holds that account by its
- * password or by its mailbox. Google, passkey and "Forgot password?" are left
- * out, so those two are the only proofs offered.
+ * password or by its mailbox, or by its mailbox alone when replacesIdentity.
+ * Google, passkey and "Forgot password?" are left out, so those are the only
+ * proofs offered.
  */
 export function GoogleCollisionSignIn({
   email,
+  replacesIdentity,
   returnTo,
   reauthReason,
   onPendingLinkGone,
@@ -97,9 +108,9 @@ export function GoogleCollisionSignIn({
           router.replace(returnTo)
         },
         onError: error => {
-          // The pending link is spent or gone: the person signs in from the
-          // normal tab, told why. A refusal to attach spends it too, and
-          // carries its own words.
+          // The pending link is spent or gone, or this proof cannot attach
+          // it: the person signs in from the normal tab, told why, a refusal
+          // to attach in its own words.
           if (isPendingLinkGone(error)) {
             onPendingLinkGone()
           } else if (isAuthError(error) && LINK_REFUSAL_CODES.has(error.code)) {
@@ -120,6 +131,20 @@ export function GoogleCollisionSignIn({
 
   const sendError = sendLink.isError && !isPendingLinkGone(sendLink.error)
 
+  const emailField = (
+    <div className="space-y-2">
+      <Label htmlFor="collision-email">Email</Label>
+      <Input
+        id="collision-email"
+        name="email"
+        type="email"
+        value={email}
+        readOnly
+        className="bg-muted font-data text-sm"
+      />
+    </div>
+  )
+
   return (
     <div className="space-y-4">
       {/* A statement of the state, not an interruption: a note, not an alert. */}
@@ -127,8 +152,8 @@ export function GoogleCollisionSignIn({
         <Info className="h-4 w-4" />
         <AlertDescription>
           <span>
-            An account already uses <strong className="font-semibold">{email}</strong>. Sign in
-            with your password to connect Google.
+            An account already uses <strong className="font-semibold">{email}</strong>.
+            {!replacesIdentity && ' Sign in with your password to connect Google.'}
           </span>
         </AlertDescription>
       </Alert>
@@ -140,61 +165,59 @@ export function GoogleCollisionSignIn({
         </Alert>
       )}
 
-      <form noValidate onSubmit={onSubmit} className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="collision-email">Email</Label>
-          <Input
-            id="collision-email"
-            name="email"
-            type="email"
-            value={email}
-            readOnly
-            className="bg-muted font-data text-sm"
-          />
-        </div>
+      {/* With no password proof there is no form: Enter in the read-only
+          address must not submit an empty password. */}
+      {replacesIdentity ? (
+        emailField
+      ) : (
+        <>
+          <form noValidate onSubmit={onSubmit} className="space-y-4">
+            {emailField}
 
-        <div className="space-y-2">
-          <Label htmlFor="collision-password">Password</Label>
-          <Input
-            id="collision-password"
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={event => {
-              setPassword(event.target.value)
-              setPasswordMissing(false)
-            }}
-            aria-invalid={passwordMissing}
-            aria-describedby={passwordMissing ? 'collision-password-error' : undefined}
-          />
-          {passwordMissing && (
-            <p id="collision-password-error" role="alert" className="text-sm text-destructive">
-              {PASSWORD_REQUIRED_MESSAGE}
-            </p>
-          )}
-        </div>
+            <div className="space-y-2">
+              <Label htmlFor="collision-password">Password</Label>
+              <Input
+                id="collision-password"
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={event => {
+                  setPassword(event.target.value)
+                  setPasswordMissing(false)
+                }}
+                aria-invalid={passwordMissing}
+                aria-describedby={passwordMissing ? 'collision-password-error' : undefined}
+              />
+              {passwordMissing && (
+                <p id="collision-password-error" role="alert" className="text-sm text-destructive">
+                  {PASSWORD_REQUIRED_MESSAGE}
+                </p>
+              )}
+            </div>
 
-        <Button type="submit" className="w-full" disabled={login.isPending}>
-          {login.isPending ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Signing in...
-            </>
-          ) : (
-            'Sign in and connect Google'
-          )}
-        </Button>
-      </form>
+            <Button type="submit" className="w-full" disabled={login.isPending}>
+              {login.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Signing in...
+                </>
+              ) : (
+                'Sign in and connect Google'
+              )}
+            </Button>
+          </form>
 
-      <div className="relative">
-        <div className="absolute inset-0 flex items-center">
-          <span className="w-full border-t" />
-        </div>
-        <div className="relative flex justify-center text-xs">
-          <span className="bg-card px-2 text-muted-foreground">or</span>
-        </div>
-      </div>
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t" />
+            </div>
+            <div className="relative flex justify-center text-xs">
+              <span className="bg-card px-2 text-muted-foreground">or</span>
+            </div>
+          </div>
+        </>
+      )}
 
       {sendLink.isSuccess ? (
         <div
@@ -206,8 +229,10 @@ export function GoogleCollisionSignIn({
             <p className="font-medium">Check your inbox</p>
             <p>
               We sent a sign-in link to <span className="font-data">{email}</span>. It expires in{' '}
-              {MAGIC_LINK_EXPIRY_MINUTES} minutes. Opening it connects Google and signs out your
-              other sessions.
+              {MAGIC_LINK_EXPIRY_MINUTES} minutes.{' '}
+              {replacesIdentity
+                ? 'Opening it replaces the connected Google account with yours, signs out your other sessions and turns off your current password.'
+                : 'Opening it connects Google and signs out your other sessions.'}
             </p>
           </div>
         </div>
@@ -234,13 +259,16 @@ export function GoogleCollisionSignIn({
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Sending...
               </>
+            ) : replacesIdentity ? (
+              'Email me a sign-in link'
             ) : (
               'Email me a sign-in link instead'
             )}
           </Button>
           <p className="text-center text-xs text-muted-foreground">
-            The link connects Google, signs out your other sessions and turns off your current
-            password.
+            {replacesIdentity
+              ? 'The link replaces the connected Google account with yours, signs out your other sessions and turns off your current password.'
+              : 'The link connects Google, signs out your other sessions and turns off your current password.'}
           </p>
         </div>
       )}

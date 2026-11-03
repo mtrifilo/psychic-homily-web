@@ -278,7 +278,48 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_PendingReadShowsTheAddress()
 	s.Equal("pending", body["status"])
 	s.Equal("read-link@test.com", body["email"])
 	s.NotEmpty(body["expires_at"])
+	s.Equal(false, body["replaces_identity"])
 	s.Equal("no-store", resp.Header().Get("Cache-Control"))
+}
+
+// replaces_identity is set exactly when the emailed link would replace a
+// Google identity the account holds: an address never verified holding a
+// Google identity other than the pending one. It is read when asked, so an
+// identity attached after the callback counts.
+func (s *OAuthHandlerIntegrationSuite) TestLinkStep_PendingReadSaysWhenTheEmailedLinkReplacesAnIdentity() {
+	env := s.linkEnv()
+	read := func(token string) map[string]any {
+		body := s.decode(env.api.Get(OAuthPendingLinkRoute, linkCookieHeader(token)))
+		s.Require().Equal("pending", body["status"], body)
+		return body
+	}
+
+	s.Run("unverified address holding another Google identity", func() {
+		account := s.passwordAccount("read-squat@test.com", false)
+		s.attachGoogle(account.ID, "google-read-squatter")
+		token := s.startLink(collisionIdentity("read-squat@test.com", "google-read-squat-owner"))
+		s.Equal(true, read(token)["replaces_identity"])
+	})
+	s.Run("unverified address holding no Google identity", func() {
+		account := s.passwordAccount("read-unsquat@test.com", false)
+		token := s.startLink(collisionIdentity("read-unsquat@test.com", "google-read-unsquat-owner"))
+		s.Equal(false, read(token)["replaces_identity"])
+
+		s.attachGoogle(account.ID, "google-read-late-squatter")
+		s.Equal(true, read(token)["replaces_identity"], "an identity attached after the callback counts")
+	})
+	s.Run("verified address holding another Google identity", func() {
+		account := s.passwordAccount("read-verified@test.com", false)
+		token := s.startLink(collisionIdentity("read-verified@test.com", "google-read-verified-newcomer"))
+		s.Require().NoError(s.deps.DB.Model(account).Update("email_verified", true).Error)
+		s.attachGoogle(account.ID, "google-read-verified-holder")
+		s.Equal(false, read(token)["replaces_identity"])
+	})
+	s.Run("expired pending link", func() {
+		body := s.decode(env.api.Get(OAuthPendingLinkRoute))
+		s.Equal("expired", body["status"])
+		s.Equal(false, body["replaces_identity"])
+	})
 }
 
 // A tampered, foreign, expired, or sign-up token reads as expired and names
@@ -451,19 +492,28 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_SignInWithoutTheCookieLeaves
 }
 
 // The identity was attached to another account between the callback and the
-// proof: the sign-in is refused with that refusal and the pending link spent.
+// proof: the password proof is refused with that refusal, and the pending
+// link and its cookie stay. An ordinary sign-in carrying the cookie signs in
+// and leaves them too.
 func (s *OAuthHandlerIntegrationSuite) TestLinkStep_PasswordProofRefusedWhenTheIdentityMovedElsewhere() {
 	account := s.passwordAccount("pw-moved@test.com", true)
 	elsewhere := s.passwordAccount("pw-elsewhere-owner@test.com", true)
 	token := s.startLink(collisionIdentity("pw-moved@test.com", "google-pw-moved"))
 	s.Require().NoError(s.deps.DB.Create(&authm.OAuthAccount{UserID: elsewhere.ID, Provider: "google", ProviderUserID: "google-pw-moved"}).Error)
+	env := s.linkEnv()
 
-	resp := s.login(s.linkEnv(), "pw-moved@test.com", collisionPassword, linkCookieHeader(token))
-	body := s.decode(resp)
-	s.Equal(false, body["success"])
-	s.Equal(autherrors.CodeOAuthIdentityInUse, body["error_code"])
+	resp := s.loginToConnect(env, "pw-moved@test.com", collisionPassword, linkCookieHeader(token))
+	s.requireRefusal(resp, autherrors.CodeOAuthIdentityInUse)
 	s.Nil(setCookies(resp)["auth_token"])
-	s.Zero(s.linkRows(account.ID))
+	s.Nil(setCookies(resp)[oauthPendingLinkCookie.name], "the refusal keeps the pending link's cookie")
+	s.Equal(int64(1), s.linkRows(account.ID), "the refusal leaves the pending link")
+
+	plain := s.login(env, "pw-moved@test.com", collisionPassword, linkCookieHeader(token))
+	s.Equal(true, s.decode(plain)["success"], plain.Body.String())
+	s.sessionFrom(plain)
+	s.Nil(setCookies(plain)[oauthPendingLinkCookie.name])
+	s.Equal(int64(1), s.linkRows(account.ID))
+	s.Empty(s.googleIdentitiesOf(account.ID))
 }
 
 // --- The mailbox proof ---
@@ -688,17 +738,46 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_SquattersGoogleIdentityIsRep
 
 // The password proves the account, not the mailbox, so it never replaces an
 // identity the account holds: the squatter's identity stays and the
-// password proof is refused with the provider refusal.
+// password proof is refused with the provider refusal. The refusal leaves
+// the pending link, so the emailed link asked for afterwards, from the same
+// cookie, still replaces the identity.
 func (s *OAuthHandlerIntegrationSuite) TestLinkStep_PasswordProofKeepsTheSameProviderRefusal() {
 	account := s.passwordAccount("pw-squat@test.com", false)
 	s.attachGoogle(account.ID, "google-pw-squatter")
 	token := s.startLink(collisionIdentity("pw-squat@test.com", "google-pw-owner"))
+	env := s.linkEnv()
 
-	resp := s.loginToConnect(s.linkEnv(), "pw-squat@test.com", collisionPassword, linkCookieHeader(token))
+	resp := s.loginToConnect(env, "pw-squat@test.com", collisionPassword, linkCookieHeader(token))
 	s.requireRefusal(resp, autherrors.CodeOAuthProviderAlreadyLinked)
 	s.Nil(setCookies(resp)["auth_token"])
+	s.Nil(setCookies(resp)[oauthPendingLinkCookie.name], "the refusal keeps the pending link's cookie")
 	s.requireOnlyGoogleIdentity(account.ID, "google-pw-squatter")
-	s.Zero(s.linkRows(account.ID), "the refused password proof spends the pending link")
+	s.Equal(int64(1), s.linkRows(account.ID), "the refused password proof leaves the pending link")
+
+	s.Require().Equal(true, s.decode(s.verifyLink(env, s.requestLink(env, token)))["success"])
+	s.requireOnlyGoogleIdentity(account.ID, "google-pw-owner")
+	s.Nil(s.reload(account.ID).PasswordHash)
+}
+
+// An emailed link already sent survives a password proof refused after it,
+// and an ordinary sign-in in between signs in without spending it.
+func (s *OAuthHandlerIntegrationSuite) TestLinkStep_EmailedLinkSurvivesARefusedPasswordProof() {
+	account := s.passwordAccount("pw-then-mail@test.com", false)
+	s.attachGoogle(account.ID, "google-pw-then-mail-squatter")
+	token := s.startLink(collisionIdentity("pw-then-mail@test.com", "google-pw-then-mail-owner"))
+	env := s.linkEnv()
+	linkToken := s.requestLink(env, token)
+
+	s.requireRefusal(s.loginToConnect(env, "pw-then-mail@test.com", collisionPassword, linkCookieHeader(token)),
+		autherrors.CodeOAuthProviderAlreadyLinked)
+	plain := s.login(env, "pw-then-mail@test.com", collisionPassword, linkCookieHeader(token))
+	s.Equal(true, s.decode(plain)["success"], plain.Body.String())
+	s.sessionFrom(plain)
+	s.requireOnlyGoogleIdentity(account.ID, "google-pw-then-mail-squatter")
+
+	s.Require().Equal(true, s.decode(s.verifyLink(env, linkToken))["success"])
+	s.requireOnlyGoogleIdentity(account.ID, "google-pw-then-mail-owner")
+	s.Zero(s.linkRows(account.ID), "the mailbox proof consumes the pending link")
 }
 
 // The squatter's Google identity can arrive after the victim asked for the

@@ -56,7 +56,7 @@ vi.mock('@/features/auth', () => ({
 type PendingRead = {
   isPending: boolean
   isError?: boolean
-  data?: { status: 'pending' | 'expired'; email?: string }
+  data?: { status: 'pending' | 'expired'; email?: string; replaces_identity?: boolean }
 }
 let mockPendingRead: PendingRead = { isPending: true }
 const pendingReadEnabled = vi.fn()
@@ -377,6 +377,72 @@ describe('AuthPage collision state', () => {
     ).not.toBeInTheDocument()
     // The password proof stays usable above the note.
     expect(screen.getByRole('button', { name: 'Sign in and connect Google' })).toBeEnabled()
+  })
+
+  describe('when the account holds another Google identity on an address never verified', () => {
+    const REPLACING: PendingRead = {
+      isPending: false,
+      data: { status: 'pending', email: ADDRESS, replaces_identity: true },
+    }
+
+    it('offers the emailed link alone, saying it replaces the connected Google account', () => {
+      arriveOnCollision(REPLACING)
+
+      expect(screen.getByText('Sign in to connect Google')).toBeInTheDocument()
+      expect(screen.getByText(/An account already uses/)).toHaveTextContent(
+        `An account already uses ${ADDRESS}.`
+      )
+      expect(screen.queryByText(/Sign in with your password/)).not.toBeInTheDocument()
+      const email = screen.getByLabelText('Email')
+      expect(email).toHaveValue(ADDRESS)
+      expect(email).toHaveAttribute('readonly')
+      expect(email.closest('form')).toBeNull()
+
+      expect(screen.queryByLabelText('Password')).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Sign in and connect Google' })
+      ).not.toBeInTheDocument()
+      expect(screen.queryByText('or')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Email me a sign-in link' })).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Email me a sign-in link instead' })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.getByText(
+          'The link replaces the connected Google account with yours, signs out your other sessions and turns off your current password.'
+        )
+      ).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'Use a different Google account' })).toBeInTheDocument()
+    })
+
+    it('sends the link and says opening it replaces the connected Google account', async () => {
+      const user = userEvent.setup()
+      const { rerender } = arriveOnCollision(REPLACING)
+
+      await user.click(screen.getByRole('button', { name: 'Email me a sign-in link' }))
+      expect(mockSendMutate).toHaveBeenCalledTimes(1)
+
+      mockSendState = { isPending: false, isSuccess: true, isError: false, error: null }
+      rerender(<AuthPage />)
+
+      const sent = screen.getByRole('status')
+      expect(sent).toHaveTextContent('Check your inbox')
+      expect(sent).toHaveTextContent(
+        `We sent a sign-in link to ${ADDRESS}. It expires in ${MAGIC_LINK_EXPIRY_MINUTES} minutes. Opening it replaces the connected Google account with yours, signs out your other sessions and turns off your current password.`
+      )
+      expect(screen.queryByRole('button', { name: /Email me a sign-in link/ })).not.toBeInTheDocument()
+      expect(screen.queryByLabelText('Password')).not.toBeInTheDocument()
+      expect(mockLoginMutate).not.toHaveBeenCalled()
+    })
+
+    it('submits no password when Enter is pressed in the address', async () => {
+      const user = userEvent.setup()
+      arriveOnCollision(REPLACING)
+
+      await user.type(screen.getByLabelText('Email'), '{Enter}')
+      expect(mockLoginMutate).not.toHaveBeenCalled()
+      expect(screen.queryByText('Password is required')).not.toBeInTheDocument()
+    })
   })
 
   it('shows a failed send without leaving the state', () => {

@@ -204,7 +204,7 @@ type LoginRequest struct {
 
 // LoginResponse represents login response
 type LoginResponse struct {
-	SetCookie []http.Cookie `header:"Set-Cookie" doc:"Authentication cookie, and the cleared pending-link cookie when the request carried one"`
+	SetCookie []http.Cookie `header:"Set-Cookie" doc:"Authentication cookie, and the cleared pending-link cookie when the request carried one whose pending link this sign-in used, discarded or found gone"`
 	Body      struct {
 		Success   bool        `json:"success" example:"true" doc:"Success status"`
 		Message   string      `json:"message" example:"Login successful" doc:"Response message"`
@@ -327,23 +327,27 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 	}
 
 	// The password just proved the account, which is one of the two proofs a
-	// pending provider link waits on. The cookie is cleared whatever the
-	// pending link turns out to be.
+	// pending provider link waits on. The cookie is cleared once the pending
+	// link is used, discarded or gone; a refusal leaves the pending link in
+	// place (LinkOAuthWithPassword), and the cookie with it, so this browser
+	// can still ask for its emailed link.
 	//
 	// A sign-in that asked to connect (ConnectPendingLink) and could not is
 	// refused, so the person who pressed "Sign in and connect" is never
-	// signed in believing the provider is connected. An ordinary sign-in
-	// that happens to carry a pending link stands on its own when the link
-	// is gone or names another account. A refusal to attach refuses both,
-	// with that refusal's own words.
+	// signed in believing the provider is connected; a refusal to attach
+	// refuses it with that refusal's own words. An ordinary sign-in that
+	// happens to carry a pending link stands on its own when the link is
+	// gone, names another account, or is refused to attach.
 	secure := h.config != nil && h.config.Session.Secure
 	pendingLink := pendingLinkToken(input.PendingLink, input.PendingLinkHost, secure)
 	if pendingLink != "" || input.Body.ConnectPendingLink {
 		linked := false
 		var linkErr error
 		if pendingLink != "" {
-			resp.SetCookie = append(resp.SetCookie, clearedPendingLinkCookie(secure))
 			linked, linkErr = h.authService.LinkOAuthWithPassword(pendingLink, user)
+			if linkErr == nil || isLinkPendingExpired(linkErr) {
+				resp.SetCookie = append(resp.SetCookie, clearedPendingLinkCookie(secure))
+			}
 		}
 		refusal, refused := refusalWithOwnCopy(linkErr)
 		switch {
@@ -361,6 +365,8 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 				resp.Body.ErrorCode = autherrors.CodeOAuthLinkPendingExpired
 				return resp, nil
 			}
+		case refused && !input.Body.ConnectPendingLink && isPendingLinkAttachRefusal(refusal.Code):
+			logger.AuthInfo(ctx, "login_pending_link_left_in_place", "user_id", user.ID, "error_code", refusal.Code)
 		case refused:
 			logger.AuthWarn(ctx, "login_pending_link_refused", "user_id", user.ID, "error_code", refusal.Code)
 			resp.Body.Success = false

@@ -1165,6 +1165,7 @@ function AuthPageContent() {
                   {collisionEmail !== null ? (
                     <GoogleCollisionSignIn
                       email={collisionEmail}
+                      replacesIdentity={pendingLink.data?.replaces_identity === true}
                       returnTo={returnTo}
                       reauthReason={reauthReason}
                       onPendingLinkGone={message => setGoneLink({ arrival, message })}
