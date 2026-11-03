@@ -222,7 +222,7 @@ export default function EpisodeDateDetail({ stationSlug, showSlug, date }: Episo
               ON AIR NOW — the playlist is updating live
             </span>
             {updatedAgo && (
-              <span className="shrink-0 font-mono text-xs text-muted-foreground">
+              <span className="shrink-0 font-mono tabular-nums text-xs text-muted-foreground">
                 {updatedAgo}
               </span>
             )}

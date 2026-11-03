@@ -11,16 +11,20 @@
  *    the app's CSS, so the DS Dark token VALUES have to be inlined here. They
  *    are copied from the `.dark` block in `app/globals.css` and must be kept in
  *    step with it — a drift shows up as a card that no longer matches the site.
- * 2. Satori cannot parse WOFF2, which is the only format `app/fonts/` ships.
- *    The `.ttf` files next to this module are Latin-subset conversions of the
- *    exact same faces the site loads via `next/font`.
+ * 2. Satori cannot parse WOFF2 or variable fonts, so the `.ttf` files next to
+ *    this module are static Latin-subset instances. They are DELIBERATELY the
+ *    retired PSY-647 faces (Satoshi, Space Mono) until PSY-2563 moves the cards
+ *    to the site's current type system (Schibsted Grotesk, Golos Text); the
+ *    cards do not match the site's faces in the meantime.
  *
  * Regenerating the font files (only needed if a face is ever replaced) — with
  * `fonttools` and `brotli` installed:
  *
- *     # Satoshi: unwrap the WOFF2 the site already ships, then subset
+ *     # Satoshi: the site no longer ships it; take the WOFF2 from git history
+ *     # (last commit that carried frontend/app/fonts), unwrap, then subset
+ *     git show c24be05ac:frontend/app/fonts/Satoshi-Bold.woff2 > /tmp/Satoshi-Bold.woff2
  *     python -c "from fontTools.ttLib import TTFont; \
- *       f=TTFont('app/fonts/Satoshi-Bold.woff2'); f.flavor=None; \
+ *       f=TTFont('/tmp/Satoshi-Bold.woff2'); f.flavor=None; \
  *       f.save('/tmp/Satoshi-Bold.ttf')"
  *     # Space Mono: OFL. Pin the ref -- `main` is mutable, and these bytes are
  *     # parsed by a wasm renderer on a public route, so they must be diffable.

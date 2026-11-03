@@ -2038,7 +2038,7 @@ function StagedRow({
           <GripVertical className="h-3.5 w-3.5" />
         </button>
       )}
-      <span className="text-xs font-mono text-muted-foreground w-6 shrink-0 text-right">
+      <span className="text-xs font-mono tabular-nums text-muted-foreground w-6 shrink-0 text-right">
         {String(index + 1).padStart(2, '0')}
       </span>
       <span className="text-sm flex-1 min-w-0 truncate">

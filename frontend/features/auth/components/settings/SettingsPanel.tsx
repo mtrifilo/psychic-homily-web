@@ -231,7 +231,7 @@ export function SettingsPanel() {
               {cliToken ? (
                 <div className="space-y-3">
                   <div className="flex items-center gap-2">
-                    <code className="flex-1 rounded-md border bg-muted/30 p-3 font-mono text-xs break-all">
+                    <code className="flex-1 rounded-md border bg-muted/30 p-3 font-code text-xs break-all">
                       {cliToken}
                     </code>
                     <Button

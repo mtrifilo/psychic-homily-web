@@ -62,16 +62,14 @@ export interface GraphPalette {
    */
   mutedForeground: string
   /**
-   * Resolved `--font-mono` as a canvas `ctx.font` family list — the Space Mono
-   * face the DOM reaches through `font-mono` (PSY-647). Canvas can't consume
-   * `var(--font-mono)` any more than it can a color token, and next/font emits
-   * a GENERATED family name (`__Space_Mono_abc123`) that no literal can
-   * hardcode, so it has to be read from the cascade like the colors are.
+   * The data face (Golos Text) as a canvas `ctx.font` family list, resolved from
+   * the cascade like the colors are because canvas cannot consume `var()`.
    *
-   * Used by the map's region captions, the one canvas text that is mono by
-   * design; every other canvas label stays sans (see graphLabels).
+   * Used by the map's region captions, the one canvas text set in the data face
+   * by design; every other canvas label uses the generic `sans-serif` (see
+   * graphLabels).
    */
-  monoFontFamily: string
+  dataFontFamily: string
   /**
    * True when the resolved tokens are the dark theme's.
    *
@@ -121,11 +119,11 @@ const FALLBACK_LABEL_HALO = '#0d0805' // --background (dark)
 const FALLBACK_PRIMARY = '#e89960' // --primary (dark)
 const FALLBACK_MUTED_FOREGROUND = '#9c8c7c' // --muted-foreground (dark)
 
-// Theme-independent (the mono face is the same on both themes), so this is a
-// true fallback rather than a dark value: the named face for the environments
-// where next/font's generated family can't resolve (jsdom, SSR), then the
-// generic keyword so a canvas always has SOMETHING monospaced to draw with.
-const FALLBACK_MONO_FONT_FAMILY = "'Space Mono', ui-monospace, monospace"
+// Theme-independent (the data face is the same on both themes), so this is a
+// true fallback rather than a dark value: the registered family name for the
+// environments where the variables are absent (jsdom, SSR), then the generic
+// keywords so a canvas always has SOMETHING to draw with.
+const FALLBACK_DATA_FONT_FAMILY = "'Golos Text', system-ui, sans-serif"
 
 const FALLBACK_PALETTE: GraphPalette = {
   edges: FALLBACK_EDGE_COLORS,
@@ -136,7 +134,7 @@ const FALLBACK_PALETTE: GraphPalette = {
   labelHalo: FALLBACK_LABEL_HALO,
   primary: FALLBACK_PRIMARY,
   mutedForeground: FALLBACK_MUTED_FOREGROUND,
-  monoFontFamily: FALLBACK_MONO_FONT_FAMILY,
+  dataFontFamily: FALLBACK_DATA_FONT_FAMILY,
   // Matches the rest of the fallbacks, which are all the DARK values.
   isDark: true,
 }
@@ -188,18 +186,21 @@ function readToken(style: CSSStyleDeclaration, token: string, fallback: string):
 }
 
 /**
- * The canvas mono family, resolved through two hops: Tailwind's `@theme inline`
- * maps `--font-mono` onto the `--font-space-mono` next/font sets on `<html>`.
- * Read the mapped token first and the raw one second, so the face still
- * resolves if either layer is absent (a canvas mounted outside the app shell,
- * a future token rename), and always append the generic keywords so the canvas
- * falls back to SOME monospace rather than the sans default.
+ * The canvas data family, read in two hops. `--font-data` is the theme token,
+ * so it follows any future repointing of the data tier. Under `@theme inline`
+ * Tailwind emits that token to `:root` ONLY because its scanner finds the
+ * literal string `--font-data` in this file (using the `font-data` utility
+ * elsewhere does not emit it; verified by compiling with this file excluded),
+ * so the literal below must stay a literal. `--font-golos` is the variable
+ * next/font sets on `<html>` and is the backstop when the token is absent. The
+ * fallback stack is appended so the canvas has a face to draw with when both
+ * are absent (a canvas mounted outside the app shell, jsdom).
  */
-function resolveMonoFontFamily(style: CSSStyleDeclaration): string {
+function resolveDataFontFamily(style: CSSStyleDeclaration): string {
   const resolved =
-    style.getPropertyValue('--font-mono').trim() ||
-    style.getPropertyValue('--font-space-mono').trim()
-  return resolved ? `${resolved}, ${FALLBACK_MONO_FONT_FAMILY}` : FALLBACK_MONO_FONT_FAMILY
+    style.getPropertyValue('--font-data').trim() ||
+    style.getPropertyValue('--font-golos').trim()
+  return resolved ? `${resolved}, ${FALLBACK_DATA_FONT_FAMILY}` : FALLBACK_DATA_FONT_FAMILY
 }
 
 function resolveGraphPalette(): GraphPalette {
@@ -220,7 +221,7 @@ function resolveGraphPalette(): GraphPalette {
     labelHalo: readToken(style, '--background', FALLBACK_LABEL_HALO),
     primary: readToken(style, '--primary', FALLBACK_PRIMARY),
     mutedForeground: readToken(style, '--muted-foreground', FALLBACK_MUTED_FOREGROUND),
-    monoFontFamily: resolveMonoFontFamily(style),
+    dataFontFamily: resolveDataFontFamily(style),
     isDark: document.documentElement.classList.contains('dark'),
   }
 }

@@ -11,7 +11,7 @@ export const PAGE_BACKGROUND = { light: '#f4f1ea', dark: '#0d0805' } as const
 
 // The app's root viewport, re-exported by app/layout.tsx. It lives here rather
 // than inline in the layout so it can be asserted in a unit test: layout.tsx
-// calls next/font/local at module scope, which does not resolve under vitest.
+// calls next/font/google at module scope, which does not resolve under vitest.
 export const appViewport: Viewport = {
   // Selected by the OS colour scheme (the media query), not by the in-app
   // theme choice.
