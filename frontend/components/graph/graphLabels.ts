@@ -218,8 +218,8 @@ export interface GraphLabelSpec {
   caption?: string
   /**
    * CSS font family for this label, defaulting to the sans every node name
-   * uses. Exists so text set in the data face BY DESIGN — the scene map's "Around
-   * {artist}" region captions (PSY-1725) — can go through this pass instead of
+   * uses. Exists so text set in the data face BY DESIGN, the scene map's "Around
+   * {artist}" region captions (PSY-1725), can go through this pass instead of
    * a second one. A separate text pass would reserve no collision box, which
    * is exactly the pile-up this module was built to end.
    */

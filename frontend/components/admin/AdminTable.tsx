@@ -25,7 +25,7 @@ import { cn } from '@/lib/utils'
  * (you pass `<thead>/<tbody>` children, variants) for public entity pages;
  * AdminTable is *config-driven* (a columns array) for admin entity lists. Reach
  * for DenseTable on entity pages, AdminTable for admin lists. Their header
- * treatments intentionally differ — AdminTable uses a data-face uppercase band per
+ * treatments intentionally differ: AdminTable uses a data-face uppercase band per
  * PSY-912; DenseTable does not. Keep them divergent unless a cohesion pass
  * deliberately reconciles both.
  */

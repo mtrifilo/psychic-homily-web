@@ -18,7 +18,7 @@ const COLLAPSED_COUNT = 5
 
 /**
  * The Collections section of the public profile (PSY-1062): dense one-line
- * rows per the redesign board — title left, "N items · M likes" in the data face right
+ * rows per the redesign board: title left, "N items · M likes" in the data face right
  * — replacing the thumbnail cards. "View all →" expands in place (decision
  * 2026-06-10: no dedicated per-user list routes yet).
  */

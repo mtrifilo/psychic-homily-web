@@ -8,7 +8,7 @@ import type { PercentileRanking } from '@/features/auth'
 /**
  * Percentile-ranking bars for the profile stats expander (design board G):
  * editorial single-hue treatment — primary-colored fill on a muted track,
- * "top N%" in the data face — replacing the old traffic-light Card (PSY-1058). Bar
+ * "top N%" in the data face, replacing the old traffic-light Card (PSY-1058). Bar
  * width is the user's percentile standing, so "top 4%" renders nearly full.
  */
 function RankingBar({ ranking }: { ranking: PercentileRanking }) {

@@ -5,7 +5,7 @@
  * homepage hero (Figma Product Designs → Home → `1083:7`, locked 2026-07-18).
  *
  * Global pulse: same numbers for every visitor (auth and unauth). Dense
- * data-face numeric StatsList-style strip — not a sidebar box (homepage is
+ * data-face numeric StatsList-style strip, not a sidebar box (homepage is
  * single-column max-w-6xl). Self-hides on error so a pulse outage never
  * breaks the discovery landing.
  */

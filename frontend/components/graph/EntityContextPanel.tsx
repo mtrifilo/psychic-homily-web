@@ -65,7 +65,7 @@ const ENTITY_TYPE_PATH: Record<EntityPanelEntityType, string> = {
   festival: 'festivals',
 }
 
-/** Headed text payoff (NEXT SHOW / BILL) — label renders as data-face caps. */
+/** Headed text payoff (NEXT SHOW / BILL); the label renders as data-face caps. */
 export interface EntityPanelLabeledPrimary {
   kind: 'labeled'
   label: string

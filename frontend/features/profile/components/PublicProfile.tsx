@@ -283,7 +283,7 @@ export function PublicProfile({ username }: PublicProfileProps) {
               <UserTierBadge tier={profile.user_tier} />
             </div>
 
-            {/* Meta line (data face, board A) — populated segments only */}
+            {/* Meta line (data face, board A): populated segments only */}
             <p className="mt-2 font-data text-xs text-muted-foreground">
               {[
                 profile.location?.trim() || null,

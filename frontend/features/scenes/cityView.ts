@@ -689,7 +689,7 @@ export function formatNextShowDate(isoDate: string | undefined | null): string {
 // ── Venue panel copy (PSY-1540) ───────────────────────────────────────────
 
 /**
- * "FRI 7/31" — the panel's data-face date column, in the VENUE's timezone.
+ * "FRI 7/31": the panel's data-face date column, in the VENUE's timezone.
  *
  * A FOURTH show-date format is a real cost, so it needs a reason: the mock
  * (Product Designs → Atlas → board 02, node 1152:84) draws the panel's dates

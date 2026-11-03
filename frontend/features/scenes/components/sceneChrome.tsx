@@ -107,7 +107,7 @@ export function navigablePeriodKey(
  * A scene-page section heading, with an optional muted qualifier and one
  * trailing control.
  *
- * The type treatment is the wave's visual contract — letterspaced data-face small
+ * The type treatment is the wave's visual contract: letterspaced data-face small
  * caps, the qualifier greyed inside the same heading — and it now appears on
  * every module of the detail page. Kept feature-local rather than reaching for
  * the shared `SectionHeader` primitive, whose `title` is a plain string and

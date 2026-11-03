@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Hero Lab — a labeled "stage" wrapping one effect: badge + title, a data-face
+ * Hero Lab: a labeled "stage" wrapping one effect: badge + title, a data-face
  * technique/library caption (the data face), and a tall canvas
  * area that paints on the live theme background.
  */
