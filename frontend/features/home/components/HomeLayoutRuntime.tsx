@@ -16,11 +16,11 @@ import { animateSlotHeight, useFlipReorder } from '../homeLayoutMotion'
 import { useHomeLayout } from '../hooks/useHomeLayout'
 import {
   resolveHomeLinkSlots,
+  resolvePasskeyOfferSlot,
   type HomeLayoutDocument,
   type HomeSectionId,
-  type ResolvedHomeSection,
 } from '../sections'
-import { HomeDiscoverLinks } from './HomeDiscoverLinks'
+import { SignedInHomeDiscoverLinks } from './HomeDiscoverLinks'
 import { HomeLinkSlotsProvider } from './HomeLinkSlots'
 import { HomePageEndRow } from './HomePageEndRow'
 import { PasskeyOfferCard } from './PasskeyOfferCard'
@@ -142,7 +142,7 @@ export function HomeLayoutRuntime({
     () => ({ cityLink, discoverLinks }),
     [cityLink, discoverLinks]
   )
-  const offerAfter = passkeyOfferSlot(rendered)
+  const offerAfter = resolvePasskeyOfferSlot(rendered)
   // Focus goes to the page heading when the card leaves, so a keyboard viewer
   // continues from the top of the home, not from the document.
   const passkeyOffer = (
@@ -168,9 +168,7 @@ export function HomeLayoutRuntime({
             <p className="text-sm text-muted-foreground">
               You have hidden every section.
             </p>
-            {discoverLinks === 'empty' && (
-              <HomeDiscoverLinks className="hidden sm:flex" />
-            )}
+            {discoverLinks === 'empty' && <SignedInHomeDiscoverLinks />}
             {passkeyOffer}
           </div>
         ) : (
@@ -281,23 +279,4 @@ function HomeSectionSlot({
       </div>
     </div>
   )
-}
-
-/**
- * The section the passkey offer renders under: saved shows while it is
- * visible, otherwise the first visible section, so the offer never sits above
- * the viewer's own shows and never above every section. `null` while the last
- * sections are collapsing toward the empty state, which places the offer
- * itself.
- *
- * Read from VISIBILITY, not from what is on screen: a section mid-collapse is
- * leaving, and an offer parked under it would collapse out of sight with it.
- */
-function passkeyOfferSlot(
-  rendered: readonly ResolvedHomeSection[]
-): HomeSectionId | null {
-  const anchor =
-    rendered.find(section => section.id === 'saved_shows' && section.visible) ??
-    rendered.find(section => section.visible)
-  return anchor?.id ?? null
 }

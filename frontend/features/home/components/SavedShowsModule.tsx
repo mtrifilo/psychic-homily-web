@@ -21,7 +21,7 @@ import {
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { cn } from '@/lib/utils'
 import { HOME_ACCENT_LINK_CLASS, ResolvedHomeCityShowsLink } from './HomeCityShowsLink'
-import { HomeDiscoverLinks } from './HomeDiscoverLinks'
+import { SignedInHomeDiscoverLinks } from './HomeDiscoverLinks'
 import { useHomeCityLinkSlot, useHomeDiscoverLinksSlot } from './HomeLinkSlots'
 
 /**
@@ -257,7 +257,7 @@ export function SavedShowsModule({
       {(showsFooter || ownsCityLink) && (
         <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1 font-data text-[11px]">
           {ownsCityLink && (
-            <ResolvedHomeCityShowsLink className="font-data text-[11px] text-link transition-colors hover:underline underline-offset-4" />
+            <ResolvedHomeCityShowsLink className="font-data text-[11px]" />
           )}
           {showsFooter && (
             <Link
@@ -272,7 +272,7 @@ export function SavedShowsModule({
 
       {/* The footer's last line, in every module state, loading and error
           included: while this slot owns the row, no other surface renders it. */}
-      {ownsDiscoverLinks && <HomeDiscoverLinks className="hidden sm:flex" />}
+      {ownsDiscoverLinks && <SignedInHomeDiscoverLinks />}
     </section>
   )
 }

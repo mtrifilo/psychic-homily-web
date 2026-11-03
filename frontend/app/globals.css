@@ -156,10 +156,10 @@
    * AppShell's padding reserves the same height, so below `xl` on /atlas the
    * two cancel and the document is 100dvh. (AppShell's min-h-screen floor is
    * 100vh, which exceeds 100dvh while a mobile browser's toolbar is
-   * showing.) Floating overlays
-   * positioned in JS (FirstSaveHint) measure the bar through its
-   * `data-bottom-tab-bar` attribute instead, since this calc() cannot be read
-   * back as a number. */
+   * showing.) Floating overlays positioned in JS measure the bar through
+   * `bottomTabBarHeight()` (components/layout/nav/bottomTabBarHeight.ts),
+   * which reads its `data-bottom-tab-bar` element, since this calc() cannot be
+   * read back as a number. */
   --bottom-tab-bar-height: calc(3.5rem + 1px);
 
   /* Radius scale — sharp editorial corners (2/4/6/8px) */

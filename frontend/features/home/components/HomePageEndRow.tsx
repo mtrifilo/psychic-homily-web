@@ -19,7 +19,7 @@ import {
   type HomeVisibilityChange,
 } from './HomeSectionList'
 import { HOME_ACCENT_LINK_CLASS, ResolvedHomeCityShowsLink } from './HomeCityShowsLink'
-import { HomeDiscoverLinks } from './HomeDiscoverLinks'
+import { SignedInHomeDiscoverLinks } from './HomeDiscoverLinks'
 import { useHomeCityLinkSlot, useHomeDiscoverLinksSlot } from './HomeLinkSlots'
 import {
   HOME_LAYOUT_SETTINGS_HREF,
@@ -66,22 +66,19 @@ export function HomePageEndRow({
   // outlives the popover, so a viewer who closed it would otherwise watch their
   // change silently undo itself with no explanation anywhere.
   const hasWriteFailed = useHomeLayoutWriteFailed()
-  const [isOpen, setOpen] = useState(false)
   // Measured as the popover opens, not at mount: the bar is absent from `xl`,
   // and the viewport may have crossed it since.
   const [tabBarInset, setTabBarInset] = useState(0)
-  const handleOpenChange = (open: boolean) => {
-    if (open) setTabBarInset(bottomTabBarHeight())
-    setOpen(open)
-  }
   return (
     <div className={cn('flex flex-col items-start gap-3', className)}>
       {withCityLink && <ResolvedHomeCityShowsLink />}
-      {/* Below `sm` the signed-in home carries no Discover row, at every
-          slot it can occupy. */}
-      {withDiscoverLinks && <HomeDiscoverLinks className="hidden sm:flex" />}
+      {withDiscoverLinks && <SignedInHomeDiscoverLinks />}
 
-      <Popover open={isOpen} onOpenChange={handleOpenChange}>
+      <Popover
+        onOpenChange={open => {
+          if (open) setTabBarInset(bottomTabBarHeight())
+        }}
+      >
         <PopoverTrigger asChild>
           <button type="button" className={HOME_ACCENT_LINK_CLASS}>
             Customize home →

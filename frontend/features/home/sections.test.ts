@@ -5,6 +5,7 @@ import {
   resolveCityLinkSlot,
   resolveHomeLayout,
   resolveHomeLinkSlots,
+  resolvePasskeyOfferSlot,
   setHomeSectionVisibility,
   toHomeLayoutDocument,
   type HomeLayoutSectionEntry,
@@ -324,4 +325,34 @@ describe('resolveHomeLinkSlots', () => {
       ).toBe(slot)
     }
   )
+})
+
+describe('resolvePasskeyOfferSlot', () => {
+  const sections = resolveHomeLayout(null)
+
+  it('puts the offer under saved shows while it is visible, wherever it sits', () => {
+    expect(resolvePasskeyOfferSlot(sections)).toBe('saved_shows')
+    const moved = moveHomeSection(
+      moveHomeSection(sections, 'saved_shows', 'down')!,
+      'saved_shows',
+      'down'
+    )!
+    expect(resolvePasskeyOfferSlot(moved)).toBe('saved_shows')
+  })
+
+  it('falls back to the first visible section when saved shows is hidden', () => {
+    expect(
+      resolvePasskeyOfferSlot(
+        setHomeSectionVisibility(sections, 'saved_shows', false)
+      )
+    ).toBe('nearby_shows')
+  })
+
+  // Collapsing sections are still rendered but hidden: the offer must not
+  // park under one of them.
+  it('answers null when nothing rendered is visible', () => {
+    const collapsing = sections.map(section => ({ ...section, visible: false }))
+    expect(resolvePasskeyOfferSlot(collapsing)).toBeNull()
+    expect(resolvePasskeyOfferSlot([])).toBeNull()
+  })
 })

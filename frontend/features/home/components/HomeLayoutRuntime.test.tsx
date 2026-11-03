@@ -231,7 +231,6 @@ describe('HomeLayoutRuntime', () => {
     expect(
       screen.getAllByRole('button', { name: /customize home/i })
     ).toHaveLength(1)
-    expect(customizeButtons()).toHaveLength(1)
   })
 
   it('carries the city link on the page-end row only when both carriers are hidden', () => {

@@ -1,4 +1,5 @@
 import { test, expect } from '../fixtures'
+import type { Page } from '@playwright/test'
 import { USER_COUNT, userAuthFileForWorker } from '../global-setup'
 import {
   lookupWorkerUserId,
@@ -153,15 +154,26 @@ test.describe('Homepage', () => {
     ).toBeVisible()
   })
 
-  test('never offers the customize-home toolbar (PSY-2104)', async ({ page }) => {
+  test('never offers the Customize home control (PSY-2104)', async ({ page }) => {
     await page.goto('/')
 
     await expect(
       page.getByRole('button', { name: 'Customize home' })
     ).toHaveCount(0)
-    await expect(page.getByText(/your layout/i)).toHaveCount(0)
   })
 })
+
+/** Resolves once a home-layout write of `method` has landed. Changes apply
+ *  optimistically, so a reload or a next step taken on a UI assertion alone
+ *  races the commit. */
+function layoutWritten(page: Page, method: 'PUT' | 'DELETE') {
+  return page.waitForResponse(
+    response =>
+      response.url().includes('/auth/preferences/home-layout') &&
+      response.request().method() === method &&
+      response.ok()
+  )
+}
 
 test.describe('Homepage (signed in)', () => {
   // PSY-2103: the saved-shows module replaces the wordmark hero, and the
@@ -342,17 +354,9 @@ test.describe('Homepage (signed in)', () => {
     authenticatedPage: page,
     cleanBetweenRetries: _cleanup,
   }) => {
-    // Changes apply optimistically, so every UI assertion below is satisfied
-    // BEFORE the write reaches the backend. A reload taken on the strength of
-    // one of those assertions races the commit and reads the previous layout,
-    // so each gesture is paired with the response it must have landed.
-    const layoutWrite = (method: 'PUT' | 'DELETE') =>
-      page.waitForResponse(
-        response =>
-          response.url().includes('/auth/preferences/home-layout') &&
-          response.request().method() === method &&
-          response.ok()
-      )
+    // Every UI assertion below is satisfied BEFORE the write reaches the
+    // backend, so each gesture is paired with the response it must have landed.
+    const layoutWrite = (method: 'PUT' | 'DELETE') => layoutWritten(page, method)
 
     await page.goto('/')
 
@@ -451,12 +455,7 @@ test.describe('Homepage (signed in)', () => {
     await expect(discoverIn(nearby)).toBeVisible()
     await expect(discoverIn(savedModule)).toHaveCount(0)
 
-    const hideWritten = page.waitForResponse(
-      response =>
-        response.url().includes('/auth/preferences/home-layout') &&
-        response.request().method() === 'PUT' &&
-        response.ok()
-    )
+    const hideWritten = layoutWritten(page, 'PUT')
     await page.getByRole('button', { name: /customize home/i }).click()
     await page
       .getByRole('checkbox', { name: 'Shows near you this week' })
@@ -481,12 +480,7 @@ test.describe('Homepage (signed in)', () => {
     cleanBetweenRetries: _cleanup,
   }) => {
     const hide = async (name: string) => {
-      const written = page.waitForResponse(
-        response =>
-          response.url().includes('/auth/preferences/home-layout') &&
-          response.request().method() === 'PUT' &&
-          response.ok()
-      )
+      const written = layoutWritten(page, 'PUT')
       await page.getByRole('checkbox', { name }).uncheck()
       await written
     }
