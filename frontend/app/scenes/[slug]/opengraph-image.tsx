@@ -22,7 +22,7 @@ interface ImageProps {
  * own, matching `/scenes/{slug}/week/opengraph-image`.
  *
  * Reuses `renderSceneWeekOgCard` (locked P5). Do not add fonts: the OG edge
- * family is already at 96.5% of Vercel's 1MB cap. Do not import via a barrel
+ * family sits close to Vercel's 1MB cap (budget in `lib/og/brand.ts`). Do not import via a barrel
  * that pulls `lib/og/response` into a non-OG route.
  */
 export default async function Image({ params }: ImageProps) {

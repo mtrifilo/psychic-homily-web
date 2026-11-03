@@ -57,6 +57,21 @@ describe('measureSans', () => {
     )
   })
 
+  // Card strings arrive in either normal form; a decomposed accent measures
+  // exactly like the precomposed letter, exceptions and folding alike.
+  it('measures decomposed input as its composed form', () => {
+    for (const text of ['Ďáblice', 'Montréal', 'Ţara']) {
+      expect(measureSans(text.normalize('NFD'), 'schibstedBold', 132)).toBeCloseTo(
+        measureSans(text.normalize('NFC'), 'schibstedBold', 132),
+        5
+      )
+      expect(measureData(text.normalize('NFD'), 40)).toBeCloseTo(
+        measureData(text.normalize('NFC'), 40),
+        5
+      )
+    }
+  })
+
   // The exception: the body face draws the caron on `d l t` as a raised comma
   // beside the letter, so folding them onto their base would UNDER-measure a
   // Czech or Slovak name, the unsafe direction.

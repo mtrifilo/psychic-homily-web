@@ -64,6 +64,9 @@ const COVERED: Array<[string, string]> = [
   // Golos Text draws ğ without its breve (google/fonts issue 11219); the glyph
   // is present, so this is a rendering defect rather than an outbound request.
   ['Turkish', 'Çağrı'],
+  // Golos Text lacks these, so the data-face line resolves them from the body
+  // face: still offline, and charged the over-estimate by textFit.
+  ['Esperanto', 'Ĝis ŝi'],
   ['Latin baseline', 'Phoenix'],
 ]
 

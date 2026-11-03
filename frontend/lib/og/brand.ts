@@ -145,9 +145,9 @@
  * So the largest route sits at ~98.6% of the limit: about 14 KiB of brotli
  * headroom for everything. Measured against that, a Schibsted Grotesk 500
  * instance adds 23.8 KB (1.009 MiB) and a Hanken Grotesk 700 instance for
- * headlines adds 15.1 KB (1,049,046 B, 470 B over); neither fits. A previous revision of the
- * fallback below shipped its coverage at two weights across wider blocks
- * (242 KB raw) and was REJECTED at deploy: 1.067 MiB.
+ * headlines adds 15.1 KB (1,049,046 B, 470 B over); neither fits. The
+ * fallback below at two weights across whole Unicode blocks (242 KB raw)
+ * measures 1.067 MiB, which Vercel rejects at deploy.
  *
  * That is why the subset below is cut to living-language ranges rather than whole
  * Unicode blocks, and why only ONE weight ships. Before widening anything here,
