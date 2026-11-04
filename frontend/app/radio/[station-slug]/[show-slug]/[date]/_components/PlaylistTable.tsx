@@ -1,9 +1,10 @@
 'use client'
 
-import { Fragment } from 'react'
+import { Fragment, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { DenseTable } from '@/components/shared/DenseTable'
+import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 import { cn } from '@/lib/utils'
 import {
   formatPlayTime,
@@ -25,8 +26,9 @@ interface PlaylistTableProps {
   live?: boolean
   /**
    * The play the visitor arrived at (`#play-{id}`): its row takes the
-   * newest-row tint and `aria-current`. Null or an id with no row here
-   * highlights nothing.
+   * newest-row tint and `aria-current`, and is scrolled to the viewport's
+   * center when the anchored id changes (never on a poll's re-render). Null
+   * or an id with no row here highlights and scrolls nothing.
    */
   highlightedPlayId?: number | null
 }
@@ -75,6 +77,16 @@ export function PlaylistTable({
   // this table, which is what keeps the relative labels fresh (no effect).
   const ordered = live ? [...plays].reverse() : plays
   const now = new Date()
+  const anchoredRowRef = useRef<HTMLTableRowElement>(null)
+  const reducedMotion = useReducedMotion()
+
+  useEffect(() => {
+    if (highlightedPlayId == null) return
+    anchoredRowRef.current?.scrollIntoView({
+      block: 'center',
+      behavior: reducedMotion ? 'instant' : 'smooth',
+    })
+  }, [highlightedPlayId, reducedMotion])
 
   return (
     <div>
@@ -111,6 +123,7 @@ export function PlaylistTable({
             return (
               <Fragment key={play.id}>
                 <tr
+                  ref={isAnchored ? anchoredRowRef : undefined}
                   id={playAnchorId(play.id)}
                   data-live-newest={isNewest || undefined}
                   aria-current={isAnchored ? 'true' : undefined}

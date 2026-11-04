@@ -39,7 +39,7 @@ function AsHeardOnRow({ item }: { item: RadioAsHeardOn }) {
     : plays.length > 0
       ? episodePlayHref(item.station_slug, item.show_slug, episodeDate, item.latest_play_id)
       : `${showHref}/${episodeDate}`
-  const expandable = item.play_count > 1 && plays.length > 0
+  const expandable = plays.length > 1
 
   return (
     <div>

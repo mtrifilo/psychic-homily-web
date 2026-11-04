@@ -1,11 +1,14 @@
 /**
  * The one definition of a playlist row's anchor. The episode page renders
  * `id={playAnchorId(play.id)}` on each row and reads the same shape back
- * from the URL hash; "As heard on" links write it. All three must agree, so
- * none of them spells the format themselves.
+ * from the URL hash; "As heard on" links write it. All of them go through
+ * this module, so the format lives only in PLAY_ANCHOR_PREFIX.
  */
+const PLAY_ANCHOR_PREFIX = 'play-'
+const PLAY_ANCHOR_HASH = new RegExp(`^#${PLAY_ANCHOR_PREFIX}(\\d+)$`)
+
 export function playAnchorId(playId: number): string {
-  return `play-${playId}`
+  return `${PLAY_ANCHOR_PREFIX}${playId}`
 }
 
 /** `/radio/{station}/{show}/{air_date}#play-{id}`: one play on its episode page. */
@@ -17,8 +20,6 @@ export function episodePlayHref(
 ): string {
   return `/radio/${stationSlug}/${showSlug}/${airDate}#${playAnchorId(playId)}`
 }
-
-const PLAY_ANCHOR_HASH = /^#play-(\d+)$/
 
 /** The play id a `#play-{id}` hash names, or null for any other hash. */
 export function parsePlayAnchor(hash: string): number | null {

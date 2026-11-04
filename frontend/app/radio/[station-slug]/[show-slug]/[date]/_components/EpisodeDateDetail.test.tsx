@@ -297,10 +297,15 @@ describe('EpisodeDateDetail arrival at a #play-{id} anchor', () => {
     window.history.replaceState(null, '', '/')
   })
 
-  it('highlights the anchored row and scrolls it to the center', () => {
-    window.history.replaceState(null, '', '/radio/wfmu/night-owl/2026-06-08#play-12')
+  /** Land on the Jun 8 episode at `hash` and render it. */
+  const arriveAt = (hash: string) => {
+    window.history.replaceState(null, '', `/radio/wfmu/night-owl/2026-06-08${hash}`)
     setEpisode(episodeWithPlays())
-    render(<EpisodeDateDetail {...props} />)
+    return render(<EpisodeDateDetail {...props} />)
+  }
+
+  it('highlights the anchored row and scrolls it to the center', () => {
+    arriveAt('#play-12')
 
     const row = document.getElementById('play-12')
     expect(anchoredRow()).toBe(row)
@@ -312,17 +317,13 @@ describe('EpisodeDateDetail arrival at a #play-{id} anchor', () => {
 
   it('scrolls instantly under reduced motion', () => {
     restoreMatchMedia = installMatchMedia({ [REDUCED_MOTION]: true }).restore
-    window.history.replaceState(null, '', '/radio/wfmu/night-owl/2026-06-08#play-12')
-    setEpisode(episodeWithPlays())
-    render(<EpisodeDateDetail {...props} />)
+    arriveAt('#play-12')
 
     expect(scrollIntoView).toHaveBeenLastCalledWith({ block: 'center', behavior: 'instant' })
   })
 
   it('renders the plain playlist when the anchored play is not on this episode', () => {
-    window.history.replaceState(null, '', '/radio/wfmu/night-owl/2026-06-08#play-999')
-    setEpisode(episodeWithPlays())
-    render(<EpisodeDateDetail {...props} />)
+    arriveAt('#play-999')
 
     expect(screen.getByText('Neu!')).toBeInTheDocument()
     expect(anchoredRow()).toBeNull()
@@ -330,9 +331,7 @@ describe('EpisodeDateDetail arrival at a #play-{id} anchor', () => {
   })
 
   it('does not re-scroll when a poll re-renders the same anchored playlist', () => {
-    window.history.replaceState(null, '', '/radio/wfmu/night-owl/2026-06-08#play-12')
-    setEpisode(episodeWithPlays())
-    const { rerender } = render(<EpisodeDateDetail {...props} />)
+    const { rerender } = arriveAt('#play-12')
     setEpisode(episodeWithPlays(), 60_000)
     rerender(<EpisodeDateDetail {...props} />)
 
@@ -341,9 +340,7 @@ describe('EpisodeDateDetail arrival at a #play-{id} anchor', () => {
   })
 
   it('clears the highlight on the next navigation', () => {
-    window.history.replaceState(null, '', '/radio/wfmu/night-owl/2026-06-08#play-12')
-    setEpisode(episodeWithPlays())
-    const { rerender } = render(<EpisodeDateDetail {...props} />)
+    const { rerender } = arriveAt('#play-12')
     expect(anchoredRow()).not.toBeNull()
 
     // A client navigation to the next episode: pushState, no hash, no event.
@@ -355,9 +352,7 @@ describe('EpisodeDateDetail arrival at a #play-{id} anchor', () => {
   })
 
   it('follows a hash change to another play on the page', () => {
-    window.history.replaceState(null, '', '/radio/wfmu/night-owl/2026-06-08#play-12')
-    setEpisode(episodeWithPlays())
-    render(<EpisodeDateDetail {...props} />)
+    arriveAt('#play-12')
 
     window.history.replaceState(null, '', '/radio/wfmu/night-owl/2026-06-08#play-11')
     act(() => {

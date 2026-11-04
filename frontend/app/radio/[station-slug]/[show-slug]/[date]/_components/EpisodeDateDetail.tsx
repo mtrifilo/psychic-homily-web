@@ -15,11 +15,9 @@ import {
   airedVerbForWindow,
   isLiveNow,
   isWindowLiveOrPending,
-  playAnchorId,
-  useAnchoredPlayId,
+  parsePlayAnchor,
 } from '@/features/radio'
-import type { RadioPlay } from '@/features/radio'
-import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
+import { useUrlHash } from '@/lib/hooks/common/useUrlHash'
 import { unanchoredLinkHref } from '@/lib/socialLinks'
 import { EpisodeNav } from './EpisodeNav'
 import { PlaylistTable } from './PlaylistTable'
@@ -65,35 +63,13 @@ function useLiveMinuteTick(enabled: boolean) {
   }, [enabled])
 }
 
-/**
- * The play the URL hash anchors, when this playlist holds it, scrolled to the
- * viewport's center once its row is in the DOM. An anchor with no row here is
- * null: the playlist renders plain. The scroll re-runs only when the anchored
- * play changes, never on a live poll's re-render.
- */
-function useArrivalPlay(plays: RadioPlay[] | undefined): number | null {
-  const anchoredPlayId = useAnchoredPlayId()
-  const reducedMotion = useReducedMotion()
-  const arrivalPlayId =
-    anchoredPlayId != null && plays?.some(play => play.id === anchoredPlayId)
-      ? anchoredPlayId
-      : null
-
-  useEffect(() => {
-    if (arrivalPlayId == null) return
-    document.getElementById(playAnchorId(arrivalPlayId))?.scrollIntoView({
-      block: 'center',
-      behavior: reducedMotion ? 'instant' : 'smooth',
-    })
-  }, [arrivalPlayId, reducedMotion])
-
-  return arrivalPlayId
-}
-
 export default function EpisodeDateDetail({ stationSlug, showSlug, date }: EpisodeDateDetailProps) {
   const { data: episode, isLoading, error, dataUpdatedAt } = useRadioEpisode(showSlug, date)
   const { data: neighbors } = useEpisodeNeighbors(showSlug, date)
-  const arrivalPlayId = useArrivalPlay(episode?.plays)
+  // App Router client navigations move the URL with pushState (no event), so
+  // the hash snapshot is re-read on every render: a navigation to another
+  // date renders with a hash-less URL, which is what clears the arrival.
+  const anchoredPlayId = parsePlayAnchor(useUrlHash())
 
   // Live regime (the ON AIR ledger): derived from the frozen air window on
   // every render — the query's ~60s poll plus the minute tick below provide
@@ -261,7 +237,7 @@ export default function EpisodeDateDetail({ stationSlug, showSlug, date }: Episo
 
         {/* Track table */}
         {plays.length > 0 ? (
-          <PlaylistTable plays={plays} live={isLive} highlightedPlayId={arrivalPlayId} />
+          <PlaylistTable plays={plays} live={isLive} highlightedPlayId={anchoredPlayId} />
         ) : (
           <div className="py-8 text-center text-sm text-muted-foreground">
             {isLive

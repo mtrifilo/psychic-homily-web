@@ -1412,61 +1412,38 @@ func (s *RadioService) episodeRows(scope episodeFeedScope, limit, offset int) ([
 	return out, total, nil
 }
 
-// asHeardOnScope selects the radio_plays foreign key an as-heard-on lookup
-// matches. column is interpolated into SQL unparameterized, so the only
-// scopes are the package-level values below.
-type asHeardOnScope struct {
-	column string
-	entity string
-}
-
-var (
-	asHeardOnArtist  = asHeardOnScope{column: "rp.artist_id", entity: "artist"}
-	asHeardOnRelease = asHeardOnScope{column: "rp.release_id", entity: "release"}
-)
-
-// asHeardOnSQLFormat ranks every play of one entity within its show, newest
-// first, and keeps the top RadioAsHeardOnMaxRecentPlays per show. The
-// per-show totals are window aggregates over the uncapped set, so play_count
-// stays the true total, and one statement keeps the totals and the listed
-// plays on the same snapshot. The ranking leads with the latest-first episode
-// order GetEpisodeByShowAndDate resolves a day with, so the newest play's
-// date resolves to the episode that holds it. Rows come back grouped by show
-// (show_id breaks play_count ties), each show's plays in rank order.
-// %[1]s is the scope column; %[2]s the episode order.
-const asHeardOnSQLFormat = `
-SELECT station_id, station_name, station_slug, show_id, show_name, show_slug,
-       play_count, last_played, air_date, play_id, position, track_title
-FROM (
-	SELECT rs.id AS station_id, rs.name AS station_name, rs.slug AS station_slug,
-	       rsh.id AS show_id, rsh.name AS show_name, rsh.slug AS show_slug,
-	       COUNT(*) OVER per_show AS play_count,
-	       MAX(re.air_date) OVER per_show AS last_played,
-	       re.air_date, rp.id AS play_id, rp.position, rp.track_title,
-	       ROW_NUMBER() OVER (PARTITION BY rsh.id ORDER BY %[2]s, rp.position DESC, rp.id DESC) AS play_rank
-	FROM radio_plays rp
-	JOIN radio_episodes re ON re.id = rp.episode_id
-	JOIN radio_shows rsh ON rsh.id = re.show_id
-	JOIN radio_stations rs ON rs.id = rsh.station_id
-	WHERE %[1]s = ?
-	WINDOW per_show AS (PARTITION BY rsh.id)
-) ranked
-WHERE play_rank <= ?
-ORDER BY play_count DESC, show_id, play_rank`
+// asHeardOnRankSelect ranks each play within its show, newest first. The
+// ranking must lead with episodeLatestFirstOrderSQL so a show's top-ranked
+// play sits in the episode its day URL resolves to (GetEpisodeByShowAndDate).
+// play_count and last_played are window aggregates over the uncapped set, so
+// play_count stays the true total after the rank cap.
+var asHeardOnRankSelect = `
+	rs.id AS station_id, rs.name AS station_name, rs.slug AS station_slug,
+	rsh.id AS show_id, rsh.name AS show_name, rsh.slug AS show_slug,
+	COUNT(*) OVER (PARTITION BY rsh.id) AS play_count,
+	MAX(re.air_date) OVER (PARTITION BY rsh.id) AS last_played,
+	re.air_date, rp.id AS play_id, rp.position, rp.track_title,
+	ROW_NUMBER() OVER (PARTITION BY rsh.id ORDER BY ` +
+	episodeLatestFirstOrderSQL("re.") + `, rp.position DESC, rp.id DESC) AS play_rank`
 
 // GetAsHeardOnForArtist returns stations/shows where an artist has been played
 func (s *RadioService) GetAsHeardOnForArtist(artistID uint) ([]*contracts.RadioAsHeardOnResponse, error) {
-	return s.getAsHeardOn(asHeardOnArtist, artistID)
+	return s.getAsHeardOn("artist", func(q *gorm.DB) *gorm.DB {
+		return q.Where("rp.artist_id = ?", artistID)
+	})
 }
 
 // GetAsHeardOnForRelease returns stations/shows where a release has been played
 func (s *RadioService) GetAsHeardOnForRelease(releaseID uint) ([]*contracts.RadioAsHeardOnResponse, error) {
-	return s.getAsHeardOn(asHeardOnRelease, releaseID)
+	return s.getAsHeardOn("release", func(q *gorm.DB) *gorm.DB {
+		return q.Where("rp.release_id = ?", releaseID)
+	})
 }
 
-// getAsHeardOn returns one row per (station, show) that played the entity,
-// most-played first, each carrying its newest plays for deep links.
-func (s *RadioService) getAsHeardOn(scope asHeardOnScope, entityID uint) ([]*contracts.RadioAsHeardOnResponse, error) {
+// getAsHeardOn returns one row per (station, show) whose plays match scope,
+// most-played first, each carrying its newest plays for deep links. Rows come
+// back grouped by show (show_id breaks play_count ties), plays in rank order.
+func (s *RadioService) getAsHeardOn(entity string, scope playsScope) ([]*contracts.RadioAsHeardOnResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -1486,10 +1463,19 @@ func (s *RadioService) getAsHeardOn(scope asHeardOnScope, entityID uint) ([]*con
 		TrackTitle  *string `gorm:"column:track_title"`
 	}
 
-	query := fmt.Sprintf(asHeardOnSQLFormat, scope.column, episodeLatestFirstOrderSQL("re."))
+	ranked := s.db.Table("radio_plays rp").
+		Select(asHeardOnRankSelect).
+		Joins("JOIN radio_episodes re ON re.id = rp.episode_id").
+		Joins("JOIN radio_shows rsh ON rsh.id = re.show_id").
+		Joins("JOIN radio_stations rs ON rs.id = rsh.station_id").
+		Scopes(scope)
 	var rows []rankedPlay
-	if err := s.db.Raw(query, entityID, contracts.RadioAsHeardOnMaxRecentPlays).Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("failed to get as-heard-on for %s: %w", scope.entity, err)
+	err := s.db.Table("(?) AS ranked", ranked).
+		Where("play_rank <= ?", contracts.RadioAsHeardOnMaxRecentPlays).
+		Order("play_count DESC, show_id, play_rank").
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get as-heard-on for %s: %w", entity, err)
 	}
 
 	responses := make([]*contracts.RadioAsHeardOnResponse, 0, len(rows))

@@ -618,30 +618,39 @@ func assertAsHeardOnDeepLinkWire(t *testing.T, body any) {
 	}
 }
 
-func TestGetArtistRadioPlays_DeepLinkFieldsOnWire(t *testing.T) {
-	radioMock := &testhelpers.MockRadioService{
-		GetAsHeardOnForArtistFn: func(uint) ([]*contracts.RadioAsHeardOnResponse, error) {
-			return []*contracts.RadioAsHeardOnResponse{asHeardOnDeepLinkRow()}, nil
+func TestRadioPlays_DeepLinkFieldsOnWire(t *testing.T) {
+	rows := func(uint) ([]*contracts.RadioAsHeardOnResponse, error) {
+		return []*contracts.RadioAsHeardOnResponse{asHeardOnDeepLinkRow()}, nil
+	}
+	h := testRadioHandler(&testhelpers.MockRadioService{
+		GetAsHeardOnForArtistFn:  rows,
+		GetAsHeardOnForReleaseFn: rows,
+	})
+	cases := map[string]func() (any, error){
+		"artist": func() (any, error) {
+			resp, err := h.GetArtistRadioPlaysHandler(context.Background(), &GetArtistRadioPlaysRequest{Slug: "42"})
+			if err != nil {
+				return nil, err
+			}
+			return resp.Body, nil
+		},
+		"release": func() (any, error) {
+			resp, err := h.GetReleaseRadioPlaysHandler(context.Background(), &GetReleaseRadioPlaysRequest{Slug: "10"})
+			if err != nil {
+				return nil, err
+			}
+			return resp.Body, nil
 		},
 	}
-	resp, err := testRadioHandler(radioMock).GetArtistRadioPlaysHandler(context.Background(), &GetArtistRadioPlaysRequest{Slug: "42"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	for name, call := range cases {
+		t.Run(name, func(t *testing.T) {
+			body, err := call()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			assertAsHeardOnDeepLinkWire(t, body)
+		})
 	}
-	assertAsHeardOnDeepLinkWire(t, resp.Body)
-}
-
-func TestGetReleaseRadioPlays_DeepLinkFieldsOnWire(t *testing.T) {
-	radioMock := &testhelpers.MockRadioService{
-		GetAsHeardOnForReleaseFn: func(uint) ([]*contracts.RadioAsHeardOnResponse, error) {
-			return []*contracts.RadioAsHeardOnResponse{asHeardOnDeepLinkRow()}, nil
-		},
-	}
-	resp, err := testRadioHandler(radioMock).GetReleaseRadioPlaysHandler(context.Background(), &GetReleaseRadioPlaysRequest{Slug: "10"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	assertAsHeardOnDeepLinkWire(t, resp.Body)
 }
 
 func TestGetReleaseRadioPlays_ReleaseNotFound(t *testing.T) {

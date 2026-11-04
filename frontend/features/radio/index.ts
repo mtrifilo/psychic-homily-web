@@ -107,10 +107,8 @@ export type { ArtistHop } from './lib/stationOverview'
 // (RadioEpisodePreviewArtist is re-exported in the types block above)
 export { useEpisodeNeighbors } from './hooks'
 
-// Playlist row anchors: the episode page's row ids + arrival highlight, and
-// the "As heard on" deep links that target them
-export { useAnchoredPlayId } from './hooks'
-export { playAnchorId, episodePlayHref, parsePlayAnchor } from './lib/playAnchor'
+// Playlist row anchors for the episode page (episodePlayHref stays in-feature)
+export { playAnchorId, parsePlayAnchor } from './lib/playAnchor'
 export {
   isLiveNow,
   previewToHops,
