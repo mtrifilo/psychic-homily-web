@@ -326,6 +326,21 @@ test.describe('Homepage (signed in)', () => {
     await expect(
       authenticatedPage.getByRole('heading', { name: /latest radio shows/i })
     ).toBeVisible()
+    // Signed in, radio is a list of station rows under an "All stations" link,
+    // not the logged-out cards.
+    await expect(
+      authenticatedPage.getByRole('link', { name: 'All stations →' })
+    ).toHaveAttribute('href', '/radio')
+    // The row's name opens with its visible text. The seed carries one KEXP
+    // episode, so line 1 names it; line 2 depends on now-playing.
+    await expect(
+      authenticatedPage.getByRole('link', {
+        name: /^KEXP · The Morning Show, Seattle · /,
+      })
+    ).toHaveAttribute('href', '/radio/kexp')
+    await expect(
+      authenticatedPage.getByRole('link', { name: /browse all stations/i })
+    ).toHaveCount(0)
   })
 
   // PSY-2104. One test, not four: each step depends on the one before it, and
