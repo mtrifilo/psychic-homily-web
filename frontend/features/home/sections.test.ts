@@ -27,10 +27,13 @@ describe('HOME_SECTIONS', () => {
       'saved_shows',
       'library_updates',
       'nearby_shows',
-      'community_stats',
       'radio_shows',
       'city_graph',
     ])
+  })
+
+  it('no longer offers the stats band, which the dateline replaced', () => {
+    expect(DEFAULT_ORDER).not.toContain('community_stats')
   })
 })
 
@@ -47,7 +50,6 @@ describe('resolveHomeLayout', () => {
       { id: 'saved_shows', visible: true },
       { id: 'library_updates', visible: true },
       { id: 'nearby_shows', visible: true },
-      { id: 'community_stats', visible: true },
       { id: 'city_graph', visible: true },
     ])
 
@@ -56,9 +58,34 @@ describe('resolveHomeLayout', () => {
       'saved_shows',
       'library_updates',
       'nearby_shows',
-      'community_stats',
       'city_graph',
     ])
+  })
+
+  // The backend still accepts the retired id, so documents saved before it
+  // retired name it; the rest of the viewer's order and visibility hold.
+  it('drops the retired stats section from a stored document', () => {
+    const stored = document([
+      { id: 'radio_shows', visible: true },
+      { id: 'community_stats', visible: true },
+      { id: 'saved_shows', visible: true },
+      { id: 'library_updates', visible: false },
+      { id: 'nearby_shows', visible: true },
+      { id: 'city_graph', visible: true },
+    ])
+
+    const resolved = resolveHomeLayout(stored)
+    expect(order(resolved)).toEqual([
+      'radio_shows',
+      'saved_shows',
+      'library_updates',
+      'nearby_shows',
+      'city_graph',
+    ])
+    expect(resolved[2]).toMatchObject({ id: 'library_updates', visible: false })
+    expect(toHomeLayoutDocument(resolved).sections).not.toContainEqual(
+      expect.objectContaining({ id: 'community_stats' })
+    )
   })
 
   it('keeps a hidden section in its slot so re-showing restores position', () => {
@@ -66,7 +93,6 @@ describe('resolveHomeLayout', () => {
       { id: 'saved_shows', visible: true },
       { id: 'library_updates', visible: true },
       { id: 'nearby_shows', visible: false },
-      { id: 'community_stats', visible: true },
       { id: 'radio_shows', visible: true },
       { id: 'city_graph', visible: true },
     ])
@@ -78,7 +104,7 @@ describe('resolveHomeLayout', () => {
 
   // A viewer who saved a layout under an earlier default keeps that order: it
   // is theirs, not the default. A section shipped since (library_updates)
-  // joins it at its default index, slot 2.
+  // joins it at its default index, slot 2; one retired since drops out.
   it('keeps a full stored order written under an earlier default', () => {
     const stored = document([
       { id: 'saved_shows', visible: true },
@@ -92,7 +118,6 @@ describe('resolveHomeLayout', () => {
       'saved_shows',
       'library_updates',
       'nearby_shows',
-      'community_stats',
       'city_graph',
       'radio_shows',
     ])
@@ -123,7 +148,7 @@ describe('resolveHomeLayout', () => {
 
   it('restores an omitted section at its DEFAULT index, not at the end', () => {
     const stored = document(
-      DEFAULT_ORDER.filter(id => id !== 'community_stats').map(id => ({
+      DEFAULT_ORDER.filter(id => id !== 'nearby_shows').map(id => ({
         id,
         visible: true,
       }))
@@ -131,7 +156,7 @@ describe('resolveHomeLayout', () => {
 
     const resolved = resolveHomeLayout(stored)
     expect(order(resolved)).toEqual(DEFAULT_ORDER)
-    expect(resolved[3]).toMatchObject({ id: 'community_stats', visible: true })
+    expect(resolved[2]).toMatchObject({ id: 'nearby_shows', visible: true })
   })
 
   it('keeps the first occurrence of a duplicated id', () => {
@@ -160,14 +185,13 @@ describe('resolveHomeLayout', () => {
 describe('moveHomeSection', () => {
   it('swaps with the neighbour one step at a time', () => {
     const sections = resolveHomeLayout(null)
-    const moved = moveHomeSection(sections, 'community_stats', 'up')
+    const moved = moveHomeSection(sections, 'radio_shows', 'up')
 
     expect(order(moved ?? [])).toEqual([
       'saved_shows',
       'library_updates',
-      'community_stats',
-      'nearby_shows',
       'radio_shows',
+      'nearby_shows',
       'city_graph',
     ])
   })
@@ -191,9 +215,8 @@ describe('moveHomeSection', () => {
     expect(order(moved ?? [])).toEqual([
       'saved_shows',
       'library_updates',
-      'nearby_shows',
       'radio_shows',
-      'community_stats',
+      'nearby_shows',
       'city_graph',
     ])
     expect(moved?.find(s => s.id === 'radio_shows')?.visible).toBe(false)
@@ -224,7 +247,6 @@ describe('toHomeLayoutDocument', () => {
         { id: 'saved_shows', visible: true },
         { id: 'library_updates', visible: true },
         { id: 'nearby_shows', visible: true },
-        { id: 'community_stats', visible: true },
         { id: 'radio_shows', visible: false },
         { id: 'city_graph', visible: true },
       ],
@@ -367,7 +389,7 @@ describe('resolvePasskeyOfferSlot', () => {
       'city_graph',
       'up'
     )!
-    const layout = ['saved_shows', 'nearby_shows', 'community_stats'].reduce(
+    const layout = ['saved_shows', 'nearby_shows'].reduce(
       (current, id) =>
         setHomeSectionVisibility(current, id as typeof sections[number]['id'], false),
       graphFirst

@@ -39,7 +39,8 @@ const (
 //
 // The default render order is the frontend registry's (HOME_SECTIONS in
 // frontend/features/home/sections.ts): saved_shows, library_updates,
-// nearby_shows, community_stats, radio_shows, city_graph. This slice's own
+// nearby_shows, radio_shows, city_graph (community_stats is still accepted
+// but no longer rendered; the frontend drops it on read). This slice's own
 // order is not that order: it spells the enum tag on HomeLayoutSection.ID (see
 // homeSectionVocabularyCSV), and nothing reads it as a render order.
 //

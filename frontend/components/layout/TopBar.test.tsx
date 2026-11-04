@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { TopBar } from './TopBar'
 import type { AuthStatus } from '@/lib/context/AuthContext'
@@ -73,6 +73,49 @@ describe('TopBar', () => {
       expect(brand.querySelector('img')).toBeInTheDocument()
       expect(screen.getByText('Psychic Homily')).toBeInTheDocument()
     })
+
+    const signedIn = () =>
+      authFixture({
+        user: { email: 'test@test.com', is_admin: false },
+        authStatus: 'authenticated',
+      })
+    // jsdom applies no stylesheet: the breakpoint classes are the contract.
+    const eyeCell = (brand: HTMLElement) => brand.querySelector('img')!.parentElement!
+
+    it('puts the dot wordmark in the eye cell below xl on the signed-in Home tab', () => {
+      mockAuthContext.mockReturnValue(signedIn())
+      render(<TopBar />)
+
+      const brand = screen.getByRole('link', { name: 'Psychic Homily, home' })
+      const wordmark = within(brand).getByRole('img', { name: 'Psychic Homily' })
+      expect(wordmark).toHaveClass('h-[30px]', 'w-[306px]', 'xl:hidden')
+      expect(eyeCell(brand)).toHaveClass('hidden', 'xl:block')
+      expect(within(brand).getByText('Psychic Homily')).toHaveClass('hidden', 'xl:inline')
+      expect(within(brand).queryByRole('heading')).not.toBeInTheDocument()
+    })
+
+    it('keeps the eye on every other route for a signed-in viewer', () => {
+      mockAuthContext.mockReturnValue(signedIn())
+      mockPathname = '/shows'
+      render(<TopBar />)
+
+      const brand = screen.getByRole('link', { name: 'Psychic Homily, home' })
+      expect(within(brand).queryByRole('img', { name: 'Psychic Homily' })).not.toBeInTheDocument()
+      expect(eyeCell(brand)).not.toHaveClass('hidden')
+      expect(within(brand).getByText('Psychic Homily')).toHaveClass('hidden', 'sm:inline')
+    })
+
+    it.each<AuthStatus>(['anonymous', 'pending'])(
+      'keeps the eye on Home for a viewer not settled as signed in (%s)',
+      authStatus => {
+        mockAuthContext.mockReturnValue(authFixture({ authStatus }))
+        render(<TopBar />)
+
+        const brand = screen.getByRole('link', { name: 'Psychic Homily, home' })
+        expect(within(brand).queryByRole('img', { name: 'Psychic Homily' })).not.toBeInTheDocument()
+        expect(eyeCell(brand)).not.toHaveClass('hidden')
+      }
+    )
   })
 
   describe('search', () => {
@@ -139,7 +182,7 @@ describe('TopBar', () => {
       expect(screen.queryByRole('link', { name: 'Graph' })).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Browse the catalog' })).not.toBeInTheDocument()
       // Brand + search stay in the slim bar.
-      expect(screen.getByRole('link', { name: 'Psychic Homily — home' })).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'Psychic Homily, home' })).toBeInTheDocument()
     })
   })
 

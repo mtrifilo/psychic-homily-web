@@ -84,7 +84,6 @@ const SECTIONS = {
   saved_shows: <div data-testid="section">saved_shows</div>,
   library_updates: <div data-testid="section">library_updates</div>,
   nearby_shows: <div data-testid="section">nearby_shows</div>,
-  community_stats: <div data-testid="section">community_stats</div>,
   city_graph: <div data-testid="section">city_graph</div>,
   radio_shows: <div data-testid="section">radio_shows</div>,
 }
@@ -168,7 +167,7 @@ describe('HomeLayoutRuntime', () => {
     rerender(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
     expect(precedes(section('nearby_shows'), screen.getByTestId('passkey-offer'))).toBe(true)
 
-    layout = moveHomeSection(layout, 'community_stats', 'up')!
+    layout = moveHomeSection(layout, 'radio_shows', 'up')!
     rerender(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
 
     layout = layout.map(entry => ({ ...entry, visible: false }))
@@ -265,7 +264,7 @@ describe('HomeLayoutRuntime', () => {
     const offer = screen.getByTestId('passkey-offer')
     expect(renderedOrder()[0]).toBe('library_updates')
     expect(precedes(section('nearby_shows'), offer)).toBe(true)
-    expect(precedes(offer, section('community_stats'))).toBe(true)
+    expect(precedes(offer, section('radio_shows'))).toBe(true)
   })
 
   // An empty spacer is what lets the next section move up: the slot of a
@@ -281,7 +280,7 @@ describe('HomeLayoutRuntime', () => {
     const collapsible = Array.from(
       container.querySelectorAll('div[class*="empty:hidden"]')
     )
-    expect(collapsible).toHaveLength(6)
+    expect(collapsible).toHaveLength(5)
     expect(collapsible.filter(spacer => spacer.childNodes.length === 0)).toHaveLength(1)
   })
 
@@ -299,6 +298,23 @@ describe('HomeLayoutRuntime', () => {
     expect(precedes(offer, customizeButtons()[0])).toBe(true)
   })
 
+  it('renders the masthead after the page heading and above every section, hidden or not', () => {
+    layout = setHomeSectionVisibility(resolveHomeLayout(null), 'saved_shows', false)
+    render(
+      <HomeLayoutRuntime
+        initialLayout={null}
+        sections={SECTIONS}
+        masthead={<div data-testid="masthead" />}
+      />
+    )
+
+    const masthead = screen.getByTestId('masthead')
+    expect(
+      precedes(screen.getByRole('heading', { level: 1, name: 'Home' }), masthead)
+    ).toBe(true)
+    expect(precedes(masthead, section('library_updates'))).toBe(true)
+  })
+
   it('renders the shipped order with one Customize link after the last section and no kicker', () => {
     render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
 
@@ -306,7 +322,6 @@ describe('HomeLayoutRuntime', () => {
       'saved_shows',
       'library_updates',
       'nearby_shows',
-      'community_stats',
       'radio_shows',
       'city_graph',
     ])
@@ -325,7 +340,7 @@ describe('HomeLayoutRuntime', () => {
       screen.getByRole('dialog', { name: 'Customize home' })
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('checkbox', { name: 'Community stats' })
+      screen.getByRole('checkbox', { name: 'Latest radio shows' })
     ).toBeInTheDocument()
     expect(
       screen.getByRole('checkbox', { name: 'From your library' })
@@ -342,7 +357,6 @@ describe('HomeLayoutRuntime', () => {
       'saved_shows',
       'library_updates',
       'nearby_shows',
-      'community_stats',
       'city_graph',
       'radio_shows',
     ])
@@ -351,7 +365,7 @@ describe('HomeLayoutRuntime', () => {
   it('does not mount a hidden section', () => {
     layout = setHomeSectionVisibility(
       resolveHomeLayout(null),
-      'community_stats',
+      'radio_shows',
       false
     )
 
@@ -361,7 +375,6 @@ describe('HomeLayoutRuntime', () => {
       'saved_shows',
       'library_updates',
       'nearby_shows',
-      'radio_shows',
       'city_graph',
     ])
   })
@@ -465,7 +478,7 @@ describe('HomeLayoutRuntime', () => {
     expect(precedes(section('city_graph'), alert)).toBe(true)
     // The popover is closed; the line is on the page regardless.
     expect(
-      screen.queryByRole('checkbox', { name: 'Community stats' })
+      screen.queryByRole('checkbox', { name: 'Latest radio shows' })
     ).not.toBeInTheDocument()
   })
 

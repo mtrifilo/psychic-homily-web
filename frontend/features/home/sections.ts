@@ -11,8 +11,9 @@
  * The id set and the document shape are DERIVED from the generated API
  * contract, not restated: the backend owns the whitelist, and a hand-written
  * union would let a sixth id ship on the backend and be silently dropped here
- * (see resolveHomeLayout) instead of failing the build. The order, the copy and
- * the default visibility are this module's own; they are not in the contract.
+ * (see resolveHomeLayout) instead of failing the build. The only ids removed
+ * from it are the ones named retired below. The order, the copy and the
+ * default visibility are this module's own; they are not in the contract.
  */
 
 import type { components } from '@/types/api'
@@ -26,8 +27,19 @@ const HOME_LAYOUT_VERSION = 1
 export const HOME_LAYOUT_SETTINGS_ANCHOR = 'home-layout'
 export const HOME_LAYOUT_SETTINGS_HREF = `/profile?tab=settings#${HOME_LAYOUT_SETTINGS_ANCHOR}`
 
-export type HomeSectionId =
-  components['schemas']['HomeLayoutSection']['id']
+/** Every id the backend accepts in a stored document. */
+type StoredHomeSectionId = components['schemas']['HomeLayoutSection']['id']
+
+/**
+ * Ids the backend still accepts but the page no longer renders. A stored
+ * document may still name one; the reader drops it, and the next save writes
+ * the document without it. `community_stats`: the stats band's two counts
+ * live in the dateline above the sections.
+ */
+type RetiredHomeSectionId = 'community_stats'
+
+/** A section the page renders: one registry entry, one component. */
+export type HomeSectionId = Exclude<StoredHomeSectionId, RetiredHomeSectionId>
 
 export interface HomeSectionDefinition {
   id: HomeSectionId
@@ -71,12 +83,6 @@ export const HOME_SECTIONS: readonly HomeSectionDefinition[] = [
     defaultVisible: true,
   },
   {
-    id: 'community_stats',
-    title: 'Community stats',
-    description: 'Shows in the next 7 days and entities in the graph.',
-    defaultVisible: true,
-  },
-  {
     id: 'radio_shows',
     title: 'Latest radio shows',
     description: 'Live freeform stations and what they are playing.',
@@ -95,9 +101,9 @@ export const HOME_SECTIONS: readonly HomeSectionDefinition[] = [
   },
 ]
 
-const SECTIONS_BY_ID = new Map<HomeSectionId, HomeSectionDefinition>(
-  HOME_SECTIONS.map(section => [section.id, section])
-)
+// Keyed by every stored id, so a retired id misses the lookup.
+const SECTIONS_BY_ID: ReadonlyMap<StoredHomeSectionId, HomeSectionDefinition> =
+  new Map(HOME_SECTIONS.map(section => [section.id, section]))
 
 export type HomeLayoutSectionEntry = components['schemas']['HomeLayoutSection']
 
@@ -157,11 +163,11 @@ export function resolveHomeLayout(
   const seen = new Set<HomeSectionId>()
   const resolved: ResolvedHomeSection[] = []
   for (const entry of stored) {
-    if (!entry || seen.has(entry.id)) continue
+    if (!entry) continue
     const definition = SECTIONS_BY_ID.get(entry.id)
     // An id the registry no longer knows is dropped here, by the lookup.
-    if (!definition) continue
-    seen.add(entry.id)
+    if (!definition || seen.has(definition.id)) continue
+    seen.add(definition.id)
     resolved.push({ ...definition, visible: entry.visible !== false })
   }
 

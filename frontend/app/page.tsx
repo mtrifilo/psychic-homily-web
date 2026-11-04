@@ -34,7 +34,9 @@ export default function Home() {
     <>
       <JsonLd data={generateWebSiteSchema()} />
       <div className="flex w-full justify-center">
-        <div className="flex w-full max-w-6xl flex-col gap-14 px-4 pb-16 pt-12 md:px-8">
+        {/* No top padding here: each variant sets its own distance from the
+            bar (the anonymous hero's 48px, the signed-in masthead's own). */}
+        <div className="flex w-full max-w-6xl flex-col gap-14 px-4 pb-16 md:px-8">
           {/* A streaming boundary for the variant swap, NOT what governs the
               route's shell — the root layout's AuthHydrator boundary already
               does that (see HomeContentSlot). `null` while it streams: a

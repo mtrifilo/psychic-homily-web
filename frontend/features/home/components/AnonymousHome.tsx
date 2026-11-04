@@ -23,7 +23,9 @@ export function AnonymousHome({
 } = {}) {
   return (
     <>
-      <div className="flex w-full flex-col gap-6">
+      {/* pt-12: the page's distance from the bar, which app/page.tsx leaves
+          to each variant. */}
+      <div className="flex w-full flex-col gap-6 pt-12">
         <HomeHero />
 
         {/* PSY-1431: global community-pulse hairline band (Figma 1083:7).

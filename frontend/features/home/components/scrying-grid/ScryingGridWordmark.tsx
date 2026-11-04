@@ -532,7 +532,7 @@ export function ScryingGridWordmark({
     }
   }, [gapFactor, spotlight, reducedMotion, linesKey, motion, preset])
 
-  // Visible fallback — hidden by default so it never flashes before the
+  // Visible fallback, hidden by default so it never flashes before the
   // canvas; revealed on enhancement failure, or for no-JS (noscript).
   const fallback = (
     <span

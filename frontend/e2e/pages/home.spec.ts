@@ -243,6 +243,41 @@ test.describe('Homepage (signed in)', () => {
     ).toBeVisible({ timeout: 10_000 })
   })
 
+  // The Home tab's masthead: the dot wordmark takes the bar's eye cell on
+  // phones with the dateline under it; from `xl` the bar is as shipped and the
+  // nameplate sits above the sections. Every other route keeps the eye.
+  test('sets the bar wordmark and dateline on phones, the nameplate on desktop', async ({
+    authenticatedPage: page,
+  }) => {
+    const brand = page
+      .getByRole('banner')
+      .getByRole('link', { name: 'Psychic Homily, home' })
+    const main = page.getByRole('main')
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/')
+    await expect(brand.getByRole('img', { name: 'Psychic Homily' })).toBeVisible()
+    await expect(
+      main.getByText(/· [\d,]+ shows? this week · [\d,]+ entit(y|ies)$/i)
+    ).toBeVisible({ timeout: 10_000 })
+    // The page's own sr-only heading stays the only h1.
+    await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
+
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await expect(brand.getByRole('img', { name: 'Psychic Homily' })).toBeHidden()
+    await expect(main.getByRole('img', { name: 'Psychic Homily' })).toBeVisible()
+    await expect(
+      main.getByText(
+        /· [\d,]+ shows? in the next 7 days · [\d,]+ entit(y|ies) in the graph$/i
+      )
+    ).toBeVisible()
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/shows')
+    await expect(brand.getByRole('img', { name: 'Psychic Homily' })).toHaveCount(0)
+    await expect(brand.locator('img')).toBeVisible()
+  })
+
   // AC3 (second half) and AC4: the save loop this ticket exists to close.
   // Saving from the nearby list must move the row into the module with no
   // reload, and unsaving from the module must send it back and reach /library.
@@ -313,9 +348,10 @@ test.describe('Homepage (signed in)', () => {
       authenticatedPage.getByRole('link', { name: 'Shows in any city' })
     ).toBeVisible()
 
+    // The stats band retired into the dateline above the sections.
     await expect(
       authenticatedPage.getByRole('region', { name: /current stats/i })
-    ).toBeVisible({ timeout: 10_000 })
+    ).toHaveCount(0)
 
     await authenticatedPage
       .getByRole('heading', { name: /latest radio shows/i })
@@ -389,12 +425,12 @@ test.describe('Homepage (signed in)', () => {
     // Asserted, not assumed. If a previous run left this worker's user
     // customized, fail HERE naming the reason, rather than three assertions
     // later in a way that reads as a product bug.
-    await expect(sectionRows).toHaveCount(6)
+    await expect(sectionRows).toHaveCount(5)
     await expect(sectionRows.nth(0)).toContainText('Your upcoming shows')
     await expect(sectionRows.nth(1)).toContainText('From your library')
     await expect(sectionRows.nth(2)).toContainText('Shows near you this week')
-    await expect(sectionRows.nth(4)).toContainText('Latest radio shows')
-    await expect(sectionRows.nth(5)).toContainText('Scene graph')
+    await expect(sectionRows.nth(3)).toContainText('Latest radio shows')
+    await expect(sectionRows.nth(4)).toContainText('Scene graph')
     await expect(
       page.getByRole('button', { name: 'Reset to default' })
     ).toBeDisabled()
@@ -414,11 +450,11 @@ test.describe('Homepage (signed in)', () => {
     await expect(radioHeading).toHaveCount(0)
     await hideWritten
 
-    // Reorder: community stats one step up, which is a swap with the nearby
-    // section rather than a re-sort.
+    // Reorder: the scene graph one step up, which is a swap with the (hidden)
+    // radio row rather than a re-sort.
     const moveWritten = layoutWrite('PUT')
-    await page.getByRole('button', { name: 'Move Community stats up' }).click()
-    await expect(sectionRows.nth(2)).toContainText('Community stats')
+    await page.getByRole('button', { name: 'Move Scene graph up' }).click()
+    await expect(sectionRows.nth(3)).toContainText('Scene graph')
     await moveWritten
 
     // Persisted on the account, not in this tab.
@@ -428,7 +464,7 @@ test.describe('Homepage (signed in)', () => {
     await expect(
       page.getByRole('checkbox', { name: 'Latest radio shows' })
     ).not.toBeChecked()
-    await expect(sectionRows.nth(2)).toContainText('Community stats')
+    await expect(sectionRows.nth(3)).toContainText('Scene graph')
 
     // Back to the shipped layout, so the rest of this worker's specs see the
     // page they were written against.
@@ -527,7 +563,6 @@ test.describe('Homepage (signed in)', () => {
     ).toHaveCount(1)
 
     await hide('From your library')
-    await hide('Community stats')
     await hide('Latest radio shows')
     await hide('Scene graph')
     await expect(page.getByText('You have hidden every section.')).toBeVisible()

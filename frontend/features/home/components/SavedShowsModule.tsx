@@ -113,7 +113,7 @@ export function SavedShowsModule() {
   return (
     <section
       aria-labelledby="signed-in-home-heading"
-      className="flex w-full flex-col gap-4 pt-2"
+      className="flex w-full flex-col gap-4"
     >
       {/* No call to action here: a viewer with saves, or whose saves failed
           to load, is pointed at Library; only the zero state offers "Find a

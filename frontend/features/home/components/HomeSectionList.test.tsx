@@ -48,7 +48,8 @@ describe('HomeSectionList', () => {
     render(<HomeSectionList />)
 
     const rows = screen.getAllByRole('listitem')
-    expect(rows).toHaveLength(HOME_SECTIONS.length)
+    // Five: the stats band retired into the dateline.
+    expect(rows).toHaveLength(5)
     HOME_SECTIONS.forEach((section, index) => {
       expect(within(rows[index]).getByText(section.title)).toBeInTheDocument()
       expect(
@@ -76,7 +77,7 @@ describe('HomeSectionList', () => {
     render(<HomeSectionList />)
 
     await user.click(
-      screen.getByRole('button', { name: 'Move Community stats up' })
+      screen.getByRole('button', { name: 'Move Latest radio shows up' })
     )
 
     expect(persist).toHaveBeenCalledTimes(1)
@@ -85,9 +86,8 @@ describe('HomeSectionList', () => {
       sections: [
         { id: 'saved_shows', visible: true },
         { id: 'library_updates', visible: true },
-        { id: 'community_stats', visible: true },
-        { id: 'nearby_shows', visible: true },
         { id: 'radio_shows', visible: true },
+        { id: 'nearby_shows', visible: true },
         { id: 'city_graph', visible: true },
       ],
     })
@@ -98,13 +98,13 @@ describe('HomeSectionList', () => {
     render(<HomeSectionList />)
 
     await user.click(
-      screen.getByRole('button', { name: 'Move Community stats up' })
+      screen.getByRole('button', { name: 'Move Latest radio shows up' })
     )
 
     const regions = screen.getAllByRole('status')
     expect(regions).toHaveLength(1)
     expect(regions[0]).toHaveTextContent(
-      'Community stats moved up, now 3 of 6.'
+      'Latest radio shows moved up, now 3 of 5.'
     )
   })
 
@@ -112,14 +112,14 @@ describe('HomeSectionList', () => {
     const user = userEvent.setup()
     const { rerender } = render(<HomeSectionList />)
 
-    const up = screen.getByRole('button', { name: 'Move Community stats up' })
+    const up = screen.getByRole('button', { name: 'Move Latest radio shows up' })
     await user.click(up)
     applyDocument(persist.mock.calls[0][0])
     rerender(<HomeSectionList />)
 
     await waitFor(() => {
       expect(
-        screen.getByRole('button', { name: 'Move Community stats up' })
+        screen.getByRole('button', { name: 'Move Latest radio shows up' })
       ).toHaveFocus()
     })
   })
@@ -158,14 +158,14 @@ describe('HomeSectionList', () => {
     const user = userEvent.setup()
     const { rerender } = render(<HomeSectionList />)
 
-    await user.click(screen.getByRole('checkbox', { name: 'Community stats' }))
+    await user.click(screen.getByRole('checkbox', { name: 'Latest radio shows' }))
 
     expect(persist).toHaveBeenCalledWith(
       toHomeLayoutDocument(
-        setHomeSectionVisibility(resolveHomeLayout(null), 'community_stats', false)
+        setHomeSectionVisibility(resolveHomeLayout(null), 'radio_shows', false)
       )
     )
-    expect(screen.getByRole('status')).toHaveTextContent('Community stats hidden')
+    expect(screen.getByRole('status')).toHaveTextContent('Latest radio shows hidden')
 
     applyDocument(persist.mock.calls[0][0])
     rerender(<HomeSectionList />)
@@ -173,7 +173,7 @@ describe('HomeSectionList', () => {
     const rows = screen.getAllByRole('listitem')
     expect(within(rows[3]).getByText('hidden')).toBeInTheDocument()
     expect(
-      screen.getByRole('checkbox', { name: 'Community stats' })
+      screen.getByRole('checkbox', { name: 'Latest radio shows' })
     ).not.toBeChecked()
   })
 
@@ -181,14 +181,14 @@ describe('HomeSectionList', () => {
     const user = userEvent.setup()
     layout = setHomeSectionVisibility(
       resolveHomeLayout(null),
-      'community_stats',
+      'radio_shows',
       false
     )
     render(<HomeSectionList />)
 
-    await user.click(screen.getByRole('checkbox', { name: 'Community stats' }))
+    await user.click(screen.getByRole('checkbox', { name: 'Latest radio shows' }))
 
-    expect(screen.getByRole('status')).toHaveTextContent('Community stats shown')
+    expect(screen.getByRole('status')).toHaveTextContent('Latest radio shows shown')
   })
 
   it('offers reset while a document is STORED, not only while it differs from the default', () => {
