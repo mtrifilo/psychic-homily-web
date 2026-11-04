@@ -243,6 +243,21 @@ describe('Reset password page', () => {
     expect(mockCheckRefetch).toHaveBeenCalled()
   })
 
+  // One notice replacing another (a retried check that finds the account
+  // closed) moves focus to the new heading, not to the page.
+  it('moves focus when the retry card gives way to the closed-account card', async () => {
+    checkState = checkRefused(Object.assign(new Error('boom'), { status: 503 }))
+    const { rerender } = renderWithProviders(<ResetPasswordPage />)
+    // The reader presses Try Again, which takes focus and then leaves with the card.
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Try Again' }))
+    expect(screen.getByRole('button', { name: 'Try Again' })).toHaveFocus()
+
+    checkState = checkRefused(refusal(AuthErrorCode.ACCOUNT_INACTIVE))
+    rerender(<ResetPasswordPage />)
+
+    expect(screen.getByRole('heading', { name: "Can't sign you in" })).toHaveFocus()
+  })
+
   it('shows the closed-account card for an account that may not sign in', () => {
     checkState = checkRefused(refusal(AuthErrorCode.ACCOUNT_INACTIVE))
     renderWithProviders(<ResetPasswordPage />)

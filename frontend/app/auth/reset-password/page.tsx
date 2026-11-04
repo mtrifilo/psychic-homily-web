@@ -143,7 +143,8 @@ function PasswordResetDone() {
 /**
  * The centred notice card the magic-link page answers its failures with. Like
  * StateCard, it can replace the form the reader was in, so its heading takes
- * focus when it mounts.
+ * focus when it mounts. Each use carries its own key, so one notice replacing
+ * another mounts afresh and takes focus too.
  */
 function NoticeCard({
   icon,
@@ -360,7 +361,11 @@ function ResetPasswordContent() {
     if (isLinkRefusal(error)) return <LinkNoLongerWorks />
     if (isAccountInactive(error) || isAccountRecoverable(error)) {
       return (
-        <NoticeCard icon={<AlertCircle className="h-6 w-6 text-destructive" />} title="Can't sign you in">
+        <NoticeCard
+          key="account-closed"
+          icon={<AlertCircle className="h-6 w-6 text-destructive" />}
+          title="Can't sign you in"
+        >
           {isAccountRecoverable(error) ? <AccountRecoverableMessage /> : ACCOUNT_UNAVAILABLE_MESSAGE}
         </NoticeCard>
       )
@@ -373,6 +378,7 @@ function ResetPasswordContent() {
     // The link was not judged, so it is still unspent and the same one is retried.
     return (
       <NoticeCard
+        key="check-failed"
         icon={<ServerCrash className="h-6 w-6 text-destructive" />}
         title="Something went wrong"
         action={<Button onClick={() => void check.refetch()}>Try Again</Button>}

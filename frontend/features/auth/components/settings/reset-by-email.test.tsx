@@ -125,6 +125,6 @@ describe('Reset by email', () => {
     await user.click(screen.getByRole('button', { name: 'Reset by email' }))
 
     const alert = await screen.findByRole('alert')
-    expect(alert).toHaveTextContent('Your session has expired. Sign in again to resend.')
+    expect(alert).toHaveTextContent('Your session has expired. Sign in again to send the email.')
   })
 })

@@ -59,9 +59,8 @@ export function ResetByEmail({
         announce={announceSent(sentMessage)}
         className="text-xs text-link"
       />
-      {/* The Settings resend controls' words for a dead session. */}
       <VerificationResendSessionExpired>
-        Your session has expired. Sign in again to resend.
+        Your session has expired. Sign in again to send the email.
       </VerificationResendSessionExpired>
       <VerificationResendFailed />
     </EmailResend>
