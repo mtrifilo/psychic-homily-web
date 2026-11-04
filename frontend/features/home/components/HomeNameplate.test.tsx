@@ -26,6 +26,8 @@ describe('HomeNameplate', () => {
     render(<HomeNameplate />)
 
     expect(screen.getByTestId('dateline-short')).toHaveClass('xl:hidden')
+    // Narrower than the board, the line may wrap; its height is reserved.
+    expect(screen.getByTestId('dateline-short')).toHaveClass('max-[389px]:min-h-11')
     expect(screen.getByTestId('wordmark').parentElement).toHaveClass('hidden', 'xl:block')
   })
 

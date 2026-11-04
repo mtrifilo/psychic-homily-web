@@ -21,10 +21,13 @@ import { WORDMARK_ONE_LINE } from './scrying-grid/wordmarkPresets'
  */
 export function HomeNameplate() {
   // pb: the board's gap down to the first section (20px under the phone
-  // dateline, 32px under the desktop hairline).
+  // dateline, 32px under the desktop hairline). Below a 390px viewport the
+  // short line can take two rows once the counts are large, so it reserves
+  // both (12px padding + 2 x 16px): the text arrives after hydration and
+  // must not push the rendered rows down.
   return (
     <div className="pb-5 xl:pb-8">
-      <HomeDateline form="short" className="pt-3 xl:hidden" />
+      <HomeDateline form="short" className="pt-3 max-[389px]:min-h-11 xl:hidden" />
       <div className="hidden pt-8 xl:block">
         <ScryingGridWordmark
           preset="nameplate"
