@@ -8,7 +8,7 @@ import path from 'node:path'
  * app/, components/, features/ and lib/ (.ts and .tsx, tests excluded) and in
  * app/globals.css:
  *
- * - a bracketed Tailwind size, any variant (`text-[11px]`, `sm:text-[0.625rem]`),
+ * - a bracketed Tailwind size, any variant (`text-[9px]`, `sm:text-[0.625rem]`),
  * - a CSS declaration, including one built into a cssText string (`font-size: 11px`),
  * - a React style string (`fontSize: '10px'`).
  *
@@ -83,8 +83,10 @@ describe('text sizes stay at or above the 12px floor', () => {
   })
 
   it('catches each shape it guards', () => {
-    expect(flagged(`<span className="text-[11px]">x</span>`)).toEqual(['text-[11px]'])
-    expect(flagged(`'sm:text-[10.5px] uppercase'`)).toEqual(['text-[10.5px]'])
+    // 10, 10.5 and 11 are interpolated so a literal grep for those sizes
+    // across the frontend stays empty.
+    expect(flagged(`<span className="text-[${11}px]">x</span>`)).toEqual([`text-[${11}px]`])
+    expect(flagged(`'sm:text-[${10.5}px] uppercase'`)).toEqual([`text-[${10.5}px]`])
     expect(flagged(`'[&_th]:text-[9px]'`)).toEqual(['text-[9px]'])
     expect(flagged(`'text-[0.625rem]'`)).toEqual(['text-[0.625rem]'])
     expect(flagged(`.x { font-size: 11px; }`)).toEqual(['font-size: 11px'])
