@@ -275,10 +275,10 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
 
   return (
     <div className="space-y-8">
-      {/* Needs Attention */}
+      {/* Needs attention */}
       <section>
-        <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-3">
-          Needs Attention
+        <h2 className="text-sm font-medium text-muted-foreground mb-3">
+          Needs attention
         </h2>
         {allAttentionClear ? (
           <AllClearMessage />
@@ -322,7 +322,7 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
 
       {/* Platform */}
       <section>
-        <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-3">
+        <h2 className="text-sm font-medium text-muted-foreground mb-3">
           Platform
         </h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -362,7 +362,7 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
        discoverability. Featured Bill/Collection editorial slots were retired
        in PSY-1480. */}
       <section>
-        <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-3">
+        <h2 className="text-sm font-medium text-muted-foreground mb-3">
           Tools
         </h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -404,10 +404,10 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
         </div>
       </section>
 
-      {/* Recent Activity Feed */}
+      {/* Recent activity feed */}
       <section>
-        <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-3">
-          Recent Activity
+        <h2 className="text-sm font-medium text-muted-foreground mb-3">
+          Recent activity
         </h2>
         <Card>
           <CardContent className="pt-2 pb-1">

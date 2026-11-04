@@ -232,7 +232,7 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
       {/* Labels */}
       {hasLabels && (
         <div>
-          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+          <h3 className="text-xs font-semibold text-muted-foreground mb-2">
             {release.labels.length === 1 ? 'Label' : 'Labels'}
           </h3>
           <div className="space-y-1">

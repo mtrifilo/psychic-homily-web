@@ -14,7 +14,7 @@ import { SCENE_LINK_INTERACTION_CLASS } from './sceneChrome'
  * same strip from here, so a reader walking between them sees one row that
  * changes only where it says they are.
  *
- * Register per the locked frame (`1665:2`): data face at 10px with 8% tracking, the
+ * Register: sentence-case 12px labels in the body face, the
  * links in the accent tone, the active window in the foreground tone and
  * underlined, a direction with nothing behind it muted and unlinked.
  *
@@ -23,16 +23,14 @@ import { SCENE_LINK_INTERACTION_CLASS } from './sceneChrome'
  */
 
 /**
- * Data-face micro-caps at the frame's own metrics, shared by every item in both rows
- * so the register is one. A step down in size from `SCENE_ACCENT_LINK_CLASS`,
- * whose interaction behaviour it composes rather than re-spells.
+ * Sentence-case 12px labels, shared by every item in both rows so the register
+ * is one. Composes `SCENE_LINK_INTERACTION_CLASS` rather than re-spelling it.
  *
- * The vertical padding is a TARGET, not spacing: at 10px these are standalone
- * nav targets, and 1.5 is what clears the 24px floor (WCAG 2.5.8) that the type
+ * The vertical padding is a TARGET, not spacing: these are standalone nav
+ * targets, and 1.5 is what clears the 24px floor (WCAG 2.5.8) that the type
  * alone does not.
  */
-const CHIP_CLASS =
-  'inline-block rounded-sm py-1.5 font-data text-[10px] uppercase tracking-[0.08em]'
+const CHIP_CLASS = 'inline-block rounded-sm py-1.5 text-xs'
 
 const LINK_CLASS = `${CHIP_CLASS} ${SCENE_LINK_INTERACTION_CLASS}`
 

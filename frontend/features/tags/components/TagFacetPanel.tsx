@@ -345,7 +345,7 @@ function CategoryGroup({
 
   return (
     <div className="space-y-2" data-testid={`tag-facet-category-${category}`}>
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      <h3 className="text-xs font-semibold text-muted-foreground">
         {label}
       </h3>
       <div className="flex flex-wrap gap-1.5">{isLoading ? skeletons : chips}</div>
@@ -383,7 +383,7 @@ function TagChip({ tag, selected, onToggle, disabled = false }: TagChipProps) {
       )}
     >
       <span>{tag.name}</span>
-      <span className={cn('text-[10px] font-normal opacity-70')}>
+      <span className="text-xs font-normal opacity-70">
         {tag.usage_count}
       </span>
     </button>

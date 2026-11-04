@@ -57,7 +57,7 @@ export function RelationshipBadge({
     <span
       className={cn(
         'inline-flex items-center rounded-md px-1.5 py-0.5',
-        'text-[11px] font-medium leading-none',
+        'text-xs font-medium leading-none',
         'bg-secondary text-secondary-foreground/70',
         'border border-border/30',
         className

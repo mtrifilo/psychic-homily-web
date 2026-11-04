@@ -42,11 +42,11 @@ describe('AdminDrawerNav', () => {
     render(<AdminDrawerNav onNavigate={onNavigate} />)
     for (const h of [
       'Overview',
-      'Moderation & Queues',
+      'Moderation & queues',
       'Catalog',
-      'Curation & Taxonomy',
+      'Curation & taxonomy',
       'Tools',
-      'Insights & System',
+      'Insights & system',
     ]) {
       expect(screen.getByText(h)).toBeInTheDocument()
     }

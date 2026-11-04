@@ -284,7 +284,7 @@ function AlsoOnLabelSection({
 
   return (
     <div>
-      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+      <h4 className="text-xs font-semibold text-muted-foreground mb-2">
         Also on{' '}
         <Link
           href={`/labels/${label.slug}`}
@@ -974,7 +974,7 @@ function AdminMusicControls({
                 if (platformCandidates.length === 0) return null
                 return (
                   <section key={platform}>
-                    <h4 className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">
+                    <h4 className="text-xs font-semibold text-muted-foreground mb-2">
                       {platform === 'bandcamp' ? 'Bandcamp' : 'Spotify'}{' '}
                       candidates
                     </h4>

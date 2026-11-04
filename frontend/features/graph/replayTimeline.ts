@@ -338,9 +338,8 @@ export function formatReplayDate(date: Date): string {
 /**
  * The one sentence both readouts are built from: `Mar 2019 · 412 on the map`.
  *
- * Lower case at the source. Both hosts carry `uppercase` in their class list, so
- * the display casing is CSS's job — and lower case is what an assistive
- * technology should read out of `aria-valuetext`.
+ * Sentence case at the source: both hosts render it as written, and it is what
+ * an assistive technology should read out of `aria-valuetext`.
  *
  * Shared so the scrubber and the header cannot drift into disagreeing about the
  * same fact on the same screen, and so the transport module keeps holding a

@@ -64,14 +64,14 @@ describe('SectionHeader', () => {
   })
 
   describe('variant (PSY-1062)', () => {
-    it('defaults to the caps treatment', () => {
+    it('defaults to the muted sentence-case treatment at 12px', () => {
       render(<SectionHeader title="Statistics" />)
       const heading = screen.getByRole('heading', { name: 'Statistics' })
-      expect(heading.className).toContain('uppercase')
-      expect(heading.className).toContain('text-muted-foreground')
+      expect(heading).toHaveClass('text-xs', 'text-muted-foreground')
+      expect(heading.className).not.toMatch(/\b(uppercase|tracking-\S+)\b/)
     })
 
-    it('renders the title treatment without caps styling', () => {
+    it('renders the title treatment in the foreground tone', () => {
       render(<SectionHeader title="Field notes" variant="title" size="md" />)
       const heading = screen.getByRole('heading', { name: 'Field notes' })
       expect(heading.className).not.toContain('uppercase')

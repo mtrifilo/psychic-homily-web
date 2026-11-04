@@ -27,17 +27,17 @@ export function ChartModule({
 
   return (
     <section data-testid={testId} className="min-w-0 overflow-hidden">
-      <header className="flex min-h-6 items-start gap-2 border-b-2 border-foreground pb-1.5 font-data leading-none">
-        <h2 className="min-w-0 flex-1 text-[11px] font-bold uppercase tracking-[0.06em]">
+      <header className="flex min-h-6 items-start gap-2 border-b-2 border-foreground pb-1.5 leading-none">
+        <h2 className="min-w-0 flex-1 text-xs font-bold">
           {title}
         </h2>
-        <span className="shrink-0 text-[10px] text-muted-foreground">
+        <span className="shrink-0 font-data text-xs text-muted-foreground">
           {context}
         </span>
         {fullListHref ? (
           <Link
             href={fullListHref}
-            className="shrink-0 text-[10px] text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="shrink-0 text-xs text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             full list →
           </Link>
@@ -96,7 +96,7 @@ export function ChartRow({
         <div className="truncate text-[13px] font-medium leading-4">
           {primary}
         </div>
-        <div className="mt-px truncate text-[11px] leading-[13px] text-muted-foreground">
+        <div className="mt-px truncate text-xs leading-4 text-muted-foreground">
           {meta}
         </div>
       </div>

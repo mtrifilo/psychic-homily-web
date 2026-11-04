@@ -40,7 +40,7 @@ export function StepHeading({
   const Heading = level
   return (
     <div className="flex flex-col gap-2">
-      <p className="font-data text-[11px] uppercase tracking-[0.66px] text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         {eyebrow}
       </p>
       <Heading

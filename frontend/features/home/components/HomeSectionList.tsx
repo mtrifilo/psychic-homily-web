@@ -189,7 +189,7 @@ export function HomeSectionList({
       >
         Reset to default
       </Button>
-      <span className="font-data text-[11px] uppercase tracking-[0.66px] text-muted-foreground">
+      <span className="text-xs text-muted-foreground">
         Changes apply immediately
       </span>
       {footerAction}
@@ -267,7 +267,7 @@ export function HomeSectionList({
 
             {!section.visible && (
               <span
-                className="shrink-0 self-center font-data text-[11px] lowercase text-muted-foreground"
+                className="shrink-0 self-center font-data text-xs lowercase text-muted-foreground"
                 aria-hidden="true"
               >
                 hidden

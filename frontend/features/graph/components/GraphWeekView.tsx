@@ -22,8 +22,8 @@ import { TEASER_MOTIF, buildGraphWeekMotif, type GraphWeekMotif } from '../graph
 function GraphWeekShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6 sm:py-14">
-      <p className="font-data text-[10px] uppercase tracking-[0.2em] text-link">
-        The Map of the Scene
+      <p className="text-xs text-link">
+        The map of the scene
       </p>
       <h1 className="mt-2 font-display text-4xl font-medium sm:text-5xl">
         This week in the graph

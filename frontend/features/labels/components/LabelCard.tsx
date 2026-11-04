@@ -38,7 +38,7 @@ export function LabelCard({ label, density = 'comfortable' }: LabelCardProps) {
         >
           {label.name}
         </Link>
-        <Badge variant={statusVariant} className="text-[10px] shrink-0">
+        <Badge variant={statusVariant} className="shrink-0">
           {statusLabel}
         </Badge>
         {location && (
@@ -117,7 +117,7 @@ export function LabelCard({ label, density = 'comfortable' }: LabelCardProps) {
           <div className="flex items-center gap-2 flex-wrap mt-1">
             <Badge
               variant={statusVariant}
-              className="text-[10px] px-1.5 py-0"
+              className="px-1.5 py-0"
             >
               {statusLabel}
             </Badge>

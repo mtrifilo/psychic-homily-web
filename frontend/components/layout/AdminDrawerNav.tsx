@@ -37,7 +37,7 @@ export default function AdminDrawerNav({ onNavigate }: { onNavigate: () => void 
       </ChromeLink>
       {adminNavGroups.map(group => (
         <div key={group.label} className="mb-4">
-          <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/50">
+          <p className="mb-2 px-3 text-xs font-semibold text-muted-foreground/50">
             {group.label}
           </p>
           {group.items.map(item => {

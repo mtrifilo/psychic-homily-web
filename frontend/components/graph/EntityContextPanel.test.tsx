@@ -56,7 +56,7 @@ describe('EntityContextPanel', () => {
       />,
     )
 
-    expect(screen.getByText('VENUE')).toBeInTheDocument()
+    expect(screen.getByText('Venue')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Valley Bar' })).toBeInTheDocument()
     expect(screen.getByText('Phoenix, AZ')).toBeInTheDocument()
     expect(screen.getByText('Next show')).toBeInTheDocument()
@@ -80,7 +80,7 @@ describe('EntityContextPanel', () => {
         onClose={vi.fn()}
       />,
     )
-    expect(screen.getByText('LABEL')).toBeInTheDocument()
+    expect(screen.getByText('Label')).toBeInTheDocument()
     expect(
       screen.getByText('6 roster artists in this graph'),
     ).toBeInTheDocument()

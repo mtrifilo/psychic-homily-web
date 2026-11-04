@@ -3,20 +3,20 @@
 import { cn } from '@/lib/utils'
 
 export interface SectionHeaderProps {
-  /** Section title (rendered in uppercase tracking-wider style). */
+  /** Section title, rendered as written (sentence case). */
   title: string
   /** Optional inline action node, rendered to the right of the title. Typically a <BracketLink>. */
   action?: React.ReactNode
   /** Heading level for the rendered element. Defaults to 'h3'. */
   as?: 'h2' | 'h3' | 'h4'
-  /** Visual size: 'sm' for sidebar (11–12px), 'md' for main column (13–14px). Defaults to 'sm'. */
+  /** Visual size: 'sm' for sidebar (12px), 'md' for main column (14px). Defaults to 'sm'. */
   size?: 'sm' | 'md'
   /**
-   * Title treatment. 'caps' (default) is the dense uppercase-tracking style
-   * used across entity pages; 'title' is the title-case foreground style the
-   * profile redesign boards use for main-column sections (PSY-1062).
+   * Title treatment. 'muted' (default) is the dense muted style used across
+   * entity pages; 'title' is the foreground style the profile redesign boards
+   * use for main-column sections.
    */
-  variant?: 'caps' | 'title'
+  variant?: 'muted' | 'title'
   /** Render a thin underline divider beneath the header. Defaults to true. */
   underline?: boolean
   /**
@@ -59,7 +59,7 @@ export function SectionHeader({
   as: Tag = 'h3',
   size = 'sm',
   underline = true,
-  variant = 'caps',
+  variant = 'muted',
   headingProps,
   className,
 }: SectionHeaderProps) {
@@ -79,9 +79,9 @@ export function SectionHeader({
           // the only signal a sighted keyboard user gets that focus moved here
           // after a list updated under them.
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-          variant === 'caps' && 'text-muted-foreground uppercase tracking-wider',
-          variant === 'caps' && size === 'sm' && 'text-xs',
-          variant === 'caps' && size === 'md' && 'text-sm',
+          variant === 'muted' && 'text-muted-foreground',
+          variant === 'muted' && size === 'sm' && 'text-xs',
+          variant === 'muted' && size === 'md' && 'text-sm',
           variant === 'title' && 'text-foreground',
           variant === 'title' && size === 'sm' && 'text-sm',
           variant === 'title' && size === 'md' && 'text-base'

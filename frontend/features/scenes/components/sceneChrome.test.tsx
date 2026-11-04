@@ -242,9 +242,8 @@ describe('SCENE_ACCENT_LINK_CLASS', () => {
 
   it('is the accent tone in the section headings type', () => {
     expect(SCENE_ACCENT_LINK_CLASS).toContain('text-link')
-    expect(SCENE_ACCENT_LINK_CLASS).toContain(
-      'font-data text-[11px] uppercase tracking-widest'
-    )
+    expect(SCENE_ACCENT_LINK_CLASS).toContain('text-xs')
+    expect(SCENE_ACCENT_LINK_CLASS).not.toMatch(/\b(uppercase|tracking-\S+|font-data)\b/)
   })
 
   // Hover must not recolour: against the primary base that reads as receding.

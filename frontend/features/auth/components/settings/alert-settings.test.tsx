@@ -391,9 +391,9 @@ describe('AlertSettings', () => {
       screen.queryByRole('checkbox', { name: /Custom alerts you built/ })
     ).not.toBeInTheDocument()
     // One "per filter", not two: only EMAIL is per filter. In-app fires
-    // regardless, so it reads "always".
-    expect(screen.getAllByText('per filter').length).toBe(1)
-    expect(screen.getByText('always')).toBeInTheDocument()
+    // regardless, so it reads "Always".
+    expect(screen.getAllByText('Per filter').length).toBe(1)
+    expect(screen.getByText('Always')).toBeInTheDocument()
   })
 
   it('surfaces a failed write', () => {

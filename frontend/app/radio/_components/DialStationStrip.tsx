@@ -84,7 +84,7 @@ export function DialStationStrip({ station }: DialStationStripProps) {
           )}
         </div>
         {identityLine && (
-          <p className="mt-1 font-data text-[11px] leading-4 text-muted-foreground">
+          <p className="mt-1 font-data text-xs leading-4 text-muted-foreground">
             {identityLine}
           </p>
         )}
@@ -215,7 +215,7 @@ function OnAirBlock({ stationSlug }: { stationSlug: string }) {
     <div className="flex min-w-0 flex-col gap-1">
       {/* ● ON AIR (or "latest playlist")  Show name  w/ host */}
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-        <span className="inline-flex items-baseline gap-1.5 font-data text-[11px] uppercase tracking-[1.2px] text-muted-foreground">
+        <span className="inline-flex items-baseline gap-1.5 text-xs text-muted-foreground">
           {data.on_air && (
             <span
               className="size-2 self-center rounded-full bg-primary"
@@ -267,7 +267,7 @@ function OnAirBlock({ stationSlug }: { stationSlug: string }) {
             </span>
           )}
           {current.rotation_status && (
-            <span className="font-data text-[11px] lowercase text-link">
+            <span className="font-data text-xs lowercase text-link">
               {getRotationStatusLabel(current.rotation_status)}
             </span>
           )}
@@ -341,7 +341,7 @@ function DialChannelRow({
         <span className="text-[13px] text-muted-foreground">
           —{' '}
           {!nowPlaying.on_air && (
-            <span className="font-data text-[11px]">latest: </span>
+            <span className="font-data text-xs">latest: </span>
           )}
           {nowPlaying.show ? (
             <Link

@@ -102,7 +102,7 @@ function EmptyState({
             key={link.href}
             label={link.label}
             href={link.href}
-            className="font-data text-[11px]"
+            className="font-data text-xs"
           />
         ))}
       </div>
@@ -161,7 +161,7 @@ function SavedShowsSection({
         <h2 id={headingId} className="text-base font-semibold">
           {title}
         </h2>
-        <p className="min-w-0 flex-1 font-data text-[11px] text-muted-foreground md:text-xs">
+        <p className="min-w-0 flex-1 font-data text-xs text-muted-foreground">
           {countLabel} · {orderLabel}
           {isPast && (
             <span className="hidden md:inline">
@@ -178,7 +178,7 @@ function SavedShowsSection({
           />
         )}
         {isPast && (
-          <p className="w-full font-data text-[11px] text-muted-foreground md:hidden">
+          <p className="w-full font-data text-xs text-muted-foreground md:hidden">
             Saved shows move here automatically when the date passes.
           </p>
         )}
@@ -233,7 +233,7 @@ function SavedShowsSection({
             }}
           />
           {expanded && hasNextPage && !isFetchingNextPage && (
-            <span className="font-data text-[11px] text-muted-foreground">
+            <span className="font-data text-xs text-muted-foreground">
               Could not load every saved show. Retry when ready.
             </span>
           )}
@@ -464,7 +464,7 @@ function SavedReleaseCard({ release }: { release: SavedReleaseResponse }) {
             ) : null}
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2 font-data text-[11px] text-muted-foreground">
+        <div className="flex shrink-0 items-center gap-2 font-data text-xs text-muted-foreground">
           <span className="whitespace-nowrap">
             saved {formatRelativeTime(release.saved_at, { short: true })}
           </span>
@@ -661,7 +661,7 @@ function FollowingEntityCard({
           {entity.name}
         </Link>
 
-        <div className="flex shrink-0 items-center gap-2 font-data text-[11px] text-muted-foreground">
+        <div className="flex shrink-0 items-center gap-2 font-data text-xs text-muted-foreground">
           <span className="whitespace-nowrap">followed {formattedDate}</span>
           {/* Renders only for follow types that carry a subscription, and only
               from the copy the row was served with (PSY-1893). No request per row. */}
@@ -787,7 +787,7 @@ function FollowingList({
             onClick={() => fetchNextPage()}
           />
           {isFetchNextPageError && (
-            <span className="font-data text-[11px] text-destructive">
+            <span className="font-data text-xs text-destructive">
               Couldn&apos;t load more. Try again.
             </span>
           )}

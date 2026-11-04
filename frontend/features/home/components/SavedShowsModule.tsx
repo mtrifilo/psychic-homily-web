@@ -183,7 +183,7 @@ export function SavedShowsModule() {
       {state === 'empty' && (
         <div className={SAVED_SHOW_ROW_GRID}>
           <div
-            className="font-data text-[11px] font-bold uppercase text-muted-foreground md:text-xs"
+            className="font-data text-xs font-bold uppercase text-muted-foreground"
             aria-hidden
           >
             - - -
@@ -224,15 +224,15 @@ export function SavedShowsModule() {
       )}
 
       {isStale && (
-        <p className="font-data text-[11px] text-muted-foreground" role="status">
+        <p className="font-data text-xs text-muted-foreground" role="status">
           Could not refresh your saved shows. Showing the last list.
         </p>
       )}
 
       {(showsFooter || ownsCityLink) && (
-        <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1 font-data text-[11px]">
+        <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1 font-data text-xs">
           {ownsCityLink && (
-            <ResolvedHomeCityShowsLink className="font-data text-[11px]" />
+            <ResolvedHomeCityShowsLink className="font-data text-xs" />
           )}
           {showsFooter && (
             <Link

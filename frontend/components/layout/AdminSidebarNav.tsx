@@ -40,7 +40,7 @@ export default function AdminSidebarNav({ collapsed }: { collapsed: boolean }) {
       {adminNavGroups.map(group => (
         <div key={group.label}>
           {!collapsed && (
-            <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-sidebar-foreground/50">
+            <p className="mb-2 px-3 text-xs font-semibold text-sidebar-foreground/50">
               {group.label}
             </p>
           )}

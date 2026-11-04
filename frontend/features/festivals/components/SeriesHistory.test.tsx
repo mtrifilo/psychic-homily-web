@@ -102,11 +102,11 @@ describe('SeriesHistory', () => {
     expect(screen.getByText('+33%')).toBeInTheDocument()
 
     // Returning artists header reflects the count and lists the artist
-    expect(screen.getByText('Returning Artists (1)')).toBeInTheDocument()
+    expect(screen.getByText('Returning artists (1)')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Returner' })).toBeInTheDocument()
 
     // Newcomers header uses the latest year, and lists the newcomer
-    expect(screen.getByText('2024 Newcomers (1)')).toBeInTheDocument()
+    expect(screen.getByText('2024 newcomers (1)')).toBeInTheDocument()
     expect(screen.getByText('Newbie')).toBeInTheDocument()
   })
 

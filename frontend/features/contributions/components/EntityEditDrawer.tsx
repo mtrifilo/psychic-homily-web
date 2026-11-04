@@ -268,9 +268,9 @@ export function EntityEditDrawer({
   }, [fields])
 
   const groupLabels: Record<string, string> = {
-    info: 'Basic Info',
+    info: 'Basic info',
     details: 'Details',
-    social: 'Links & Social',
+    social: 'Links & social',
   }
 
   return (
@@ -339,7 +339,7 @@ export function EntityEditDrawer({
           <div className="flex-1 space-y-6 overflow-y-auto px-4 pb-4">
             {Object.entries(groupedFields).map(([group, groupFields]) => (
               <div key={group} className="space-y-3">
-                <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                <h3 className="text-xs font-medium text-muted-foreground">
                   {groupLabels[group] ?? group}
                 </h3>
                 {groupFields.map((field) => {
@@ -437,8 +437,8 @@ export function EntityEditDrawer({
             {/* Diff preview */}
             {hasChanges && (
               <div className="space-y-2">
-                <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Changes Preview
+                <h3 className="text-xs font-medium text-muted-foreground">
+                  Changes preview
                 </h3>
                 <div className="rounded-md border border-border bg-muted/30 p-3 text-sm">
                   {changes.map((change) => {

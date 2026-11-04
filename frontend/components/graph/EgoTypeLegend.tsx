@@ -62,7 +62,7 @@ export const EgoTypeLegend = memo(function EgoTypeLegend({
       )}
     >
       {rows.map(row => (
-        <span key={row.key} className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+        <span key={row.key} className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <span
             aria-hidden="true"
             className="size-2.5 shrink-0 rounded-full"
@@ -85,7 +85,7 @@ export const EgoTypeLegend = memo(function EgoTypeLegend({
           gap is covered there; on /graph nothing else on the surface corrects
           it, which is the case to weigh if this is ever revisited. */}
       {showUpcomingDot && (
-        <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <span
             aria-hidden="true"
             className="size-2 shrink-0 rounded-full"
@@ -95,7 +95,7 @@ export const EgoTypeLegend = memo(function EgoTypeLegend({
         </span>
       )}
       {showPlayableRing && (
-        <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <span
             aria-hidden="true"
             className="size-2.5 shrink-0 rounded-full border-[1.5px]"

@@ -43,7 +43,7 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
 
   const renderGroupHeader = (label: string) =>
     !collapsed && (
-      <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-sidebar-foreground/50">
+      <p className="mb-2 px-3 text-xs font-semibold text-sidebar-foreground/50">
         {label}
       </p>
     )

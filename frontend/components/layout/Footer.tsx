@@ -5,7 +5,7 @@ import { ChromeLink } from '@/components/layout/nav/ChromeLink'
 import { useCookieConsent } from '@/lib/context/CookieConsentContext'
 import { cn } from '@/lib/utils'
 import { isFooterHiddenBelowXl } from './footerVisibility'
-import { PRIVACY_HREF, TERMS_HREF } from './nav/navData'
+import { PRIVACY_HREF, TERMS_HREF, navGroupLabelClassName } from './nav/navData'
 
 /**
  * Footer (PSY-389) — the editorial site footer from the Navigation & Discovery
@@ -103,8 +103,8 @@ export default function Footer() {
               aria-label={column.heading}
               className="flex flex-1 flex-col gap-2.5"
             >
-              <p className="font-data text-[10px] font-bold tracking-[0.12em] text-muted-foreground">
-                {column.heading.toUpperCase()}
+              <p className={navGroupLabelClassName}>
+                {column.heading}
               </p>
               {column.links.map(link => (
                 <ChromeLink
@@ -120,8 +120,8 @@ export default function Footer() {
 
           {/* About / meta column — real routes only (see header note). */}
           <nav aria-label="About" className="flex flex-1 flex-col gap-2.5">
-            <p className="font-data text-[10px] font-bold tracking-[0.12em] text-muted-foreground">
-              ABOUT
+            <p className={navGroupLabelClassName}>
+              About
             </p>
             <ChromeLink
               href={PRIVACY_HREF}

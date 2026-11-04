@@ -44,8 +44,8 @@ vi.mock('next/dynamic', async () => {
 
 // The default (dashboard) tab lazy-imports ./dashboard/page → <AdminDashboard>,
 // which renders its stat panels from useAdminStats / useAdminActivity. Mock
-// those two hooks so the real dashboard skeleton (Needs Attention / Platform /
-// Recent Activity panels) renders without standing up the network layer.
+// those two hooks so the real dashboard skeleton (Needs attention / Platform /
+// Recent activity panels) renders without standing up the network layer.
 const mockStats = {
   pending_shows: 0,
   pending_venue_edits: 0,
@@ -150,14 +150,14 @@ describe('AdminPage (app/admin shell)', () => {
     // The dashboard panel is lazy-loaded; wait for the dynamic import to resolve.
     await waitFor(() =>
       expect(
-        screen.getByRole('heading', { name: 'Needs Attention' })
+        screen.getByRole('heading', { name: 'Needs attention' })
       ).toBeInTheDocument()
     )
     expect(
       screen.getByRole('heading', { name: 'Platform' })
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('heading', { name: 'Recent Activity' })
+      screen.getByRole('heading', { name: 'Recent activity' })
     ).toBeInTheDocument()
   })
 

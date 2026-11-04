@@ -99,8 +99,8 @@ function ChannelCellView({
 
   if (cell.kind === 'always-on') {
     return (
-      <span className="font-data text-[10px] uppercase tracking-[0.5px] text-muted-foreground">
-        <span aria-hidden>always</span>
+      <span className="text-xs text-muted-foreground">
+        <span aria-hidden>Always</span>
         <span className="sr-only">
           {label} is always on for this alert and cannot be turned off
         </span>
@@ -110,8 +110,8 @@ function ChannelCellView({
 
   if (cell.kind === 'per-filter') {
     return (
-      <span className="font-data text-[10px] uppercase tracking-[0.5px] text-muted-foreground">
-        <span aria-hidden>per filter</span>
+      <span className="text-xs text-muted-foreground">
+        <span aria-hidden>Per filter</span>
         <span className="sr-only">{label} is set on each custom alert</span>
       </span>
     )
@@ -131,8 +131,8 @@ function ChannelCellView({
 
   if (cell.kind === 'unavailable') {
     return (
-      <span className="font-data text-[10px] uppercase tracking-[0.5px] text-muted-foreground">
-        <span aria-hidden>unknown</span>
+      <span className="text-xs text-muted-foreground">
+        <span aria-hidden>Unknown</span>
         <span className="sr-only">
           {label} could not be loaded, so it is not shown
         </span>
@@ -436,13 +436,13 @@ export function AlertSettings() {
                   </th>
                   <th
                     scope="col"
-                    className="w-[90px] pb-2 text-center font-data text-[11px] font-normal uppercase tracking-[0.6px] text-muted-foreground"
+                    className="w-[90px] pb-2 text-center font-data text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground"
                   >
                     In-app
                   </th>
                   <th
                     scope="col"
-                    className="w-[90px] pb-2 text-center font-data text-[11px] font-normal uppercase tracking-[0.6px] text-muted-foreground"
+                    className="w-[90px] pb-2 text-center font-data text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground"
                   >
                     Email
                   </th>

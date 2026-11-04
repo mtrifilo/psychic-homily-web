@@ -81,7 +81,7 @@ const pendingTabClassName =
 
 function tabClassName(active: boolean): string {
   return cn(
-    'flex h-full flex-col items-center justify-center gap-1 text-[11px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50',
+    'flex h-full flex-col items-center justify-center gap-1 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50',
     active ? 'text-link' : 'text-muted-foreground hover:text-foreground',
     pendingTabClassName
   )

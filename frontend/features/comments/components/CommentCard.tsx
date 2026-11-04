@@ -182,7 +182,7 @@ export function CommentCard({
           {formatRelativeTime(comment.created_at)}
         </span>
         {comment.is_edited && (
-          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+          <Badge variant="secondary" className="px-1.5 py-0">
             Edited
           </Badge>
         )}
@@ -193,7 +193,7 @@ export function CommentCard({
         {comment.visibility === 'pending_review' && isOwner && (
           <Badge
             variant="outline"
-            className="text-[10px] px-1.5 py-0 gap-1 border-pending-foreground text-pending-foreground"
+            className="px-1.5 py-0 gap-1 border-pending-foreground text-pending-foreground"
             data-testid="pending-review-badge"
           >
             <Clock className="h-2.5 w-2.5" />
@@ -207,7 +207,7 @@ export function CommentCard({
           ] && (
             <Badge
               variant="outline"
-              className="text-[10px] px-1.5 py-0 gap-1"
+              className="px-1.5 py-0 gap-1"
               data-testid="reply-permission-badge"
             >
               <Lock className="h-2.5 w-2.5" />
@@ -375,7 +375,7 @@ export function CommentCard({
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+            className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
             onClick={() => setIsEditHistoryOpen(true)}
             data-testid="admin-edit-history-button"
             aria-label="View edit history"

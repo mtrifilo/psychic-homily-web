@@ -29,7 +29,7 @@ const linkClass =
   'hover:text-link focus-visible:text-link focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm'
 
 const discussLinkClass =
-  'shrink-0 whitespace-nowrap font-data text-[11px] font-bold text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm'
+  'shrink-0 whitespace-nowrap font-data text-xs font-bold text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm'
 
 /** The comment thread lives at the collection detail's #discussion anchor. */
 function discussHref(slug: string): string {
@@ -101,8 +101,8 @@ function CoverFallback() {
 function LeadCard({ run }: { run: FeaturedCollectionRun }) {
   return (
     <section className="space-y-2.5">
-      <p className="font-data text-[11px] font-bold tracking-[0.06em] text-link">
-        FEATURED COLLECTION · MOST RECENT
+      <p className="text-xs font-bold text-link">
+        Featured collection · most recent
       </p>
       <div className="flex gap-[18px] rounded border border-border bg-card p-[18px]">
         <Link
@@ -129,7 +129,7 @@ function LeadCard({ run }: { run: FeaturedCollectionRun }) {
             </p>
           ) : null}
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-            <p className="min-w-0 flex-1 text-[11px] text-muted-foreground">
+            <p className="min-w-0 flex-1 text-xs text-muted-foreground">
               curated by{' '}
               <UserAttribution
                 name={run.creator_name}
@@ -154,7 +154,7 @@ function LedgerRow({ run }: { run: FeaturedCollectionRun }) {
     <div className="flex items-center gap-4 border-b border-border py-[11px] sm:gap-5">
       <p
         className={cn(
-          'w-[120px] shrink-0 font-data tabular-nums text-[11px] sm:w-[190px]',
+          'w-[120px] shrink-0 font-data tabular-nums text-xs sm:w-[190px]',
           range.estimated ? 'text-muted-foreground' : 'text-foreground'
         )}
       >
@@ -166,7 +166,7 @@ function LedgerRow({ run }: { run: FeaturedCollectionRun }) {
             {run.title}
           </Link>
         </p>
-        <p className="truncate text-[11px] text-muted-foreground">
+        <p className="truncate text-xs text-muted-foreground">
           <UserAttribution
             name={run.creator_name}
             username={run.creator_username}
@@ -251,11 +251,11 @@ export function FeaturedArchivePage() {
           {ledger.length > 0 ? (
             <section>
               <div className="flex items-center gap-2 border-b-2 border-foreground pb-2">
-                <p className="font-data text-[11px] font-bold tracking-[0.06em] text-foreground">
-                  PREVIOUSLY FEATURED
+                <p className="text-xs font-bold text-foreground">
+                  Previously featured
                 </p>
                 <span className="h-px flex-1" />
-                <p className="font-data text-[11px] text-muted-foreground">
+                <p className="font-data text-xs text-muted-foreground">
                   {ledger.length}{' '}
                   {ledger.length === 1 ? 'closed run' : 'closed runs'}
                 </p>

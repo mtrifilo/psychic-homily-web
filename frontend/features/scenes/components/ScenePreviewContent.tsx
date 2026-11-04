@@ -103,7 +103,7 @@ export function ScenePreviewContent({
           unrenderable value still gets the next band's player. */}
       {embed && hasRenderableMusic({ bandcampAlbumUrl: embed.embed_url }) && (
         <div>
-          <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <h3 className="text-xs font-medium text-muted-foreground">
             Listen
           </h3>
           <div className="mt-2">
@@ -118,7 +118,7 @@ export function ScenePreviewContent({
 
       {weekShows.length > 0 && (
         <div>
-          <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <h3 className="text-xs font-medium text-muted-foreground">
             Next 7 days
           </h3>
           <ul className="mt-2 flex flex-col gap-1.5">
@@ -146,7 +146,7 @@ export function ScenePreviewContent({
       )}
 
       <div>
-        <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        <h3 className="text-xs font-medium text-muted-foreground">
           Local artists
         </h3>
         {isLoading ? (

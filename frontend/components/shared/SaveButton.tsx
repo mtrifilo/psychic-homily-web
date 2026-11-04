@@ -201,7 +201,7 @@ export function SaveButton({
           active={isSaved}
           onClick={handleClick}
           disabled={isDisabled}
-          className={cn('font-data text-[11px]', className)}
+          className={cn('font-data text-xs', className)}
           // Same accessible name the Button variant composes, count suffix
           // included: the bracket shows no visual count, but the PUBLIC save
           // count stays in the announced name (and the save E2E round-trip

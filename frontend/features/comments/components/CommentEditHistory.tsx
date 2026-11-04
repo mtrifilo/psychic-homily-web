@@ -102,7 +102,7 @@ export function EditHistoryBody({ data }: { data: CommentEditHistoryResponse }) 
         <section data-testid="edit-history-current">
           <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
             Current body
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+            <Badge variant="outline" className="px-1.5 py-0">
               now
             </Badge>
           </h3>
@@ -139,7 +139,7 @@ export function EditHistoryBody({ data }: { data: CommentEditHistoryResponse }) 
       <section data-testid="edit-history-current">
         <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
           Current body
-          <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+          <Badge variant="outline" className="px-1.5 py-0">
             {editCount} edit{editCount !== 1 ? 's' : ''}
           </Badge>
         </h3>
@@ -189,7 +189,7 @@ function EditTransition({
 
       <div className="grid gap-2 md:grid-cols-2">
         <div data-testid="edit-history-before">
-          <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
+          <div className="text-xs text-muted-foreground mb-1">
             Previous
           </div>
           <pre className="whitespace-pre-wrap break-words rounded border bg-red-500/5 border-red-500/20 p-2 text-xs font-code">
@@ -197,7 +197,7 @@ function EditTransition({
           </pre>
         </div>
         <div data-testid="edit-history-after">
-          <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
+          <div className="text-xs text-muted-foreground mb-1">
             Replaced with
           </div>
           <pre className="whitespace-pre-wrap break-words rounded border bg-green-500/5 border-green-500/20 p-2 text-xs font-code">

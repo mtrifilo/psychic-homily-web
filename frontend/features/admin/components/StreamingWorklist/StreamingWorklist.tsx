@@ -190,7 +190,7 @@ function ActionForm({ entry, action, onClose, onSuccess }: ActionFormProps) {
     >
       <Label
         htmlFor={`reason-${entry.artist_id}-${action}`}
-        className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+        className="text-xs font-semibold text-muted-foreground"
       >
         {copy.title} — {entry.artist_name}
       </Label>
@@ -284,7 +284,7 @@ function WorklistRow({ entry, onActionSuccess }: WorklistRowProps) {
             <span className="truncate">{entry.artist_name}</span>
           </Link>
           {entry.upcoming_show_count > 1 && (
-            <p className="text-[11px] text-muted-foreground mt-0.5">
+            <p className="text-xs text-muted-foreground mt-0.5">
               {entry.upcoming_show_count} upcoming shows
             </p>
           )}
@@ -497,7 +497,7 @@ export function StreamingWorklist() {
           <Filter className="h-4 w-4 text-muted-foreground" />
           <Label
             htmlFor="streaming-worklist-status-filter"
-            className="text-xs uppercase tracking-wide text-muted-foreground"
+            className="text-xs text-muted-foreground"
           >
             Status
           </Label>

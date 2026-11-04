@@ -38,7 +38,7 @@ export function EntityChartRankBadge({
       aria-label="Charts"
       className={cn(className)}
     >
-      <p className="mb-2 border-b border-border/50 pb-1 font-data text-[10px] font-bold uppercase tracking-[0.06em] text-muted-foreground">
+      <p className="mb-2 border-b border-border/50 pb-1 text-xs font-bold text-muted-foreground">
         Charts
       </p>
       <Link

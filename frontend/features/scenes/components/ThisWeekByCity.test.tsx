@@ -130,7 +130,7 @@ describe('ThisWeekByCity', () => {
 
     expect(screen.getByText('MON JUL 27 – SUN AUG 2')).toBeInTheDocument()
     expect(screen.getByText('JUL 27 – AUG 2')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'THIS WEEK, BY CITY' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'This week, by city' })).toBeInTheDocument()
   })
 
   it('renders nothing when there are no scenes', () => {

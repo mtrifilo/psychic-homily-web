@@ -212,7 +212,7 @@ export function EntityTagList({
   return (
     <div className="py-4">
       <div className="flex items-center gap-2 mb-3">
-        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+        <h3 className="text-xs font-semibold text-muted-foreground">
           Tags
         </h3>
         {addTagButton}
@@ -486,7 +486,7 @@ function TagWithVotes({
           </Link>
 
           {(tag.upvotes > 0 || tag.downvotes > 0) && (
-            <span className="text-[10px] opacity-70 tabular-nums">
+            <span className="text-xs opacity-70 tabular-nums">
               {score >= 0 ? `+${score}` : score}
             </span>
           )}
@@ -833,7 +833,7 @@ function AddTagForm({
         <button
           onClick={() => handleSelectFilterCategory('')}
           className={cn(
-            'rounded-full px-2 py-0.5 text-[11px] font-medium border transition-colors',
+            'rounded-full px-2 py-0.5 text-xs font-medium border transition-colors',
             filterCategory === ''
               ? 'bg-foreground/10 text-foreground border-foreground/20'
               : 'text-muted-foreground border-transparent hover:text-foreground hover:bg-muted'
@@ -846,7 +846,7 @@ function AddTagForm({
             key={cat}
             onClick={() => handleSelectFilterCategory(filterCategory === cat ? '' : cat)}
             className={cn(
-              'rounded-full px-2 py-0.5 text-[11px] font-medium border transition-colors',
+              'rounded-full px-2 py-0.5 text-xs font-medium border transition-colors',
               filterCategory === cat
                 ? getCategoryChipClasses(cat)
                 : 'text-muted-foreground border-transparent hover:text-foreground hover:bg-muted'
@@ -894,7 +894,7 @@ function AddTagForm({
             >
               <span
                 className={cn(
-                  'inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium shrink-0 mt-0.5',
+                  'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium shrink-0 mt-0.5',
                   getCategoryChipClasses(tag.category)
                 )}
               >
@@ -904,7 +904,7 @@ function AddTagForm({
                 <span className="font-medium">{tag.name}</span>
                 {tag.matched_via_alias && (
                   <span
-                    className="block text-[11px] text-muted-foreground truncate"
+                    className="block text-xs text-muted-foreground truncate"
                     data-testid="tag-autocomplete-matched-alias"
                   >
                     matched &ldquo;{tag.matched_via_alias}&rdquo;
@@ -928,7 +928,7 @@ function AddTagForm({
               </p>
               {alreadyAppliedMatch.matched_via_alias && (
                 <p
-                  className="text-[11px] text-muted-foreground mt-1"
+                  className="text-xs text-muted-foreground mt-1"
                   data-testid="tag-autocomplete-matched-alias"
                 >
                   matched &ldquo;{alreadyAppliedMatch.matched_via_alias}&rdquo;

@@ -4,7 +4,7 @@ import { runE2ESql } from '../e2e-db'
 test.describe('Music Knowledge Graph', () => {
   test('search → graph → context → recenter → reset', async ({ page }) => {
     await page.goto('/graph')
-    await expect(page.getByRole('heading', { name: 'Music Knowledge Graph' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Music knowledge graph' })).toBeVisible()
 
     const rootArtist = 'Playboy Manbaby'
     // PSY-1725: the placeholder now names the map as the other way in. The
@@ -90,6 +90,6 @@ test.describe('Music Knowledge Graph', () => {
     const response = await page.goto('/explore')
     expect(response?.status()).toBe(200)
     await expect(page).toHaveURL(/\/graph$/)
-    await expect(page.getByRole('heading', { name: 'Music Knowledge Graph' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Music knowledge graph' })).toBeVisible()
   })
 })

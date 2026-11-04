@@ -34,7 +34,7 @@ export default function TiersHelpPage() {
                 {tier.summary}
               </p>
 
-              <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+              <h3 className="text-sm font-semibold text-muted-foreground mb-2">
                 What you can do
               </h3>
               <ul className="list-disc pl-5 space-y-1 mb-4 text-sm">
@@ -45,7 +45,7 @@ export default function TiersHelpPage() {
 
               {tier.advancementRequirements && (
                 <>
-                  <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                  <h3 className="text-sm font-semibold text-muted-foreground mb-2">
                     How to reach this tier
                   </h3>
                   <ul className="list-disc pl-5 space-y-1 text-sm">

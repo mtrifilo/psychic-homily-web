@@ -59,7 +59,7 @@ export function partitionNotificationsByRead(entries: NotificationLogEntry[]): {
 export function EarlierDivider({ className }: { className?: string }) {
   return (
     <div className={cn('flex items-center gap-2', className)}>
-      <span className="font-data text-[11px] uppercase tracking-widest text-muted-foreground/70">
+      <span className="text-xs text-muted-foreground/70">
         Earlier
       </span>
       <span className="h-px flex-1 bg-border/50" aria-hidden />
@@ -128,7 +128,7 @@ function RowMeta({
 }) {
   const unread = entry.read_at == null
   return (
-    <p className="mt-1 flex items-center gap-2 font-data text-[11px] uppercase tracking-wide text-muted-foreground/70">
+    <p className="mt-1 flex items-center gap-2 text-xs text-muted-foreground/70">
       <span className="flex items-center gap-1">
         {formatTimeAgo(entry.sent_at)}
         {trailingIcon}
@@ -147,7 +147,7 @@ function RowMeta({
             event.preventDefault()
             event.stopPropagation()
           }}
-          className="cursor-pointer normal-case text-muted-foreground transition-colors hover:text-foreground"
+          className="cursor-pointer text-muted-foreground transition-colors hover:text-foreground"
         >
           [mark read]
         </button>

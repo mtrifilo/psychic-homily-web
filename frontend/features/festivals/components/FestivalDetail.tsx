@@ -360,7 +360,7 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
                   {venue.is_primary && (
                     <Badge
                       variant="secondary"
-                      className="text-[10px] px-1.5 py-0"
+                      className="px-1.5 py-0"
                     >
                       Primary
                     </Badge>

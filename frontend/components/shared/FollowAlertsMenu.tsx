@@ -146,7 +146,7 @@ export function FollowAlertsMenu({
             // the top of a list that can run 50 rows deep. The guard in
             // onSelect is what actually blocks a second write.
             aria-disabled={updateAlerts.isPending || undefined}
-            className={cn('font-data text-[11px]', className)}
+            className={cn('font-data text-xs', className)}
           />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="max-w-xs">

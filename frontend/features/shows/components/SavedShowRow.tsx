@@ -34,7 +34,7 @@ export function SavedShowRow({
     // Overlaps the heart's target on upcoming rows (see below). `relative`
     // paints it above the button's hover fill; `pointer-events-none` passes
     // every tap through to the heart, so the target stays a full 44px.
-    <span className="pointer-events-none relative whitespace-nowrap font-data text-[11px] leading-[14px] text-muted-foreground">
+    <span className="pointer-events-none relative whitespace-nowrap font-data text-xs leading-4 text-muted-foreground">
       saved {formatRelativeTime(show.saved_at, { short: true })}
     </span>
   )

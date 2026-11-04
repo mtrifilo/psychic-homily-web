@@ -81,7 +81,7 @@ function SectionLabel({ id, children }: { id?: string; children: ReactNode }) {
   return (
     <p
       id={id}
-      className="px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+      className="px-2 pb-1 pt-2 text-xs font-medium text-muted-foreground"
     >
       {children}
     </p>

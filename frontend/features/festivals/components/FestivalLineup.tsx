@@ -157,12 +157,12 @@ function TierSection({ tierGroup }: { tierGroup: TierGroup }) {
     <div>
       <h4
         className={cn(
-          'uppercase tracking-wider mb-3',
+          'mb-3',
           tier === 'headliner' && 'text-xs font-bold text-link',
           tier === 'sub_headliner' && 'text-xs font-semibold text-muted-foreground',
           tier !== 'headliner' &&
             tier !== 'sub_headliner' &&
-            'text-[11px] font-medium text-muted-foreground/70'
+            'text-xs font-medium text-muted-foreground/70'
         )}
       >
         {getBillingTierLabel(tier)}

@@ -220,8 +220,8 @@ export function FieldNoteForm({
 
       {/* Structured fields */}
       <div className="space-y-3 rounded-lg border border-border/50 bg-muted/20 p-3">
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-          Optional Details
+        <p className="text-xs font-medium text-muted-foreground">
+          Optional details
         </p>
 
         {/* Star ratings */}

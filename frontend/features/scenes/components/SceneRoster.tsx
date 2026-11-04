@@ -61,7 +61,7 @@ const ROSTER_MAX = 100
  * profile-resolved writers use the same column, so the field establishes no
  * release recency.
  *
- * The link carries its own underline. The caption's type is data-face micro-caps in
+ * The link carries its own underline. The caption's type is the sentence-case label tier in
  * the muted tone, where `EntityNameLink`'s default weight bump is nearly
  * invisible and its underline waits for a hover a touch reader never performs.
  */
@@ -73,7 +73,7 @@ function RosterEmbed({ embed }: { embed: SceneRepresentativeEmbed }) {
         artistName={embed.artist_name}
         compact
       />
-      <p className="mt-1 font-data text-[11px] uppercase tracking-widest text-muted-foreground">
+      <p className="mt-1 text-xs text-muted-foreground">
         Bandcamp{' · '}
         <EntityNameLink
           name={embed.artist_name}
@@ -272,7 +272,7 @@ export function SceneRoster({
       {/* Only reachable once the ceiling is the thing withholding bands, so it
           states that rather than offering a control that cannot deliver. */}
       {withheld > 0 && !canExpand && (
-        <p className="mt-2 font-data text-[11px] text-muted-foreground">
+        <p className="mt-2 font-data text-xs text-muted-foreground">
           Showing {artists.length} of {total} bands based in {scene.city}
         </p>
       )}

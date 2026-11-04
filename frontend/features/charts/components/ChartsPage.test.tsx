@@ -488,9 +488,9 @@ describe('ChartsPage', () => {
     render(<ChartsPage />)
 
     expect(screen.getAllByRole('heading', { level: 2 })).toHaveLength(8)
-    expect(screen.getByText('Hardest-Working Artists')).toBeInTheDocument()
-    expect(screen.getByText('Openers to Watch')).toBeInTheDocument()
-    expect(screen.getByText('Top Tags')).toBeInTheDocument()
+    expect(screen.getByText('Hardest-working artists')).toBeInTheDocument()
+    expect(screen.getByText('Openers to watch')).toBeInTheDocument()
+    expect(screen.getByText('Top tags')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Shoegaze' })).toHaveAttribute(
       'href',
       '/shows?tags=shoegaze&cities=all'
@@ -518,7 +518,7 @@ describe('ChartsPage', () => {
     render(<ChartsPage />)
 
     const strip = screen.getByRole('region', { name: 'Your chart stats' })
-    expect(strip).toHaveTextContent('YOU')
+    expect(strip).toHaveTextContent('You')
     expect(strip).toHaveTextContent('12 shows marked')
     expect(strip).toHaveTextContent('34 artists followed')
     expect(strip).toHaveTextContent('top venue: The Rebel Lounge (5)')
@@ -533,7 +533,7 @@ describe('ChartsPage', () => {
     expect(
       screen.queryByRole('region', { name: 'Your chart stats' })
     ).not.toBeInTheDocument()
-    expect(screen.queryByText('YOU')).not.toBeInTheDocument()
+    expect(screen.queryByText('You')).not.toBeInTheDocument()
   })
 
   it('renders a labeled personal-stats skeleton while the request loads', () => {
@@ -555,7 +555,7 @@ describe('ChartsPage', () => {
     expect(
       screen.queryByRole('region', { name: 'Your chart stats' })
     ).not.toBeInTheDocument()
-    expect(screen.queryByText('YOU')).not.toBeInTheDocument()
+    expect(screen.queryByText('You')).not.toBeInTheDocument()
   })
 
   it('replaces zero-history stats with the actionable nudge', () => {
@@ -846,7 +846,7 @@ describe('ChartsPage', () => {
         'Unable to verify this scene. Your chart selection is preserved.'
       )
     ).toBeInTheDocument()
-    expect(screen.queryByText('Hardest-Working Artists')).not.toBeVisible()
+    expect(screen.queryByText('Hardest-working artists')).not.toBeVisible()
     const moduleCalls = mockScopedHook.mock.calls.filter(
       ([name]) => name !== 'scenes'
     )
@@ -863,7 +863,7 @@ describe('ChartsPage', () => {
     sceneListError = true
     render(<ChartsPage />)
 
-    expect(screen.getByText('Hardest-Working Artists')).toBeVisible()
+    expect(screen.getByText('Hardest-working artists')).toBeVisible()
     await user.click(screen.getByRole('button', { name: 'Retry chart scenes' }))
     expect(mockRefetchScenes).toHaveBeenCalledOnce()
   })

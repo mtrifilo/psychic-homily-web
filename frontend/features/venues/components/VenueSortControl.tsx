@@ -50,7 +50,7 @@ export function VenueSortControl({
         className="hidden items-center gap-2 text-sm sm:flex"
         data-testid="venue-sort-strip"
       >
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        <span className="text-xs font-semibold text-muted-foreground">
           Sort
         </span>
         {VENUE_SORTS.map((key, index) => (

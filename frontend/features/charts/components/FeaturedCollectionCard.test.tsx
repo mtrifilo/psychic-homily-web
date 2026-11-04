@@ -107,7 +107,7 @@ describe('FeaturedCollectionCard', () => {
     render(<FeaturedCollectionCard />)
 
     expect(screen.getByTestId('featured-collection')).toBeInTheDocument()
-    expect(screen.getByText('Featured Collection')).toBeInTheDocument()
+    expect(screen.getByText('Featured collection')).toBeInTheDocument()
     expect(
       screen.getByRole('link', { name: 'Desert Psych Comp' })
     ).toHaveAttribute('href', '/collections/desert-psych-comp')

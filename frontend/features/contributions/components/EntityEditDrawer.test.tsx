@@ -396,7 +396,7 @@ describe('EntityEditDrawer venue capacity (PSY-1694)', () => {
 
     fireEvent.change(screen.getByTestId('edit-capacity-input'), { target: { value: '0' } })
 
-    expect(screen.getByText('Changes Preview')).toBeInTheDocument()
+    expect(screen.getByText('Changes preview')).toBeInTheDocument()
     expect(screen.getByText('0')).toBeInTheDocument()
     expect(screen.queryByText('cleared')).not.toBeInTheDocument()
   })
@@ -412,7 +412,7 @@ describe('EntityEditDrawer venue capacity (PSY-1694)', () => {
     fillSummary()
     fireEvent.change(screen.getByTestId('edit-capacity-input'), { target: { value: ' 550 ' } })
 
-    expect(screen.queryByText('Changes Preview')).not.toBeInTheDocument()
+    expect(screen.queryByText('Changes preview')).not.toBeInTheDocument()
     expect(getSubmitButton()).toBeDisabled()
   })
 
@@ -449,7 +449,7 @@ describe('EntityEditDrawer venue capacity (PSY-1694)', () => {
     fillSummary()
     fireEvent.change(screen.getByTestId('edit-capacity-input'), { target: { value: '   ' } })
 
-    expect(screen.queryByText('Changes Preview')).not.toBeInTheDocument()
+    expect(screen.queryByText('Changes preview')).not.toBeInTheDocument()
     expect(getSubmitButton()).toBeDisabled()
   })
 })

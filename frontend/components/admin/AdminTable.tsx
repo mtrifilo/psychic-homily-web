@@ -94,7 +94,7 @@ export function AdminTable<T>({
               <th
                 key={col.key}
                 className={cn(
-                  'px-3 py-2 font-data text-xs font-medium uppercase tracking-wider text-muted-foreground',
+                  'px-3 py-2 font-data text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground',
                   ALIGN[col.align ?? 'left'],
                   col.headerClassName
                 )}

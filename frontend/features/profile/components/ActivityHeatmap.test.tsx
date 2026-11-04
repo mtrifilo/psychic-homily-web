@@ -185,6 +185,25 @@ describe('ActivityHeatmap', () => {
     expect(screen.getByText('Mar')).toBeInTheDocument()
   })
 
+  it('spaces month labels at least three columns apart so 12px names never overprint', () => {
+    // The 52-week grid then starts on Sunday Jan 26 2025, one column before Feb.
+    vi.setSystemTime(new Date('2026-01-20T12:00:00Z'))
+    mockUseActivityHeatmap.mockReturnValue({
+      data: { days: [] },
+      isLoading: false,
+    })
+
+    render(<ActivityHeatmap username="alice" />)
+    const monthRow = screen.getByText('Feb').parentElement as HTMLElement
+    const labelled = Array.from(monthRow.children)
+      .map((cell, col) => ({ col, text: cell.textContent }))
+      .filter(cell => cell.text)
+    expect(labelled.length).toBeGreaterThan(1)
+    labelled.slice(1).forEach((cell, i) => {
+      expect(cell.col - labelled[i].col).toBeGreaterThanOrEqual(3)
+    })
+  })
+
   it('passes username to the hook', () => {
     mockUseActivityHeatmap.mockReturnValue({
       data: { days: [] },

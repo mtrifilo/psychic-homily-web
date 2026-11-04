@@ -73,7 +73,7 @@ export function StationOnAirBox({ station }: StationOnAirBoxProps) {
       className="rounded-md border border-primary/60 px-4 py-3.5 flex flex-col gap-1.5"
     >
       <div className="flex items-baseline justify-between gap-2">
-        <h2 className="font-data text-[11px] uppercase tracking-[1.2px] text-muted-foreground">
+        <h2 className="text-xs text-muted-foreground">
           {data.on_air && (
             <>
               <span className="text-primary" aria-hidden>
@@ -84,7 +84,7 @@ export function StationOnAirBox({ station }: StationOnAirBoxProps) {
           {data.on_air ? 'On air' : 'Latest playlist'} — {station.name}
         </h2>
         {!data.on_air && latestDate && (
-          <span className="font-data text-[11px] uppercase tracking-wide text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             Latest: {latestDate}
           </span>
         )}

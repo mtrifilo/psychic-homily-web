@@ -764,7 +764,7 @@ function CollectionItemRow({
             >
               {item.entity_name}
             </Link>
-            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">
+            <Badge variant="secondary" className="px-1.5 py-0 shrink-0">
               {getEntityTypeLabel(item.entity_type)}
             </Badge>
           </div>

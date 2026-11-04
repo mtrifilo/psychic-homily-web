@@ -50,11 +50,11 @@ describe('AsHeardOn', () => {
     mockUseReleaseRadioPlays.mockReturnValue(empty())
   })
 
-  it('renders the As Heard On header and show link for an artist', () => {
+  it('renders the As heard on header and show link for an artist', () => {
     mockUseArtistRadioPlays.mockReturnValue({ data: response(), isLoading: false })
     render(<AsHeardOn entityType="artist" entitySlug="gatecreeper" />)
 
-    expect(screen.getByText('As Heard On')).toBeInTheDocument()
+    expect(screen.getByText('As heard on')).toBeInTheDocument()
     const link = screen.getByText('Morning Show').closest('a')
     expect(link).toHaveAttribute('href', '/radio/kexp/morning-show')
   })
@@ -76,7 +76,7 @@ describe('AsHeardOn', () => {
   it('selects the release query when entityType is release', () => {
     mockUseReleaseRadioPlays.mockReturnValue({ data: response(), isLoading: false })
     render(<AsHeardOn entityType="release" entitySlug="an-unkindness" />)
-    expect(screen.getByText('As Heard On')).toBeInTheDocument()
+    expect(screen.getByText('As heard on')).toBeInTheDocument()
     expect(screen.getByText('Morning Show')).toBeInTheDocument()
   })
 

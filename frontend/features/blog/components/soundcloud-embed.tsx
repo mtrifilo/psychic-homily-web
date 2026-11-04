@@ -28,7 +28,7 @@ export function SoundCloud({
       {(artist || title) && (
         <div
           style={{
-            fontSize: '10px',
+            fontSize: '12px',
             color: '#cccccc',
             lineBreak: 'anywhere',
             wordBreak: 'normal',

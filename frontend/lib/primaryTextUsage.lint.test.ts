@@ -57,7 +57,7 @@ const ALLOWED: Record<string, { tokens: string[]; reason: string }> = {
 
 // An icon box: a square size, or both a width and a height, with no text size
 // beside it. A lone height is a control height (`h-7 px-2` on a text button),
-// and a box that also sets a text size (`w-16 text-[11px]`) holds text. Sizes
+// and a box that also sets a text size (`w-16 text-[13px]`) holds text. Sizes
 // and text sizes may carry variants (`sm:size-5`, `sm:text-sm`), and a text
 // size may carry a line height (`text-xs/5`).
 const VARIANTS = String.raw`(?:[^\s:]+:)*`
@@ -156,7 +156,7 @@ describe('small orange text uses the link token', () => {
     expect(flagged(`<a className="[&>a]:text-primary">x</a>`)).toEqual(['[&>a]:text-primary'])
     expect(flagged(`<a className="*:text-primary">x</a>`)).toEqual(['*:text-primary'])
     expect(flagged(`<a className="text-primary! hover:!text-primary">x</a>`)).toEqual(['text-primary', 'hover:text-primary'])
-    expect(flagged(`<span className="w-16 shrink-0 text-[11px] text-primary">x</span>`)).toEqual(['text-primary'])
+    expect(flagged(`<span className="w-16 shrink-0 text-[13px] text-primary">x</span>`)).toEqual(['text-primary'])
     expect(flagged('const c = `${base} text-primary`')).toEqual(['text-primary'])
     expect(
       flagged(`const n = 1 // doesn't pin\nconst r = /a="?b"/\nconst c = cn('x', 'hover:text-primary')`)

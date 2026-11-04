@@ -285,7 +285,7 @@ function FreshnessFooter({
   // Empty string when the instant did not parse; the clause drops out.
   const lastMapped = formatLastMapped(map.lastMapped)
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-border/50 px-4 py-2.5 font-data text-[10px] uppercase tracking-wider text-muted-foreground">
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-border/50 px-4 py-2.5 text-xs text-muted-foreground">
       <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
         {onWatchItGrow && (
           <button

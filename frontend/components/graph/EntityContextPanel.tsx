@@ -65,7 +65,7 @@ const ENTITY_TYPE_PATH: Record<EntityPanelEntityType, string> = {
   festival: 'festivals',
 }
 
-/** Headed text payoff (NEXT SHOW / BILL); the label renders as data-face caps. */
+/** Headed text payoff (Next show / Bill); the label renders in the sentence-case label tier. */
 export interface EntityPanelLabeledPrimary {
   kind: 'labeled'
   label: string
@@ -122,7 +122,7 @@ function FieldLabel({
   return (
     <div
       className={cn(
-        'font-data text-[10px] uppercase tracking-wider text-muted-foreground',
+        'text-xs text-muted-foreground',
         className,
       )}
     >
@@ -153,7 +153,6 @@ export function EntityContextPanel({
   className,
   panelRef,
 }: EntityContextPanelProps) {
-  const typeLabel = ENTITY_TYPE_LABEL[entityType].toUpperCase()
   const pageHref = `/${ENTITY_TYPE_PATH[entityType]}/${encodeURIComponent(slug)}`
   const hasContent = primary != null || facts.length > 0
 
@@ -166,7 +165,7 @@ export function EntityContextPanel({
       className={cn('max-h-[85%] p-4 space-y-2.5', className)}
       header={
         <div className="space-y-0.5">
-          <FieldLabel>{typeLabel}</FieldLabel>
+          <FieldLabel>{ENTITY_TYPE_LABEL[entityType]}</FieldLabel>
           <h3 className="text-base font-semibold leading-tight text-foreground">
             {name}
           </h3>
@@ -229,7 +228,7 @@ export function EntityContextPanel({
 
       <Link
         href={pageHref}
-        className="inline-block font-data text-[11px] text-link hover:underline underline-offset-4"
+        className="inline-block font-data text-xs text-link hover:underline underline-offset-4"
       >
         [ Open page → ]
       </Link>

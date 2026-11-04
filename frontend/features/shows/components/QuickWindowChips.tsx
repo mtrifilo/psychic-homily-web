@@ -144,7 +144,7 @@ export function QuickWindowChips({
     >
       <span
         id={labelId}
-        className="shrink-0 font-data text-[10.5px] font-bold uppercase tracking-[1px] text-muted-foreground"
+        className="shrink-0 text-xs font-bold text-muted-foreground"
       >
         Jump to
       </span>

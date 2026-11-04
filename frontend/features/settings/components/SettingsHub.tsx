@@ -112,7 +112,7 @@ export function SettingsHub() {
       <div className="lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:items-start lg:gap-10">
         <div className="lg:sticky lg:top-[calc(var(--topbar-height)+1rem)]">
           <header className="mb-4">
-            <p className="font-data text-[11px] text-link">/settings</p>
+            <p className="font-data text-xs text-link">/settings</p>
             <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
           </header>
           <SettingsRail

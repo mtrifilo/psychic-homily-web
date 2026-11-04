@@ -65,7 +65,7 @@ describe('FeaturedArchivePage', () => {
 
     render(<FeaturedArchivePage />)
 
-    expect(screen.getByText('FEATURED COLLECTION · MOST RECENT')).toBeInTheDocument()
+    expect(screen.getByText('Featured collection · most recent')).toBeInTheDocument()
     // Meta line reports the live run as still holding the slot.
     expect(
       screen.getByText(/curated by/i).textContent?.replace(/\s+/g, ' ').trim()
@@ -77,7 +77,7 @@ describe('FeaturedArchivePage', () => {
       '/collections/desert-punk-starter-pack#discussion'
     )
     // A single run means no closed-run ledger.
-    expect(screen.queryByText('PREVIOUSLY FEATURED')).not.toBeInTheDocument()
+    expect(screen.queryByText('Previously featured')).not.toBeInTheDocument()
   })
 
   it('renders closed runs as a newest-first ledger with a run count', () => {
@@ -109,7 +109,7 @@ describe('FeaturedArchivePage', () => {
 
     render(<FeaturedArchivePage />)
 
-    expect(screen.getByText('PREVIOUSLY FEATURED')).toBeInTheDocument()
+    expect(screen.getByText('Previously featured')).toBeInTheDocument()
     expect(screen.getByText('2 closed runs')).toBeInTheDocument()
     expect(screen.getByText('Apr 12 – May 30, 2026')).toBeInTheDocument()
     expect(screen.getByText('Jan 08 – Mar 04, 2026')).toBeInTheDocument()
@@ -188,7 +188,7 @@ describe('FeaturedArchivePage', () => {
     expect(
       screen.getByText('No collection has been featured yet.')
     ).toBeInTheDocument()
-    expect(screen.queryByText('FEATURED COLLECTION · MOST RECENT')).not.toBeInTheDocument()
+    expect(screen.queryByText('Featured collection · most recent')).not.toBeInTheDocument()
     // Header still renders — the route is valid, just early.
     expect(
       screen.getByRole('heading', { name: 'Previously Featured', level: 1 })

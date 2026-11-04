@@ -68,7 +68,7 @@ export function DenseTable({
         'w-full text-sm leading-tight [&_.text-right]:tabular-nums',
         '[&_td]:py-1.5 [&_td]:px-2 [&_td]:align-baseline',
         '[&_th]:py-1.5 [&_th]:px-2 [&_th]:align-baseline [&_th]:text-left',
-        '[&_thead_th]:text-xs [&_thead_th]:font-semibold [&_thead_th]:uppercase [&_thead_th]:tracking-wider [&_thead_th]:text-muted-foreground',
+        '[&_thead_th]:text-xs [&_thead_th]:font-semibold [&_thead_th]:uppercase [&_thead_th]:tracking-[0.08em] [&_thead_th]:text-muted-foreground',
         VARIANT_CLASSES[variant],
         className
       )}
@@ -80,7 +80,7 @@ export function DenseTable({
 }
 
 export interface DenseTableGroupHeaderProps {
-  /** Group title (rendered uppercase tracking-wider). */
+  /** Group title, rendered as written (sentence case). */
   title: string
   /** Number of columns the header should span. Must match the table's column count. */
   colSpan: number
@@ -103,7 +103,7 @@ export function DenseTableGroupHeader({
       <th
         scope="rowgroup"
         colSpan={colSpan}
-        className="text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+        className="text-xs font-semibold text-muted-foreground"
       >
         {title}
       </th>

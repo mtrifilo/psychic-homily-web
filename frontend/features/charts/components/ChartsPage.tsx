@@ -220,7 +220,7 @@ function SceneSwitcher({
   const triggerClassName = cn(
     'inline-flex items-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60',
     treatment === 'chip'
-      ? 'gap-1 rounded-sm border border-border px-2 py-1 font-data text-[11px] hover:border-foreground/50'
+      ? 'gap-1 rounded-sm border border-border px-2 py-1 font-data text-xs hover:border-foreground/50'
       : 'gap-2 text-left font-display text-3xl font-bold leading-none text-primary hover:underline'
   )
 
@@ -264,7 +264,7 @@ function SceneSwitcher({
               <span className="min-w-0 flex-1 truncate">
                 {location(scene.city, scene.state)}
               </span>
-              <span className="text-[10px] text-muted-foreground">
+              <span className="text-xs text-muted-foreground">
                 {scene.show_count} shows
               </span>
             </DropdownMenuRadioItem>
@@ -297,7 +297,7 @@ function StatStrip({
       {isLoading ? (
         <span className="h-3 w-3/4 animate-pulse rounded-sm bg-muted" />
       ) : summary ? (
-        <p className="min-w-0 flex-1 text-[11px] leading-4 sm:text-xs">
+        <p className="min-w-0 flex-1 text-xs leading-4">
           <span>{summaryLabel(window)}:</span>{' '}
           <span>{summary.shows_added} shows added</span>
           <span className="text-muted-foreground"> · </span>
@@ -312,7 +312,7 @@ function StatStrip({
       ) : (
         <p className="flex-1 text-xs text-destructive">Summary unavailable.</p>
       )}
-      <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:inline">
+      <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
         updated hourly
       </span>
     </div>
@@ -336,8 +336,8 @@ function FreshlyAddedTicker({ items }: { items: FreshlyAddedItem[] }) {
   if (items.length === 0) return null
   return (
     <section className="flex flex-col gap-2 border-t-2 border-foreground py-2.5 sm:flex-row sm:items-baseline sm:gap-4">
-      <h2 className="shrink-0 font-data text-[11px] font-bold uppercase tracking-[0.06em]">
-        Freshly Added
+      <h2 className="shrink-0 text-xs font-bold">
+        Freshly added
       </h2>
       <p className="min-w-0 flex-1 text-xs leading-5 text-muted-foreground">
         {items.map((item, index) => (
@@ -346,7 +346,7 @@ function FreshlyAddedTicker({ items }: { items: FreshlyAddedItem[] }) {
             <Link href={tickerHref(item)} className={linkClass}>
               {item.name}
             </Link>{' '}
-            <span className="text-[10px]">({item.entity_type})</span>
+            <span>({item.entity_type})</span>
           </span>
         ))}
       </p>
@@ -618,7 +618,7 @@ export function ChartsPage({
             </p>
             {archiveEntries?.year || archiveEntries?.previousQuarter ? (
               <p
-                className="mt-2 font-data text-[11px] text-muted-foreground"
+                className="mt-2 font-data text-xs text-muted-foreground"
                 data-testid="chart-archive-entry-links"
               >
                 Archives:{' '}
@@ -734,7 +734,7 @@ export function ChartsPage({
         className="grid items-start gap-x-6 gap-y-6 md:grid-cols-2 xl:grid-cols-3"
       >
         <ChartModule
-          title="Hardest-Working Artists"
+          title="Hardest-working artists"
           context={moduleContext(window)}
           rowCount={active.data?.artists.length ?? 0}
           isLoading={active.isLoading || !sceneResolved}
@@ -773,7 +773,7 @@ export function ChartsPage({
                         followFallback)
                   }
                   disabled={artistFollows.isLoading}
-                  className="font-data text-[11px]"
+                  className="font-data text-xs"
                 />
               }
             />
@@ -781,7 +781,7 @@ export function ChartsPage({
         </ChartModule>
 
         <ChartModule
-          title="On the Radio"
+          title="On the radio"
           context={moduleContext(window)}
           rowCount={radio.data?.artists.length ?? 0}
           isLoading={radio.isLoading || !sceneResolved}
@@ -803,7 +803,7 @@ export function ChartsPage({
                     {artist.name}
                   </Link>
                   {artist.is_new ? (
-                    <Badge variant="accent" className="px-1 py-0 text-[9px]">
+                    <Badge variant="accent" className="px-1 py-0">
                       New
                     </Badge>
                   ) : null}
@@ -823,7 +823,7 @@ export function ChartsPage({
                         followFallback)
                   }
                   disabled={artistFollows.isLoading}
-                  className="font-data text-[11px]"
+                  className="font-data text-xs"
                 />
               }
             />
@@ -831,7 +831,7 @@ export function ChartsPage({
         </ChartModule>
 
         <ChartModule
-          title="Most Anticipated Shows"
+          title="Most anticipated shows"
           context="upcoming"
           rowCount={anticipated.data?.shows.length ?? 0}
           isLoading={anticipated.isLoading || !sceneResolved}
@@ -900,7 +900,7 @@ export function ChartsPage({
         </ChartModule>
 
         <ChartModule
-          title="Busiest Venues"
+          title="Busiest venues"
           context={moduleContext(window)}
           rowCount={venues.data?.venues.length ?? 0}
           isLoading={venues.isLoading || !sceneResolved}
@@ -935,7 +935,7 @@ export function ChartsPage({
                         followFallback)
                   }
                   disabled={venueFollows.isLoading}
-                  className="font-data text-[11px]"
+                  className="font-data text-xs"
                 />
               }
             />
@@ -943,7 +943,7 @@ export function ChartsPage({
         </ChartModule>
 
         <ChartModule
-          title="New Releases"
+          title="New releases"
           context={newReleasesContext(window)}
           rowCount={releases.data?.releases.length ?? 0}
           isLoading={releases.isLoading || !sceneResolved}
@@ -1015,7 +1015,7 @@ export function ChartsPage({
         </ChartModule>
 
         <ChartModule
-          title="Openers to Watch"
+          title="Openers to watch"
           context={moduleContext(window)}
           rowCount={openers.data?.artists.length ?? 0}
           isLoading={openers.isLoading || !sceneResolved}
@@ -1054,7 +1054,7 @@ export function ChartsPage({
                         followFallback)
                   }
                   disabled={artistFollows.isLoading}
-                  className="font-data text-[11px]"
+                  className="font-data text-xs"
                 />
               }
             />
@@ -1062,7 +1062,7 @@ export function ChartsPage({
         </ChartModule>
 
         <ChartModule
-          title="Top Tags"
+          title="Top tags"
           context={moduleContext(window)}
           rowCount={tags.data?.tags.length ?? 0}
           isLoading={tags.isLoading || !sceneResolved}

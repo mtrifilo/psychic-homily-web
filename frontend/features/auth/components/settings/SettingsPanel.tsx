@@ -132,11 +132,11 @@ export function SettingsPanel() {
             <span className="text-sm font-semibold">Email</span>
             <span className="font-data text-[13px]">{user?.email}</span>
             {isEmailVerified ? (
-              <Badge variant="outline" className="uppercase">
+              <Badge variant="outline">
                 Verified
               </Badge>
             ) : (
-              <Badge className="uppercase">Unverified</Badge>
+              <Badge>Unverified</Badge>
             )}
           </div>
 
@@ -149,7 +149,7 @@ export function SettingsPanel() {
 
                 <VerificationResendStatus
                   format={formatSettingsResendStatus}
-                  className="font-data text-[11px] uppercase tracking-[0.66px] text-muted-foreground"
+                  className="text-xs text-muted-foreground"
                 />
 
                 <VerificationResendSessionExpired>

@@ -40,7 +40,7 @@ function rotationTagLabel(status: string): string {
   return ROTATION_TAG_LABELS[status] ?? status.replace(/_/g, ' ').toUpperCase()
 }
 
-const BADGE_CLASSES = 'font-data text-[10px] px-1.5 py-0'
+const BADGE_CLASSES = 'font-data text-xs px-1.5 py-0'
 
 /**
  * How old the newest row's air_timestamp may be and still read "▸ now".

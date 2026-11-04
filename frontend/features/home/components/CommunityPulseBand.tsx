@@ -34,7 +34,7 @@ export function CommunityPulseBand() {
       aria-label="Current stats"
       className="flex w-full items-center justify-between gap-4 border-y border-border py-[18px]"
     >
-      <p className="shrink-0 font-data text-[11px] uppercase tracking-[1.4px] text-muted-foreground">
+      <p className="shrink-0 text-xs text-muted-foreground">
         Current stats
       </p>
 

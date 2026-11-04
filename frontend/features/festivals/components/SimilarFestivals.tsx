@@ -62,7 +62,7 @@ export function SimilarFestivals({ festivalIdOrSlug, enabled = true }: SimilarFe
                     href={`/artists/${artist.slug}`}
                     className="inline-flex items-center gap-1"
                   >
-                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 hover:bg-muted">
+                    <Badge variant="secondary" className="px-1.5 py-0 hover:bg-muted">
                       {artist.name}
                       <span className="text-muted-foreground/60 ml-1">
                         {getBillingTierLabel(artist.tier_at_target)}

@@ -17,8 +17,8 @@ function AsHeardOnList({ items }: { items: RadioAsHeardOn[] }) {
 
   return (
     <div>
-      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-        As Heard On
+      <h3 className="text-xs font-semibold text-muted-foreground mb-2">
+        As heard on
       </h3>
       <div className="space-y-2">
         {items.map(item => (

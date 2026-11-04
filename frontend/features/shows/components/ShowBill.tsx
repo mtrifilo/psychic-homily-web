@@ -136,14 +136,14 @@ export function ShowBill({
       )}
       {afterBill}
       {isCancelled && (
-        <Badge variant="destructive" className="text-[10px]">
+        <Badge variant="destructive">
           CANCELLED
         </Badge>
       )}
       {/* A cancelled show's ticket status is moot, and two badges on one row
           read as two separate facts about a show that is not happening. */}
       {!isCancelled && isSoldOut && (
-        <Badge variant="outline" className="text-[10px]">
+        <Badge variant="outline">
           SOLD OUT
         </Badge>
       )}

@@ -5,13 +5,13 @@ import { ArchiveMasthead } from './ArchiveMasthead'
 describe('ArchiveMasthead', () => {
   const now = new Date('2026-07-18T12:00:00Z')
 
-  it('renders the year archive title, ARCHIVE marker, and quarter nav', () => {
+  it('renders the year archive title, Archive marker, and quarter nav', () => {
     render(<ArchiveMasthead window="2026" now={now} />)
 
     expect(
       screen.getByRole('heading', { name: 'Charts — 2026' })
     ).toBeInTheDocument()
-    expect(screen.getByText('ARCHIVE')).toBeInTheDocument()
+    expect(screen.getByText('Archive')).toBeInTheDocument()
     expect(screen.getByLabelText('Adjacent chart periods')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Q1' })).toHaveAttribute(
       'href',

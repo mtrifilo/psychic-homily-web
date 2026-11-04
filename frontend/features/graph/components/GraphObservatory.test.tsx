@@ -1412,7 +1412,7 @@ describe('GraphObservatorySkeleton', () => {
   it('paints the chrome and the loading box, with no control to type into', () => {
     const { container } = renderWithProviders(<GraphObservatorySkeleton />)
 
-    expect(screen.getByRole('heading', { name: 'Music Knowledge Graph' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Music knowledge graph' })).toBeInTheDocument()
     expect(screen.getByText('Mapping the scene…')).toBeInTheDocument()
     // The search row is reserved for its height only: an input the shell cannot
     // wire up swallows what a visitor types into it before hydration. Asserted
