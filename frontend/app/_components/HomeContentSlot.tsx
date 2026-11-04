@@ -60,11 +60,8 @@ export async function HomeContentSlot() {
   const viewer = await resolveHomeViewer()
   if (viewer === 'authenticated') {
     const layout = await getAuthenticatedHomeLayout()
-    // Each section's rows are prefetched only for a viewer who has that
-    // section on their page. Hiding one should take its rows out of the page
-    // SOURCE too, not just out of the render, and it saves the backend read.
-    // Every read shares the same `React.cache()`d profile, so asking for the
-    // layout first costs nothing; the two row reads run in parallel.
+    // A section's rows are prefetched only while that section is visible: a
+    // hidden section's rows stay out of the page SOURCE, not just the render.
     const sections = resolveHomeLayout(layout)
     const isVisible = (id: string) =>
       sections.some(section => section.id === id && section.visible)

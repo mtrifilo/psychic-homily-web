@@ -214,7 +214,6 @@ export function useQuickCreateFilter() {
 // Inbox: notification log query + mark-read mutation (PSY-595)
 // ──────────────────────────────────────────────
 
-
 /**
  * The default page size, and therefore the ONE cache entry the bell popover
  * and every unread-count consumer share — the query key is parameterized by

@@ -12,6 +12,7 @@ import {
 import { useRouter } from 'next/navigation'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
+import { cn } from '@/lib/utils'
 import { animateSlotHeight, useFlipReorder } from '../homeLayoutMotion'
 import { useHomeLayout } from '../hooks/useHomeLayout'
 import {
@@ -318,7 +319,7 @@ function HomeSectionSlot({
           A section that renders nothing (an omitted module, a self-hidden
           band) leaves it empty, and an empty spacer takes no space, so the
           next section moves up into the slot. */}
-      <div className={isLast ? 'empty:hidden' : 'pb-14 empty:hidden'}>{children}</div>
+      <div className={cn('empty:hidden', !isLast && 'pb-14')}>{children}</div>
     </div>
   )
 }
