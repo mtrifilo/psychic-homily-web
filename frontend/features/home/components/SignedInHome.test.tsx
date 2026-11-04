@@ -15,6 +15,7 @@ vi.mock('./HomeLayoutRuntime', () => ({
   ),
 }))
 vi.mock('./SavedShowsModule', () => ({ SavedShowsModule: () => null }))
+vi.mock('./LibraryUpdates', () => ({ LibraryUpdates: () => null }))
 vi.mock('./NearbyShowsSection', () => ({ NearbyShowsSection: () => null }))
 vi.mock('./CommunityPulseBand', () => ({ CommunityPulseBand: () => null }))
 vi.mock('./HomeSceneGraph', () => ({
