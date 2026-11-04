@@ -10,6 +10,8 @@ import { SEEDED_DETAIL_PATHS, warmRoutes } from '../helpers/navigation'
 // dropdown-menu item that is not a link, a Radix select trigger and item), and
 // on probe elements for every ARIA role the rule lists.
 
+// Mirrors the role list of the base rule (and EXPECTED_SELECTORS in
+// app/pointerCursor.test.ts); a role added there is added here.
 const POINTER_ROLES = [
   'button',
   'link',

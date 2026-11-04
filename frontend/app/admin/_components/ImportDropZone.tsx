@@ -103,12 +103,14 @@ export function ImportDropZone({
         disabled && 'cursor-not-allowed opacity-50'
       )}
     >
+      {/* `cursor-pointer` holds in the disabled state too, which the base
+          pointer rule leaves out. */}
       <input
         type="file"
         accept=".md"
         onChange={handleFileInput}
         disabled={disabled || isLoading}
-        className="absolute inset-0 opacity-0"
+        className="absolute inset-0 cursor-pointer opacity-0"
       />
 
       <div className="flex flex-col items-center justify-center text-center">

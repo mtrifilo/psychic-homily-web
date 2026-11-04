@@ -19,6 +19,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 // The full list, not a sample: dropping or narrowing one selector silently
 // returns that control to the arrow, and the compiled form is what ships.
+// The roles are mirrored by POINTER_ROLES in e2e/pages/cursor.spec.ts.
 const EXPECTED_SELECTORS = [
   'button:not(:disabled)',
   'select:not(:disabled)',
