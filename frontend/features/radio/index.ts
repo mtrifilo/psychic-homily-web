@@ -20,7 +20,7 @@ export type {
   RadioTopArtist,
   RadioTopLabel,
   RadioAsHeardOn,
-  RadioAsHeardOnPlay,
+  RadioAsHeardOnEpisode,
   RadioNewReleaseRadarEntry,
   RadioStats,
   RadioTopArtistsResponse,

@@ -13298,7 +13298,7 @@ export interface components {
             /** @description The earliest episode air date counted (YYYY-MM-DD) */
             window_start: string;
         };
-        RadioAsHeardOnPlay: {
+        RadioAsHeardOnEpisode: {
             /**
              * @description Episode air date, YYYY-MM-DD
              * @example 2026-11-02
@@ -13311,6 +13311,8 @@ export interface components {
             track_title: string | null;
         };
         RadioAsHeardOnResponse: {
+            /** @description The most recent episodes that played the entity on this show, newest first, at most 10, each with its latest play of the entity */
+            episodes: components["schemas"]["RadioAsHeardOnEpisode"][] | null;
             /**
              * @description Air date of the most recent play, YYYY-MM-DD
              * @example 2026-11-02
@@ -13318,18 +13320,16 @@ export interface components {
             last_played: string;
             /**
              * Format: int64
-             * @description radio_plays id of the most recent play on this show
+             * @description radio_plays id of episodes[0]'s play; 0 when episodes is empty
              */
             latest_play_id: number;
             /**
              * Format: int64
-             * @description Playlist position of the most recent play on this show
+             * @description Playlist position of episodes[0]'s play; 0 when episodes is empty
              */
             latest_play_position: number;
             /** Format: int64 */
             play_count: number;
-            /** @description The most recent plays on this show, newest first, at most 10; one entry per play, so an episode with two plays of the entity contributes two */
-            recent_plays: components["schemas"]["RadioAsHeardOnPlay"][] | null;
             /** Format: int64 */
             show_id: number;
             show_name: string;

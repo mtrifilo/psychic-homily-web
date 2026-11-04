@@ -1,3 +1,4 @@
+import { StrictMode } from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
 import { installMatchMedia } from '@/test/mocks/matchMedia'
@@ -336,6 +337,37 @@ describe('EpisodeDateDetail arrival at a #play-{id} anchor', () => {
     rerender(<EpisodeDateDetail {...props} />)
 
     expect(anchoredRow()).toBe(document.getElementById('play-12'))
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+  })
+
+  it('scrolls once when a poll later delivers the anchored row', () => {
+    const { rerender } = arriveAt('#play-13')
+    expect(scrollIntoView).not.toHaveBeenCalled()
+
+    setEpisode(
+      makeEpisode({
+        plays: [
+          ...episodeWithPlays().plays,
+          makeRadioPlay({ id: 13, position: 3, artist_name: 'Faust' }),
+        ],
+      }),
+      60_000
+    )
+    rerender(<EpisodeDateDetail {...props} />)
+    rerender(<EpisodeDateDetail {...props} />)
+
+    expect(anchoredRow()).toBe(document.getElementById('play-13'))
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+    expect(scrollIntoView.mock.contexts[0]).toBe(document.getElementById('play-13'))
+  })
+
+  it('scrolls once per arrival when effects re-mount (a cached route revealed by Back)', () => {
+    window.history.replaceState(null, '', '/radio/wfmu/night-owl/2026-06-08#play-12')
+    setEpisode(episodeWithPlays())
+    // StrictMode mounts, unmounts and re-mounts every effect, as a revealed
+    // Activity does.
+    render(<EpisodeDateDetail {...props} />, { wrapper: StrictMode })
+
     expect(scrollIntoView).toHaveBeenCalledTimes(1)
   })
 

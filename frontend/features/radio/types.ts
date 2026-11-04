@@ -325,7 +325,7 @@ export interface RadioTopLabel {
 }
 
 export type RadioAsHeardOn = components['schemas']['RadioAsHeardOnResponse']
-export type RadioAsHeardOnPlay = components['schemas']['RadioAsHeardOnPlay']
+export type RadioAsHeardOnEpisode = components['schemas']['RadioAsHeardOnEpisode']
 
 // New Release Radar link resolution (PSY-1076, extracted from the hub's
 // sidebar box): link the "Artist — Album" line to the release when matched,

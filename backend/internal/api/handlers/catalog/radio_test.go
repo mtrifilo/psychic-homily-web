@@ -569,7 +569,7 @@ func asHeardOnDeepLinkRow() *contracts.RadioAsHeardOnResponse {
 		ShowID: 2, ShowName: "Morning Show", ShowSlug: "morning-show",
 		PlayCount: 2, LastPlayed: "2026-01-08",
 		LatestPlayID: 77, LatestPlayPosition: 4,
-		RecentPlays: []contracts.RadioAsHeardOnPlay{
+		Episodes: []contracts.RadioAsHeardOnEpisode{
 			{AirDate: "2026-01-08", PlayID: 77, Position: 4, TrackTitle: &title},
 			{AirDate: "2026-01-01", PlayID: 51, Position: 2, TrackTitle: nil},
 		},
@@ -600,21 +600,21 @@ func assertAsHeardOnDeepLinkWire(t *testing.T, body any) {
 	if got := string(row["latest_play_position"]); got != "4" {
 		t.Errorf("latest_play_position = %s, want 4", got)
 	}
-	var plays []map[string]json.RawMessage
-	if err := json.Unmarshal(row["recent_plays"], &plays); err != nil {
-		t.Fatalf("recent_plays: %v", err)
+	var episodes []map[string]json.RawMessage
+	if err := json.Unmarshal(row["episodes"], &episodes); err != nil {
+		t.Fatalf("episodes: %v", err)
 	}
-	if len(plays) != 2 {
-		t.Fatalf("expected 2 recent plays, got %d", len(plays))
+	if len(episodes) != 2 {
+		t.Fatalf("expected 2 episodes, got %d", len(episodes))
 	}
 	want := map[string]string{"air_date": `"2026-01-08"`, "play_id": "77", "position": "4", "track_title": `"Sunflower"`}
 	for key, value := range want {
-		if got := string(plays[0][key]); got != value {
-			t.Errorf("recent_plays[0].%s = %s, want %s", key, got, value)
+		if got := string(episodes[0][key]); got != value {
+			t.Errorf("episodes[0].%s = %s, want %s", key, got, value)
 		}
 	}
-	if got := string(plays[1]["track_title"]); got != "null" {
-		t.Errorf("recent_plays[1].track_title = %s, want null", got)
+	if got := string(episodes[1]["track_title"]); got != "null" {
+		t.Errorf("episodes[1].track_title = %s, want null", got)
 	}
 }
 

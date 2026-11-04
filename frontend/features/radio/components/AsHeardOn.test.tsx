@@ -33,10 +33,10 @@ function response(): RadioAsHeardOnResponse {
         show_name: 'Morning Show',
         show_slug: 'morning-show',
         play_count: 3,
-        last_played: '2026-05-01T00:00:00Z',
+        last_played: '2026-05-01',
         latest_play_id: 77,
         latest_play_position: 4,
-        recent_plays: [
+        episodes: [
           { air_date: '2026-05-01', play_id: 77, position: 4, track_title: 'Sunflower' },
           { air_date: '2026-04-24', play_id: 61, position: 9, track_title: null },
           { air_date: '2026-04-17', play_id: 40, position: 2, track_title: 'Words' },
@@ -71,11 +71,19 @@ describe('AsHeardOn', () => {
     expect(link).toHaveAttribute('href', '/radio/kexp/morning-show/2026-05-01#play-77')
   })
 
-  it('links the episode without an anchor when no play is listed', () => {
+  it('opens the last-played day unanchored when no episode is listed', () => {
     const data = response()
-    data.stations[0].recent_plays = null
+    data.stations[0].episodes = null
     expect(renderArtistRow(data)).toHaveAttribute('href', '/radio/kexp/morning-show/2026-05-01')
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  it('links the newest listed episode even when the last play is on a day it cannot open', () => {
+    const data = response()
+    data.stations[0].last_played = '2026-05-08'
+    const link = renderArtistRow(data)!
+    expect(link).toHaveAttribute('href', '/radio/kexp/morning-show/2026-05-01#play-77')
+    expect(link).toHaveTextContent('last on May 8')
   })
 
   it('renders the station, pluralized play count and last-played date', () => {
@@ -87,20 +95,31 @@ describe('AsHeardOn', () => {
   it('singularizes a single play and offers no disclosure', () => {
     const data = response()
     data.stations[0].play_count = 1
-    data.stations[0].recent_plays = data.stations[0].recent_plays!.slice(0, 1)
+    data.stations[0].episodes = data.stations[0].episodes!.slice(0, 1)
     expect(renderArtistRow(data)).toHaveTextContent('KEXP · 1 play · last on May 1')
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  it('discloses two plays in one episode as that episode', () => {
+    const data = response()
+    data.stations[0].play_count = 2
+    data.stations[0].episodes = data.stations[0].episodes!.slice(0, 1)
+    renderArtistRow(data)
+    const toggle = screen.getByRole('button', { name: 'Plays on Morning Show' })
+    const list = document.getElementById(toggle.getAttribute('aria-controls')!)
+    expect(within(list!).getAllByRole('link', { hidden: true })).toHaveLength(1)
   })
 
   it('falls back to the show page and names no date without last_played', () => {
     const data = response()
     data.stations[0].last_played = ''
+    data.stations[0].episodes = null
     const link = renderArtistRow(data)
     expect(link).toHaveAttribute('href', '/radio/kexp/morning-show')
     expect(link?.textContent).toMatch(/KEXP · 3 plays$/)
   })
 
-  it('discloses every recent play of a multi-play row as its own deep link', async () => {
+  it('discloses every listed episode of a multi-play row as its own deep link', async () => {
     const user = userEvent.setup()
     renderArtistRow()
 

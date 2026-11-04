@@ -27,8 +27,8 @@ interface PlaylistTableProps {
   /**
    * The play the visitor arrived at (`#play-{id}`): its row takes the
    * newest-row tint and `aria-current`, and is scrolled to the viewport's
-   * center when the anchored id changes (never on a poll's re-render). Null
-   * or an id with no row here highlights and scrolls nothing.
+   * center once per arrival, as soon as its row is present. Null or an id
+   * with no row here highlights and scrolls nothing.
    */
   highlightedPlayId?: number | null
 }
@@ -78,15 +78,27 @@ export function PlaylistTable({
   const ordered = live ? [...plays].reverse() : plays
   const now = new Date()
   const anchoredRowRef = useRef<HTMLTableRowElement>(null)
+  // The anchored id this arrival already scrolled to. It outlives effect
+  // re-mounts (a cached route revealed again by Back re-runs effects), so one
+  // arrival scrolls once; it resets only when the anchor clears.
+  const scrolledToPlayIdRef = useRef<number | null>(null)
   const reducedMotion = useReducedMotion()
+  const anchoredRowPresent =
+    highlightedPlayId != null && plays.some(play => play.id === highlightedPlayId)
 
   useEffect(() => {
-    if (highlightedPlayId == null) return
+    if (highlightedPlayId == null) {
+      scrolledToPlayIdRef.current = null
+      return
+    }
+    // A poll may deliver the anchored row after mount: wait for it.
+    if (!anchoredRowPresent || scrolledToPlayIdRef.current === highlightedPlayId) return
+    scrolledToPlayIdRef.current = highlightedPlayId
     anchoredRowRef.current?.scrollIntoView({
       block: 'center',
       behavior: reducedMotion ? 'instant' : 'smooth',
     })
-  }, [highlightedPlayId, reducedMotion])
+  }, [highlightedPlayId, anchoredRowPresent, reducedMotion])
 
   return (
     <div>

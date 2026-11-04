@@ -18,28 +18,27 @@ interface AsHeardOnProps {
 }
 
 /**
- * One station+show the entity was played on. Links to the latest play on the
- * playlist of the latest day it was played on (`#play-{latest_play_id}`);
- * without a `last_played` date the row falls back to the show page and names
- * no date, and with no listed play it opens the day's playlist unanchored.
- * A show with more than one play also gets a disclosure listing each recent
- * play as its own deep link. Episode URLs are keyed by day: the latest play
- * is ranked with the episode route's same-day order, so it sits in the
- * episode its day opens, but an older play on a same-day sibling episode
- * opens the plain playlist (the anchor finds no row).
+ * One station+show the entity was played on. The row links to `episodes[0]`,
+ * the newest episode a day URL can open, at its play (`#play-{play_id}`);
+ * with no listed episode it opens the `last_played` day unanchored, and
+ * without that date it falls back to the show page and names no date. The
+ * second line's date is always `last_played`, the true latest play. A show
+ * with more than one play also gets a disclosure listing each episode as its
+ * own deep link.
  */
 function AsHeardOnRow({ item }: { item: RadioAsHeardOn }) {
   const [expanded, setExpanded] = useState(false)
   const listId = useId()
   const showHref = `/radio/${item.station_slug}/${item.show_slug}`
   const episodeDate = toEpisodeDate(item.last_played)
-  const plays = item.recent_plays ?? []
-  const href = !episodeDate
-    ? showHref
-    : plays.length > 0
-      ? episodePlayHref(item.station_slug, item.show_slug, episodeDate, item.latest_play_id)
-      : `${showHref}/${episodeDate}`
-  const expandable = plays.length > 1
+  const episodes = item.episodes ?? []
+  const newest = episodes[0]
+  const href = newest
+    ? episodePlayHref(item.station_slug, item.show_slug, newest.air_date, newest.play_id)
+    : episodeDate
+      ? `${showHref}/${episodeDate}`
+      : showHref
+  const expandable = item.play_count > 1 && episodes.length > 0
 
   return (
     <div>
@@ -83,18 +82,18 @@ function AsHeardOnRow({ item }: { item: RadioAsHeardOn }) {
       </div>
       {expandable && (
         <ul id={listId} hidden={!expanded} className="mt-1 mb-1 space-y-1 pl-5.5">
-          {plays.map(play => (
-            <li key={play.play_id}>
+          {episodes.map(episode => (
+            <li key={episode.play_id}>
               <Link
-                href={episodePlayHref(item.station_slug, item.show_slug, play.air_date, play.play_id)}
+                href={episodePlayHref(item.station_slug, item.show_slug, episode.air_date, episode.play_id)}
                 className="flex min-w-0 items-baseline gap-2 text-xs py-0.5 group/play"
               >
                 <span className="shrink-0 font-data tabular-nums text-link group-hover/play:underline">
-                  {formatShortAirDate(play.air_date)}
+                  {formatShortAirDate(episode.air_date)}
                 </span>
-                {play.track_title && (
+                {episode.track_title && (
                   <span className="truncate text-muted-foreground group-hover/play:text-foreground transition-colors">
-                    {play.track_title}
+                    {episode.track_title}
                   </span>
                 )}
               </Link>
