@@ -50,34 +50,46 @@ describe('AsHeardOn', () => {
     mockUseReleaseRadioPlays.mockReturnValue(empty())
   })
 
-  it('renders the As heard on header and show link for an artist', () => {
-    mockUseArtistRadioPlays.mockReturnValue({ data: response(), isLoading: false })
+  /** Renders one artist row from `data` and returns its link. */
+  function renderArtistRow(data = response()) {
+    mockUseArtistRadioPlays.mockReturnValue({ data, isLoading: false })
     render(<AsHeardOn entityType="artist" entitySlug="gatecreeper" />)
+    return screen.getByText('Morning Show').closest('a')
+  }
 
+  it('links an artist row to the latest episode it was played on', () => {
+    const link = renderArtistRow()
     expect(screen.getByText('As heard on')).toBeInTheDocument()
-    const link = screen.getByText('Morning Show').closest('a')
-    expect(link).toHaveAttribute('href', '/radio/kexp/morning-show')
+    expect(link).toHaveAttribute('href', '/radio/kexp/morning-show/2026-05-01')
   })
 
-  it('renders the station name and pluralized play count', () => {
-    mockUseArtistRadioPlays.mockReturnValue({ data: response(), isLoading: false })
-    render(<AsHeardOn entityType="artist" entitySlug="gatecreeper" />)
-    expect(screen.getByText(/KEXP - 3 plays/)).toBeInTheDocument()
+  it('renders the station, pluralized play count and last-played date', () => {
+    expect(renderArtistRow()).toHaveTextContent('KEXP · 3 plays · last on May 1')
+    expect(screen.getByText('May 1')).toHaveClass('font-data')
   })
 
   it('singularizes a single play', () => {
     const data = response()
     data.stations[0].play_count = 1
-    mockUseArtistRadioPlays.mockReturnValue({ data, isLoading: false })
-    render(<AsHeardOn entityType="artist" entitySlug="gatecreeper" />)
-    expect(screen.getByText(/KEXP - 1 play$/)).toBeInTheDocument()
+    expect(renderArtistRow(data)).toHaveTextContent('KEXP · 1 play · last on May 1')
+  })
+
+  it('falls back to the show page and names no date without last_played', () => {
+    const data = response()
+    data.stations[0].last_played = ''
+    const link = renderArtistRow(data)
+    expect(link).toHaveAttribute('href', '/radio/kexp/morning-show')
+    expect(link?.textContent).toMatch(/KEXP · 3 plays$/)
   })
 
   it('selects the release query when entityType is release', () => {
     mockUseReleaseRadioPlays.mockReturnValue({ data: response(), isLoading: false })
     render(<AsHeardOn entityType="release" entitySlug="an-unkindness" />)
     expect(screen.getByText('As heard on')).toBeInTheDocument()
-    expect(screen.getByText('Morning Show')).toBeInTheDocument()
+    expect(screen.getByText('Morning Show').closest('a')).toHaveAttribute(
+      'href',
+      '/radio/kexp/morning-show/2026-05-01'
+    )
   })
 
   it('renders nothing while the active query is loading', () => {
