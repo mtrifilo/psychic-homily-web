@@ -329,6 +329,44 @@
     z-index: -1;
     background: var(--background);
   }
+  /* The controls below show the pointer, as a link does: Tailwind's preflight
+   * leaves buttons, ARIA widgets and form controls at the platform arrow. A
+   * `:disabled` control is excluded, and so is an `aria-disabled` element
+   * matched only by its ARIA role; a native `button` or `select` that is only
+   * `aria-disabled` keeps the pointer. A text input carrying `role="combobox"`
+   * keeps its text cursor. A `label[for]` shows the pointer whatever its
+   * control's state: CSS cannot follow `for` to the control. Not matched, so
+   * they set `cursor-pointer` themselves: a `label` that wraps its control
+   * instead of naming it with `for`, roles outside this list (`slider`,
+   * `treeitem`, `group`), and clickable elements with no role. From
+   * `@layer base`, a cursor utility on the element still wins. */
+  button:not(:disabled),
+  select:not(:disabled),
+  input:where(
+      [type='checkbox'],
+      [type='radio'],
+      [type='file'],
+      [type='submit'],
+      [type='button'],
+      [type='range']
+    ):not(:disabled),
+  summary,
+  label[for],
+  :where(
+      [role='button'],
+      [role='link'],
+      [role='tab'],
+      [role='menuitem'],
+      [role='menuitemcheckbox'],
+      [role='menuitemradio'],
+      [role='option'],
+      [role='radio'],
+      [role='checkbox'],
+      [role='switch'],
+      [role='combobox']:not(input)
+    ):not(:disabled, [aria-disabled='true']) {
+    cursor: pointer;
+  }
 }
 
 /* A `/shows` day heading is sticky under the top bar, so anything focusable in

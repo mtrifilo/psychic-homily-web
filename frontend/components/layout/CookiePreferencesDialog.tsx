@@ -63,7 +63,9 @@ function CookiePreferencesForm({
 
         <div className="flex items-center justify-between rounded-lg border p-4">
           <div className="space-y-0.5">
-            <Label htmlFor="essential-cookies" className="text-base">
+            {/* Its switch is always disabled, so the label keeps the arrow
+                the base `label[for]` pointer rule would otherwise give it. */}
+            <Label htmlFor="essential-cookies" className="cursor-default text-base">
               Essential Cookies
             </Label>
             <p className="text-sm text-muted-foreground">

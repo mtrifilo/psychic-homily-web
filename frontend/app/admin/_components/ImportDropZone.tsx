@@ -103,6 +103,8 @@ export function ImportDropZone({
         disabled && 'cursor-not-allowed opacity-50'
       )}
     >
+      {/* `cursor-pointer` holds in the disabled state too, which the base
+          pointer rule leaves out. */}
       <input
         type="file"
         accept=".md"

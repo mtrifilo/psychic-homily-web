@@ -123,7 +123,7 @@ export function TopBar({ variant = 'full' }: { variant?: 'full' | 'slim' } = {})
           <Button
             variant="ghost"
             size="icon"
-            className="hidden cursor-pointer sm:flex"
+            className="hidden sm:flex"
             onClick={toggleTheme}
           >
             <Sun className="size-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />

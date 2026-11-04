@@ -278,7 +278,7 @@ export function VenueRailFilters({
                 genreFamily: e.target.value === '' ? null : e.target.value,
               })
             }
-            className="peer absolute inset-0 z-10 cursor-pointer opacity-0"
+            className="peer absolute inset-0 z-10 opacity-0"
           >
             <option value="">All genres</option>
             {genreFamilies.map((f) => (

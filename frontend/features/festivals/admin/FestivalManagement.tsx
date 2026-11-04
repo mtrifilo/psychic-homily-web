@@ -1333,7 +1333,7 @@ function VenueManagement({ festivalId }: { festivalId: number }) {
             onChange={(e) => setIsPrimary(e.target.checked)}
             className="h-4 w-4 rounded border"
           />
-          <Label htmlFor="is-primary" className="text-sm text-muted-foreground cursor-pointer">
+          <Label htmlFor="is-primary" className="text-sm text-muted-foreground">
             Primary venue
           </Label>
         </div>

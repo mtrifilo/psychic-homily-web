@@ -399,7 +399,7 @@ function AccessibleGraphList({
   if (collapsible) {
     return (
       <details className="mt-3 rounded-lg border border-border/50 bg-muted/10 px-4 py-3">
-        <summary className="cursor-pointer text-sm font-medium">Browse connections as a list</summary>
+        <summary className="text-sm font-medium">Browse connections as a list</summary>
         <p className="mt-2 text-sm text-muted-foreground">
           Choose an artist for context, then center the graph there to keep exploring.
         </p>

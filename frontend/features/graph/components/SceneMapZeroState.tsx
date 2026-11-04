@@ -356,7 +356,7 @@ function SceneMapList({
       id={SCENE_MAP_LIST_ANCHOR}
       className="border-t border-border/50 px-4 py-3"
     >
-      <summary className="cursor-pointer text-sm font-medium">
+      <summary className="text-sm font-medium">
         Browse the map as a list
       </summary>
       <p className="mt-2 text-sm text-muted-foreground">
@@ -384,7 +384,7 @@ function SceneMapList({
                 )
               }}
             >
-              <summary className="cursor-pointer text-sm">
+              <summary className="text-sm">
                 <span className="font-medium">{group.label}</span>{' '}
                 <span className="text-xs text-muted-foreground">
                   {group.nodes.length.toLocaleString()}{' '}

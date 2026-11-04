@@ -508,7 +508,7 @@ export function AddToCollectionButton({
       <div key={collection.id} className="px-1">
         <label
           htmlFor={checkboxId}
-          className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50 transition-colors cursor-pointer"
+          className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50 transition-colors"
         >
           <Checkbox
             id={checkboxId}

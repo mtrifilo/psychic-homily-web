@@ -276,7 +276,7 @@ export function AIFormFiller({ onExtracted }: AIFormFillerProps) {
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur-sm mb-4 py-0">
       <CardHeader
-        className="cursor-pointer py-3 flex flex-row items-center justify-between focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-t-xl"
+        className="py-3 flex flex-row items-center justify-between focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-t-xl"
         onClick={() => setIsExpanded(!isExpanded)}
         role="button"
         tabIndex={0}
@@ -327,7 +327,7 @@ export function AIFormFiller({ onExtracted }: AIFormFillerProps) {
             </div>
           ) : (
             <div
-              className="border-2 border-dashed border-input rounded-md p-4 text-center hover:border-primary/50 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              className="border-2 border-dashed border-input rounded-md p-4 text-center hover:border-primary/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               onDrop={handleDrop}
               onDragOver={handleDragOver}
               onClick={() => fileInputRef.current?.click()}

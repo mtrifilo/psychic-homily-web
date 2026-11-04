@@ -41,11 +41,13 @@ describe('AdminTable', () => {
     expect(screen.getByRole('columnheader', { name: 'Count' }).className).toContain('text-center')
   })
 
-  it('calls onRowClick on click; clickable rows are focusable + cursor-affordanced', () => {
+  it('calls onRowClick on click; clickable rows are focusable role=button rows', () => {
     const onRowClick = vi.fn()
     render(<AdminTable columns={columns} rows={rows} rowKey={r => r.id} onRowClick={onRowClick} />)
     const row = screen.getByText('Alpha').closest('tr')!
-    expect(row.className).toContain('cursor-pointer')
+    // role=button is what gives the row the pointer, via the base rule in
+    // app/globals.css.
+    expect(row).toHaveAttribute('role', 'button')
     expect(row).toHaveAttribute('tabindex', '0')
     fireEvent.click(row)
     expect(onRowClick).toHaveBeenCalledWith(rows[0])
@@ -93,10 +95,10 @@ describe('AdminTable', () => {
     expect(onRowClick).not.toHaveBeenCalled()
   })
 
-  it('does not add clickable affordance (cursor/tabindex) when onRowClick is absent', () => {
+  it('does not add clickable affordance (role/tabindex) when onRowClick is absent', () => {
     render(<AdminTable columns={columns} rows={rows} rowKey={r => r.id} />)
     const row = screen.getByText('Alpha').closest('tr')!
-    expect(row.className).not.toContain('cursor-pointer')
+    expect(row).not.toHaveAttribute('role')
     expect(row).not.toHaveAttribute('tabindex')
   })
 

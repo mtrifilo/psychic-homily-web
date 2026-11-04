@@ -253,11 +253,7 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
       // face widens comma, period and colon under `tnum`, so only a
       // digits-only label gets tabular figures.
       tabularNumsIfDigitsOnly(label),
-      // Tailwind's preflight leaves <button> at `cursor: default`, so the
-      // button branch reads as plain text on hover without this. Declared
-      // before the disabled clause so tailwind-merge lets
-      // `cursor-not-allowed` win when disabled.
-      'cursor-pointer transition-colors',
+      'transition-colors',
       variant === 'default' &&
         !active &&
         'text-muted-foreground hover:text-foreground',

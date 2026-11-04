@@ -103,7 +103,7 @@ export function VenueSearch() {
               <button
                 type="button"
                 key={venue.id}
-                className={`relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none ${
+                className={`relative flex w-full select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none ${
                   i === activeIndex
                     ? 'bg-accent text-accent-foreground'
                     : 'hover:bg-accent hover:text-accent-foreground'

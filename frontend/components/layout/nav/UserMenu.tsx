@@ -62,7 +62,7 @@ export function UserMenu() {
               {...replayOnHydrate}
               variant="ghost"
               size="icon"
-              className="relative size-9 cursor-pointer rounded-full ring-2 ring-muted-foreground/25 transition-all duration-150 hover:scale-105 hover:ring-primary/50"
+              className="relative size-9 rounded-full ring-2 ring-muted-foreground/25 transition-all duration-150 hover:scale-105 hover:ring-primary/50"
               aria-label="User menu"
             >
               <div className="flex size-8 items-center justify-center rounded-full bg-primary text-xs font-medium text-primary-foreground">

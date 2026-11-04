@@ -67,24 +67,23 @@ describe('BracketLink', () => {
     expect(tokens).not.toContain('text-primary')
   })
 
-  describe('pointer cursor', () => {
-    // Tailwind preflight resets <button> to `cursor: default`, so the button
-    // branch needs an explicit cursor-pointer to read as interactive.
-    it('applies cursor-pointer on the button branch', () => {
+  describe('cursor', () => {
+    // The button branch's pointer comes from the base rule in app/globals.css
+    // and the link branch's from the browser's link style; a cursor utility on
+    // either would override it, so an enabled bracket sets none.
+    it('sets no cursor utility on the enabled button branch', () => {
       render(<BracketLink label="Follow" onClick={vi.fn()} />)
-      expect(screen.getByRole('button').className).toContain('cursor-pointer')
+      expect(screen.getByRole('button').className).not.toMatch(/\bcursor-/)
     })
 
-    it('applies cursor-pointer on the link branch', () => {
+    it('sets no cursor utility on the link branch', () => {
       render(<BracketLink label="View history" href="/artists/x/history" />)
-      expect(screen.getByRole('link').className).toContain('cursor-pointer')
+      expect(screen.getByRole('link').className).not.toMatch(/\bcursor-/)
     })
 
-    it('lets cursor-not-allowed win over cursor-pointer when disabled', () => {
+    it('shows cursor-not-allowed when disabled', () => {
       render(<BracketLink label="Follow" onClick={vi.fn()} disabled />)
-      const className = screen.getByRole('button').className
-      expect(className).toContain('cursor-not-allowed')
-      expect(className).not.toContain('cursor-pointer')
+      expect(screen.getByRole('button').className).toContain('cursor-not-allowed')
     })
   })
 

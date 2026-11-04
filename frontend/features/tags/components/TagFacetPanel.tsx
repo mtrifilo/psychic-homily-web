@@ -374,9 +374,7 @@ function TagChip({ tag, selected, onToggle, disabled = false }: TagChipProps) {
       className={cn(
         'inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium',
         'transition-all duration-100 select-none',
-        disabled
-          ? 'cursor-not-allowed opacity-40'
-          : 'cursor-pointer',
+        disabled && 'cursor-not-allowed opacity-40',
         selected
           ? 'bg-primary text-primary-foreground border-primary shadow-sm ring-1 ring-primary/40'
           : `${catClasses} ${disabled ? '' : 'hover:bg-muted/60'}`

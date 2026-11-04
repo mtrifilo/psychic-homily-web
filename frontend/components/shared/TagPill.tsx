@@ -38,7 +38,7 @@ export function TagPill({
     'border border-border/50',
     'transition-colors duration-100',
     'hover:bg-muted/80 hover:text-foreground hover:border-border',
-    'cursor-pointer select-none',
+    'select-none',
     className
   )
 

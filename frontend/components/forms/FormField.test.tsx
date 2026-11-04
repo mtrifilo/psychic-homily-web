@@ -133,6 +133,14 @@ describe('FormField', () => {
     expect(screen.getByPlaceholderText('Enter value')).toBeDisabled()
   })
 
+  it('keeps the arrow on the label of a disabled field only', () => {
+    const { unmount } = renderWithProviders(<TestFormField disabled />)
+    expect(screen.getByText('Test Label')).toHaveClass('cursor-default')
+    unmount()
+    renderWithProviders(<TestFormField />)
+    expect(screen.getByText('Test Label')).not.toHaveClass('cursor-default')
+  })
+
   it('calls onEnterPress when Enter key is pressed', async () => {
     const onEnterPress = vi.fn()
     const user = userEvent.setup()

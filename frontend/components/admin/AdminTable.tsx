@@ -139,7 +139,7 @@ export function AdminTable<T>({
                 tabIndex={clickable ? 0 : undefined}
                 className={cn(
                   clickable &&
-                    'cursor-pointer transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+                    'transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
                   rowClassName?.(row)
                 )}
               >

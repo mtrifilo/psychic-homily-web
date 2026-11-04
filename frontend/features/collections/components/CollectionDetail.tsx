@@ -1164,7 +1164,7 @@ function InlineEditForm({
             onCheckedChange={checked => setIsPublic(checked === true)}
             disabled={updateMutation.isPending}
           />
-          <label htmlFor="edit-is-public" className="text-sm cursor-pointer">
+          <label htmlFor="edit-is-public" className="text-sm">
             Public
           </label>
         </div>
@@ -1178,7 +1178,7 @@ function InlineEditForm({
           />
           <label
             htmlFor="edit-collaborative"
-            className="text-sm cursor-pointer"
+            className="text-sm"
           >
             Collaborative
           </label>

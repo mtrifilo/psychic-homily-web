@@ -281,7 +281,7 @@ export function ArtistSimilarSidebar({
                   : `Similar artists sorted by discovery, ${mode}-first.`,
               )
             }}
-            className="bg-transparent border border-border rounded px-1.5 py-0.5 text-foreground cursor-pointer"
+            className="bg-transparent border border-border rounded px-1.5 py-0.5 text-foreground"
           >
             <option value="relevant">Most relevant</option>
             <option value="popular">Discovery: popular-first</option>
@@ -1160,7 +1160,7 @@ function RecenteringGraph({
                       ? 'Leaning niche'
                       : 'Balanced'
             }
-            className="flex-1 max-w-[12rem] accent-indigo-500 cursor-pointer"
+            className="flex-1 max-w-[12rem] accent-indigo-500"
           />
           <span className="shrink-0" aria-hidden="true">Niche</span>
         </div>
@@ -1637,7 +1637,7 @@ function SuggestSimilarArtist({ centerArtistId, centerArtistSlug, onClose }: Sug
                   <button
                     type="button"
                     key={artist.id}
-                    className={`relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none ${
+                    className={`relative flex w-full select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none ${
                       i === activeIndex
                         ? 'bg-accent text-accent-foreground'
                         : 'hover:bg-accent hover:text-accent-foreground'

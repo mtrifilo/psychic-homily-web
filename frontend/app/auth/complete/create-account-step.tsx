@@ -265,7 +265,7 @@ function CreateAccountForm({
             />
             <Label
               htmlFor={`${ids}-terms`}
-              className="block cursor-pointer text-sm font-normal leading-5"
+              className="block text-sm font-normal leading-5"
             >
               I agree to the{' '}
               <Link href="/terms" target="_blank" className={LINK_CLASS}>

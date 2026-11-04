@@ -178,7 +178,7 @@ export function VenueInput({
                       role="option"
                       key={venue.id}
                       data-testid="search-result-venue"
-                      className="relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
+                      className="relative flex w-full select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
                       onMouseDown={e => {
                         e.preventDefault()
                         handleVenueSelect(venue)
@@ -203,7 +203,7 @@ export function VenueInput({
                   </div>
                   <button
                     type="button"
-                    className="relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
+                    className="relative flex w-full select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
                     onMouseDown={e => {
                       e.preventDefault()
                       handleConfirm()

@@ -79,7 +79,7 @@ export function NotificationBell() {
           // Visibility is parent-controlled (the TopBar account cluster is
           // hidden below sm); this trigger no longer self-hides so all three
           // cluster siblings (+ Submit, bell, avatar) share one strategy.
-          className="relative cursor-pointer"
+          className="relative"
           aria-label={withUnreadLabel('Notifications', unreadCount)}
         >
           <Bell className="h-[1.2rem] w-[1.2rem]" />

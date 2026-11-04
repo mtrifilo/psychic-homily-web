@@ -303,7 +303,7 @@ export function FieldNoteForm({
             disabled={isPending}
             data-testid="setlist-spoiler-checkbox"
           />
-          <Label htmlFor="setlist-spoiler" className="text-sm text-muted-foreground cursor-pointer">
+          <Label htmlFor="setlist-spoiler" className="text-sm text-muted-foreground">
             Contains setlist spoilers
           </Label>
         </div>

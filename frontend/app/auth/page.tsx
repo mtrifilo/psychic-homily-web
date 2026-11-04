@@ -849,7 +849,7 @@ function SignupForm({
                 />
                 <Label
                   htmlFor="terms"
-                  className="block cursor-pointer text-sm font-normal leading-relaxed"
+                  className="block text-sm font-normal leading-relaxed"
                 >
                   I agree to the{' '}
                   <Link
