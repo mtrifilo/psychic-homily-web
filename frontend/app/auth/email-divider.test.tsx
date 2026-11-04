@@ -83,10 +83,13 @@ describe('the email group', () => {
     const group = emailGroup()
     expect(group.tagName).toBe('FIELDSET')
     const legend = group.querySelector('legend')
-    // Sentence case on screen and in the accessible name alike.
+    // The capitals are CSS; the text a screen reader reads is sentence case.
     expect(legend?.textContent).toBe(GROUP_NAME)
     expect(within(legend as HTMLElement).getByText(GROUP_NAME)).toHaveClass(
+      'font-data',
       'text-xs',
+      'uppercase',
+      'tracking-[0.66px]',
       'text-muted-foreground'
     )
     const rules = legend?.querySelectorAll('[aria-hidden="true"]') ?? []

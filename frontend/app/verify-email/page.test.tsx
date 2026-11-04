@@ -68,7 +68,13 @@ describe('VerifyEmailPage', () => {
 
     expect(
       screen.getByText(/Email confirmed · Submissions open/i)
-    ).toBeInTheDocument()
+    ).toHaveClass(
+      'font-data',
+      'text-xs',
+      'uppercase',
+      'tracking-[0.66px]',
+      'text-success-foreground'
+    )
     for (const rung of ['SAVE', 'FOLLOW', 'ALERTS', 'SUBMIT']) {
       expect(screen.getByText(rung)).toBeInTheDocument()
     }
@@ -164,6 +170,15 @@ describe('VerifyEmailPage', () => {
     expect(
       screen.getByRole('heading', { name: 'That link is not valid.' })
     ).toBeInTheDocument()
+    expect(
+      screen.getByText('Contributor record · Link not valid')
+    ).toHaveClass(
+      'font-data',
+      'text-xs',
+      'uppercase',
+      'tracking-[0.66px]',
+      'text-destructive'
+    )
     expect(mockApiRequest).not.toHaveBeenCalled()
   })
 
@@ -196,6 +211,13 @@ describe('VerifyEmailPage', () => {
     await waitFor(() => {
       expect(screen.getByText('Resend available in 25s')).toBeInTheDocument()
     })
+    expect(screen.getByText('Resend available in 25s')).toHaveClass(
+      'font-data',
+      'text-xs',
+      'uppercase',
+      'tracking-[0.66px]',
+      'text-link'
+    )
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: /Send a fresh link/i })

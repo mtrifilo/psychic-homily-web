@@ -45,7 +45,7 @@ export function PasswordResetSent({ email, onBack }: PasswordResetSentProps) {
 
   return (
     <Card className="gap-4 px-10 py-9">
-      <p className="text-xs text-muted-foreground">
+      <p className="font-data text-xs uppercase tracking-[0.66px] text-muted-foreground">
         One email sent · password reset
       </p>
 
@@ -63,7 +63,7 @@ export function PasswordResetSent({ email, onBack }: PasswordResetSentProps) {
       </p>
 
       <div className="space-y-1.5 border border-border bg-background px-4 py-3">
-        <p className="text-xs text-muted-foreground">
+        <p className="font-data text-xs uppercase tracking-[0.66px] text-muted-foreground">
           Nothing changes until you open it
         </p>
         <p className="text-[13px] leading-5 text-foreground">
@@ -91,7 +91,7 @@ export function PasswordResetSent({ email, onBack }: PasswordResetSentProps) {
         <VerificationResendStatus
           format={formatResendWaitOnly}
           announce={announceSent(SENT_AGAIN)}
-          className="text-xs text-link"
+          className="font-data text-xs uppercase tracking-[0.66px] text-link"
         />
         <VerificationResendFailed />
       </EmailResend>

@@ -91,7 +91,13 @@ describe('Forgot password? on the Sign in tab', () => {
 
     const heading = await screen.findByRole('heading', { name: 'Check your inbox.' })
     expect(heading).toHaveFocus()
-    expect(screen.getByText('One email sent · password reset')).toBeInTheDocument()
+    expect(screen.getByText('One email sent · password reset')).toHaveClass(
+      'font-data',
+      'text-xs',
+      'uppercase',
+      'tracking-[0.66px]',
+      'text-muted-foreground'
+    )
     expect(
       screen.getByText((_, node) =>
         node?.tagName === 'P' &&
@@ -99,7 +105,13 @@ describe('Forgot password? on the Sign in tab', () => {
           'If an account uses owner@example.com, we sent it a link to choose a new password. It expires in 15 minutes.'
       )
     ).toBeInTheDocument()
-    expect(screen.getByText('Nothing changes until you open it')).toBeInTheDocument()
+    expect(screen.getByText('Nothing changes until you open it')).toHaveClass(
+      'font-data',
+      'text-xs',
+      'uppercase',
+      'tracking-[0.66px]',
+      'text-muted-foreground'
+    )
     expect(
       screen.getByText(
         'Your current password, your signed-in devices and your passkeys stay as they are. The link lets you choose a new password, and setting it signs out every other device.'
@@ -119,6 +131,13 @@ describe('Forgot password? on the Sign in tab', () => {
     await waitFor(() => {
       expect(screen.getByRole('status')).toHaveTextContent('Sent again. Give it a minute to arrive.')
     })
+    expect(screen.getByText(/^Resend available in \d+s$/)).toHaveClass(
+      'font-data',
+      'text-xs',
+      'uppercase',
+      'tracking-[0.66px]',
+      'text-link'
+    )
     expect(screen.getByRole('button', { name: 'Resend email' })).toBeDisabled()
   })
 

@@ -18,7 +18,7 @@ import { buildAuthHref } from '@/lib/auth-href'
 import type { ApiError } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 
-const KICKER = 'text-xs'
+const KICKER = 'font-data text-xs uppercase tracking-[0.66px]'
 
 /** Where a reader with no usable session is sent to get one. */
 const SIGN_IN_HREF = buildAuthHref('/profile?tab=settings')

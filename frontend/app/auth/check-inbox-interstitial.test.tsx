@@ -59,6 +59,31 @@ describe('CheckInboxInterstitial', () => {
     ).toHaveFocus()
   })
 
+  it('sets its kickers in the kicker tier', () => {
+    renderWithProviders(
+      <CheckInboxInterstitial email="listener@example.com" returnTo="/" />
+    )
+
+    expect(
+      screen.getByText('One email sent · one click to finish')
+    ).toHaveClass(
+      'font-data',
+      'text-xs',
+      'uppercase',
+      'tracking-[0.66px]',
+      'text-muted-foreground'
+    )
+    expect(
+      screen.getByText('Meanwhile, everything else is open')
+    ).toHaveClass(
+      'font-data',
+      'text-xs',
+      'uppercase',
+      'tracking-[0.55px]',
+      'text-muted-foreground'
+    )
+  })
+
   it('states what is open before verifying without promising alerts', () => {
     renderWithProviders(
       <CheckInboxInterstitial email="listener@example.com" returnTo="/" />
@@ -126,6 +151,13 @@ describe('CheckInboxInterstitial', () => {
       expect(screen.getByText('Resend available in 60s')).toHaveAttribute(
         'aria-hidden',
         'true'
+      )
+      expect(screen.getByText('Resend available in 60s')).toHaveClass(
+        'font-data',
+        'text-xs',
+        'uppercase',
+        'tracking-[0.66px]',
+        'text-link'
       )
       expect(screen.queryByText(/Check your inbox ·/)).not.toBeInTheDocument()
       expect(resendButton()).toBeDisabled()
