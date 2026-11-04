@@ -275,7 +275,7 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
 
   return (
     <div className="space-y-8">
-      {/* Needs Attention */}
+      {/* Needs attention */}
       <section>
         <h2 className="text-sm font-medium text-muted-foreground mb-3">
           Needs attention
@@ -404,7 +404,7 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
         </div>
       </section>
 
-      {/* Recent Activity Feed */}
+      {/* Recent activity feed */}
       <section>
         <h2 className="text-sm font-medium text-muted-foreground mb-3">
           Recent activity

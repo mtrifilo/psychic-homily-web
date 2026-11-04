@@ -275,7 +275,7 @@ const entityTypeLabels: Record<EntitySearchResult['entityType'], string> = {
   tag: 'Tags',
 }
 
-// PSY-1019 editorial group headings (Figma 539:5): sentence-case 12px bold
+// Editorial group headings (Figma 539:5): sentence-case 12px bold
 // labels that mirror ContributeMenu's group labels. Applied per-group so
 // tailwind-merge resolves it against CommandGroup's default heading styles on
 // the same element (deterministic; padding + muted color come from those

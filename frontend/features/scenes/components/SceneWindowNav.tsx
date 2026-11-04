@@ -14,7 +14,7 @@ import { SCENE_LINK_INTERACTION_CLASS } from './sceneChrome'
  * same strip from here, so a reader walking between them sees one row that
  * changes only where it says they are.
  *
- * Register: sentence-case 12px labels in the body face (`1665:2` drew 10px caps), the
+ * Register: sentence-case 12px labels in the body face, the
  * links in the accent tone, the active window in the foreground tone and
  * underlined, a direction with nothing behind it muted and unlinked.
  *

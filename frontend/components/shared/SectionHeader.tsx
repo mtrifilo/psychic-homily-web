@@ -14,7 +14,7 @@ export interface SectionHeaderProps {
   /**
    * Title treatment. 'muted' (default) is the dense muted style used across
    * entity pages; 'title' is the foreground style the profile redesign boards
-   * use for main-column sections (PSY-1062).
+   * use for main-column sections.
    */
   variant?: 'muted' | 'title'
   /** Render a thin underline divider beneath the header. Defaults to true. */
