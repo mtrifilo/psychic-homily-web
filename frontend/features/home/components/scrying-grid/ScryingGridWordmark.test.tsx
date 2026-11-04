@@ -250,10 +250,33 @@ describe('ScryingGridWordmark props', () => {
       left: 0,
       top: 0,
     } as DOMRect)
-    const { container } = render(<ScryingGridWordmark heading={false} preset="nameplate" />)
+    // With a heading, the fallback shows only on failure: waiting is not one.
+    const { container } = render(<ScryingGridWordmark preset="nameplate" />)
 
     expect(sampleSpy).not.toHaveBeenCalled()
     expect(container.querySelector('[data-hero-fallback]')).toHaveClass('opacity-0')
+  })
+
+  it('paints the text fallback in the server HTML when there is no heading, and keeps it hidden with one', async () => {
+    const { renderToString } = await import('react-dom/server')
+    const host = document.createElement('div')
+
+    host.innerHTML = renderToString(<ScryingGridWordmark heading={false} preset="bar" />)
+    expect(host.querySelector('[data-hero-fallback]')).toHaveClass('opacity-100')
+    // Sized to the box it is in, so it reads at the mark's cap height.
+    expect(host.querySelector('[role="img"]')).toHaveClass('[container-type:size]')
+
+    host.innerHTML = renderToString(<ScryingGridWordmark />)
+    expect(host.querySelector('[data-hero-fallback]')).toHaveClass('opacity-0')
+  })
+
+  it('hands over from the text fallback to the canvas once the field is drawn', () => {
+    const { container } = render(<ScryingGridWordmark heading={false} preset="bar" />)
+
+    // Reduced motion here: begin() drew the static field and enhanced.
+    expect(FAKE_CTX.arc).toHaveBeenCalled()
+    expect(container.querySelector('[data-hero-fallback]')).toHaveClass('opacity-0')
+    expect(container.querySelector('canvas')).toHaveClass('opacity-100')
   })
 
   it('does not rebuild the field when a re-render passes an equal lines array', () => {
@@ -383,9 +406,8 @@ describe("ScryingGridWordmark motion='settle'", () => {
       disconnect() {}
     } as unknown as typeof ResizeObserver
     try {
-      const { container } = render(
-        <ScryingGridWordmark motion="settle" heading={false} preset="nameplate" />,
-      )
+      // With a heading, so the fallback's reveal is the failure path alone.
+      const { container } = render(<ScryingGridWordmark motion="settle" preset="nameplate" />)
       const fallback = container.querySelector('[data-hero-fallback]')
       expect(fallback).toHaveClass('opacity-0')
 

@@ -51,10 +51,11 @@ const glitchFilter = (
 // Sidebar, so the top bar drops its PrimaryNav and becomes a slim brand +
 // search + theme + account bar. 'full' (default) is the top-nav-mode chrome.
 //
-// The signed-in Home tab's masthead: below `xl`, on `/` for a viewer settled
-// as signed in, the dot-field wordmark takes the eye's cell. At `xl` this bar
-// is as shipped and HomeNameplate shows the wordmark instead; the two files'
-// `xl` classes are one contract, so change them together. It reads the same
+// The signed-in Home tab's masthead: below `sm`, where the bar has no text
+// wordmark, on `/` for a viewer settled as signed in, the dot-field wordmark
+// takes the eye's cell. From `sm` this bar is as shipped and HomeNameplate
+// shows the wordmark instead; the two files' `sm` classes are one contract, so
+// change them together. It reads the same
 // settled auth signal as BottomTabBar, which AuthHydrator seeds before the
 // shell renders, so the server HTML already carries the right brand and
 // hydration does not swap it.
@@ -88,13 +89,13 @@ export function TopBar({ variant = 'full' }: { variant?: 'full' | 'slim' } = {})
                 lines={WORDMARK_ONE_LINE}
                 heading={false}
                 motion="settle"
-                className="max-w-[calc(100vw-5.25rem)] xl:hidden"
+                className="max-w-[calc(100vw-5.25rem)] sm:hidden"
               />
             )}
             <div
               className={cn(
                 'relative size-[36px] overflow-hidden rounded-md',
-                showsHomeWordmark && 'hidden xl:block'
+                showsHomeWordmark && 'hidden sm:block'
               )}
             >
               {/* Raster, not vector, on purpose (PSY-1771): the predecessor
@@ -120,12 +121,7 @@ export function TopBar({ variant = 'full' }: { variant?: 'full' | 'slim' } = {})
                 style={{ filter: 'url(#glitch)' }}
               />
             </div>
-            <span
-              className={cn(
-                'hidden text-[15px] font-semibold uppercase tracking-[0.04em] text-foreground',
-                showsHomeWordmark ? 'xl:inline' : 'sm:inline'
-              )}
-            >
+            <span className="hidden text-[15px] font-semibold uppercase tracking-[0.04em] text-foreground sm:inline">
               Psychic Homily
             </span>
           </ChromeLink>

@@ -18,10 +18,9 @@ export interface WordmarkPreset {
   /** Dark-mode bloom pass. */
   bloom: boolean
   /** The box the preset is tuned for; the container takes it. A caller's
-   *  class may cap it (`max-w-*`); the ink re-fits a smaller box. */
+   *  class may cap it (`max-w-*`) or resize it; the ink, and the text
+   *  fallback, re-fit the box they get. */
   boxClassName: string
-  /** Text size of the fallback (no JS, or the canvas could not sample). */
-  fallbackClassName: string
 }
 
 /**
@@ -39,13 +38,11 @@ export const WORDMARK_PRESETS = {
     gapFactor: 3,
     bloom: false,
     boxClassName: 'h-[30px] w-[306px]',
-    fallbackClassName: 'text-[22px]',
   },
   nameplate: {
     gapFactor: 4,
     bloom: true,
     boxClassName: 'h-[100px] w-[1084px]',
-    fallbackClassName: 'text-[88px]',
   },
 } as const satisfies Record<string, WordmarkPreset>
 

@@ -82,15 +82,15 @@ describe('TopBar', () => {
     // jsdom applies no stylesheet: the breakpoint classes are the contract.
     const eyeCell = (brand: HTMLElement) => brand.querySelector('img')!.parentElement!
 
-    it('puts the dot wordmark in the eye cell below xl on the signed-in Home tab', () => {
+    it('puts the dot wordmark in the eye cell below sm on the signed-in Home tab, and keeps the bar as shipped from sm', () => {
       mockAuthContext.mockReturnValue(signedIn())
       render(<TopBar />)
 
       const brand = screen.getByRole('link', { name: 'Psychic Homily, home' })
       const wordmark = within(brand).getByRole('img', { name: 'Psychic Homily' })
-      expect(wordmark).toHaveClass('h-[30px]', 'w-[306px]', 'xl:hidden')
-      expect(eyeCell(brand)).toHaveClass('hidden', 'xl:block')
-      expect(within(brand).getByText('Psychic Homily')).toHaveClass('hidden', 'xl:inline')
+      expect(wordmark).toHaveClass('h-[30px]', 'w-[306px]', 'sm:hidden')
+      expect(eyeCell(brand)).toHaveClass('hidden', 'sm:block')
+      expect(within(brand).getByText('Psychic Homily')).toHaveClass('hidden', 'sm:inline')
       expect(within(brand).queryByRole('heading')).not.toBeInTheDocument()
     })
 

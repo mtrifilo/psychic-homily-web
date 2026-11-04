@@ -46,7 +46,16 @@ const INTRO_FLOOR = 0.12
 const PRESET_FONT_WEIGHT = 900
 const PRESET_DOT_PER_PITCH = 0.25
 const PRESET_IGNITE_REACH = 1.2
-const PRESET_FALLBACK_CLASS = 'whitespace-nowrap font-black leading-none'
+// A preset's container is a size container, and its text fallback is sized
+// the way `fillInk` sizes the sampled ink: Hanken Grotesk Black's
+// "PSYCHIC HOMILY" ink is 7.944 em wide and 0.733 em tall (measured), and it
+// fills 0.98 of the box, so font-size = min(0.98 x W / 7.944, 0.98 x H / 0.733).
+// The fallback then reads at the mark's cap height in whatever box it gets.
+// Size before leading: tailwind-merge drops a leading-* that precedes a text
+// size.
+const PRESET_CONTAINER_CLASS = '[container-type:size]'
+const PRESET_FALLBACK_CLASS =
+  'text-[length:min(12.34cqw,133.7cqh)] whitespace-nowrap font-black leading-none'
 
 const HERO_FALLBACK_CLASS =
   'text-[clamp(3.25rem,12vw,10rem)] font-bold leading-[0.9] tracking-tight'
@@ -503,18 +512,21 @@ export function ScryingGridWordmark({
     }
   }, [gapFactor, spotlight, reducedMotion, linesKey, motion, layout])
 
-  // Visible fallback, hidden by default so it never flashes before the
-  // canvas; revealed on enhancement failure, or for no-JS (noscript).
+  // The text fallback. With `heading` (the hero) it is hidden until needed,
+  // so the solid-font wordmark never flashes before the canvas. Without it
+  // (the bar mark, the nameplate) it IS the first paint: visible in the server
+  // HTML and until the canvas enhances, then cross-faded out, so the brand is
+  // never a blank cell before hydration. Revealed on enhancement failure, and
+  // for no-JS by the noscript rule below.
+  const fallbackVisible = failed || (!heading && !enhanced)
   const fallback = (
     <span
       aria-hidden
       data-hero-fallback
       className={cn(
         'block font-display text-foreground transition-opacity duration-700',
-        // Size before leading: tailwind-merge drops a leading-* that precedes
-        // a text size.
-        layout ? [layout.fallbackClassName, PRESET_FALLBACK_CLASS] : HERO_FALLBACK_CLASS,
-        failed ? 'opacity-100' : 'opacity-0'
+        layout ? PRESET_FALLBACK_CLASS : HERO_FALLBACK_CLASS,
+        fallbackVisible ? 'opacity-100' : 'opacity-0'
       )}
     >
       {lines.map((line, index) => (
@@ -533,7 +545,7 @@ export function ScryingGridWordmark({
       aria-label={heading ? undefined : ACCESSIBLE_NAME}
       className={cn(
         'relative isolate flex w-full items-center justify-center select-none',
-        layout?.boxClassName,
+        layout && [PRESET_CONTAINER_CLASS, layout.boxClassName],
         className
       )}
       style={{ touchAction: 'pan-y' }}

@@ -12,8 +12,9 @@ import type { CommunityPulseResponse } from '../types'
  * width. No `timeZone` on the dates: the date is the viewer's own, which is
  * why the line renders only after hydration. The counts are site-wide, so no
  * city: a city beside the show count would read as that city's count. The
- * short form's "this week" is the owner's phone copy for the rolling
- * seven-day count; the long form says what the count is.
+ * show count is a rolling seven-day window (see
+ * `CommunityPulseResponse.shows_this_week`), so both forms say "in the next
+ * 7 days", never "this week".
  */
 const SHORT_DATE = new Intl.DateTimeFormat('en-US', {
   weekday: 'short',
@@ -30,7 +31,7 @@ const FORMS = {
   short: {
     // "Wed, Nov 4" without the comma.
     date: (date: Date) => SHORT_DATE.format(date).replace(',', ''),
-    shows: ['show this week', 'shows this week'],
+    shows: ['show in the next 7 days', 'shows in the next 7 days'],
     entities: ['entity', 'entities'],
     className: 'text-xs leading-4',
     placeholderClassName: 'w-64',
@@ -50,7 +51,7 @@ function counted(value: number, [one, many]: readonly [string, string]): string 
   return `${statNumberFormatter.format(value)} ${value === 1 ? one : many}`
 }
 
-/** "Wed Nov 4 · 1,204 shows this week · 25,838 entities" (short) or
+/** "Wed Nov 4 · 1,204 shows in the next 7 days · 25,838 entities" (short) or
  *  "Wednesday, November 4 · 1,204 shows in the next 7 days · 25,838 entities
  *  in the graph" (long). Without counts, the date alone. */
 export function formatDateline(

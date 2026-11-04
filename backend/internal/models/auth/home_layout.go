@@ -51,10 +51,10 @@ const (
 // so it never restores it, drops it on read, and leaves it out of the next
 // write; a stored visibility for it does not survive that write.
 //
-// These ids are unverified against a renderer: no component keyed to them
-// exists yet. Renaming one after the first production write costs a data
-// migration that rewrites stored documents, so they should be confirmed
-// against the real sections before that write happens.
+// Every id but community_stats is keyed to a rendered section (the registry
+// in frontend/features/home/sections.ts, mounted by SignedInHome). Stored
+// documents carry these ids, so renaming one costs a data migration that
+// rewrites them.
 var knownHomeSections = []string{
 	HomeSectionSavedShows,
 	HomeSectionNearbyShows,

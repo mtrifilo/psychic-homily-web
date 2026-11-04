@@ -243,10 +243,10 @@ test.describe('Homepage (signed in)', () => {
     ).toBeVisible({ timeout: 10_000 })
   })
 
-  // The Home tab's masthead: the dot wordmark takes the bar's eye cell on
-  // phones with the dateline under it; from `xl` the bar is as shipped and the
+  // The Home tab's masthead: the dot wordmark takes the bar's eye cell below
+  // `sm` with the dateline under it; from `sm` the bar is as shipped and the
   // nameplate sits above the sections. Every other route keeps the eye.
-  test('sets the bar wordmark and dateline on phones, the nameplate on desktop', async ({
+  test('sets the bar wordmark and dateline on phones, the nameplate from sm', async ({
     authenticatedPage: page,
   }) => {
     const brand = page
@@ -258,7 +258,7 @@ test.describe('Homepage (signed in)', () => {
     await page.goto('/')
     await expect(brand.getByRole('img', { name: 'Psychic Homily' })).toBeVisible()
     await expect(
-      main.getByText(/· [\d,]+ shows? this week · [\d,]+ entit(y|ies)$/i)
+      main.getByText(/· [\d,]+ shows? in the next 7 days · [\d,]+ entit(y|ies)$/i)
     ).toBeVisible({ timeout: 10_000 })
     // The page's own sr-only heading stays the only h1.
     await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
@@ -280,16 +280,20 @@ test.describe('Homepage (signed in)', () => {
         ).toBeLessThanOrEqual(width)
       }).toPass({ timeout: 5_000 })
     }
-    await page.setViewportSize({ width: 390, height: 844 })
-
-    await page.setViewportSize({ width: 1440, height: 900 })
-    await expect(brand.getByRole('img', { name: 'Psychic Homily' })).toBeHidden()
-    await expect(main.getByRole('img', { name: 'Psychic Homily' })).toBeVisible()
-    await expect(
-      main.getByText(
-        /· [\d,]+ shows? in the next 7 days · [\d,]+ entit(y|ies) in the graph$/i
-      )
-    ).toBeVisible()
+    // From sm the bar is as shipped (eye + text wordmark) and the page
+    // carries the nameplate and the long dateline.
+    for (const width of [768, 1440]) {
+      await page.setViewportSize({ width, height: 900 })
+      await expect(brand.getByRole('img', { name: 'Psychic Homily' })).toBeHidden()
+      await expect(brand.locator('img')).toBeVisible()
+      await expect(brand.getByText('Psychic Homily', { exact: true })).toBeVisible()
+      await expect(main.getByRole('img', { name: 'Psychic Homily' })).toBeVisible()
+      await expect(
+        main.getByText(
+          /· [\d,]+ shows? in the next 7 days · [\d,]+ entit(y|ies) in the graph$/i
+        )
+      ).toBeVisible()
+    }
 
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/shows')

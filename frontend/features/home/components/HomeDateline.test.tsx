@@ -21,7 +21,7 @@ beforeEach(() => {
 describe('formatDateline', () => {
   it('writes the phone form: abbreviated date, the week, the entities', () => {
     expect(formatDateline(WED_NOV_4, PULSE, 'short')).toBe(
-      'Wed Nov 4 · 1,204 shows this week · 25,838 entities'
+      'Wed Nov 4 · 1,204 shows in the next 7 days · 25,838 entities'
     )
   })
 
@@ -34,7 +34,7 @@ describe('formatDateline', () => {
   it('agrees in number with a count of one', () => {
     const one = { shows_this_week: 1, entities_in_graph: 1 }
     expect(formatDateline(WED_NOV_4, one, 'short')).toBe(
-      'Wed Nov 4 · 1 show this week · 1 entity'
+      'Wed Nov 4 · 1 show in the next 7 days · 1 entity'
     )
     expect(formatDateline(WED_NOV_4, one, 'long')).toBe(
       'Wednesday, November 4 · 1 show in the next 7 days · 1 entity in the graph'
@@ -56,7 +56,7 @@ describe('HomeDateline', () => {
   it('renders the line in the data face, uppercase and muted, at the form size', () => {
     render(<HomeDateline form="short" />)
 
-    const line = screen.getByText('Wed Nov 4 · 1,204 shows this week · 25,838 entities')
+    const line = screen.getByText('Wed Nov 4 · 1,204 shows in the next 7 days · 25,838 entities')
     expect(line).toHaveClass('font-data', 'uppercase', 'text-muted-foreground', 'text-xs')
   })
 
