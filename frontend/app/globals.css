@@ -331,25 +331,13 @@
   }
   /* Every enabled interactive control shows the pointer, as a link does:
    * Tailwind's preflight leaves buttons, ARIA widgets and form controls at the
-   * platform arrow. A disabled button, select or input, and an
-   * `aria-disabled` role button, are left to their own disabled utilities. A
-   * text input carrying `role="combobox"` keeps its text cursor. From
-   * `@layer base`, a cursor utility on the element still wins. */
+   * platform arrow. A `:disabled` control is excluded, and so is an
+   * `aria-disabled` element matched only by its ARIA role; a native `button`
+   * or `select` that is only `aria-disabled` keeps the pointer. A text input
+   * carrying `role="combobox"` keeps its text cursor. From `@layer base`, a
+   * cursor utility on the element still wins. */
   button:not(:disabled),
-  [role='button']:not([aria-disabled='true']),
-  [role='link'],
-  [role='tab'],
-  [role='menuitem'],
-  [role='menuitemcheckbox'],
-  [role='menuitemradio'],
-  [role='option'],
-  [role='radio'],
-  [role='checkbox'],
-  [role='switch'],
-  [role='combobox']:not(input),
-  summary,
   select:not(:disabled),
-  label[for],
   input:where(
       [type='checkbox'],
       [type='radio'],
@@ -357,7 +345,22 @@
       [type='submit'],
       [type='button'],
       [type='range']
-    ):not(:disabled) {
+    ):not(:disabled),
+  summary,
+  label[for],
+  :where(
+      [role='button'],
+      [role='link'],
+      [role='tab'],
+      [role='menuitem'],
+      [role='menuitemcheckbox'],
+      [role='menuitemradio'],
+      [role='option'],
+      [role='radio'],
+      [role='checkbox'],
+      [role='switch'],
+      [role='combobox']:not(input)
+    ):not(:disabled, [aria-disabled='true']) {
     cursor: pointer;
   }
 }

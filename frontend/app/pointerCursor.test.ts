@@ -17,28 +17,20 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
  * (`cursor-grab`, `disabled:cursor-not-allowed`) still overrides it.
  */
 
+// The full list, not a sample: dropping or narrowing one selector silently
+// returns that control to the arrow, and the compiled form is what ships.
 const EXPECTED_SELECTORS = [
   'button:not(:disabled)',
-  '[role="button"]:not([aria-disabled="true"])',
-  '[role="link"]',
-  '[role="tab"]',
-  '[role="menuitem"]',
-  '[role="menuitemcheckbox"]',
-  '[role="menuitemradio"]',
-  '[role="option"]',
-  '[role="radio"]',
-  '[role="checkbox"]',
-  '[role="switch"]',
-  '[role="combobox"]:not(input)',
-  'summary',
   'select:not(:disabled)',
-  'label[for]',
   'input:where([type="checkbox"],[type="radio"],[type="file"],[type="submit"],[type="button"],[type="range"]):not(:disabled)',
+  'summary',
+  'label[for]',
+  ':where([role="button"],[role="link"],[role="tab"],[role="menuitem"],[role="menuitemcheckbox"],[role="menuitemradio"],[role="option"],[role="radio"],[role="checkbox"],[role="switch"],[role="combobox"]:not(input)):not(:disabled,[aria-disabled="true"])',
 ]
 
 /** Quote style and whitespace are the optimizer's choice, not the contract. */
 const normalize = (selector: string) =>
-  selector.replace(/'/g, '"').replace(/\s+/g, '').trim()
+  selector.replace(/'/g, '"').replace(/\s+/g, '')
 
 let scanDir: string
 let pointerRules: Rule[]
@@ -74,18 +66,9 @@ function enclosingLayers(rule: Rule): string[] {
 }
 
 describe('pointer-cursor base rule (compiled globals.css)', () => {
-  it('emits exactly one rule with every interactive selector', () => {
-    const baseRules = pointerRules.filter(rule => enclosingLayers(rule).includes('base'))
+  it('emits one cursor:pointer rule in @layer base, with every interactive selector', () => {
+    const baseRules = pointerRules.filter(rule => enclosingLayers(rule).join() === 'base')
     expect(baseRules).toHaveLength(1)
-    const selectors = baseRules[0].selectors.map(normalize)
-    expect(selectors).toEqual(EXPECTED_SELECTORS.map(normalize))
-  })
-
-  it('keeps the rule in @layer base, below the utilities that override it', () => {
-    const rule = pointerRules.find(r =>
-      r.selectors.map(normalize).includes(normalize('label[for]'))
-    )
-    expect(rule, 'pointer rule missing from compiled CSS').toBeDefined()
-    expect(enclosingLayers(rule!)).toEqual(['base'])
+    expect(baseRules[0].selectors.map(normalize)).toEqual(EXPECTED_SELECTORS.map(normalize))
   })
 })

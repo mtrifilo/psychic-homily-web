@@ -1,7 +1,6 @@
 import { test, expect } from '../fixtures'
 import { workerStorageState } from '../fixtures/auth'
 import { SEEDED_DETAIL_PATHS, warmRoutes } from '../helpers/navigation'
-import type { Locator } from '@playwright/test'
 
 // The pointer on interactive controls comes from one base rule in
 // app/globals.css, which a cursor utility on the element overrides. A unit test
@@ -9,9 +8,6 @@ import type { Locator } from '@playwright/test'
 // computes on one control per primitive that relies on it: the Button
 // primitive, BracketLink's button branch, a Radix dropdown-menu item, a cmdk
 // command item and a Radix select item.
-
-const cursorOf = (locator: Locator) =>
-  locator.evaluate(el => getComputedStyle(el).cursor)
 
 test.describe('Pointer cursor on interactive controls', () => {
   test.beforeAll(async ({ browser }, testInfo) => {
@@ -34,19 +30,19 @@ test.describe('Pointer cursor on interactive controls', () => {
         .getByRole('button', { name: /^Sign in to save/ })
         .first()
       await expect(saveButton).toHaveAttribute('data-slot', 'button')
-      expect(await cursorOf(saveButton)).toBe('pointer')
+      await expect(saveButton).toHaveCSS('cursor', 'pointer')
 
       const primaryNav = page.getByRole('navigation', { name: 'Primary' })
       await primaryNav.getByRole('button', { name: 'Browse the catalog' }).click()
       const menuItem = page.getByRole('menuitem', { name: 'Venues' })
       await expect(menuItem).toBeVisible()
-      expect(await cursorOf(menuItem)).toBe('pointer')
+      await expect(menuItem).toHaveCSS('cursor', 'pointer')
       await page.keyboard.press('Escape')
 
       await page.getByTestId('city-filter-combobox').click()
       const cityOption = page.getByRole('option').first()
       await expect(cityOption).toBeVisible()
-      expect(await cursorOf(cityOption)).toBe('pointer')
+      await expect(cityOption).toHaveCSS('cursor', 'pointer')
     }
   )
 
@@ -54,7 +50,7 @@ test.describe('Pointer cursor on interactive controls', () => {
     await page.goto(SEEDED_DETAIL_PATHS.show)
     const bracket = page.getByRole('button', { name: 'Add to calendar' })
     await expect(bracket).toBeVisible({ timeout: 10_000 })
-    expect(await cursorOf(bracket)).toBe('pointer')
+    await expect(bracket).toHaveCSS('cursor', 'pointer')
   })
 
   test(
@@ -66,12 +62,12 @@ test.describe('Pointer cursor on interactive controls', () => {
         name: 'Bill role 1',
       })
       await expect(billRole).toBeVisible({ timeout: 10_000 })
-      expect(await cursorOf(billRole)).toBe('pointer')
+      await expect(billRole).toHaveCSS('cursor', 'pointer')
 
       await billRole.click()
       const selectItem = authenticatedPage.getByRole('option').first()
       await expect(selectItem).toBeVisible()
-      expect(await cursorOf(selectItem)).toBe('pointer')
+      await expect(selectItem).toHaveCSS('cursor', 'pointer')
     }
   )
 })
