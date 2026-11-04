@@ -32,6 +32,9 @@ const NEARBY_SECTION_ID = 'home-shows-near-you'
  * `layout` means the server had no answer, which is not the same as `null`
  * ("this viewer has no stored layout") and must not be passed as one.
  *
+ * A section with nothing to show returns `null`, not an empty wrapper: the
+ * runtime collapses an empty slot so the next section moves up.
+ *
  * Every section is handed over whether or not it is visible, because
  * showing one has to paint without a round-trip. A section the runtime does
  * not render mounts nothing and issues no request; its client reference is

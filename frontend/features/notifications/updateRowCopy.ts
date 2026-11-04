@@ -3,10 +3,9 @@
  * inbox's alert rows, for surfaces that show a few of them in a ledger (the
  * signed-in home's "From your library", Figma `2185:1073`).
  *
- * Pure and ISOMORPHIC: no `'use client'`, no hooks. The verbs are the inbox's
- * own ("announced", "added"); the destinations and fallbacks are the inbox's
- * own too, so a row here and the same row in /notifications lead to the same
- * page.
+ * Pure and ISOMORPHIC: no `'use client'`, no hooks, no clock of its own. The
+ * verbs, fallback subjects and fallback destinations come from the same
+ * `ALERT_ROW_FALLBACK` / `releaseDigestVerb` the inbox renders with.
  */
 
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
@@ -14,9 +13,12 @@ import { resolveShowTimezone } from '@/lib/utils/formatters'
 import { formatInTimezone } from '@/lib/utils/timeUtils'
 import type { components } from '@/types/api'
 import {
+  ALERT_ROW_FALLBACK,
   isArtistReleaseDigestNotification,
   isArtistShowAlertNotification,
   isVenueShowAlertNotification,
+  releaseDigestVerb,
+  toAppPath,
 } from './types'
 
 /** One row of GET /me/notifications, as generated from the backend contract. */
@@ -49,27 +51,6 @@ function formatDaySpan(first: string, last: string, timezone: string): string {
   return from === to ? from : `${from} to ${to}`
 }
 
-/**
- * The app path an alert URL names.
- *
- * The backend builds alert_show_url, alert_venue_url and alert_release_url
- * from FRONTEND_URL, so each always names a page of this app, and its path is
- * that page on whichever origin is serving (apex or www). Unlike
- * `toRelativeIfSameOrigin` this needs no `window`, so the server render and
- * the hydrating client produce the SAME href; and it keeps the navigation
- * client-side, so the row's mark-read request is not cancelled by a full page
- * load.
- */
-function toAppPath(href: string): string {
-  if (!/^https?:\/\//.test(href)) return href
-  try {
-    const url = new URL(href)
-    return url.pathname + url.search + url.hash
-  } catch {
-    return href
-  }
-}
-
 function joinParts(parts: ReadonlyArray<string | undefined | false>): string {
   return parts.filter(Boolean).join(' · ')
 }
@@ -79,22 +60,27 @@ function joinParts(parts: ReadonlyArray<string | undefined | false>): string {
  * Unknown kinds are skipped rather than rendered generically: a row that
  * cannot say what changed is noise in a five-row module.
  *
+ * `now` is what recency is measured from. Every input is explicit (no clock
+ * read, no runtime zone), so a server render and the hydrating client given
+ * the same `now` produce the same text.
+ *
  * A missing enrichment field degrades that half of the sentence, as the inbox
  * does; the row still renders, because the notification still happened.
  */
 export function describeLibraryUpdate(
-  entry: UpdateRowEntry
+  entry: UpdateRowEntry,
+  now: Date
 ): UpdateRowCopy | null {
-  const ago = formatRelativeTime(entry.sent_at, { short: true })
-  // `null` state: the server already resolved the zone through the state
-  // fallback, so an absent or unknown zone falls to the app-wide default.
+  // An absent or unknown zone (the server omits one it would only guess)
+  // falls to the app-wide default, the same on every runtime.
   const timezone = resolveShowTimezone(null, entry.alert_show_timezone)
+  const ago = formatRelativeTime(entry.sent_at, { short: true, now, timeZone: timezone })
 
   if (isArtistShowAlertNotification(entry)) {
     return {
       label: 'New show',
       title: joinParts([
-        entry.alert_artist_name || 'An artist you follow',
+        entry.alert_artist_name || ALERT_ROW_FALLBACK.artistSubject,
         entry.alert_show_venue_name || entry.alert_show_title,
       ]),
       detail: joinParts([
@@ -102,7 +88,7 @@ export function describeLibraryUpdate(
           formatShowDay(entry.alert_show_event_date, timezone),
         `announced ${ago}`,
       ]),
-      href: toAppPath(entry.alert_show_url || '/shows'),
+      href: toAppPath(entry.alert_show_url || ALERT_ROW_FALLBACK.showHref),
     }
   }
 
@@ -113,7 +99,7 @@ export function describeLibraryUpdate(
     return {
       label: !count ? 'New shows' : count === 1 ? '1 show' : `${count} shows`,
       title: joinParts([
-        entry.alert_venue_name || 'A venue you follow',
+        entry.alert_venue_name || ALERT_ROW_FALLBACK.venueSubject,
         count === 1 ? 'new show' : 'new shows',
       ]),
       detail: joinParts([
@@ -126,7 +112,7 @@ export function describeLibraryUpdate(
           ),
         ago,
       ]),
-      href: toAppPath(entry.alert_venue_url || '/venues'),
+      href: toAppPath(entry.alert_venue_url || ALERT_ROW_FALLBACK.venueHref),
     }
   }
 
@@ -138,12 +124,9 @@ export function describeLibraryUpdate(
     const count = entry.alert_release_count
     return {
       label: !count ? 'Releases' : count === 1 ? 'Release' : `${count} releases`,
-      title: entry.alert_release_artists || 'Artists you follow',
-      detail: joinParts([
-        count === 1 ? 'added a release last week' : 'added releases last week',
-        ago,
-      ]),
-      href: toAppPath(entry.alert_release_url || '/library'),
+      title: entry.alert_release_artists || ALERT_ROW_FALLBACK.releaseSubject,
+      detail: joinParts([releaseDigestVerb(count), ago]),
+      href: toAppPath(entry.alert_release_url || ALERT_ROW_FALLBACK.releaseHref),
     }
   }
 

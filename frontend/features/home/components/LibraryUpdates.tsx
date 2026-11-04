@@ -31,7 +31,7 @@ const HEADING_ID = 'home-library-updates-heading'
  */
 export function LibraryUpdates() {
   const { authStatus } = useAuthContext()
-  const { data: updates } = useLibraryUpdates()
+  const updates = useLibraryUpdates()
 
   if (authStatus === 'anonymous' || !updates) return null
   if (updates.length === 0) return <HomeAreaPrompt />

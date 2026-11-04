@@ -166,7 +166,7 @@ describe('HomeLayoutRuntime', () => {
 
     layout = setHomeSectionVisibility(layout, 'saved_shows', false)
     rerender(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
-    expect(precedes(section('library_updates'), screen.getByTestId('passkey-offer'))).toBe(true)
+    expect(precedes(section('nearby_shows'), screen.getByTestId('passkey-offer'))).toBe(true)
 
     layout = moveHomeSection(layout, 'community_stats', 'up')!
     rerender(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
@@ -204,11 +204,11 @@ describe('HomeLayoutRuntime', () => {
 
     // Still collapsing: the offer stays under it.
     const offer = screen.getByTestId('passkey-offer')
-    expect(precedes(offer, section('library_updates'))).toBe(true)
+    expect(precedes(offer, section('nearby_shows'))).toBe(true)
 
     act(() => finishers.splice(0).forEach(finish => finish()))
     expect(
-      precedes(section('library_updates'), screen.getByTestId('passkey-offer'))
+      precedes(section('nearby_shows'), screen.getByTestId('passkey-offer'))
     ).toBe(true)
   })
 
@@ -256,14 +256,33 @@ describe('HomeLayoutRuntime', () => {
     focus.mockRestore()
   })
 
-  it('places the passkey offer under the first visible section when saved shows is hidden', () => {
+  // From your library may render nothing, so the offer skips it: anchored
+  // under an empty slot it would sit above every painted section.
+  it('places the passkey offer under the first visible section that always paints when saved shows is hidden', () => {
     layout = setHomeSectionVisibility(resolveHomeLayout(null), 'saved_shows', false)
     render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
 
     const offer = screen.getByTestId('passkey-offer')
     expect(renderedOrder()[0]).toBe('library_updates')
-    expect(precedes(section('library_updates'), offer)).toBe(true)
-    expect(precedes(offer, section('nearby_shows'))).toBe(true)
+    expect(precedes(section('nearby_shows'), offer)).toBe(true)
+    expect(precedes(offer, section('community_stats'))).toBe(true)
+  })
+
+  // An empty spacer is what lets the next section move up: the slot of a
+  // section that renders nothing must hold no child for `empty:hidden`.
+  it('leaves an empty, collapsible spacer for a section that renders nothing', () => {
+    const { container } = render(
+      <HomeLayoutRuntime
+        initialLayout={null}
+        sections={{ ...SECTIONS, library_updates: null }}
+      />
+    )
+
+    const collapsible = Array.from(
+      container.querySelectorAll('div[class*="empty:hidden"]')
+    )
+    expect(collapsible).toHaveLength(6)
+    expect(collapsible.filter(spacer => spacer.childNodes.length === 0)).toHaveLength(1)
   })
 
   it('places the passkey offer under the empty-state line when every section is hidden', () => {

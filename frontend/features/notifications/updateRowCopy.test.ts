@@ -1,8 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { NOTIFICATION_ENTITY_ARTIST_RELEASE_DIGEST } from './types'
-import { describeLibraryUpdate, type UpdateRowEntry } from './updateRowCopy'
+import { LIBRARY_UPDATE_ENTITY_TYPES } from './libraryUpdates'
+import {
+  describeLibraryUpdate as describeAt,
+  type UpdateRowEntry,
+} from './updateRowCopy'
 
 const NOW = new Date('2026-11-03T18:00:00Z')
+
+/** Measured from the read instant, as the hook does. */
+const describeLibraryUpdate = (row: UpdateRowEntry) => describeAt(row, NOW)
 
 function entry(overrides: Partial<UpdateRowEntry>): UpdateRowEntry {
   return {
@@ -177,6 +184,31 @@ describe('describeLibraryUpdate: destinations', () => {
     expect(describeLibraryUpdate(entry({ alert_show_url: url }))?.href).toBe(
       '/shows/dan-deacon?ref=alert#top'
     )
+  })
+})
+
+// The server render and the hydrating client run in different zones and at
+// different instants; given the same read instant they must print the same text.
+describe('describeLibraryUpdate: hydration-stable', () => {
+  it('measures recency from the read instant, not the clock', () => {
+    vi.setSystemTime(new Date('2026-11-03T18:59:59Z'))
+    const copy = describeAt(entry({ sent_at: '2026-11-03T17:59:30Z' }), NOW)
+    expect(copy?.detail).toBe('announced just now')
+  })
+
+  it("prints an old row's date on the row's zone, not the runtime's", () => {
+    // 03:00 UTC on Sep 20 is still Sep 19 in Phoenix.
+    const copy = describeAt(
+      entry({ sent_at: '2026-09-20T03:00:00Z', alert_show_timezone: 'America/Phoenix' }),
+      NOW
+    )
+    expect(copy?.detail).toBe('announced Sep 19')
+  })
+})
+
+describe('describeLibraryUpdate: the kinds the module asks for', () => {
+  it.each(LIBRARY_UPDATE_ENTITY_TYPES)('renders every requested kind (%s)', entityType => {
+    expect(describeLibraryUpdate(entry({ entity_type: entityType }))).not.toBeNull()
   })
 })
 
