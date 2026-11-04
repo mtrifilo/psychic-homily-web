@@ -258,6 +258,22 @@ function makeSavedShow({
   }
 }
 
+// One saved-shows query result: settled with `shows` as its only page, or
+// still on its initial load when `shows` is undefined.
+function savedShowsResult(shows?: ReturnType<typeof makeSavedShow>[]) {
+  return {
+    data: shows && {
+      pages: [{ shows, total: shows.length, limit: 4, offset: 0 }],
+      pageParams: [{ limit: 4, offset: 0 }],
+    },
+    isLoading: !shows,
+    error: null,
+    hasNextPage: false,
+    isFetchingNextPage: false,
+    fetchNextPage: mockFetchNextPage,
+  }
+}
+
 // TabsTrigger renders its label twice, an invisible width-reserving copy and
 // the visible one; this reads the visible one.
 function visibleTabLabel(tab: HTMLElement) {
@@ -370,19 +386,17 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       renderWithProviders(<LibraryPage />)
 
       const tablist = screen.getByRole('tablist')
-      expect(tablist.hasAttribute('data-trailing-fade')).toBe(true)
       expect(tablist.className).toContain('mask-image')
 
       scrollLeft = 278
       fireEvent.scroll(tablist)
 
-      expect(tablist.hasAttribute('data-trailing-fade')).toBe(false)
       expect(tablist.className).not.toContain('mask-image')
 
       scrollLeft = 100
       fireEvent.scroll(tablist)
 
-      expect(tablist.hasAttribute('data-trailing-fade')).toBe(true)
+      expect(tablist.className).toContain('mask-image')
     })
 
     it('draws no fade when every tab fits', () => {
@@ -391,9 +405,37 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
 
       renderWithProviders(<LibraryPage />)
 
-      const tablist = screen.getByRole('tablist')
-      expect(tablist.hasAttribute('data-trailing-fade')).toBe(false)
-      expect(tablist.className).not.toContain('mask-image')
+      expect(screen.getByRole('tablist').className).not.toContain('mask-image')
+    })
+
+    it('scrolls a deep-linked tab clear of the trailing fade', () => {
+      mockSearchParams = new URLSearchParams('tab=labels')
+      vi.spyOn(Element.prototype, 'scrollWidth', 'get').mockReturnValue(636)
+      vi.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(358)
+      const defaultBounds = HTMLElement.prototype.getBoundingClientRect
+      vi.spyOn(
+        HTMLElement.prototype,
+        'getBoundingClientRect'
+      ).mockImplementation(function (this: HTMLElement) {
+        if (this.getAttribute('role') === 'tablist') {
+          return { ...defaultBounds.call(this), left: 0, right: 358 }
+        }
+        if (
+          this.getAttribute('role') === 'tab' &&
+          this.getAttribute('data-state') === 'active'
+        ) {
+          // Inside the viewport, but under the 48px fade.
+          return { ...defaultBounds.call(this), left: 290, right: 350 }
+        }
+        return defaultBounds.call(this)
+      })
+
+      renderWithProviders(<LibraryPage />)
+
+      expect(mockScrollTo).toHaveBeenCalledWith({
+        behavior: 'instant',
+        left: 40,
+      })
     })
 
     it('scrolls a deep-linked trailing tab into the mobile tab viewport', () => {
@@ -1229,32 +1271,15 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
     })
 
     it('orders the Shows tab as Upcoming, the calendar card, then Past', () => {
-      mockUseSavedShows.mockImplementation(
-        (timeFilter: 'upcoming' | 'past') => ({
-          data: {
-            pages: [
-              {
-                shows: [
-                  makeSavedShow({
-                    id: timeFilter === 'past' ? 2 : 1,
-                    title: `${timeFilter} show`,
-                    eventDate: '2026-07-20T03:00:00Z',
-                    savedAt: '2026-07-11T12:00:00Z',
-                  }),
-                ],
-                total: 1,
-                limit: 4,
-                offset: 0,
-              },
-            ],
-            pageParams: [{ limit: 4, offset: 0 }],
-          },
-          isLoading: false,
-          error: null,
-          hasNextPage: false,
-          isFetchingNextPage: false,
-          fetchNextPage: mockFetchNextPage,
-        })
+      mockUseSavedShows.mockImplementation((timeFilter: 'upcoming' | 'past') =>
+        savedShowsResult([
+          makeSavedShow({
+            id: timeFilter === 'past' ? 2 : 1,
+            title: `${timeFilter} show`,
+            eventDate: '2026-07-20T03:00:00Z',
+            savedAt: '2026-07-11T12:00:00Z',
+          }),
+        ])
       )
 
       const { container } = renderWithProviders(<LibraryPage />)
@@ -1278,14 +1303,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
     })
 
     it('keeps the calendar anchor mounted while saved shows load', () => {
-      mockUseSavedShows.mockReturnValue({
-        data: undefined,
-        isLoading: true,
-        error: null,
-        hasNextPage: false,
-        isFetchingNextPage: false,
-        fetchNextPage: mockFetchNextPage,
-      })
+      mockUseSavedShows.mockReturnValue(savedShowsResult())
 
       const { container } = renderWithProviders(<LibraryPage />)
 
@@ -1297,34 +1315,18 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
     it('re-anchors a #calendar-feed arrival once the lists finish loading', () => {
       const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
       window.history.replaceState(null, '', '/library#calendar-feed')
+      const loadedShows = [
+        makeSavedShow({
+          id: 1,
+          title: 'Upcoming Artist',
+          eventDate: '2026-07-20T03:00:00Z',
+          savedAt: '2026-07-11T12:00:00Z',
+        }),
+      ]
       let loaded = false
-      mockUseSavedShows.mockImplementation(() => ({
-        data: loaded
-          ? {
-              pages: [
-                {
-                  shows: [
-                    makeSavedShow({
-                      id: 1,
-                      title: 'Upcoming Artist',
-                      eventDate: '2026-07-20T03:00:00Z',
-                      savedAt: '2026-07-11T12:00:00Z',
-                    }),
-                  ],
-                  total: 1,
-                  limit: 4,
-                  offset: 0,
-                },
-              ],
-              pageParams: [{ limit: 4, offset: 0 }],
-            }
-          : undefined,
-        isLoading: !loaded,
-        error: null,
-        hasNextPage: false,
-        isFetchingNextPage: false,
-        fetchNextPage: mockFetchNextPage,
-      }))
+      mockUseSavedShows.mockImplementation(() =>
+        savedShowsResult(loaded ? loadedShows : undefined)
+      )
 
       try {
         const { container, rerender } = renderWithProviders(<LibraryPage />)

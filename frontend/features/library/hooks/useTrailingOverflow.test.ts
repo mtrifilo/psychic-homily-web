@@ -13,7 +13,6 @@ class RecordingResizeObserver {
   observe(target: Element) {
     this.observed.push(target)
   }
-  unobserve() {}
   disconnect() {
     this.disconnected = true
   }

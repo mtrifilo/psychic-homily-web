@@ -243,9 +243,6 @@ function SavedShowsSection({
   )
 }
 
-// The signed-in home links to `/library#calendar-feed`.
-const CALENDAR_FEED_ANCHOR_ID = 'calendar-feed'
-
 function ShowsTab({ currentUserId }: { currentUserId?: string }) {
   const { view, setView } = useLibraryView()
   const upcoming = useInfiniteSavedShows(
@@ -285,7 +282,7 @@ function ShowsTab({ currentUserId }: { currentUserId?: string }) {
   // Re-anchor once, when the initial load settles.
   useEffect(() => {
     if (isInitialLoading) return
-    if (window.location.hash !== `#${CALENDAR_FEED_ANCHOR_ID}`) return
+    if (window.location.hash !== '#calendar-feed') return
     calendarFeedRef.current?.scrollIntoView({ block: 'start' })
   }, [isInitialLoading])
 
@@ -348,7 +345,7 @@ function ShowsTab({ currentUserId }: { currentUserId?: string }) {
           the id lives on the wrapper rather than inside it. It stays outside
           the load-state branches so it is mounted in every state. */}
       <div
-        id={CALENDAR_FEED_ANCHOR_ID}
+        id="calendar-feed"
         ref={calendarFeedRef}
         className="scroll-mt-24"
       >
@@ -791,11 +788,14 @@ function useFollowingTabCounts(): Partial<Record<LibraryTab, number>> {
   }
 }
 
-// Fades the strip's last 48px while tabs remain past its right edge. A mask
-// fades the tabs themselves, so it needs no colour token, works on any
-// background, and leaves every tab's hit area intact.
+// Fades the strip's last TAB_STRIP_FADE_WIDTH_PX while tabs remain past its
+// right edge. A mask fades the tabs themselves, so it needs no colour token,
+// works on any background, and leaves every tab's hit area intact. The class
+// stays a literal for Tailwind's scanner, so its width must match the
+// constant.
+const TAB_STRIP_FADE_WIDTH_PX = 48
 const TAB_STRIP_TRAILING_FADE =
-  '[mask-image:linear-gradient(to_right,black_calc(100%_-_3rem),transparent)]'
+  '[mask-image:linear-gradient(to_right,black_calc(100%_-_48px),transparent)]'
 
 // The strip's bottom rule lives on the wrapper, outside the mask, so it runs
 // the full width while the tabs above it fade.
@@ -822,12 +822,17 @@ function LibraryTabStrip({
 
     const listBounds = tabList.getBoundingClientRect()
     const triggerBounds = activeTrigger.getBoundingClientRect()
+    // While the strip overflows, an active tab under the trailing fade reads
+    // as cut off, so it clears the fade; scrollTo clamps at the scroll end,
+    // where the fade is gone.
+    const fadeReserve =
+      tabList.scrollWidth > tabList.clientWidth ? TAB_STRIP_FADE_WIDTH_PX : 0
     let left = tabList.scrollLeft
 
     if (triggerBounds.left < listBounds.left) {
       left -= listBounds.left - triggerBounds.left
-    } else if (triggerBounds.right > listBounds.right) {
-      left += triggerBounds.right - listBounds.right
+    } else if (triggerBounds.right > listBounds.right - fadeReserve) {
+      left += triggerBounds.right - listBounds.right + fadeReserve
     } else {
       return
     }
@@ -839,7 +844,6 @@ function LibraryTabStrip({
     <div className="mb-6 border-b border-border">
       <TabsList
         ref={tabListRef}
-        data-trailing-fade={hasTrailingOverflow || undefined}
         className={cn(
           'h-auto w-full flex-nowrap justify-start gap-1 overflow-x-auto rounded-none bg-transparent p-0',
           hasTrailingOverflow && TAB_STRIP_TRAILING_FADE
