@@ -50,7 +50,7 @@ describe('SignedInHome masthead and sections', () => {
     )
   })
 
-  // The stats band's counts moved into the dateline; no slot renders it.
+  // The registry has no stats section (its counts render in the dateline).
   it('hands over exactly the registry sections, without the stats band', () => {
     render(<SignedInHome />)
 

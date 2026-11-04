@@ -47,9 +47,9 @@ const (
 // A document may OMIT ids, and Validate accepts that on the CONTRACT that a
 // client restores any known section the document leaves out at its index in
 // that default order. That is what lets a new section ship without rewriting
-// stored rows. The
-// consuming frontend is not built yet (PSY-2104), so nothing enforces its half
-// of that contract today.
+// stored rows. community_stats is the exception: the frontend has retired it,
+// so it never restores it, drops it on read, and leaves it out of the next
+// write; a stored visibility for it does not survive that write.
 //
 // These ids are unverified against a renderer: no component keyed to them
 // exists yet. Renaming one after the first production write costs a data

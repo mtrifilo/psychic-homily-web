@@ -21,6 +21,7 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 import { cn } from '@/lib/utils'
 import { readWordmarkColors, resolveFontFamily, rgba, sampleWordmark, type RGB } from './sampleWordmark'
+import { WORDMARK_PRESETS, type WordmarkPresetName } from './wordmarkPresets'
 
 const DEFAULT_LINES: readonly string[] = ['PSYCHIC', 'HOMILY']
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
@@ -39,9 +40,6 @@ export const SETTLE_RELEASE_MS = 1000
  *  over the flash-area threshold). */
 const INTRO_FLOOR = 0.12
 
-/** The wordmark on one line, as the bar mark and the nameplate set it. */
-export const WORDMARK_ONE_LINE: readonly string[] = ['PSYCHIC HOMILY']
-
 // Shared by every preset. The boards set Hanken Grotesk Black; a resting dot
 // is about 0.6 x the pitch across (radius = pitch / 4 before the shimmer and
 // ignite scaling); the pointer reaches 1.2 x the container height.
@@ -49,46 +47,6 @@ const PRESET_FONT_WEIGHT = 900
 const PRESET_DOT_PER_PITCH = 0.25
 const PRESET_IGNITE_REACH = 1.2
 const PRESET_FALLBACK_CLASS = 'whitespace-nowrap font-black leading-none'
-
-/** A fixed-size layout of the field, tuned on /admin/hero-lab against the
- *  Product Designs components (bar mark 2240:3336, nameplate 2240:3359). */
-export interface WordmarkPreset {
-  /** Sampling pitch in CSS px. */
-  gapFactor: number
-  /** Dark-mode bloom pass. */
-  bloom: boolean
-  /** The box the preset is tuned for; the container takes it. */
-  boxClassName: string
-  /** Text size of the fallback (no JS, or the canvas could not sample). */
-  fallbackClassName: string
-}
-
-/**
- * - `bar`: one line in a 306x30 box, a 28px cap. Pitch 3px (about 9 to 10
- *   cells per letter height). No bloom: at a 3px pitch the halo fills the
- *   gaps between cells and blurs the dot texture, adding no visible glow.
- * - `nameplate`: one line in a 1084x100 box, a 100px cap. Pitch 4px. Bloom
- *   in dark mode.
- *
- * Measured on /admin/hero-lab at dpr 2: the bar's cells span about 298x26
- * and the nameplate's about 1062x95, each centred, at exactly the pitch.
- */
-export const WORDMARK_PRESETS = {
-  bar: {
-    gapFactor: 3,
-    bloom: false,
-    boxClassName: 'h-[30px] w-[306px]',
-    fallbackClassName: 'text-[22px]',
-  },
-  nameplate: {
-    gapFactor: 4,
-    bloom: true,
-    boxClassName: 'h-[100px] w-[1084px]',
-    fallbackClassName: 'text-[88px]',
-  },
-} as const satisfies Record<string, WordmarkPreset>
-
-export type WordmarkPresetName = keyof typeof WORDMARK_PRESETS
 
 const HERO_FALLBACK_CLASS =
   'text-[clamp(3.25rem,12vw,10rem)] font-bold leading-[0.9] tracking-tight'
@@ -135,8 +93,9 @@ export function ScryingGridWordmark({
    *   and in a hidden tab. Nothing restarts on its own.
    */
   motion?: 'rest' | 'settle'
-  /** A fixed-size layout (see WORDMARK_PRESETS). The container's size comes
-   *  from `className` and must match the preset's box. */
+  /** A fixed-size layout (see WORDMARK_PRESETS). The container takes the
+   *  preset's box; `className` may cap it (`max-w-*`), and the ink re-fits
+   *  the smaller box. */
   preset?: WordmarkPresetName
   /** Sampling pitch in CSS px (× dpr) — smaller = denser dot field, cleaner letterforms. */
   gapFactor?: number
@@ -177,8 +136,9 @@ export function ScryingGridWordmark({
       reducedMotion || window.matchMedia(REDUCED_MOTION_QUERY).matches
     const settle = motion === 'settle'
     const bloomOn = layout ? layout.bloom : true
+    // The pitch actually sampled, so a gapFactor override keeps the ratio.
     const baseDot = layout
-      ? layout.gapFactor * PRESET_DOT_PER_PITCH * dpr
+      ? gapFactor * PRESET_DOT_PER_PITCH * dpr
       : Math.max(1.1, 1.35 * dpr)
     const pointer = { x: 0, y: 0, active: false }
     // settle state. The intro's clock advances by frame timestamps, so a
@@ -498,7 +458,13 @@ export function ScryingGridWordmark({
     const ro = new ResizeObserver(() => {
       cancelAnimationFrame(resizeRaf)
       resizeRaf = requestAnimationFrame(() => {
-        if (disposed || rebuild() !== 'ready') return
+        if (disposed) return
+        const built = rebuild()
+        // A field that mounted with no box gets its first build here, so an
+        // empty sample reveals the text as it would in begin(). A field that
+        // already drew keeps its last frame.
+        if (built === 'empty' && particles.length === 0) setFailed(true)
+        if (built !== 'ready') return
         setEnhanced(true)
         if (!running) {
           draw(0, true)

@@ -58,15 +58,15 @@ const INK_FILL = 0.98
 /** Draw the lines so their ink box is as large as fits and centred. */
 function drawInkFilled(ctx: CanvasRenderingContext2D, lines: readonly string[], fontFamily: string, weight: number) {
   const { width, height } = ctx.canvas
-  const pad = INK_FILL
   ctx.font = `${weight} 100px ${fontFamily}`
   const metrics = lines.map((l) => ctx.measureText(l))
   const widest = Math.max(1, ...metrics.map((m) => m.actualBoundingBoxLeft + m.actualBoundingBoxRight))
+  // The tallest ascent and deepest descent of any line, so every line fits.
   const ascent = Math.max(...metrics.map((m) => m.actualBoundingBoxAscent))
   const descent = Math.max(...metrics.map((m) => m.actualBoundingBoxDescent))
-  // Ink height at 100px: the first line's ascent, the line gaps, the last line's descent.
+  // Ink height at 100px: that ascent, the line gaps, that descent.
   const inkHeight100 = ascent + descent + (lines.length - 1) * LINE_GAP_FACTOR * 100
-  const size = Math.max(8, Math.min((width * pad) / widest, (height * pad) / Math.max(1, inkHeight100)) * 100)
+  const size = Math.max(8, Math.min((width * INK_FILL) / widest, (height * INK_FILL) / Math.max(1, inkHeight100)) * 100)
   const scale = size / 100
   ctx.font = `${weight} ${size}px ${fontFamily}`
   ctx.textAlign = 'left'

@@ -58,7 +58,10 @@ export function HomeLayoutRuntime({
 }: {
   initialLayout?: HomeLayoutDocument | null
   sections: Record<HomeSectionId, ReactNode>
-  /** Above the sections and outside them: it is not hideable or movable. */
+  /** Above the sections and outside them: it is not hideable or movable.
+   *  It owns the whole gap between the top bar and the first section (the
+   *  page adds none for this variant), so without one the first section sits
+   *  flush under the bar. */
   masthead?: ReactNode
 }) {
   const { authStatus } = useAuthContext()

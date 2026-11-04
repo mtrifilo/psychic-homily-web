@@ -263,6 +263,25 @@ test.describe('Homepage (signed in)', () => {
     // The page's own sr-only heading stays the only h1.
     await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
 
+    // Narrower than the 390px board, the mark gives up width: the search
+    // target stays inside the bar's padding and the page does not scroll
+    // sideways.
+    for (const width of [360, 320]) {
+      await page.setViewportSize({ width, height: 700 })
+      await expect(async () => {
+        const search = await page
+          .getByRole('banner')
+          .getByRole('search')
+          .boundingBox()
+        expect(search).not.toBeNull()
+        expect(search!.x + search!.width).toBeLessThanOrEqual(width - 16)
+        expect(
+          await page.evaluate(() => document.documentElement.scrollWidth)
+        ).toBeLessThanOrEqual(width)
+      }).toPass({ timeout: 5_000 })
+    }
+    await page.setViewportSize({ width: 390, height: 844 })
+
     await page.setViewportSize({ width: 1440, height: 900 })
     await expect(brand.getByRole('img', { name: 'Psychic Homily' })).toBeHidden()
     await expect(main.getByRole('img', { name: 'Psychic Homily' })).toBeVisible()
@@ -348,7 +367,7 @@ test.describe('Homepage (signed in)', () => {
       authenticatedPage.getByRole('link', { name: 'Shows in any city' })
     ).toBeVisible()
 
-    // The stats band retired into the dateline above the sections.
+    // The signed-in home has no stats band; its counts are in the dateline.
     await expect(
       authenticatedPage.getByRole('region', { name: /current stats/i })
     ).toHaveCount(0)

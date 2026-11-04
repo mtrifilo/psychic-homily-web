@@ -7,7 +7,6 @@ vi.mock('./HomeDateline', () => ({
   ),
 }))
 vi.mock('./scrying-grid/ScryingGridWordmark', () => ({
-  WORDMARK_ONE_LINE: ['PSYCHIC HOMILY'],
   ScryingGridWordmark: (props: Record<string, unknown>) => (
     <div
       data-testid="wordmark"

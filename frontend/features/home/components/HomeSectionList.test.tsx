@@ -48,7 +48,7 @@ describe('HomeSectionList', () => {
     render(<HomeSectionList />)
 
     const rows = screen.getAllByRole('listitem')
-    // Five: the stats band retired into the dateline.
+    // The Customize list has five rows; the stats section is not one of them.
     expect(rows).toHaveLength(5)
     HOME_SECTIONS.forEach((section, index) => {
       expect(within(rows[index]).getByText(section.title)).toBeInTheDocument()

@@ -1,8 +1,8 @@
 'use client'
 
 /**
- * Hero Lab: the production wordmark at the signed-in home's two fixed sizes
- * (PSY-2600), each in the box the boards draw: the bar mark 306x30 in a 390px
+ * Hero Lab: the production wordmark at the signed-in home's two fixed sizes,
+ * each in the box the boards draw: the bar mark 306x30 in a 390px
  * phone bar, and the nameplate 1084x100 in the 1088px content column. Both run
  * `motion="settle"`; "Replay intro" remounts them. The presets' values are
  * recorded on WORDMARK_PRESETS. The control bar's reduced-motion toggle does
@@ -11,11 +11,11 @@
 
 import { useState } from 'react'
 import { Search } from 'lucide-react'
+import { ScryingGridWordmark } from '@/features/home/components/scrying-grid/ScryingGridWordmark'
 import {
-  ScryingGridWordmark,
   WORDMARK_ONE_LINE,
   WORDMARK_PRESETS,
-} from '@/features/home/components/scrying-grid/ScryingGridWordmark'
+} from '@/features/home/components/scrying-grid/wordmarkPresets'
 
 function presetCaption(name: keyof typeof WORDMARK_PRESETS): string {
   const preset = WORDMARK_PRESETS[name]

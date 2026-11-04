@@ -5,9 +5,8 @@ import {
   SETTLE_INTRO_MS,
   SETTLE_RELEASE_MS,
   ScryingGridWordmark,
-  WORDMARK_ONE_LINE,
-  WORDMARK_PRESETS,
 } from './ScryingGridWordmark'
+import { WORDMARK_ONE_LINE, WORDMARK_PRESETS } from './wordmarkPresets'
 
 // The literal query, not an import of it: a drifted query must fail here.
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
@@ -343,26 +342,65 @@ describe("ScryingGridWordmark motion='settle'", () => {
     intersection.set(false)
     expect(clock.pending).toBe(0)
 
+    // Time passes with no frames: none of it is billed to the intro.
     clock.advance(10_000)
     intersection.set(true)
     expect(clock.pending).toBe(1)
-    // Half the intro was left, not none of it.
+    // Half the intro was left: neither none of it (billed) nor all of it
+    // (restarted).
     clock.advance(SETTLE_INTRO_MS / 4)
     expect(clock.pending).toBe(1)
-    clock.advance(SETTLE_INTRO_MS)
+    clock.advance(SETTLE_INTRO_MS / 4 + 100)
     expect(clock.pending).toBe(0)
   })
 
-  it('pauses in a hidden tab and resumes when the tab is shown', () => {
+  it('pauses in a hidden tab and resumes where it stopped when the tab is shown', () => {
     render(<ScryingGridWordmark motion="settle" heading={false} />)
     clock.advance(SETTLE_INTRO_MS / 2)
     setDocumentHidden(true)
     expect(clock.pending).toBe(0)
 
+    clock.advance(10_000)
     setDocumentHidden(false)
     expect(clock.pending).toBe(1)
-    clock.advance(SETTLE_INTRO_MS)
+    clock.advance(SETTLE_INTRO_MS / 4)
+    expect(clock.pending).toBe(1)
+    clock.advance(SETTLE_INTRO_MS / 4 + 100)
     expect(clock.pending).toBe(0)
+  })
+
+  it('reveals the text when a field that mounted with no box samples to nothing', () => {
+    const rect = vi.mocked(HTMLElement.prototype.getBoundingClientRect)
+    rect.mockReturnValue({ width: 0, height: 0, left: 0, top: 0 } as DOMRect)
+    const resized: ResizeObserverCallback[] = []
+    const originalResizeObserver = window.ResizeObserver
+    window.ResizeObserver = class {
+      constructor(callback: ResizeObserverCallback) {
+        resized.push(callback)
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver
+    try {
+      const { container } = render(
+        <ScryingGridWordmark motion="settle" heading={false} preset="nameplate" />,
+      )
+      const fallback = container.querySelector('[data-hero-fallback]')
+      expect(fallback).toHaveClass('opacity-0')
+
+      // The breakpoint is crossed and the sample comes back empty.
+      rect.mockReturnValue({ width: 1084, height: 100, left: 0, top: 0 } as DOMRect)
+      sampleSpy.mockReturnValueOnce([])
+      act(() => {
+        for (const callback of resized) callback([], {} as ResizeObserver)
+      })
+      clock.advance(16)
+
+      expect(fallback).toHaveClass('opacity-100')
+    } finally {
+      window.ResizeObserver = originalResizeObserver
+    }
   })
 
   it('draws the resting frame once, with no intro and no pointer reaction, under reduced motion', () => {
