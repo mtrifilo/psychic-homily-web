@@ -1,14 +1,16 @@
 'use client'
 
-import { Fragment } from 'react'
+import { Fragment, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { DenseTable } from '@/components/shared/DenseTable'
+import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 import { cn } from '@/lib/utils'
 import {
   formatPlayTime,
   formatRelativeMinutes,
   getRotationStatusColor,
+  playAnchorId,
 } from '@/features/radio'
 import type { RadioPlay } from '@/features/radio'
 
@@ -22,6 +24,13 @@ interface PlaylistTableProps {
    * rendering: chronological, absolute times.
    */
   live?: boolean
+  /**
+   * The play the visitor arrived at (`#play-{id}`): its row takes the
+   * newest-row tint and `aria-current`, and is scrolled to the viewport's
+   * center once per arrival, as soon as its row is present. Null or an id
+   * with no row here highlights and scrolls nothing.
+   */
+  highlightedPlayId?: number | null
 }
 
 /**
@@ -58,12 +67,38 @@ const NEWEST_NOW_MAX_AGE_MS = 10 * 60 * 1000
  * one and is otherwise blank (never fabricated); position keeps the row order.
  * dj_comment renders as an indented full-width sub-row under its track.
  */
-export function PlaylistTable({ plays, live = false }: PlaylistTableProps) {
+export function PlaylistTable({
+  plays,
+  live = false,
+  highlightedPlayId = null,
+}: PlaylistTableProps) {
   // Live regime: the API's chronological order reversed = newest-first.
   // `now` is captured per render; the parent's poll + minute tick re-render
   // this table, which is what keeps the relative labels fresh (no effect).
   const ordered = live ? [...plays].reverse() : plays
   const now = new Date()
+  const anchoredRowRef = useRef<HTMLTableRowElement>(null)
+  // The anchored id this arrival already scrolled to. It outlives effect
+  // re-mounts (a cached route revealed again by Back re-runs effects), so one
+  // arrival scrolls once; it resets only when the anchor clears.
+  const scrolledToPlayIdRef = useRef<number | null>(null)
+  const reducedMotion = useReducedMotion()
+  const anchoredRowPresent =
+    highlightedPlayId != null && plays.some(play => play.id === highlightedPlayId)
+
+  useEffect(() => {
+    if (highlightedPlayId == null) {
+      scrolledToPlayIdRef.current = null
+      return
+    }
+    // A poll may deliver the anchored row after mount: wait for it.
+    if (!anchoredRowPresent || scrolledToPlayIdRef.current === highlightedPlayId) return
+    scrolledToPlayIdRef.current = highlightedPlayId
+    anchoredRowRef.current?.scrollIntoView({
+      block: 'center',
+      behavior: reducedMotion ? 'instant' : 'smooth',
+    })
+  }, [highlightedPlayId, anchoredRowPresent, reducedMotion])
 
   return (
     <div>
@@ -94,13 +129,18 @@ export function PlaylistTable({ plays, live = false }: PlaylistTableProps) {
                 ? 'now'
                 : formatRelativeMinutes(play.air_timestamp, now)
             const matched = play.artist_id != null
+            const isAnchored = play.id === highlightedPlayId
+            const tinted = isNewest || isAnchored
 
             return (
               <Fragment key={play.id}>
                 <tr
+                  ref={isAnchored ? anchoredRowRef : undefined}
+                  id={playAnchorId(play.id)}
                   data-live-newest={isNewest || undefined}
+                  aria-current={isAnchored ? 'true' : undefined}
                   className={cn(
-                    isNewest && 'bg-primary/5',
+                    tinted && 'bg-primary/5',
                     play.dj_comment && 'border-b-0!'
                   )}
                 >
@@ -198,7 +238,7 @@ export function PlaylistTable({ plays, live = false }: PlaylistTableProps) {
                   </td>
                 </tr>
                 {play.dj_comment && (
-                  <tr className={cn(isNewest && 'bg-primary/5')}>
+                  <tr className={cn(tinted && 'bg-primary/5')}>
                     <td aria-hidden="true" />
                     <td colSpan={6} className="pt-0!">
                       <span className="font-data text-xs text-muted-foreground">

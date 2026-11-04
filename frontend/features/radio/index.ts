@@ -20,6 +20,7 @@ export type {
   RadioTopArtist,
   RadioTopLabel,
   RadioAsHeardOn,
+  RadioAsHeardOnEpisode,
   RadioNewReleaseRadarEntry,
   RadioStats,
   RadioTopArtistsResponse,
@@ -105,6 +106,9 @@ export type { ArtistHop } from './lib/stationOverview'
 // PSY-1051: episode-archive derivation helpers + neighbors hook
 // (RadioEpisodePreviewArtist is re-exported in the types block above)
 export { useEpisodeNeighbors } from './hooks'
+
+// Playlist row anchors for the episode page (episodePlayHref stays in-feature)
+export { playAnchorId, parsePlayAnchor } from './lib/playAnchor'
 export {
   isLiveNow,
   previewToHops,

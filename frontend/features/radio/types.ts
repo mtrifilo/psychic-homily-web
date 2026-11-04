@@ -5,6 +5,8 @@
  * for radio endpoints.
  */
 
+import type { components } from '@/types/api'
+
 // ============================================================================
 // Radio Station
 // ============================================================================
@@ -322,16 +324,8 @@ export interface RadioTopLabel {
   play_count: number
 }
 
-export interface RadioAsHeardOn {
-  station_id: number
-  station_name: string
-  station_slug: string
-  show_id: number
-  show_name: string
-  show_slug: string
-  play_count: number
-  last_played: string
-}
+export type RadioAsHeardOn = components['schemas']['RadioAsHeardOnResponse']
+export type RadioAsHeardOnEpisode = components['schemas']['RadioAsHeardOnEpisode']
 
 // New Release Radar link resolution (PSY-1076, extracted from the hub's
 // sidebar box): link the "Artist — Album" line to the release when matched,

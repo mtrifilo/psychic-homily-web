@@ -268,4 +268,39 @@ describe('PlaylistTable', () => {
       expect(commentRow?.className).toContain('bg-primary/5')
     })
   })
+
+  describe('play anchors and the arrival highlight', () => {
+    const plays = () => [
+      makePlay({ id: 11, position: 1 }),
+      makePlay({ id: 12, position: 2, artist_name: 'Neu!', dj_comment: 'from the vault' }),
+      makePlay({ id: 13, position: 3, artist_name: 'Faust' }),
+    ]
+
+    it('gives every play row an anchor id', () => {
+      const { container } = render(<PlaylistTable plays={plays()} />)
+      expect(container.querySelector('#play-11')).toHaveTextContent('CAN')
+      expect(container.querySelector('#play-12')).toHaveTextContent('Neu!')
+      expect(container.querySelector('#play-13')).toHaveTextContent('Faust')
+    })
+
+    it('tints the highlighted row and its dj_comment sub-row and marks it current', () => {
+      const { container } = render(<PlaylistTable plays={plays()} highlightedPlayId={12} />)
+      const row = container.querySelector('#play-12')
+      expect(row).toHaveAttribute('aria-current', 'true')
+      expect(row?.className).toContain('bg-primary/5')
+      expect(screen.getByText('from the vault').closest('tr')?.className).toContain('bg-primary/5')
+
+      for (const id of ['#play-11', '#play-13']) {
+        const other = container.querySelector(id)
+        expect(other).not.toHaveAttribute('aria-current')
+        expect(other?.className).not.toContain('bg-primary/5')
+      }
+    })
+
+    it('highlights nothing when the anchored id has no row', () => {
+      const { container } = render(<PlaylistTable plays={plays()} highlightedPlayId={999} />)
+      expect(container.querySelector('[aria-current]')).toBeNull()
+      expect(container.querySelector('.bg-primary\\/5')).toBeNull()
+    })
+  })
 })

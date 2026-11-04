@@ -1,5 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { StrictMode } from 'react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { act, render, screen } from '@testing-library/react'
+import { installMatchMedia } from '@/test/mocks/matchMedia'
 import type { RadioEpisodeDetail } from '@/features/radio'
 import { localIso } from '@/features/radio/lib/localIso.testutil'
 import { makeRadioPlay } from '@/features/radio/lib/radioPlay.testutil'
@@ -268,5 +270,128 @@ describe('EpisodeDateDetail live regime (PSY-1511)', () => {
       screen.queryByRole('link', { name: /play archive/i })
     ).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /mixcloud/i })).not.toBeInTheDocument()
+  })
+})
+
+describe('EpisodeDateDetail arrival at a #play-{id} anchor', () => {
+  const REDUCED_MOTION = '(prefers-reduced-motion: reduce)'
+  const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView)
+  let restoreMatchMedia: (() => void) | null = null
+
+  const episodeWithPlays = () =>
+    makeEpisode({
+      plays: [
+        makeRadioPlay({ id: 11, position: 1 }),
+        makeRadioPlay({ id: 12, position: 2, artist_name: 'Neu!' }),
+      ],
+    })
+
+  const anchoredRow = () => document.querySelector('[aria-current="true"]')
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    restoreMatchMedia?.()
+    restoreMatchMedia = null
+    window.history.replaceState(null, '', '/')
+  })
+
+  /** Land on the Jun 8 episode at `hash` and render it. */
+  const arriveAt = (hash: string) => {
+    window.history.replaceState(null, '', `/radio/wfmu/night-owl/2026-06-08${hash}`)
+    setEpisode(episodeWithPlays())
+    return render(<EpisodeDateDetail {...props} />)
+  }
+
+  it('highlights the anchored row and scrolls it to the center', () => {
+    arriveAt('#play-12')
+
+    const row = document.getElementById('play-12')
+    expect(anchoredRow()).toBe(row)
+    expect(row?.className).toContain('bg-primary/5')
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center', behavior: 'smooth' })
+    expect(scrollIntoView.mock.contexts[0]).toBe(row)
+  })
+
+  it('scrolls instantly under reduced motion', () => {
+    restoreMatchMedia = installMatchMedia({ [REDUCED_MOTION]: true }).restore
+    arriveAt('#play-12')
+
+    expect(scrollIntoView).toHaveBeenLastCalledWith({ block: 'center', behavior: 'instant' })
+  })
+
+  it('renders the plain playlist when the anchored play is not on this episode', () => {
+    arriveAt('#play-999')
+
+    expect(screen.getByText('Neu!')).toBeInTheDocument()
+    expect(anchoredRow()).toBeNull()
+    expect(scrollIntoView).not.toHaveBeenCalled()
+  })
+
+  it('does not re-scroll when a poll re-renders the same anchored playlist', () => {
+    const { rerender } = arriveAt('#play-12')
+    setEpisode(episodeWithPlays(), 60_000)
+    rerender(<EpisodeDateDetail {...props} />)
+
+    expect(anchoredRow()).toBe(document.getElementById('play-12'))
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+  })
+
+  it('scrolls once when a poll later delivers the anchored row', () => {
+    const { rerender } = arriveAt('#play-13')
+    expect(scrollIntoView).not.toHaveBeenCalled()
+
+    setEpisode(
+      makeEpisode({
+        plays: [
+          ...episodeWithPlays().plays,
+          makeRadioPlay({ id: 13, position: 3, artist_name: 'Faust' }),
+        ],
+      }),
+      60_000
+    )
+    rerender(<EpisodeDateDetail {...props} />)
+    rerender(<EpisodeDateDetail {...props} />)
+
+    expect(anchoredRow()).toBe(document.getElementById('play-13'))
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+    expect(scrollIntoView.mock.contexts[0]).toBe(document.getElementById('play-13'))
+  })
+
+  it('scrolls once per arrival when effects re-mount (a cached route revealed by Back)', () => {
+    window.history.replaceState(null, '', '/radio/wfmu/night-owl/2026-06-08#play-12')
+    setEpisode(episodeWithPlays())
+    // StrictMode mounts, unmounts and re-mounts every effect, as a revealed
+    // Activity does.
+    render(<EpisodeDateDetail {...props} />, { wrapper: StrictMode })
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+  })
+
+  it('clears the highlight on the next navigation', () => {
+    const { rerender } = arriveAt('#play-12')
+    expect(anchoredRow()).not.toBeNull()
+
+    // A client navigation to the next episode: pushState, no hash, no event.
+    window.history.pushState(null, '', '/radio/wfmu/night-owl/2026-06-15')
+    setEpisode(episodeWithPlays())
+    rerender(<EpisodeDateDetail {...props} date="2026-06-15" />)
+
+    expect(anchoredRow()).toBeNull()
+  })
+
+  it('follows a hash change to another play on the page', () => {
+    arriveAt('#play-12')
+
+    window.history.replaceState(null, '', '/radio/wfmu/night-owl/2026-06-08#play-11')
+    act(() => {
+      window.dispatchEvent(new HashChangeEvent('hashchange'))
+    })
+
+    expect(anchoredRow()).toBe(document.getElementById('play-11'))
+    expect(scrollIntoView.mock.contexts.at(-1)).toBe(document.getElementById('play-11'))
   })
 })

@@ -15,7 +15,9 @@ import {
   airedVerbForWindow,
   isLiveNow,
   isWindowLiveOrPending,
+  parsePlayAnchor,
 } from '@/features/radio'
+import { useUrlHash } from '@/lib/hooks/common/useUrlHash'
 import { unanchoredLinkHref } from '@/lib/socialLinks'
 import { EpisodeNav } from './EpisodeNav'
 import { PlaylistTable } from './PlaylistTable'
@@ -64,6 +66,10 @@ function useLiveMinuteTick(enabled: boolean) {
 export default function EpisodeDateDetail({ stationSlug, showSlug, date }: EpisodeDateDetailProps) {
   const { data: episode, isLoading, error, dataUpdatedAt } = useRadioEpisode(showSlug, date)
   const { data: neighbors } = useEpisodeNeighbors(showSlug, date)
+  // App Router client navigations move the URL with pushState (no event), so
+  // the hash snapshot is re-read on every render: a navigation to another
+  // date renders with a hash-less URL, which is what clears the arrival.
+  const anchoredPlayId = parsePlayAnchor(useUrlHash())
 
   // Live regime (the ON AIR ledger): derived from the frozen air window on
   // every render — the query's ~60s poll plus the minute tick below provide
@@ -231,7 +237,7 @@ export default function EpisodeDateDetail({ stationSlug, showSlug, date }: Episo
 
         {/* Track table */}
         {plays.length > 0 ? (
-          <PlaylistTable plays={plays} live={isLive} />
+          <PlaylistTable plays={plays} live={isLive} highlightedPlayId={anchoredPlayId} />
         ) : (
           <div className="py-8 text-center text-sm text-muted-foreground">
             {isLive
