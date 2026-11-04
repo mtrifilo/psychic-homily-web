@@ -13311,6 +13311,10 @@ export interface components {
             track_title: string | null;
         };
         RadioAsHeardOnResponse: {
+            /**
+             * @description Air date of the most recent play, YYYY-MM-DD
+             * @example 2026-11-02
+             */
             last_played: string;
             /**
              * Format: int64

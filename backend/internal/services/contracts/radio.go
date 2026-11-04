@@ -488,7 +488,7 @@ type RadioAsHeardOnResponse struct {
 	ShowName           string               `json:"show_name"`
 	ShowSlug           string               `json:"show_slug"`
 	PlayCount          int                  `json:"play_count"`
-	LastPlayed         string               `json:"last_played"`
+	LastPlayed         string               `json:"last_played" doc:"Air date of the most recent play, YYYY-MM-DD" example:"2026-11-02"`
 	LatestPlayID       uint                 `json:"latest_play_id" doc:"radio_plays id of the most recent play on this show"`
 	LatestPlayPosition int                  `json:"latest_play_position" doc:"Playlist position of the most recent play on this show"`
 	RecentPlays        []RadioAsHeardOnPlay `json:"recent_plays" doc:"The most recent plays on this show, newest first, at most 10; one entry per play, so an episode with two plays of the entity contributes two"`

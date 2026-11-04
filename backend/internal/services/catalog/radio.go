@@ -1491,7 +1491,7 @@ func (s *RadioService) getAsHeardOn(entity string, scope playsScope) ([]*contrac
 				ShowName:           r.ShowName,
 				ShowSlug:           r.ShowSlug,
 				PlayCount:          r.PlayCount,
-				LastPlayed:         r.LastPlayed,
+				LastPlayed:         normalizeDate(r.LastPlayed),
 				LatestPlayID:       r.PlayID,
 				LatestPlayPosition: r.Position,
 				RecentPlays:        make([]contracts.RadioAsHeardOnPlay, 0, min(r.PlayCount, contracts.RadioAsHeardOnMaxRecentPlays)),

@@ -943,6 +943,7 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetAsHeardOnForArtist_RecentP
 	top := resp[0]
 	suite.Equal("Morning Show", top.ShowName)
 	suite.Equal(3, top.PlayCount)
+	suite.Equal("2026-01-08", top.LastPlayed)
 	suite.Equal(latest.ID, top.LatestPlayID)
 	suite.Equal(4, top.LatestPlayPosition)
 	suite.Equal([]string{"Sunflower", "Lullaby", "Words"}, recentPlayTitles(top.RecentPlays))
