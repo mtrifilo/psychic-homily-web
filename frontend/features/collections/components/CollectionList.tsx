@@ -364,7 +364,7 @@ function TypeChip({
         // py-1 restores the pre-redesign tap-target height (≥24px, WCAG
         // 2.5.8) — the Badge primitive's py-0.5 is sized for non-interactive
         // chips.
-        'cursor-pointer py-1',
+        'py-1',
         !active &&
           'border-border/60 text-muted-foreground hover:border-border hover:text-foreground'
       )}

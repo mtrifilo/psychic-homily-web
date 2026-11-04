@@ -92,7 +92,7 @@ export function ResolveReportDialog({
               />
               <Label
                 htmlFor="set-show-flag"
-                className="text-sm font-medium leading-none cursor-pointer"
+                className="text-sm font-medium leading-none"
               >
                 {flagLabel}
               </Label>

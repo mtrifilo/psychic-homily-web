@@ -504,7 +504,7 @@ export function CommandPalette() {
                   key={`recent-${label}`}
                   value={`recent-${label}`}
                   onSelect={() => handleRecentSelect(label)}
-                  className="cursor-pointer gap-3 rounded-sm px-2 py-2.5 text-[15px]"
+                  className="gap-3 rounded-sm px-2 py-2.5 text-[15px]"
                   keywords={[label]}
                 >
                   <Clock className="h-4 w-4 text-muted-foreground" />
@@ -525,7 +525,7 @@ export function CommandPalette() {
             <CommandItem
               value="clear-recent"
               onSelect={handleClearRecent}
-              className="cursor-pointer gap-3 rounded-sm px-2 py-2.5 text-[13px] text-muted-foreground"
+              className="gap-3 rounded-sm px-2 py-2.5 text-[13px] text-muted-foreground"
             >
               <X className="h-4 w-4" />
               <span>Clear recent searches</span>
@@ -545,7 +545,7 @@ export function CommandPalette() {
                   key={`entity-${type}-${result.id}`}
                   value={`entity-${type}-${result.id}-${result.name}`}
                   onSelect={() => handleEntitySelect(result)}
-                  className="cursor-pointer gap-3 rounded-sm px-2 py-2.5 text-[15px]"
+                  className="gap-3 rounded-sm px-2 py-2.5 text-[15px]"
                   keywords={[result.name]}
                 >
                   <span className="inline-flex min-w-0 items-center gap-1.5">
@@ -575,7 +575,7 @@ export function CommandPalette() {
                 value={route.label}
                 onSelect={() => handleSelect(route.href, route.label)}
                 keywords={route.keywords}
-                className="cursor-pointer gap-3 rounded-sm px-2 py-2.5 text-[15px]"
+                className="gap-3 rounded-sm px-2 py-2.5 text-[15px]"
               >
                 <span>{route.label}</span>
                 <span className="ml-auto font-data text-xs text-muted-foreground">
@@ -593,7 +593,7 @@ export function CommandPalette() {
               value={route.label}
               onSelect={() => handleSelect(route.href, route.label)}
               keywords={route.keywords}
-              className="cursor-pointer gap-3 rounded-sm px-2 py-2.5 text-[15px]"
+              className="gap-3 rounded-sm px-2 py-2.5 text-[15px]"
             >
               <span>{route.label}</span>
               <span className="ml-auto font-data text-xs text-muted-foreground">
@@ -611,7 +611,7 @@ export function CommandPalette() {
                 value={route.label}
                 onSelect={() => handleSelect(route.href, route.label)}
                 keywords={route.keywords}
-                className="cursor-pointer gap-3 rounded-sm px-2 py-2.5 text-[15px]"
+                className="gap-3 rounded-sm px-2 py-2.5 text-[15px]"
               >
                 <span>{route.label}</span>
                 <span className="ml-auto font-data text-xs text-muted-foreground">

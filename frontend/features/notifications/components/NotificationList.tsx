@@ -149,7 +149,7 @@ function RowMeta({
             event.preventDefault()
             event.stopPropagation()
           }}
-          className="cursor-pointer text-muted-foreground transition-colors hover:text-foreground"
+          className="text-muted-foreground transition-colors hover:text-foreground"
         >
           [mark read]
         </button>

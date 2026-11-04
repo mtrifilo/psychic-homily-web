@@ -91,7 +91,7 @@ export function ApproveShowDialog({
               />
               <Label
                 htmlFor="verify-venues"
-                className="text-sm font-normal cursor-pointer"
+                className="text-sm font-normal"
               >
                 Also verify{' '}
                 {unverifiedVenues.length === 1 ? 'this venue' : 'these venues'}{' '}

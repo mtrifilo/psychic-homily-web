@@ -155,7 +155,7 @@ export function ArtistInput({
                         role="option"
                         key={artist.id}
                         data-testid="search-result-artist"
-                        className="relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
+                        className="relative flex w-full select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
                         onMouseDown={e => {
                           e.preventDefault()
                           handleArtistSelect(artist.name, artist.id)
@@ -180,7 +180,7 @@ export function ArtistInput({
                     </div>
                     <button
                       type="button"
-                      className="relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
+                      className="relative flex w-full select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
                       onMouseDown={e => {
                         e.preventDefault()
                         handleConfirm()

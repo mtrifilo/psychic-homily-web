@@ -40,7 +40,7 @@ export function ModeToggle() {
   const { toggle } = useThemeToggle();
 
   return (
-    <Button {...replayOnHydrate} variant='outline' size='icon' className='cursor-pointer' onClick={toggle}>
+    <Button {...replayOnHydrate} variant='outline' size='icon' onClick={toggle}>
       <Sun className='h-[1.2rem] w-[1.2rem] scale-100 rotate-0 transition-all dark:scale-0 dark:-rotate-90' />
       <Moon className='absolute h-[1.2rem] w-[1.2rem] scale-0 rotate-90 transition-all dark:scale-100 dark:rotate-0' />
       <span className='sr-only'>Toggle theme</span>

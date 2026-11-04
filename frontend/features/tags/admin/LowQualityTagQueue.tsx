@@ -431,7 +431,7 @@ export function LowQualityTagQueue() {
               />
               <label
                 htmlFor="select-all-visible"
-                className="cursor-pointer text-xs"
+                className="text-xs"
               >
                 Select all visible
               </label>

@@ -847,7 +847,7 @@ export function ShowForm({
                 />
                 <label
                   htmlFor="is-private-show"
-                  className="text-sm cursor-pointer"
+                  className="text-sm"
                 >
                   <span className="font-medium flex items-center gap-1.5">
                     <EyeOff className="h-3.5 w-3.5" />
