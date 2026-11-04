@@ -74,7 +74,13 @@ async function fillAndSubmit() {
 
 function expectLinkNoLongerWorks() {
   expect(screen.getByRole('heading', { name: 'That link no longer works.' })).toBeInTheDocument()
-  expect(screen.getByText('Password reset · link no longer works')).toBeInTheDocument()
+  expect(screen.getByText('Password reset · link no longer works')).toHaveClass(
+    'font-data',
+    'text-xs',
+    'uppercase',
+    'tracking-[0.66px]',
+    'text-muted-foreground'
+  )
   expect(
     screen.getByText(
       'Reset links work once and expire 15 minutes after they are sent. Your password has not changed.'
@@ -126,7 +132,13 @@ describe('Reset password page', () => {
 
     expect(screen.getByRole('heading', { name: 'Reset your password' })).toBeInTheDocument()
     expect(screen.getByText((_, node) => node?.tagName === 'P' && node.textContent === 'For owner@example.com')).toBeInTheDocument()
-    expect(screen.getByText('When you set it')).toBeInTheDocument()
+    expect(screen.getByText('When you set it')).toHaveClass(
+      'font-data',
+      'text-xs',
+      'uppercase',
+      'tracking-[0.66px]',
+      'text-muted-foreground'
+    )
     expect(
       screen.getByText('Every other device signed in to this account is signed out. Your passkeys keep working.')
     ).toBeInTheDocument()
@@ -166,7 +178,13 @@ describe('Reset password page', () => {
 
     const heading = screen.getByRole('heading', { name: 'New password set.' })
     expect(heading).toHaveFocus()
-    expect(screen.getByText('Password reset · signed in')).toBeInTheDocument()
+    expect(screen.getByText('Password reset · signed in')).toHaveClass(
+      'font-data',
+      'text-xs',
+      'uppercase',
+      'tracking-[0.66px]',
+      'text-muted-foreground'
+    )
     expect(
       screen.getByText("You're signed in on this device. Every other device was signed out. Your passkeys still work.")
     ).toBeInTheDocument()
