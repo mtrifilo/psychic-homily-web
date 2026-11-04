@@ -14,17 +14,7 @@ import { isPasswordAlreadySet, PASSWORD_ALREADY_SET_MESSAGE } from '@/lib/errors
 import { getUniqueErrors } from '@/lib/utils/formErrors'
 import { formatPasswordConfirmError } from './password-confirm-errors'
 import { PasswordInput } from './password-input'
-import { newPasswordRule } from './password-rules'
-
-const setPasswordSchema = z
-  .object({
-    newPassword: newPasswordRule,
-    confirmPassword: z.string().min(1, 'Please confirm your new password'),
-  })
-  .refine(data => data.newPassword === data.confirmPassword, {
-    message: 'Passwords do not match',
-    path: ['confirmPassword'],
-  })
+import { newPasswordWithConfirmSchema as setPasswordSchema } from './password-rules'
 
 type SetPasswordFormData = z.infer<typeof setPasswordSchema>
 

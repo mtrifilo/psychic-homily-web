@@ -50,6 +50,13 @@ export const API_ENDPOINTS = {
     // Magic link endpoints
     MAGIC_LINK_SEND: `${API_BASE_URL}/auth/magic-link/send`,
     MAGIC_LINK_VERIFY: `${API_BASE_URL}/auth/magic-link/verify`,
+    // Emailed password reset: the signed-out request by address, Settings'
+    // send to the signed-in account's own address, and the link's check and
+    // completion.
+    PASSWORD_RESET_REQUEST: `${API_BASE_URL}/auth/password-reset/request`,
+    PASSWORD_RESET_SEND_OWN: `${API_BASE_URL}/auth/password-reset/send-own`,
+    PASSWORD_RESET_CHECK: `${API_BASE_URL}/auth/password-reset/check`,
+    PASSWORD_RESET_COMPLETE: `${API_BASE_URL}/auth/password-reset/complete`,
     // OAuth endpoints
     OAUTH_LOGIN: (provider: string) => `${API_BASE_URL}/auth/login/${provider}`,
     OAUTH_CALLBACK: (provider: string) =>

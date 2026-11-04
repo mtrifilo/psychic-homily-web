@@ -507,6 +507,8 @@ type MockAuthService struct {
 	HoldOAuthLinkForEmailFn    func(string) (*contracts.OAuthPendingLink, error)
 	LinkOAuthWithPasswordFn    func(string, *authm.User) (bool, error)
 	CompleteOAuthLinkByEmailFn func(*contracts.OAuthLinkTokenClaims) (*contracts.OAuthLinkCompletion, error)
+	PasswordResetAccountFn     func(*contracts.PasswordResetTokenClaims) (*authm.User, error)
+	CompletePasswordResetFn    func(*contracts.PasswordResetTokenClaims, string) (*contracts.PasswordResetCompletion, error)
 	CompleteOAuthSignupFn      func(*contracts.OAuthPendingSignup, *contracts.OAuthSignupConsent, *string) (*authm.User, string, error)
 	CompleteOAuthLinkFn        func(http.ResponseWriter, *http.Request, string, uint, *time.Time) (*authm.User, error)
 	GetUserProfileFn           func(uint) (*authm.User, error)
@@ -574,6 +576,18 @@ func (m *MockAuthService) LinkOAuthWithPassword(token string, user *authm.User) 
 func (m *MockAuthService) CompleteOAuthLinkByEmail(claims *contracts.OAuthLinkTokenClaims) (*contracts.OAuthLinkCompletion, error) {
 	if m.CompleteOAuthLinkByEmailFn != nil {
 		return m.CompleteOAuthLinkByEmailFn(claims)
+	}
+	return nil, nil
+}
+func (m *MockAuthService) PasswordResetAccount(claims *contracts.PasswordResetTokenClaims) (*authm.User, error) {
+	if m.PasswordResetAccountFn != nil {
+		return m.PasswordResetAccountFn(claims)
+	}
+	return nil, nil
+}
+func (m *MockAuthService) CompletePasswordReset(claims *contracts.PasswordResetTokenClaims, newPassword string) (*contracts.PasswordResetCompletion, error) {
+	if m.CompletePasswordResetFn != nil {
+		return m.CompletePasswordResetFn(claims, newPassword)
 	}
 	return nil, nil
 }
@@ -1578,6 +1592,7 @@ type MockEmailService struct {
 	SendVerificationEmailFn        func(string, string) error
 	SendMagicLinkEmailFn           func(string, string) error
 	SendAccountRecoveryEmailFn     func(string, string, int) error
+	SendPasswordResetEmailFn       func(string, string) error
 	SendShowReminderEmailFn        func(string, string, string, string, contracts.LocalizedEventTime, []string) error
 	SendFilterNotificationEmailFn  func(string, string, string, string) error
 	SendTierPromotionEmailFn       func(string, string, string, string, string, string, []string) error
@@ -1612,6 +1627,12 @@ func (m *MockEmailService) SendMagicLinkEmail(toEmail string, token string) erro
 func (m *MockEmailService) SendAccountRecoveryEmail(toEmail string, token string, daysRemaining int) error {
 	if m.SendAccountRecoveryEmailFn != nil {
 		return m.SendAccountRecoveryEmailFn(toEmail, token, daysRemaining)
+	}
+	return nil
+}
+func (m *MockEmailService) SendPasswordResetEmail(toEmail string, token string) error {
+	if m.SendPasswordResetEmailFn != nil {
+		return m.SendPasswordResetEmailFn(toEmail, token)
 	}
 	return nil
 }
@@ -2281,6 +2302,8 @@ type MockJWTService struct {
 	ValidateOAuthLinkTokenFn       func(string) (*contracts.OAuthLinkTokenClaims, error)
 	CreateAccountRecoveryTokenFn   func(uint, string) (string, error)
 	ValidateAccountRecoveryTokenFn func(string) (*contracts.AccountRecoveryTokenClaims, error)
+	CreatePasswordResetTokenFn     func(*authm.User) (string, error)
+	ValidatePasswordResetTokenFn   func(string) (*contracts.PasswordResetTokenClaims, error)
 }
 
 func (m *MockJWTService) CreateToken(user *authm.User) (string, error) {
@@ -2352,6 +2375,18 @@ func (m *MockJWTService) CreateAccountRecoveryToken(userID uint, email string) (
 func (m *MockJWTService) ValidateAccountRecoveryToken(tokenString string) (*contracts.AccountRecoveryTokenClaims, error) {
 	if m.ValidateAccountRecoveryTokenFn != nil {
 		return m.ValidateAccountRecoveryTokenFn(tokenString)
+	}
+	return nil, nil
+}
+func (m *MockJWTService) CreatePasswordResetToken(user *authm.User) (string, error) {
+	if m.CreatePasswordResetTokenFn != nil {
+		return m.CreatePasswordResetTokenFn(user)
+	}
+	return "", nil
+}
+func (m *MockJWTService) ValidatePasswordResetToken(tokenString string) (*contracts.PasswordResetTokenClaims, error) {
+	if m.ValidatePasswordResetTokenFn != nil {
+		return m.ValidatePasswordResetTokenFn(tokenString)
 	}
 	return nil, nil
 }

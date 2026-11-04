@@ -90,6 +90,11 @@ export const AuthErrorCode = {
    * another tab or device. Changing it goes through Change password.
    */
   PASSWORD_ALREADY_SET: 'PASSWORD_ALREADY_SET',
+  /**
+   * An emailed link that no longer works: expired, already used, or minted
+   * before the account changed. The remedy is a new link.
+   */
+  INVALID_TOKEN: 'INVALID_TOKEN',
 } as const
 
 export type AuthErrorCodeType =
@@ -291,6 +296,18 @@ export function isAccountRecoverable(error: unknown): boolean {
  */
 export function isAccountInactive(error: unknown): boolean {
   return isAuthError(error) && error.code === AuthErrorCode.ACCOUNT_INACTIVE
+}
+
+/**
+ * Did an emailed link's request fail on the server or in transit, rather than
+ * being refused? The link pages' hooks raise a body-encoded refusal (an
+ * expired or used link, a closed account) with a sub-500 status, a 5xx comes
+ * back with its status, and a network failure carries none. A new link cannot
+ * fix the last two, so a page offers a retry of the same link for them.
+ */
+export function isServerSideFailure(error: unknown): boolean {
+  const status = (error as { status?: number } | null)?.status
+  return typeof status !== 'number' || status >= 500
 }
 
 /**

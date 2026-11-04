@@ -1,8 +1,36 @@
+import { createHmac } from 'crypto'
 import { SignJWT } from 'jose'
 
-const JWT_SECRET = new TextEncoder().encode(
-  'e2e-jwt-secret-key-for-testing-only'
-)
+const JWT_SECRET_TEXT = 'e2e-jwt-secret-key-for-testing-only'
+const JWT_SECRET = new TextEncoder().encode(JWT_SECRET_TEXT)
+
+/**
+ * Create a valid password-reset JWT matching the Go backend's
+ * PasswordResetTokenClaims (internal/services/auth/jwt.go
+ * CreatePasswordResetToken). `passwordHash` is the account's
+ * users.password_hash as it stands, or '' for none: the token carries its
+ * fingerprint (passwordStateFingerprint), an HMAC-SHA256 under the signing
+ * secret of "password-reset", a NUL byte and the hash, base64url without
+ * padding, and the backend honors the token only while the hash is unchanged.
+ */
+export async function createPasswordResetToken(
+  userId: number,
+  email: string,
+  passwordHash: string
+): Promise<string> {
+  const pws = createHmac('sha256', JWT_SECRET_TEXT)
+    .update('password-reset')
+    .update(Buffer.from([0]))
+    .update(passwordHash)
+    .digest('base64url')
+  return new SignJWT({ user_id: userId, email, pws })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setIssuer('psychic-homily-backend')
+    .setSubject('password-reset')
+    .setExpirationTime('15m')
+    .sign(JWT_SECRET)
+}
 
 /**
  * Create a valid email verification JWT matching the Go backend's

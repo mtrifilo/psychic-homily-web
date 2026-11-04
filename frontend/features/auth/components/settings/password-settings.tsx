@@ -20,7 +20,8 @@ export const PASSWORD_SETTINGS_HREF = `/profile?tab=settings#${PASSWORD_SETTINGS
  * The Settings password slot: Set a password for an account the profile says
  * has none and that has an email address, and Change password otherwise,
  * including while the profile has not said (an absent `has_password` is not
- * false).
+ * false). Change password offers Reset by email once the profile names the
+ * account's address.
  *
  * The confirmation a set raises is held here rather than in the set card,
  * because that card leaves as soon as the set succeeds and Change password
@@ -64,7 +65,7 @@ export function PasswordSettings() {
           onPasswordSet={setSetConfirmation}
         />
       ) : (
-        <ChangePassword notice={setConfirmation} />
+        <ChangePassword notice={setConfirmation} resetEmail={profile?.user?.email || null} />
       )}
     </div>
   )

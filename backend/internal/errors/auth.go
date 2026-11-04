@@ -493,6 +493,13 @@ func ErrNoPasswordSet() *AuthError {
 	return NewAuthError(CodeNoPasswordSet, "Cannot change password for OAuth-only accounts", nil)
 }
 
+// ErrPasswordTooLong refuses a new password bcrypt cannot hash (over 72
+// bytes), which the password validator's 128-character bound admits. It is a
+// CodeValidationFailed refusal: the caller fixes it by choosing a shorter one.
+func ErrPasswordTooLong() *AuthError {
+	return ErrValidationFailed("Password is too long. Try a shorter one.")
+}
+
 // ErrPasswordAlreadySet creates the refusal for setting a first password on an
 // account that already holds one (CodePasswordAlreadySet).
 func ErrPasswordAlreadySet() *AuthError {

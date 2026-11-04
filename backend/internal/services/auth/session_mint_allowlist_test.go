@@ -53,6 +53,7 @@ var sessionMintAllowlist = map[string]string{
 	"internal/services/auth/oauth.go:AuthService.OAuthCallback:CreateToken":                         "provider handshake",
 	"internal/services/auth/oauth_pending_signup.go:AuthService.CompleteOAuthSignup:CreateToken":    "provider handshake, finished on the sign-up step",
 	"internal/services/auth/oauth_pending_link.go:AuthService.CompleteOAuthLinkByEmail:CreateToken": "emailed link proves the mailbox",
+	"internal/services/auth/password_reset.go:AuthService.CompletePasswordReset:CreateToken":        "emailed reset link proves the mailbox",
 
 	// Session renewals: the authentication time comes from the caller's own
 	// credential, so these mint no freshness.

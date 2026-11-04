@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { createTestQueryClient, renderWithProviders } from '@/test/utils'
 import { AuthError, AuthErrorCode } from '@/lib/errors'
 import { queryKeys } from '@/lib/queryClient'
-import { SessionsSettings } from './sessions'
+import { SESSIONS_SETTINGS_ANCHOR, SESSIONS_SETTINGS_HREF, SessionsSettings } from './sessions'
 
 // The card runs on the real mutation hook; only the request is stubbed.
 const mockApiRequest = vi.fn()
@@ -193,5 +193,16 @@ describe('SessionsSettings', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(SUCCESS_LINE)
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(mockCaptureException).not.toHaveBeenCalled()
+  })
+
+  // The password reset's "Review signed-in devices" links here.
+  it('is the target of its own Settings fragment', () => {
+    renderWithProviders(<SessionsSettings />)
+
+    const card = document.getElementById(SESSIONS_SETTINGS_ANCHOR)
+    expect(card).not.toBeNull()
+    expect(card).toHaveTextContent('Sessions')
+    expect(card).toHaveAttribute('tabindex', '-1')
+    expect(SESSIONS_SETTINGS_HREF).toBe('/profile?tab=settings#sessions')
   })
 })

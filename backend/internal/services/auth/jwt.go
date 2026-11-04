@@ -1,6 +1,9 @@
 package auth
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"time"
@@ -14,12 +17,13 @@ import (
 	"psychic-homily-backend/internal/services/shared"
 )
 
-// Session JWT claim values. The issuer and audience are shared by every token
-// this service mints; the subject distinguishes a full session token from the
-// short-lived single-purpose tokens (email-verification, magic-link,
-// account-recovery). ValidateToken asserts all three so a leaked short-lived
-// token — which travels through email URLs, query strings, and browser history
-// — can never be replayed as a session credential.
+// Session JWT claim values. Every token this service mints carries the issuer;
+// only a session carries the audience. The subject distinguishes a full
+// session token from the short-lived single-purpose tokens
+// (email-verification, magic-link, account-recovery, password-reset).
+// ValidateToken asserts all three, so a leaked short-lived token, which
+// travels through email URLs, query strings and browser history, can never be
+// replayed as a session credential.
 const (
 	jwtIssuer         = "psychic-homily-backend"
 	jwtAudience       = "psychic-homily-users"
@@ -510,4 +514,72 @@ func (s *JWTService) ValidateAccountRecoveryToken(tokenString string) (*contract
 	}
 
 	return claims, nil
+}
+
+// passwordResetTokenSubject is the subject of the emailed password reset
+// link. No other validator accepts it, and ValidatePasswordResetToken accepts
+// nothing else.
+const passwordResetTokenSubject = "password-reset"
+
+// CreatePasswordResetToken mints the emailed password reset link for user's
+// current address. It expires after contracts.PasswordResetTokenTTL and
+// carries PasswordState, the fingerprint of user's password hash as read, so
+// AuthService honors it only until that hash changes.
+func (s *JWTService) CreatePasswordResetToken(user *authm.User) (string, error) {
+	if user.Email == nil || *user.Email == "" {
+		return "", fmt.Errorf("user %d has no address to reset a password for", user.ID)
+	}
+	claims := contracts.PasswordResetTokenClaims{
+		UserID:        user.ID,
+		Email:         *user.Email,
+		PasswordState: s.passwordStateFingerprint(user.PasswordHash),
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(contracts.PasswordResetTokenTTL)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Issuer:    jwtIssuer,
+			Subject:   passwordResetTokenSubject,
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(s.config.JWT.SecretKey))
+}
+
+// ValidatePasswordResetToken validates a token CreatePasswordResetToken minted
+// and returns its claims. It reads no account, so a link it accepts may still
+// be spent.
+func (s *JWTService) ValidatePasswordResetToken(tokenString string) (*contracts.PasswordResetTokenClaims, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &contracts.PasswordResetTokenClaims{}, s.signingKey,
+		expiryRequiredOptions(jwt.WithIssuer(jwtIssuer), jwt.WithSubject(passwordResetTokenSubject))...)
+	if err != nil {
+		return nil, fmt.Errorf("invalid password reset token: %w", err)
+	}
+
+	claims, ok := token.Claims.(*contracts.PasswordResetTokenClaims)
+	if !ok || !token.Valid || claims.UserID == 0 || claims.Email == "" || claims.PasswordState == "" {
+		return nil, fmt.Errorf("invalid password reset token claims")
+	}
+	return claims, nil
+}
+
+// passwordStateFingerprint is the PasswordState a reset link carries for an
+// account whose password hash is hash: an HMAC of the hash under the signing
+// secret, so the emailed link discloses nothing about the hash, not even
+// whether the account has a password. A nil and an empty hash are the same
+// state, as authm.User.HasPassword reads them. bcrypt salts every hash, so
+// any password write, the same password included, changes the fingerprint.
+func (s *JWTService) passwordStateFingerprint(hash *string) string {
+	mac := hmac.New(sha256.New, []byte(s.config.JWT.SecretKey))
+	mac.Write([]byte(passwordResetTokenSubject))
+	mac.Write([]byte{0})
+	if hash != nil {
+		mac.Write([]byte(*hash))
+	}
+	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+// passwordStateMatches reports whether claims were minted against the
+// password hash hash, compared in constant time.
+func (s *JWTService) passwordStateMatches(claims *contracts.PasswordResetTokenClaims, hash *string) bool {
+	return hmac.Equal([]byte(claims.PasswordState), []byte(s.passwordStateFingerprint(hash)))
 }

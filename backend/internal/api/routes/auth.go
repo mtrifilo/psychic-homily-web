@@ -99,6 +99,13 @@ func setupAuthRoutes(rc RouteContext) {
 	useAuthBudget(appleSignInGroup, authScopedRateLimiter(middleware.LimiterAppleSignIn, middleware.AppleSignInRequestsPerMinute))
 	huma.Post(appleSignInGroup, "/auth/apple/callback", appleAuthHandler.AppleCallbackHandler)
 
+	// Opening an emailed password reset link (check) and setting the
+	// password with it (complete) take the link's token and draw on the
+	// public auth budget with the magic-link and recovery confirmations. The
+	// two routes that send the link are in setupProtectedAuthRoutes.
+	huma.Post(rateLimitedAuthGroup, authh.PasswordResetCheckRoute, authHandler.CheckPasswordResetHandler)
+	huma.Post(rateLimitedAuthGroup, authh.PasswordResetCompleteRoute, authHandler.CompletePasswordResetHandler)
+
 	// Account recovery endpoints (public, rate-limited)
 	huma.Post(rateLimitedAuthGroup, "/auth/recover-account", authHandler.RecoverAccountHandler)
 	huma.Post(rateLimitedAuthGroup, "/auth/recover-account/request", authHandler.RequestAccountRecoveryHandler)
@@ -106,6 +113,12 @@ func setupAuthRoutes(rc RouteContext) {
 
 	// Logout doesn't need strict rate limiting (already requires valid session)
 	huma.Post(rc.API, "/auth/logout", authHandler.LogoutHandler)
+}
+
+// acceptedStatus answers an operation's success with 202 Accepted: the
+// request is queued work, not finished work.
+func acceptedStatus(o *huma.Operation) {
+	o.DefaultStatus = http.StatusAccepted
 }
 
 // VerificationResendPerMinute is the per-IP budget for POST
@@ -238,6 +251,21 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	signOutEverywhereElseGroup := huma.NewGroup(rc.Protected, "")
 	useAuthBudget(signOutEverywhereElseGroup, authScopedRateLimiter(middleware.LimiterSignOutEverywhereElse, VerificationResendPerMinute))
 	huma.Post(signOutEverywhereElseGroup, authh.SignOutEverywhereElseRoute, authHandler.SignOutEverywhereElseHandler)
+
+	// The two routes that send an emailed password reset link, the signed-out
+	// request by address and Settings' send to the signed-in account's own
+	// address, share one per-IP counter at the verification-resend size: each
+	// call can send an email, and a person asks once or twice. Both are
+	// registered here because one limiter value is one counter. The
+	// signed-in group hangs off rc.Protected, so HumaJWTMiddleware runs first
+	// and a caller with no session is refused before reaching the counter.
+	resetSendLimiter := authScopedRateLimiter(middleware.LimiterPasswordResetSend, VerificationResendPerMinute)
+	passwordResetRequestGroup := huma.NewGroup(rc.API, "")
+	useAuthBudget(passwordResetRequestGroup, resetSendLimiter)
+	huma.Post(passwordResetRequestGroup, authh.PasswordResetRequestRoute, authHandler.RequestPasswordResetHandler, acceptedStatus)
+	passwordResetSendOwnGroup := huma.NewGroup(rc.Protected, "")
+	useAuthBudget(passwordResetSendOwnGroup, resetSendLimiter)
+	huma.Post(passwordResetSendOwnGroup, authh.PasswordResetSendOwnRoute, authHandler.SendOwnPasswordResetHandler, acceptedStatus)
 
 	// Token refresh uses lenient middleware (accepts tokens expired within 7 days)
 	lenientGroup := huma.NewGroup(rc.API, "")

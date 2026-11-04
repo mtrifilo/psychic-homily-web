@@ -14,6 +14,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { AlertCircle, AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { SETTINGS_ANCHOR_SCROLL_MT, useAnchorScroll } from './useAnchorScroll'
+
+/** The Settings sessions card's fragment. */
+export const SESSIONS_SETTINGS_ANCHOR = 'sessions'
+
+/** The Settings sessions card's address, where a link about signed-in devices lands. */
+export const SESSIONS_SETTINGS_HREF = `/profile?tab=settings#${SESSIONS_SETTINGS_ANCHOR}`
 
 /**
  * Sessions card: signs out every other device and browser, and keeps this
@@ -26,6 +34,7 @@ import { AlertCircle, AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react'
 export function SessionsSettings() {
   const signOutEverywhereElse = useSignOutEverywhereElse()
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const anchorRef = useAnchorScroll(SESSIONS_SETTINGS_ANCHOR)
 
   const handleConfirm = () => {
     signOutEverywhereElse.mutate(undefined, {
@@ -42,7 +51,12 @@ export function SessionsSettings() {
   }
 
   return (
-    <Card>
+    <Card
+      ref={anchorRef}
+      id={SESSIONS_SETTINGS_ANCHOR}
+      tabIndex={-1}
+      className={cn(SETTINGS_ANCHOR_SCROLL_MT, 'focus:outline-none')}
+    >
       <CardHeader>
         <CardTitle className="text-base">Sessions</CardTitle>
         <CardDescription>

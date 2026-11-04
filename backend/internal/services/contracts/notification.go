@@ -86,6 +86,7 @@ type EmailServiceInterface interface {
 	SendVerificationEmail(toEmail, token string) error
 	SendMagicLinkEmail(toEmail, token string) error
 	SendAccountRecoveryEmail(toEmail, token string, daysRemaining int) error
+	SendPasswordResetEmail(toEmail, token string) error
 	SendShowReminderEmail(toEmail, showTitle, showURL, unsubscribeURL string, eventTime LocalizedEventTime, venues []string) error
 	SendFilterNotificationEmail(toEmail, subject, htmlBody, unsubscribeURL string) error
 	// Each takes an HMAC-signed unsubscribeURL (RFC 8058 one-click).

@@ -75,8 +75,8 @@ func passkeyRefusal(err error, codes ...string) (*autherrors.AuthError, bool) {
 }
 
 // refusableResponse is the response of an endpoint that answers a refusal in
-// its body (the passkey endpoints, password registration and setting a first
-// password). setRefusal writes a refused step into it: success false, with the
+// its body (the passkey endpoints, password registration, setting a first
+// password, and the password reset's check and completion). setRefusal writes a refused step into it: success false, with the
 // code and message given.
 type refusableResponse interface {
 	setRefusal(code, message string)

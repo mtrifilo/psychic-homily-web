@@ -105,6 +105,9 @@ func (m *mockReminderEmailService) SendMagicLinkEmail(_, _ string) error {
 func (m *mockReminderEmailService) SendAccountRecoveryEmail(_ string, _ string, _ int) error {
 	return nil
 }
+func (m *mockReminderEmailService) SendPasswordResetEmail(_, _ string) error {
+	return nil
+}
 func (m *mockReminderEmailService) SendShowReminderEmail(toEmail, showTitle, showURL, unsubscribeURL string, event contracts.LocalizedEventTime, venues []string) error {
 	m.calls = append(m.calls, reminderEmailCall{
 		ToEmail:        toEmail,

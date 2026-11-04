@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -51,6 +52,23 @@ type OAuthLinkTokenClaims struct {
 	PendingLink string `json:"pending_link"`
 	jwt.RegisteredClaims
 }
+
+// PasswordResetTokenClaims contains JWT claims for the emailed password reset
+// link. PasswordState is the fingerprint of the account's password hash when
+// the link was minted (JWTService.CreatePasswordResetToken); the reset is
+// honored only while the account's hash still has that fingerprint, so the
+// first successful reset, or any other change to the password, spends it.
+type PasswordResetTokenClaims struct {
+	UserID        uint   `json:"user_id"`
+	Email         string `json:"email"`
+	PasswordState string `json:"pws"`
+	jwt.RegisteredClaims
+}
+
+// PasswordResetTokenTTL is how long an emailed password reset link works after
+// it is sent. The frontend's copy states it (PASSWORD_RESET_EXPIRY_MINUTES in
+// frontend/lib/password-reset.ts), pinned to this value by a test.
+const PasswordResetTokenTTL = 15 * time.Minute
 
 // AccountRecoveryTokenClaims contains JWT claims for account recovery tokens.
 type AccountRecoveryTokenClaims struct {
@@ -247,6 +265,19 @@ type OAuthLinkCompletion struct {
 	ReturnTo string
 }
 
+// ErrPasswordResetLinkSpent is the cause of every refusal of an emailed
+// password reset link that a new link would fix: the account it names is
+// gone, its address changed, or its password changed after the link was
+// minted, which includes the link's own first use.
+var ErrPasswordResetLinkSpent = errors.New("password reset link no longer valid")
+
+// PasswordResetCompletion is a password set by an emailed reset link: the
+// account as the reset left it and the session issued for this browser.
+type PasswordResetCompletion struct {
+	User  *authm.User
+	Token string
+}
+
 // OAuthPendingSignup is a provider identity held for the "Create your
 // account" step, with the sanitised destination its sign-in named.
 type OAuthPendingSignup struct {
@@ -333,6 +364,23 @@ type AuthServiceInterface interface {
 	// account, and CodeOAuthProviderAlreadyLinked when the account's address
 	// is verified and it holds another identity from the provider.
 	CompleteOAuthLinkByEmail(claims *OAuthLinkTokenClaims) (*OAuthLinkCompletion, error)
+	// PasswordResetAccount reads the account an emailed password reset link
+	// names and reports whether the link may still set its password. It
+	// writes nothing, so opening the link spends nothing. Refusals:
+	// ErrPasswordResetLinkSpent (wrapped) when the account is gone, its
+	// address is no longer the claims', or its password changed since the
+	// link was minted; shared.ClosedAccountRefusal when the account may not
+	// sign in.
+	PasswordResetAccount(claims *PasswordResetTokenClaims) (*authm.User, error)
+	// CompletePasswordReset sets newPassword on the account the claims name,
+	// replacing whatever password it holds, in one transaction that holds the
+	// account row, refuses as PasswordResetAccount does, writes the hash only
+	// over the hash the link was minted against, revokes every session the
+	// account holds and issues a new one for this browser. Passkeys, provider
+	// identities and API tokens stay. newPassword must already have passed
+	// the password validator; a password bcrypt cannot hash is refused with
+	// CodeValidationFailed.
+	CompletePasswordReset(claims *PasswordResetTokenClaims, newPassword string) (*PasswordResetCompletion, error)
 	// CompleteOAuthSignup resolves or creates the account for a consumed
 	// pending sign-up through
 	// UserServiceInterface.FindOrCreateUserFromOAuthIdentity, and issues a
@@ -391,6 +439,13 @@ type JWTServiceInterface interface {
 	ValidateOAuthLinkToken(tokenString string) (*OAuthLinkTokenClaims, error)
 	CreateAccountRecoveryToken(userID uint, email string) (string, error)
 	ValidateAccountRecoveryToken(tokenString string) (*AccountRecoveryTokenClaims, error)
+	// CreatePasswordResetToken mints the emailed password reset link for
+	// user's current address and password state.
+	CreatePasswordResetToken(user *authm.User) (string, error)
+	// ValidatePasswordResetToken checks a reset link's signature, subject and
+	// expiry. It reads no account: whether the link is still unspent is
+	// decided against the account (AuthServiceInterface.PasswordResetAccount).
+	ValidatePasswordResetToken(tokenString string) (*PasswordResetTokenClaims, error)
 }
 
 // ──────────────────────────────────────────────

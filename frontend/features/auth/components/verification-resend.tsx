@@ -20,7 +20,8 @@ import {
 import { Button, buttonVariants } from '@/components/ui/button'
 
 /**
- * The one verification-resend control.
+ * The one verification-resend control, and through `EmailResend` the one
+ * resend control for any other email a reader can ask for again.
  *
  * `<VerificationResend>` owns the behaviour every resend surface shares: send,
  * park the control for the cooldown, treat a 429 as a wait rather than an
@@ -109,12 +110,59 @@ interface VerificationResendProps {
   children: ReactNode
 }
 
+/** The verification email's resend: `EmailResend` over the verification send. */
 export function VerificationResend({
   service,
   reportAlreadyVerified = true,
   children,
 }: VerificationResendProps) {
   const sendVerificationEmail = useSendVerificationEmail()
+  return (
+    <EmailResend
+      service={service}
+      errorType="verification_email"
+      send={sendVerificationEmail.mutateAsync}
+      isPending={sendVerificationEmail.isPending}
+      reportAlreadyVerified={reportAlreadyVerified}
+    >
+      {children}
+    </EmailResend>
+  )
+}
+
+interface EmailResendProps {
+  /** Sentry `service` tag naming the surface. */
+  service: string
+  /** Sentry `error_type` tag naming the email. */
+  errorType: string
+  /**
+   * Sends the email. Resolves once the server accepted the send; rejects with
+   * the request's error otherwise, which this control sorts into a throttle,
+   * a dead session, or a failure.
+   */
+  send: () => Promise<unknown>
+  /** A send is in flight. */
+  isPending: boolean
+  /** As `VerificationResend`'s; only a verification send can be refused so. */
+  reportAlreadyVerified?: boolean
+  children: ReactNode
+}
+
+/**
+ * The provider behind every resend control, for any email the reader can ask
+ * for again. The parts below (`VerificationResendButton`, `...Status`,
+ * `...SessionExpired`, `...Failed`) read whichever provider wraps them, so a
+ * surface that resends some other email keeps the shared look, cooldown and
+ * outcome handling by wrapping them in this with its own `send`.
+ */
+export function EmailResend({
+  service,
+  errorType,
+  send,
+  isPending,
+  reportAlreadyVerified = true,
+  children,
+}: EmailResendProps) {
   const cooldown = useVerificationResendCooldown()
   const [sent, setSent] = useState(false)
   const [latestAttemptSent, setLatestAttemptSent] = useState(false)
@@ -125,7 +173,6 @@ export function VerificationResend({
     useState(false)
   const [sessionExpiredRefusals, setSessionExpiredRefusals] = useState(0)
 
-  const isPending = sendVerificationEmail.isPending
   const isCoolingDown = cooldown.isCoolingDown
 
   const resend = async () => {
@@ -136,7 +183,7 @@ export function VerificationResend({
     setFailed(false)
     setAlreadyVerified(false)
     try {
-      await sendVerificationEmail.mutateAsync()
+      await send()
       setLatestSettledSessionExpired(false)
       setSent(true)
       setLatestAttemptSent(true)
@@ -162,7 +209,7 @@ export function VerificationResend({
       }
       Sentry.captureException(error, {
         level: 'error',
-        tags: { service, error_type: 'verification_email' },
+        tags: { service, error_type: errorType },
       })
     }
   }
@@ -310,6 +357,17 @@ export function VerificationResendSessionExpired({
 }
 
 /**
+ * The words for a confirmed resend on the check-your-inbox cards (the sign-up
+ * card and the password reset's sent state), shown with `SentConfirmation`
+ * and spoken with `announceSent`.
+ */
+export const SENT_AGAIN = 'Sent again. Give it a minute to arrive.'
+
+/** The words for a send that failed, on every resend surface. */
+export const EMAIL_SEND_FAILED_MESSAGE =
+  'We could not send that email just now. Please try again in a moment.'
+
+/**
  * The alert for a send that failed. Never renders the backend's message; a
  * surface may supply its own words for an already-verified refusal, which
  * otherwise gets the generic line too.
@@ -327,7 +385,43 @@ export function VerificationResendFailed({
     <p role="alert" className="text-sm text-destructive">
       {alreadyVerified && alreadyVerifiedMessage
         ? alreadyVerifiedMessage
-        : 'We could not send that email just now. Please try again in a moment.'}
+        : EMAIL_SEND_FAILED_MESSAGE}
+    </p>
+  )
+}
+
+/**
+ * For a surface that confirms a send in its own sentence: the live region
+ * speaks `message` while the latest attempt is a confirmed send, and only the
+ * wait otherwise. The region empties when the next attempt starts, so every
+ * success is announced. Pair it with `SentConfirmation` showing the same
+ * message, and with `formatResendWaitOnly` for the visible line.
+ */
+export function announceSent(message: string): ResendAnnouncement {
+  return ({ latestAttemptSent, isCoolingDown }) =>
+    latestAttemptSent ? message : resendStatusAnnouncement(false, isCoolingDown)
+}
+
+/**
+ * A surface's confirmation of a send, shown only while that send is the latest
+ * outcome: a later attempt in flight, throttled, or refused takes it down, so
+ * it never claims a send that did not happen. Hidden from assistive tech,
+ * because the live region speaks the same sentence (`announceSent`).
+ */
+export function SentConfirmation({
+  className,
+  children,
+}: {
+  className?: string
+  children: ReactNode
+}) {
+  const { latestAttemptSent } = useVerificationResendState()
+  if (!latestAttemptSent) {
+    return null
+  }
+  return (
+    <p aria-hidden="true" className={className}>
+      {children}
     </p>
   )
 }

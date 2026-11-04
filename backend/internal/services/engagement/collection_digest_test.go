@@ -198,6 +198,9 @@ func (m *captureDigestEmailService) SendMagicLinkEmail(_, _ string) error    { r
 func (m *captureDigestEmailService) SendAccountRecoveryEmail(_, _ string, _ int) error {
 	return nil
 }
+func (m *captureDigestEmailService) SendPasswordResetEmail(_, _ string) error {
+	return nil
+}
 func (m *captureDigestEmailService) SendShowReminderEmail(_, _, _, _ string, _ contracts.LocalizedEventTime, _ []string) error {
 	return nil
 }

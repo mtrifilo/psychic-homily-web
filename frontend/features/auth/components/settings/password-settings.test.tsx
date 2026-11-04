@@ -28,6 +28,7 @@ vi.mock('@/features/auth', () => ({
     isError: false,
     error: null,
   }),
+  useSendOwnPasswordReset: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useChangePassword: () => ({
     mutate: vi.fn(),
     isPending: false,
@@ -92,7 +93,9 @@ describe('PasswordSettings', () => {
     await user.click(screen.getByRole('button', { name: 'Set password' }))
 
     await waitFor(() => expect(screen.getByText('Change password')).toBeInTheDocument())
-    expect(screen.getByRole('status')).toHaveTextContent(
+    // The card also carries Reset by email's live region, which is empty here.
+    const statuses = screen.getAllByRole('status')
+    expect(statuses.map(status => status.textContent)).toContain(
       'Password set. You can now also sign in with your email and password.'
     )
     expect(screen.getByLabelText('Current password')).toBeInTheDocument()

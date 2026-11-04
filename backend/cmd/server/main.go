@@ -638,16 +638,16 @@ func main() {
 		log.Printf("%s=1: skipping webauthn signup challenge sweep startup", authsvc.DisableSignupChallengeSweepEnvVar)
 	}
 
-	// Start the auth email outbox poller: sends the magic-link,
-	// account-recovery and magic-link verification emails the request handlers
-	// queue. Default ON: without it none of those links is ever delivered. The same flag makes
+	// Start the auth email outbox poller: sends the auth emails the request
+	// handlers queue (every authm.AuthEmailKind). Default ON: without it none
+	// of those links is ever delivered. The same flag makes
 	// Enqueue refuse new rows; it takes effect when the server starts with it.
 	if !authsvc.AuthEmailOutboxDisabled() {
 		var authEmailOutboxCtx context.Context
 		authEmailOutboxCtx, authEmailOutboxCancel = context.WithCancel(context.Background())
 		sc.AuthEmailOutbox.Start(authEmailOutboxCtx)
 	} else {
-		log.Printf("%s=1: skipping auth email outbox startup; magic-link, recovery and magic-link verification emails will not be sent", authsvc.DisableAuthEmailOutboxEnvVar)
+		log.Printf("%s=1: skipping auth email outbox startup; no auth email (sign-in, recovery, verification, provider link or password reset) will be sent", authsvc.DisableAuthEmailOutboxEnvVar)
 	}
 
 	// Start the IndexNow pinger: posts the public URLs whose sitemap lastmod

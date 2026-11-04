@@ -227,6 +227,33 @@ func (s *EmailService) SendAccountRecoveryEmailContext(ctx context.Context, toEm
 	})
 }
 
+// SendPasswordResetEmail sends the link that sets a new password without the
+// current one.
+func (s *EmailService) SendPasswordResetEmail(toEmail, token string) error {
+	return s.SendPasswordResetEmailContext(context.Background(), toEmail, token)
+}
+
+// SendPasswordResetEmailContext is SendPasswordResetEmail reporting a provider
+// error on the Sentry hub ctx carries (send).
+func (s *EmailService) SendPasswordResetEmailContext(ctx context.Context, toEmail, token string) error {
+	resetURL := fmt.Sprintf("%s/auth/reset-password?token=%s", s.frontendURL, token)
+
+	html, err := renderEmailTemplate(passwordResetEmailTemplate, passwordResetEmailData{
+		ResetURL:      resetURL,
+		ExpiryMinutes: int(contracts.PasswordResetTokenTTL / time.Minute),
+	})
+	if err != nil {
+		return err
+	}
+
+	return s.send(ctx, outboundEmail{
+		kind:    "password_reset",
+		to:      toEmail,
+		subject: "Reset your Psychic Homily password",
+		html:    html,
+	})
+}
+
 // The two date registers of the show reminder. They differ only in the trailing
 // clause, so a reader comparing a withheld line against a normal one sees the
 // same date in the same shape with nothing substituted for the hour.

@@ -49,6 +49,10 @@ func TestAuthOperationsAreInMainSpec(t *testing.T) {
 		"/auth/account/delete",
 		"/auth/password",
 		"/auth/sessions/sign-out-everywhere-else",
+		"/auth/password-reset/request",
+		"/auth/password-reset/send-own",
+		"/auth/password-reset/check",
+		"/auth/password-reset/complete",
 	} {
 		item, ok := paths[p]
 		if !ok {

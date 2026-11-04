@@ -68,6 +68,7 @@ vi.mock('@/features/auth', () => ({
     error: mockLoginError,
   }),
   useRegister: () => ({ mutate: vi.fn(), isPending: false, error: null as Error | null }),
+  useRequestPasswordReset: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
   useSendMagicLink: () => ({ mutate: vi.fn(), isPending: false }),
   // Pulled in by the check-your-inbox interstitial (PSY-1900). Mocking the
   // module wholesale means every export the page's tree imports has to exist

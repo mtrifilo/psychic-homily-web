@@ -14,7 +14,12 @@ import Link from 'next/link'
 import { useForm } from '@tanstack/react-form'
 import { z } from 'zod'
 import { AlertCircle, Loader2, Mail, Lock, User, Eye, EyeOff, CheckCircle2 } from 'lucide-react'
-import { useLogin, useRegister, useSendMagicLink } from '@/features/auth'
+import {
+  useLogin,
+  useRegister,
+  useRequestPasswordReset,
+  useSendMagicLink,
+} from '@/features/auth'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -38,6 +43,8 @@ import {
   SignupIntentPanel,
 } from '@/app/auth/_components/signup-intent-panel'
 import { CheckInboxInterstitial } from '@/app/auth/_components/check-inbox-interstitial'
+import { PasswordResetSent } from '@/app/auth/_components/password-reset-sent'
+import { EMAIL_SEND_FAILED_MESSAGE } from '@/features/auth/components/verification-resend'
 import { BackupAuthPrompt } from '@/app/auth/_components/backup-auth-prompt'
 import { AccountRecoverableMessage } from '@/app/auth/_components/account-recoverable-message'
 import {
@@ -190,22 +197,37 @@ const signupFieldIds = (dateOfBirth: DateOfBirthParts) =>
 // alert and revealFormAlert brings it into view again.
 const FORM_ALERT_CLASS = 'scroll-mt-[var(--topbar-height)]'
 
+/**
+ * The words for a reset request the server refused or never answered: its own
+ * message for a malformed address (a 400 says nothing about any account), and
+ * the shared send-failure line otherwise.
+ */
+function describePasswordResetRequestError(error: unknown): string {
+  const { status, message } = (error ?? {}) as { status?: number; message?: string }
+  return status === 400 && message ? message : EMAIL_SEND_FAILED_MESSAGE
+}
+
 function LoginForm({
   returnTo,
   reauthReason,
+  onPasswordResetSent,
 }: {
   returnTo: string
   /** The re-authentication the page is showing, for the Google start. */
   reauthReason?: ReauthReason
+  /** Called with the address once a password reset has been asked for. */
+  onPasswordResetSent: (email: string) => void
 }) {
   const router = useRouter()
   const loginMutation = useLogin()
   const sendMagicLink = useSendMagicLink()
+  const requestPasswordReset = useRequestPasswordReset()
   const { setUser } = useAuthContext()
   const [showPassword, setShowPassword] = useState(false)
   const [passkeyError, setPasskeyError] = useState<AuthError | null>(null)
   const [magicLinkSent, setMagicLinkSent] = useState(false)
-  const [magicLinkError, setMagicLinkError] = useState<string | null>(null)
+  // The refusal of either emailed link, shown under the Sign in button.
+  const [emailLinkError, setEmailLinkError] = useState<string | null>(null)
   // The alert shows the most recent refusal: a password submit clears the
   // passkey error and a passkey refusal resets the password error, so at most
   // one of the two is set.
@@ -240,15 +262,31 @@ function LoginForm({
     },
   })
 
-  const handleSendMagicLink = async () => {
+  // The typed address, or null after saying it is not one. Both emailed links
+  // go to the typed address.
+  const typedEmail = (): string | null => {
     const email = form.getFieldValue('email')
     if (!email || !z.string().email().safeParse(email).success) {
-      setMagicLinkError('Please enter a valid email address first')
-      return
+      setEmailLinkError('Please enter a valid email address first')
+      return null
     }
-
-    setMagicLinkError(null)
+    setEmailLinkError(null)
     setMagicLinkSent(false)
+    return email
+  }
+
+  const handleForgotPassword = () => {
+    const email = typedEmail()
+    if (email === null) return
+    requestPasswordReset.mutate(email, {
+      onSuccess: () => onPasswordResetSent(email),
+      onError: error => setEmailLinkError(describePasswordResetRequestError(error)),
+    })
+  }
+
+  const handleSendMagicLink = async () => {
+    const email = typedEmail()
+    if (email === null) return
 
     sendMagicLink.mutate(
       { email },
@@ -257,14 +295,14 @@ function LoginForm({
           if (data.success) {
             setMagicLinkSent(true)
           } else if (data.error_code === 'EMAIL_NOT_VERIFIED') {
-            setMagicLinkError(data.message)
+            setEmailLinkError(data.message)
           } else {
             // Generic success message (even if user doesn't exist - for security)
             setMagicLinkSent(true)
           }
         },
         onError: () => {
-          setMagicLinkError(SEND_LINK_FAILED_MESSAGE)
+          setEmailLinkError(SEND_LINK_FAILED_MESSAGE)
         },
       }
     )
@@ -324,9 +362,9 @@ function LoginForm({
                   onBlur={field.handleBlur}
                   onChange={e => {
                     field.handleChange(e.target.value)
-                    // Reset magic link states when email changes
+                    // Reset the emailed-link states when the address changes
                     setMagicLinkSent(false)
-                    setMagicLinkError(null)
+                    setEmailLinkError(null)
                   }}
                   className="pl-10"
                   aria-invalid={field.state.meta.errors.length > 0}
@@ -375,9 +413,9 @@ function LoginForm({
               <div className="flex justify-end">
                 <button
                   type="button"
-                  onClick={handleSendMagicLink}
+                  onClick={handleForgotPassword}
                   className="text-xs text-muted-foreground hover:text-link underline-offset-4 hover:underline"
-                  disabled={sendMagicLink.isPending}
+                  disabled={requestPasswordReset.isPending}
                 >
                   Forgot password?
                 </button>
@@ -414,10 +452,10 @@ function LoginForm({
           </div>
         ) : (
           <>
-            {magicLinkError && (
+            {emailLinkError && (
               <div role="alert" className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
                 <AlertCircle className="h-4 w-4 shrink-0" />
-                <span>{magicLinkError}</span>
+                <span>{emailLinkError}</span>
               </div>
             )}
             {/* A button styled as a link: it sends the email, it does not navigate. */}
@@ -929,6 +967,12 @@ function AuthPageContent() {
   const activeTab = showingArrivalTab ? arrivalTab : pickedTab.tab
   const setActiveTab = (tab: string) => setPickedTab({ arrival, tab })
   const [signupHandoff, setSignupHandoff] = useState<SignupHandoff | null>(null)
+  // The address a password reset was just asked for from the Sign in tab;
+  // while set, the page shows the sent state in place of the form.
+  const [passwordResetSentTo, setPasswordResetSentTo] = useState<string | null>(null)
+  // Back to sign in unmounts the sent state's focused button, so focus goes to
+  // the Sign in tab once the tabs mount again.
+  const focusSignInTabOnReturn = useRef(false)
   // A sign-up on this page refused for its age. The refusal replaces the page,
   // so nothing invites a second date.
   const [refusedForAge, setRefusedForAge] = useState(false)
@@ -1098,6 +1142,22 @@ function AuthPageContent() {
     )
   }
 
+  if (passwordResetSentTo !== null) {
+    return (
+      <div className="flex min-h-[calc(100vh-64px)] items-center justify-center px-4 py-12">
+        <div className="w-full max-w-md">
+          <PasswordResetSent
+            email={passwordResetSentTo}
+            onBack={() => {
+              focusSignInTabOnReturn.current = true
+              setPasswordResetSentTo(null)
+            }}
+          />
+        </div>
+      </div>
+    )
+  }
+
   // The arrival's refusal, in the page's own words. A browser holding the
   // under-age marker already shows the refusal card on Create account, which
   // says it once; the age line would say it twice, so it waits for the marker
@@ -1142,7 +1202,18 @@ function AuthPageContent() {
                   offersSignup ? 'grid w-full grid-cols-2' : 'grid w-full grid-cols-1'
                 }
               >
-                <TabsTrigger ref={signInTabRef} value="login">Sign in</TabsTrigger>
+                <TabsTrigger
+                  ref={node => {
+                    signInTabRef.current = node
+                    if (node && focusSignInTabOnReturn.current) {
+                      focusSignInTabOnReturn.current = false
+                      node.focus()
+                    }
+                  }}
+                  value="login"
+                >
+                  Sign in
+                </TabsTrigger>
                 {offersSignup && (
                   <TabsTrigger value="signup">Create account</TabsTrigger>
                 )}
@@ -1182,7 +1253,11 @@ function AuthPageContent() {
                           {pendingLinkGoneMessage}
                         </p>
                       )}
-                      <LoginForm returnTo={returnTo} reauthReason={reauthReason} />
+                      <LoginForm
+                        returnTo={returnTo}
+                        reauthReason={reauthReason}
+                        onPasswordResetSent={setPasswordResetSentTo}
+                      />
                     </>
                   )}
                 </div>
