@@ -32,13 +32,10 @@ export function resetLinkSentMessage(email: string): string {
  */
 export function ResetByEmail({
   email,
-  signInAgainHref,
   children,
 }: {
   /** The account's own address, where the link goes. */
   email: string
-  /** Where "Sign in again" leads when the session died while the card sat open. */
-  signInAgainHref: string
   children: ReactNode
 }) {
   const sendOwnReset = useSendOwnPasswordReset()
@@ -60,9 +57,12 @@ export function ResetByEmail({
       <VerificationResendStatus
         format={formatResendWaitOnly}
         announce={announceSent(sentMessage)}
-        className="font-data text-[11px] uppercase tracking-[0.66px] text-link"
+        className="text-xs text-link"
       />
-      <ResetSessionExpired signInAgainHref={signInAgainHref} />
+      {/* The Settings resend controls' words for a dead session. */}
+      <VerificationResendSessionExpired>
+        Your session has expired. Sign in again to resend.
+      </VerificationResendSessionExpired>
       <VerificationResendFailed />
     </EmailResend>
   )
@@ -85,17 +85,5 @@ export function ResetByEmailNote({ email }: { email: string }) {
       <span className="font-data break-words">{email}</span>. Setting a new password with it signs out every
       other device.
     </p>
-  )
-}
-
-function ResetSessionExpired({ signInAgainHref }: { signInAgainHref: string }) {
-  return (
-    <VerificationResendSessionExpired>
-      Your session has expired.{' '}
-      <a href={signInAgainHref} className="underline">
-        Sign in again
-      </a>{' '}
-      to send the email.
-    </VerificationResendSessionExpired>
   )
 }

@@ -55,15 +55,9 @@ interface ChangePasswordProps {
    * which sends the reset link there.
    */
   resetEmail?: string | null
-  /** Where Reset by email's "Sign in again" leads. */
-  signInAgainHref?: string
 }
 
-export function ChangePassword({
-  notice = null,
-  resetEmail = null,
-  signInAgainHref = '/auth',
-}: ChangePasswordProps) {
+export function ChangePassword({ notice = null, resetEmail = null }: ChangePasswordProps) {
   const changePasswordMutation = useChangePassword()
   const [newPasswordValue, setNewPasswordValue] = useState('')
   const [confirmPasswordValue, setConfirmPasswordValue] = useState('')
@@ -243,7 +237,7 @@ export function ChangePassword({
       </CardHeader>
       <CardContent>
         {resetEmail ? (
-          <ResetByEmail email={resetEmail} signInAgainHref={signInAgainHref}>
+          <ResetByEmail email={resetEmail}>
             {formNode}
           </ResetByEmail>
         ) : (

@@ -74,7 +74,7 @@ function StateCard({
   return (
     <CenteredColumn>
       <Card className="gap-4 px-10 py-9">
-        <p className="font-data text-[11px] uppercase tracking-[0.66px] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           {kicker}
         </p>
         <h1
@@ -304,7 +304,7 @@ function ResetPasswordForm({
           </form.Field>
 
           <div className="space-y-1.5 border border-border bg-background px-4 py-3">
-            <p className="font-data text-[11px] uppercase tracking-[0.66px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               When you set it
             </p>
             <p className="text-[13px] leading-5 text-foreground">

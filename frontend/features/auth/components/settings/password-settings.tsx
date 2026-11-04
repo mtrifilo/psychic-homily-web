@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useProfile } from '@/features/auth'
-import { buildAuthHref } from '@/lib/auth-href'
 import { cn } from '@/lib/utils'
 import { ChangePassword } from './change-password'
 import { SetPassword } from './set-password'
@@ -66,11 +65,7 @@ export function PasswordSettings() {
           onPasswordSet={setSetConfirmation}
         />
       ) : (
-        <ChangePassword
-          notice={setConfirmation}
-          resetEmail={profile?.user?.email || null}
-          signInAgainHref={buildAuthHref(PASSWORD_SETTINGS_HREF)}
-        />
+        <ChangePassword notice={setConfirmation} resetEmail={profile?.user?.email || null} />
       )}
     </div>
   )

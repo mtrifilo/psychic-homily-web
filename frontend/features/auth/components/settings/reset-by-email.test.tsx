@@ -21,7 +21,7 @@ const SENT = `Reset link sent to ${EMAIL}. It expires in 15 minutes. Nothing cha
 function renderCard(resetEmail: string | null = EMAIL) {
   const user = userEvent.setup()
   renderWithProviders(
-    <ChangePassword resetEmail={resetEmail} signInAgainHref="/auth?returnTo=%2Fprofile" />
+    <ChangePassword resetEmail={resetEmail} />
   )
   return { user }
 }
@@ -125,7 +125,6 @@ describe('Reset by email', () => {
     await user.click(screen.getByRole('button', { name: 'Reset by email' }))
 
     const alert = await screen.findByRole('alert')
-    expect(alert).toHaveTextContent('Your session has expired. Sign in again to send the email.')
-    expect(screen.getByRole('link', { name: 'Sign in again' })).toHaveAttribute('href', '/auth?returnTo=%2Fprofile')
+    expect(alert).toHaveTextContent('Your session has expired. Sign in again to resend.')
   })
 })
