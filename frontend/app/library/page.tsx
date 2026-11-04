@@ -42,8 +42,10 @@ import {
   LibraryViewToggle,
   LibraryWallGrid,
   useLibraryView,
+  useTrailingOverflow,
   type LibraryView,
 } from '@/features/library'
+import { cn } from '@/lib/utils'
 import { SavedShowRow } from '@/features/shows/components/SavedShowRow'
 import { unsaveShowMutationKey } from '@/features/shows/hooks/useSavedShows'
 
@@ -241,6 +243,48 @@ function SavedShowsSection({
   )
 }
 
+const REANCHOR_CANCEL_EVENTS = [
+  'wheel',
+  'touchmove',
+  'keydown',
+  'pointerdown',
+] as const
+
+// The Upcoming list renders above the calendar card, so a `#calendar-feed`
+// hash scroll that lands while the lists load ends short once they fill in.
+// Returns the anchor's ref and scrolls it into view once, when that initial
+// load settles. A mount whose lists are already settled (a Back navigation, a
+// cached revisit) never re-anchors, and neither does a load during which the
+// viewer scrolled, swiped, pressed a key or a pointer (a scrollbar drag).
+function useCalendarFeedReanchor(isInitialLoading: boolean) {
+  const anchorRef = useRef<HTMLDivElement | null>(null)
+  const isReanchorPendingRef = useRef(isInitialLoading)
+
+  useEffect(() => {
+    if (!isInitialLoading || !isReanchorPendingRef.current) return
+    const cancel = () => {
+      isReanchorPendingRef.current = false
+    }
+    for (const type of REANCHOR_CANCEL_EVENTS) {
+      window.addEventListener(type, cancel, { passive: true })
+    }
+    return () => {
+      for (const type of REANCHOR_CANCEL_EVENTS) {
+        window.removeEventListener(type, cancel)
+      }
+    }
+  }, [isInitialLoading])
+
+  useEffect(() => {
+    if (isInitialLoading || !isReanchorPendingRef.current) return
+    isReanchorPendingRef.current = false
+    if (window.location.hash !== '#calendar-feed') return
+    anchorRef.current?.scrollIntoView({ block: 'start' })
+  }, [isInitialLoading])
+
+  return anchorRef
+}
+
 function ShowsTab({ currentUserId }: { currentUserId?: string }) {
   const { view, setView } = useLibraryView()
   const upcoming = useInfiniteSavedShows(
@@ -272,6 +316,8 @@ function ShowsTab({ currentUserId }: { currentUserId?: string }) {
   // `unsaveShowMutationKey`.
   const isUnsavePending =
     useIsMutating({ mutationKey: unsaveShowMutationKey }) > 0
+  const hasShowBuckets = !isInitialLoading && !error && !isEmpty
+  const calendarFeedRef = useCalendarFeedReanchor(isInitialLoading)
   const isSavedShowActionPending =
     isUnsavePending || upcoming.isFetching || past.isFetching
 
@@ -286,14 +332,25 @@ function ShowsTab({ currentUserId }: { currentUserId?: string }) {
 
   return (
     <div className="space-y-7">
-      {/* Anchor target: the signed-in home's "Subscribe to calendar →" links
-          here, and CalendarFeedSection returns a different root per state, so
-          the id lives on the wrapper rather than inside it. */}
-      <div id="calendar-feed" className="scroll-mt-24">
-        <CalendarFeedSection variant="library" />
-      </div>
-
-      {isInitialLoading ? (
+      {hasShowBuckets ? (
+        <SavedShowsSection
+          title="Upcoming"
+          shows={upcomingShows}
+          total={upcomingTotal}
+          isPast={false}
+          view={view}
+          onViewChange={setView}
+          showViewToggle
+          hasNextPage={upcoming.hasNextPage}
+          isFetchingNextPage={upcoming.isFetchingNextPage}
+          onExpand={() => fetchAllPages(upcoming)}
+          onRemove={unsaveShow.mutate}
+          removingShowId={
+            unsaveShow.isPending ? unsaveShow.variables : undefined
+          }
+          isRemovalPending={isSavedShowActionPending}
+        />
+      ) : isInitialLoading ? (
         <div className="flex justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
@@ -301,7 +358,7 @@ function ShowsTab({ currentUserId }: { currentUserId?: string }) {
         <div className="py-12 text-center text-destructive">
           <p>Failed to load your shows. Please try again later.</p>
         </div>
-      ) : isEmpty ? (
+      ) : (
         <EmptyState
           title="Nothing saved yet."
           description="Save a show and it lands here — upcoming shows first, past ones kept as your record."
@@ -313,43 +370,43 @@ function ShowsTab({ currentUserId }: { currentUserId?: string }) {
             { label: 'show submissions', href: '/contribute/submissions' },
           ]}
         />
-      ) : (
-        <div className="space-y-8">
-          <SavedShowsSection
-            title="Upcoming"
-            shows={upcomingShows}
-            total={upcomingTotal}
-            isPast={false}
-            view={view}
-            onViewChange={setView}
-            showViewToggle
-            hasNextPage={upcoming.hasNextPage}
-            isFetchingNextPage={upcoming.isFetchingNextPage}
-            onExpand={() => fetchAllPages(upcoming)}
-            onRemove={unsaveShow.mutate}
-            removingShowId={
-              unsaveShow.isPending ? unsaveShow.variables : undefined
-            }
-            isRemovalPending={isSavedShowActionPending}
-          />
-          <SavedShowsSection
-            title="Past"
-            shows={pastShows}
-            total={pastTotal}
-            isPast
-            view={view}
-            onViewChange={setView}
-            showViewToggle={false}
-            hasNextPage={past.hasNextPage}
-            isFetchingNextPage={past.isFetchingNextPage}
-            onExpand={() => fetchAllPages(past)}
-            onRemove={unsaveShow.mutate}
-            removingShowId={
-              unsaveShow.isPending ? unsaveShow.variables : undefined
-            }
-            isRemovalPending={isSavedShowActionPending}
-          />
+      )}
+
+      {/* Anchor target: the signed-in home's "Subscribe to calendar →" links
+          here, and CalendarFeedSection returns a different root per state, so
+          the id lives on the wrapper rather than inside it. The wrapper is
+          visible in every load state so the hash always resolves. The card
+          mounts with the tab, so its own read starts at once, but stays hidden
+          until the initial load settles, so the list arriving above it cannot
+          push it out from under a tap. */}
+      <div
+        id="calendar-feed"
+        ref={calendarFeedRef}
+        className="scroll-mt-24"
+      >
+        <div hidden={isInitialLoading}>
+          <CalendarFeedSection variant="library" />
         </div>
+      </div>
+
+      {hasShowBuckets && (
+        <SavedShowsSection
+          title="Past"
+          shows={pastShows}
+          total={pastTotal}
+          isPast
+          view={view}
+          onViewChange={setView}
+          showViewToggle={false}
+          hasNextPage={past.hasNextPage}
+          isFetchingNextPage={past.isFetchingNextPage}
+          onExpand={() => fetchAllPages(past)}
+          onRemove={unsaveShow.mutate}
+          removingShowId={
+            unsaveShow.isPending ? unsaveShow.variables : undefined
+          }
+          isRemovalPending={isSavedShowActionPending}
+        />
       )}
     </div>
   )
@@ -768,6 +825,97 @@ function useFollowingTabCounts(): Partial<Record<LibraryTab, number>> {
   }
 }
 
+// Fades the strip's last TAB_STRIP_FADE_WIDTH_PX while tabs remain past its
+// right edge. A mask fades the tabs themselves, so it needs no colour token,
+// works on any background, and leaves every tab's hit area intact. The class
+// stays a literal for Tailwind's scanner, so its width must match the
+// constant.
+const TAB_STRIP_FADE_WIDTH_PX = 48
+const TAB_STRIP_TRAILING_FADE =
+  '[mask-image:linear-gradient(to_right,black_calc(100%_-_48px),transparent)]'
+
+// The strip's bottom rule lives on the wrapper, outside the mask, so it runs
+// the full width while the tabs above it fade.
+function LibraryTabStrip({
+  currentTab,
+  tabCounts,
+}: {
+  currentTab: LibraryTab
+  tabCounts: Partial<Record<LibraryTab, number>>
+}) {
+  const tabListRef = useRef<HTMLDivElement | null>(null)
+  const activeTabTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const hasTrailingOverflow = useTrailingOverflow(tabListRef)
+  const tabCountSignature = LIBRARY_TABS.map(tab => tabCounts[tab] ?? '').join(
+    ':'
+  )
+
+  // A deep-linked trailing tab can begin outside the mobile scroll viewport.
+  // Move only the horizontal tab scroller so page scroll restoration is intact.
+  useEffect(() => {
+    const tabList = tabListRef.current
+    const activeTrigger = activeTabTriggerRef.current
+    if (!tabList || !activeTrigger) return
+
+    const listBounds = tabList.getBoundingClientRect()
+    const triggerBounds = activeTrigger.getBoundingClientRect()
+    // While the strip overflows, an active tab under the trailing fade reads
+    // as cut off, so it clears the fade; scrollTo clamps at the scroll end,
+    // where the fade is gone.
+    const fadeReserve =
+      tabList.scrollWidth > tabList.clientWidth ? TAB_STRIP_FADE_WIDTH_PX : 0
+    let left = tabList.scrollLeft
+
+    if (triggerBounds.left < listBounds.left) {
+      left -= listBounds.left - triggerBounds.left
+    } else if (triggerBounds.right > listBounds.right - fadeReserve) {
+      left += triggerBounds.right - listBounds.right + fadeReserve
+    } else {
+      return
+    }
+
+    tabList.scrollTo({ left, behavior: 'instant' })
+  }, [currentTab, tabCountSignature])
+
+  return (
+    <div className="mb-6 border-b border-border">
+      <TabsList
+        ref={tabListRef}
+        className={cn(
+          'h-auto w-full flex-nowrap justify-start gap-1 overflow-x-auto rounded-none bg-transparent p-0',
+          hasTrailingOverflow && TAB_STRIP_TRAILING_FADE
+        )}
+      >
+        {LIBRARY_TABS.map(tab => {
+          const count = tabCounts[tab]
+          return (
+            <TabsTrigger
+              key={tab}
+              ref={tab === currentTab ? activeTabTriggerRef : undefined}
+              value={tab}
+              aria-label={
+                count === undefined
+                  ? TAB_LABELS[tab]
+                  : tab === 'releases'
+                    ? `${TAB_LABELS[tab]}, ${count} saved`
+                    : `${TAB_LABELS[tab]}, ${count} followed`
+              }
+              className="flex-none rounded-none border-0 border-b-2 border-b-transparent bg-transparent px-3 py-2 text-muted-foreground shadow-none data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none dark:data-[state=active]:border-b-primary dark:data-[state=active]:bg-transparent"
+            >
+              {TAB_LABELS[tab]}
+              {/* The visible count is dropped at zero; the accessible name
+                  above still states it. */}
+              {count !== undefined && count > 0 && (
+                <span aria-hidden> · {count}</span>
+              )}
+            </TabsTrigger>
+          )
+        })}
+      </TabsList>
+    </div>
+  )
+}
+
 function LibraryContent() {
   const searchParams = useSearchParams()
   const rawTab = searchParams.get('tab')
@@ -810,14 +958,8 @@ function ActiveLibraryContent({
     ...followingTabCounts,
     releases: savedReleaseCount.data?.total,
   }
-  const tabCountSignature = LIBRARY_TABS.map(tab => tabCounts[tab] ?? '').join(
-    ':'
-  )
-
   const rawTab = searchParams.get('tab')
   const currentTab: LibraryTab = isLibraryTab(rawTab) ? rawTab : 'shows'
-  const tabListRef = useRef<HTMLDivElement | null>(null)
-  const activeTabTriggerRef = useRef<HTMLButtonElement | null>(null)
 
   // Keep unrelated invalid tab values on Library's existing normalization path.
   useEffect(() => {
@@ -830,28 +972,6 @@ function ActiveLibraryContent({
       })
     }
   }, [rawTab, router, searchParams])
-
-  // A deep-linked trailing tab can begin outside the mobile scroll viewport.
-  // Move only the horizontal tab scroller so page scroll restoration is intact.
-  useEffect(() => {
-    const tabList = tabListRef.current
-    const activeTrigger = activeTabTriggerRef.current
-    if (!tabList || !activeTrigger) return
-
-    const listBounds = tabList.getBoundingClientRect()
-    const triggerBounds = activeTrigger.getBoundingClientRect()
-    let left = tabList.scrollLeft
-
-    if (triggerBounds.left < listBounds.left) {
-      left -= listBounds.left - triggerBounds.left
-    } else if (triggerBounds.right > listBounds.right) {
-      left += triggerBounds.right - listBounds.right
-    } else {
-      return
-    }
-
-    tabList.scrollTo({ left, behavior: 'instant' })
-  }, [currentTab, tabCountSignature])
 
   const handleTabChange = (tab: string) => {
     if (!isLibraryTab(tab)) return
@@ -896,31 +1016,7 @@ function ActiveLibraryContent({
             onValueChange={handleTabChange}
             className="w-full"
           >
-            <TabsList
-              ref={tabListRef}
-              className="mb-6 h-auto w-full flex-nowrap justify-start gap-1 overflow-x-auto rounded-none border-b border-border bg-transparent p-0"
-            >
-              {LIBRARY_TABS.map(tab => (
-                <TabsTrigger
-                  key={tab}
-                  ref={tab === currentTab ? activeTabTriggerRef : undefined}
-                  value={tab}
-                  aria-label={
-                    tabCounts[tab] === undefined
-                      ? TAB_LABELS[tab]
-                      : tab === 'releases'
-                        ? `${TAB_LABELS[tab]}, ${tabCounts[tab]} saved`
-                        : `${TAB_LABELS[tab]}, ${tabCounts[tab]} followed`
-                  }
-                  className="flex-none rounded-none border-0 border-b-2 border-b-transparent bg-transparent px-3 py-2 text-muted-foreground shadow-none data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none dark:data-[state=active]:border-b-primary dark:data-[state=active]:bg-transparent"
-                >
-                  {TAB_LABELS[tab]}
-                  {tabCounts[tab] !== undefined && (
-                    <span aria-hidden> · {tabCounts[tab]}</span>
-                  )}
-                </TabsTrigger>
-              ))}
-            </TabsList>
+            <LibraryTabStrip currentTab={currentTab} tabCounts={tabCounts} />
 
             <TabsContent value="shows">
               <ShowsTab currentUserId={currentUserId} />
