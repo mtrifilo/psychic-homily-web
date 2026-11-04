@@ -35,6 +35,11 @@ interface RouteItem {
   keywords: string[]
   requireAuth?: boolean
   requireAdmin?: boolean
+  /**
+   * Labels this route was saved under before a rename. Recents are stored as
+   * labels, so a recent under a former label still resolves to the route.
+   */
+  formerLabels?: string[]
 }
 
 // Forked destination list — canonical entries live in nav/navData.ts; folding
@@ -146,9 +151,12 @@ const routes: RouteItem[] = [
     requireAuth: true,
   },
   {
-    label: 'My Library',
+    label: 'Library',
     href: '/library',
-    keywords: ['library', 'saved', 'bookmarks', 'favorites', 'following', 'my stuff', 'personal', 'my shows', 'my collection', 'submissions', 'my submissions'],
+    formerLabels: ['My Library'],
+    // Keeps the retired name as a keyword: someone who learned it still needs
+    // to find the page by typing it.
+    keywords: ['library', 'my library', 'saved', 'bookmarks', 'favorites', 'following', 'my stuff', 'personal', 'my shows', 'my collection', 'submissions', 'my submissions'],
     requireAuth: true,
   },
   {
@@ -236,6 +244,26 @@ export const adminRoutes: RouteItem[] = adminNavGroups.flatMap(group =>
 
 const allRoutes = [...routes, ...adminRoutes]
 
+/** The route a recent label names, under its current label or a former one. */
+function routeForRecent(label: string): RouteItem | undefined {
+  const wanted = label.toLowerCase()
+  return allRoutes.find(
+    r =>
+      r.label.toLowerCase() === wanted ||
+      r.formerLabels?.some(former => former.toLowerCase() === wanted)
+  )
+}
+
+/**
+ * Recents as the palette shows them: a route's recent under a former label
+ * reads as its current label, and a route recent under both appears once, in
+ * its most recent position. Labels that name no route (entity names) pass
+ * through unchanged.
+ */
+function withCurrentRouteLabels(recents: string[]): string[] {
+  return [...new Set(recents.map(label => routeForRecent(label)?.label ?? label))]
+}
+
 /** Map entity type to display label for grouping */
 const entityTypeLabels: Record<EntitySearchResult['entityType'], string> = {
   artist: 'Artists',
@@ -291,7 +319,7 @@ export function CommandPalette() {
   if (open !== prevOpen) {
     setPrevOpen(open)
     if (open) {
-      setRecentSearches(getRecentSearches())
+      setRecentSearches(withCurrentRouteLabels(getRecentSearches()))
       setSearch('')
     }
   }
@@ -368,7 +396,7 @@ export function CommandPalette() {
 
   const handleSelect = useCallback(
     (href: string, label: string) => {
-      addRecentSearch(label)
+      addRecentSearch(label, stored => routeForRecent(stored)?.href === href)
       setOpen(false)
       router.push(href)
     },
@@ -386,9 +414,7 @@ export function CommandPalette() {
 
   const handleRecentSelect = useCallback(
     (label: string) => {
-      const route = allRoutes.find(
-        r => r.label.toLowerCase() === label.toLowerCase()
-      )
+      const route = routeForRecent(label)
       if (route) {
         handleSelect(route.href, route.label)
       }
@@ -472,9 +498,7 @@ export function CommandPalette() {
         {showRecent && (
           <CommandGroup className={groupClassName} heading="Recent">
             {recentSearches.map(label => {
-              const route = allRoutes.find(
-                r => r.label.toLowerCase() === label.toLowerCase()
-              )
+              const route = routeForRecent(label)
               return (
                 <CommandItem
                   key={`recent-${label}`}

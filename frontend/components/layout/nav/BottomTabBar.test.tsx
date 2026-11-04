@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event'
 import { BottomTabBar } from './BottomTabBar'
 import { primaryLinks } from './PrimaryNav'
-import { legalSheetRows, mobileBrowseHrefs, primaryTabs, sidebarGroups } from './navData'
+import { MOBILE_NAV_VIEWERS, legalSheetRows, mobileNavFor, sidebarGroups } from './navData'
 import { BOTTOM_TAB_BAR_BOX } from '@/test/layoutContracts'
 import type { AuthStatus } from '@/lib/context/AuthContext'
 import { makeAuthFixture, type MockAuthContextValue } from '@/test/authFixture'
@@ -66,6 +66,11 @@ vi.mock('next-themes', () => ({
   }),
 }))
 
+/** The bar's tab row: the grid whose children are the five cells. */
+function barGrid(container: HTMLElement): Element | null {
+  return container.querySelector('nav[aria-label="Mobile navigation"] > div')
+}
+
 function authedAs(user: MockUser) {
   mockAuthContext.mockReturnValue(authFixture({ user, authStatus: 'authenticated' }))
 }
@@ -78,29 +83,41 @@ describe('BottomTabBar', () => {
     mockAuthContext.mockReturnValue(authFixture())
   })
 
-  // Mobile-reachability guard, simplified per PSY-1821: primaryLinks and
-  // sidebarGroups now COMPOSE from the same canonical tables the mobile
-  // surfaces render, so for entries composed the natural way reachability is
-  // structural and this cannot fail. It survives as a fence for the residual
-  // fork paths only: an inline literal added to either list, or a rail entry
-  // composed from the account tables (which the mobile sheets don't render).
-  it('keeps every desktop primary + rail destination reachable on mobile', () => {
-    const mobile = [...primaryTabs.map(t => t.href), ...mobileBrowseHrefs]
-    for (const link of [...primaryLinks, ...sidebarGroups.flatMap(g => g.items)]) {
-      if (link.external) continue
-      expect(mobile).toContain(link.href)
+  // Mobile-reachability guard, per viewer. primaryLinks and sidebarGroups
+  // compose from the same canonical tables the mobile surfaces render, and a
+  // bar-only destination a viewer's bar drops (Radio, once signed in) leads
+  // that viewer's Discover group by construction (navData's
+  // barOnlyDestinations). What this still fences: an inline literal added to
+  // either desktop list, a rail entry composed from the account tables (which
+  // the mobile sheets don't render), or a desktop primary with no menu table
+  // that is missing from barOnlyDestinations.
+  it.each(MOBILE_NAV_VIEWERS)(
+    'keeps every desktop primary + rail destination reachable on mobile for a %s viewer',
+    viewer => {
+      const { primaryTabs, browseSheetHrefs } = mobileNavFor(viewer)
+      const mobile = [...primaryTabs.map(t => t.href), ...browseSheetHrefs]
+      for (const link of [...primaryLinks, ...sidebarGroups.flatMap(g => g.items)]) {
+        if (link.external) continue
+        expect(mobile).toContain(link.href)
+      }
     }
-  })
+  )
 
   // primaryTabs' length is coupled to the bar's literal grid-cols-N (tabs +
   // Browse + Account). A tab added without updating the grid class would wrap
   // Account onto a second row outside the fixed bar height — this asserts the
   // RELATIONSHIP, so it fails on the mismatch, not on a correct 4-tab change.
-  it('pins the bar grid to primaryTabs + Browse + Account', () => {
-    const { container } = render(<BottomTabBar />)
-    const grid = container.querySelector('nav[aria-label="Mobile navigation"] > div')
-    expect(grid?.className).toContain(`grid-cols-${primaryTabs.length + 2}`)
-  })
+  it.each(MOBILE_NAV_VIEWERS)(
+    'pins the bar grid to primaryTabs + Browse + Account for a %s viewer',
+    viewer => {
+      if (viewer === 'signed-in') authedAs({ email: 'user@test.com', is_admin: false })
+      const { container } = render(<BottomTabBar />)
+      const grid = barGrid(container)
+      const columns = mobileNavFor(viewer).primaryTabs.length + 2
+      expect(grid?.className).toContain(`grid-cols-${columns}`)
+      expect(grid?.children).toHaveLength(columns)
+    }
+  )
 
   // The bar/PrimaryNav breakpoint contract: the bar hides exactly where the
   // desktop primary nav appears. If either literal changes alone, tablets get
@@ -149,7 +166,7 @@ describe('BottomTabBar', () => {
     // positively rather than blacklisting one wrong spelling.
     it('derives the tab row from the bar box instead of restating a height', () => {
       const { container } = render(<BottomTabBar />)
-      const grid = container.querySelector('nav[aria-label="Mobile navigation"] > div')
+      const grid = barGrid(container)
       expect(grid).toHaveClass('h-full')
     })
 
@@ -185,6 +202,47 @@ describe('BottomTabBar', () => {
       expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/')
       expect(screen.getByRole('link', { name: 'Shows' })).toHaveAttribute('href', '/shows')
       expect(screen.getByRole('link', { name: 'Radio' })).toHaveAttribute('href', '/radio')
+      expect(screen.queryByRole('link', { name: 'Library' })).not.toBeInTheDocument()
+    })
+
+    // Product Designs P1a (2076:26 / 2077:22).
+    it('gives a signed-in viewer Library in the third tab, in place of Radio', () => {
+      authedAs({ email: 'user@test.com', is_admin: false })
+      const { container } = render(<BottomTabBar />)
+      const grid = barGrid(container)!
+      const links = [...grid.querySelectorAll(':scope > a')]
+      expect(links.map(a => a.textContent)).toEqual(['Home', 'Shows', 'Library'])
+      expect(screen.getByRole('link', { name: 'Library' })).toHaveAttribute('href', '/library')
+      expect(screen.queryByRole('link', { name: 'Radio' })).not.toBeInTheDocument()
+    })
+
+    // An unsettled viewer gets the bar that names nobody, as the Account cell
+    // does: a backend failure must not hand out a signed-in bar it cannot back.
+    it('keeps Radio in the bar while auth is unsettled', () => {
+      mockAuthContext.mockReturnValue(authFixture({ authStatus: 'pending' }))
+      render(<BottomTabBar />)
+      expect(screen.getByRole('link', { name: 'Radio' })).toHaveAttribute('href', '/radio')
+      expect(screen.queryByRole('link', { name: 'Library' })).not.toBeInTheDocument()
+    })
+
+    // /library is both the signed-in bar's tab and an Account-sheet row; the
+    // tab takes it so exactly one tab lights up.
+    it('lights Library, not Account, on /library when signed in', () => {
+      authedAs({ email: 'user@test.com', is_admin: false })
+      mockPathname = '/library'
+      render(<BottomTabBar />)
+      expect(screen.getByRole('link', { name: 'Library' })).toHaveAttribute('aria-current', 'page')
+      expect(screen.getByRole('button', { name: 'Account' })).not.toHaveAttribute('aria-current')
+      expect(screen.getByRole('button', { name: 'Browse' })).not.toHaveAttribute('aria-current')
+    })
+
+    // Radio is a Browse-sheet destination once signed in, so its routes light
+    // Browse.
+    it('lights Browse on a Radio route when signed in', () => {
+      authedAs({ email: 'user@test.com', is_admin: false })
+      mockPathname = '/radio/kexp'
+      render(<BottomTabBar />)
+      expect(screen.getByRole('button', { name: 'Browse' })).toHaveAttribute('aria-current', 'page')
     })
 
     // On /atlas the tab bar's links are the primary destinations that re-arm
@@ -403,6 +461,43 @@ describe('BottomTabBar', () => {
       expect(external).toHaveAttribute('rel', 'noopener noreferrer')
     })
 
+    it('leads Discover with Radio for a signed-in viewer, whose bar has no Radio tab', async () => {
+      authedAs({ email: 'user@test.com', is_admin: false })
+      const user = userEvent.setup()
+      render(<BottomTabBar />)
+      await user.click(screen.getByRole('button', { name: 'Browse' }))
+      const sheet = await screen.findByRole('dialog', { name: 'Browse' })
+      const radio = within(sheet).getByRole('link', { name: 'Radio' })
+      expect(radio).toHaveAttribute('href', '/radio')
+      expect(within(sheet).getAllByRole('link')[0]).toBe(radio)
+    })
+
+    it('leaves Radio out of the sheet for a viewer whose bar carries it', async () => {
+      const user = userEvent.setup()
+      render(<BottomTabBar />)
+      await user.click(screen.getByRole('button', { name: 'Browse' }))
+      const sheet = await screen.findByRole('dialog', { name: 'Browse' })
+      expect(within(sheet).queryByRole('link', { name: 'Radio' })).not.toBeInTheDocument()
+      expect(within(sheet).getAllByRole('link')[0]).toHaveAccessibleName('Graph')
+    })
+
+    // The sheet's rows differ per viewer, so it is keyed apart like the
+    // Account cell: a settle closes it rather than inserting a row above the
+    // viewer's finger.
+    it('closes an open Browse sheet when auth settles signed in', async () => {
+      mockAuthContext.mockReturnValue(authFixture({ authStatus: 'pending' }))
+      const user = userEvent.setup()
+      const { rerender } = render(<BottomTabBar />)
+      await user.click(screen.getByRole('button', { name: 'Browse' }))
+      await screen.findByRole('dialog', { name: 'Browse' })
+      authedAs({ email: 'user@test.com', is_admin: false })
+      rerender(<BottomTabBar />)
+      await waitFor(() =>
+        expect(screen.queryByRole('dialog', { name: 'Browse' })).not.toBeInTheDocument()
+      )
+      expect(screen.getByRole('link', { name: 'Library' })).toHaveAttribute('href', '/library')
+    })
+
     it('hides auth-only destinations from anonymous visitors', async () => {
       const user = userEvent.setup()
       render(<BottomTabBar />)
@@ -610,9 +705,7 @@ describe('BottomTabBar', () => {
       const cellOf = (authStatus: AuthStatus) => {
         mockAuthContext.mockReturnValue(authFixture({ authStatus }))
         const { container, unmount } = render(<BottomTabBar />)
-        const grid = container.querySelector(
-          'nav[aria-label="Mobile navigation"] > div'
-        )
+        const grid = barGrid(container)
         const shape = {
           gridChildren: grid?.children.length,
           account: grid?.lastElementChild?.outerHTML.replace(
@@ -624,7 +717,7 @@ describe('BottomTabBar', () => {
         return shape
       }
       const pending = cellOf('pending')
-      expect(pending.gridChildren).toBe(primaryTabs.length + 2)
+      expect(pending.gridChildren).toBe(mobileNavFor('signed-out').primaryTabs.length + 2)
       expect(pending.account).toMatch(/^<button[^>]*aria-haspopup="dialog"/)
       expect(pending).toEqual(cellOf('anonymous'))
     })
@@ -634,11 +727,13 @@ describe('BottomTabBar', () => {
       const user = userEvent.setup()
       render(<BottomTabBar />)
       await user.click(screen.getByRole('button', { name: 'Account' }))
-      expect(await screen.findByRole('link', { name: 'Notifications' })).toHaveAttribute(
+      const sheet = await screen.findByRole('dialog', { name: 'Account' })
+      expect(within(sheet).getByRole('link', { name: 'Notifications' })).toHaveAttribute(
         'href',
         '/notifications'
       )
-      expect(screen.getByRole('link', { name: 'My Library' })).toHaveAttribute('href', '/library')
+      // The sheet keeps its Library row beside the bar's Library tab (P1a).
+      expect(within(sheet).getByRole('link', { name: 'Library' })).toHaveAttribute('href', '/library')
       expect(screen.getByRole('link', { name: 'Profile' })).toHaveAttribute('href', '/users/me')
       expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/profile')
       expect(screen.getByText('user@test.com')).toBeInTheDocument()
@@ -657,7 +752,7 @@ describe('BottomTabBar', () => {
 
     it('lights up on account routes when signed in', () => {
       authedAs({ email: 'user@test.com', is_admin: false })
-      mockPathname = '/library'
+      mockPathname = '/notifications'
       render(<BottomTabBar />)
       expect(screen.getByRole('button', { name: 'Account' })).toHaveAttribute('aria-current', 'page')
     })
@@ -809,8 +904,9 @@ describe('BottomTabBar', () => {
       const row = await screen.findByRole('link', { name: 'Notifications (7 unread)' })
       expect(row).toHaveAttribute('href', '/notifications')
       expect(within(row).getByTestId('unread-count-badge')).toHaveTextContent('7')
-      // My Library keeps its bare name — the badge is scoped to its destination.
-      expect(screen.getByRole('link', { name: 'My Library' })).toBeInTheDocument()
+      // The Library row keeps its bare name: the badge is scoped to its destination.
+      const sheet = screen.getByRole('dialog', { name: 'Account' })
+      expect(within(sheet).getByRole('link', { name: 'Library' })).toBeInTheDocument()
       // Tab + row, and nothing else in the tree.
       expect(screen.getAllByTestId('unread-count-badge')).toHaveLength(2)
     })

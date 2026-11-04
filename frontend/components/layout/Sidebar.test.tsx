@@ -129,7 +129,7 @@ describe('Sidebar', () => {
 
   it('does not show Library/Profile when unauthenticated', () => {
     render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
-    expect(screen.queryByText('My Library')).not.toBeInTheDocument()
+    expect(screen.queryByText('Library')).not.toBeInTheDocument()
     expect(screen.queryByText('Show Submissions')).not.toBeInTheDocument()
     expect(screen.queryByText('Profile')).not.toBeInTheDocument()
   })
@@ -142,7 +142,7 @@ describe('Sidebar', () => {
       logout: vi.fn(),
     })
     render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
-    expect(screen.getByText('My Library')).toBeInTheDocument()
+    expect(screen.getByText('Library')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Show Submissions' })).toHaveAttribute(
       'href',
       '/contribute/submissions'

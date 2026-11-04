@@ -6,6 +6,19 @@ const RECENT_SEARCHES_KEY = 'command-palette-recent'
 const MAX_RECENT_SEARCHES = 5
 
 /**
+ * The stored recents, or none. Storage is outside this app's control (an
+ * extension or a hand edit can leave any JSON there), so anything that is not
+ * a list of strings reads as no recents rather than reaching render.
+ */
+function readStoredRecents(): string[] {
+  const stored = localStorage.getItem(RECENT_SEARCHES_KEY)
+  const parsed: unknown = stored ? JSON.parse(stored) : []
+  return Array.isArray(parsed)
+    ? parsed.filter((s): s is string => typeof s === 'string')
+    : []
+}
+
+/**
  * Hook for managing the command palette open/close state and keyboard shortcut.
  * Handles Cmd+K (Mac) / Ctrl+K (Windows/Linux) to toggle the palette.
  * Also manages recent searches persisted in localStorage.
@@ -40,29 +53,35 @@ export function useCommandPalette() {
   const getRecentSearches = useCallback((): string[] => {
     if (typeof window === 'undefined') return []
     try {
-      const stored = localStorage.getItem(RECENT_SEARCHES_KEY)
-      return stored ? JSON.parse(stored) : []
+      return readStoredRecents()
     } catch {
       return []
     }
   }, [])
 
-  const addRecentSearch = useCallback((search: string) => {
-    if (typeof window === 'undefined') return
-    const trimmed = search.trim()
-    if (!trimmed) return
+  /**
+   * Moves `search` to the front of the recents. `isSameEntry` names stored
+   * entries that are the same destination under another string (a route's
+   * former label), which are dropped so they do not hold a slot.
+   */
+  const addRecentSearch = useCallback(
+    (search: string, isSameEntry?: (stored: string) => boolean) => {
+      if (typeof window === 'undefined') return
+      const trimmed = search.trim()
+      if (!trimmed) return
 
-    try {
-      const current = JSON.parse(
-        localStorage.getItem(RECENT_SEARCHES_KEY) || '[]'
-      ) as string[]
-      const filtered = current.filter(s => s !== trimmed)
-      const updated = [trimmed, ...filtered].slice(0, MAX_RECENT_SEARCHES)
-      localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(updated))
-    } catch {
-      // Ignore storage errors
-    }
-  }, [])
+      try {
+        const filtered = readStoredRecents().filter(
+          s => s !== trimmed && !isSameEntry?.(s)
+        )
+        const updated = [trimmed, ...filtered].slice(0, MAX_RECENT_SEARCHES)
+        localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(updated))
+      } catch {
+        // Ignore storage errors
+      }
+    },
+    []
+  )
 
   const clearRecentSearches = useCallback(() => {
     if (typeof window === 'undefined') return

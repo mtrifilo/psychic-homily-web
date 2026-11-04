@@ -143,16 +143,12 @@ export function visibleNavItems<T extends NavLink>(
   )
 }
 
-// The mobile bar's plain-link tabs — this list IS the mobile-tab membership
-// and order decision, nothing else's (PrimaryNav names its own destinations).
-// Its length is pinned: BottomTabBar renders these three + Browse + Account
-// into a literal grid-cols-5 — a guard test in BottomTabBar.test.tsx fails
-// if the two drift apart.
-export const primaryTabs: ReadonlyArray<NavDestination> = [
-  { href: '/', label: 'Home', icon: Home },
-  { href: '/shows', label: 'Shows', icon: Calendar },
-  { href: '/radio', label: 'Radio', icon: Radio },
-]
+// Canonical entries for destinations no menu table carries. Which surfaces
+// list them is decided elsewhere: PrimaryNav for the top bar, mobileNavByViewer
+// for the phone bar and its Browse sheet.
+const homeItem: NavDestination = { href: '/', label: 'Home', icon: Home }
+const showsItem: NavDestination = { href: '/shows', label: 'Shows', icon: Calendar }
+const radioItem: NavDestination = { href: '/radio', label: 'Radio', icon: Radio }
 
 // Graph/Atlas are desktop *primary* links with no home in the Browse/
 // Contribute menus; these are their canonical entries. One icon per
@@ -217,7 +213,7 @@ export function accountNavItems(
 ): NavDestination[] {
   return [
     { href: NOTIFICATIONS_HREF, label: 'Notifications', icon: Bell },
-    { href: '/library', label: 'My Library', icon: Library },
+    { href: '/library', label: 'Library', icon: Library },
     profileNavItem(user),
     { href: '/profile', label: 'Settings', icon: Settings },
     // Reachable from the account menus in the DEFAULT top-bar mode — the side
@@ -303,8 +299,7 @@ export function buildDestinationIndex(
 }
 
 const destinationByHref = buildDestinationIndex([
-  primaryTabs,
-  [graphItem, atlasItem],
+  [homeItem, showsItem, radioItem, graphItem, atlasItem],
   ...browseGroups.map(g => g.items),
   contributeItems,
   editorialItems,
@@ -426,23 +421,55 @@ export function navItemClassName(active?: boolean): string {
 }
 
 // PSY-1020 — mobile bottom tab bar (Option A, Figma Navigation 540:8).
-// The Browse tab's long-tail sheet: every desktop menu destination, composed
-// from the canonical tables above (no forked destination lists). Graph and
-// Atlas are desktop *primary* links (PrimaryNav) with no home in the
-// Browse/Contribute menus, so they get a leading group here — without it those
-// destinations would be unreachable on mobile, where the primary tabs only
-// carry Home/Shows/Radio.
-// Deduped at composition: Leaderboard legitimately appears in both Curation
-// and Contribute on desktop (two separate menus), but this is ONE sheet — a
-// destination renders once, under the first group that claims it. (IIFE keeps
-// the seen-set out of module scope so nothing can consume it half-drained.)
-export const mobileBrowseGroups: NavGroup[] = (() => {
+
+/**
+ * Which bar a viewer gets. 'signed-in' is a settled authenticated viewer only;
+ * an anonymous viewer and one whose auth has not settled both get
+ * 'signed-out', the same split the bar's Account cell makes.
+ */
+export const MOBILE_NAV_VIEWERS = ['signed-in', 'signed-out'] as const
+export type MobileNavViewer = (typeof MOBILE_NAV_VIEWERS)[number]
+
+/** One viewer's mobile chrome: the bar's link tabs and the Browse sheet. */
+export interface MobileNav {
+  /**
+   * The bar's plain-link tabs, in bar order. BottomTabBar renders these plus
+   * Browse and Account into a literal grid-cols-5, so every viewer's list has
+   * the same length; BottomTabBar.test.tsx fails if either drifts.
+   */
+  primaryTabs: ReadonlyArray<NavDestination>
+  /** The Browse sheet's groups, in sheet order. */
+  browseSheetGroups: NavGroup[]
+  /** Every in-app href of the Browse sheet: the routes that light the Browse tab. */
+  browseSheetHrefs: string[]
+}
+
+/**
+ * Destinations with no menu table, which only a bar tab or the Browse sheet's
+ * Discover group can carry on a phone. Any of them a viewer's bar does not
+ * carry leads that viewer's Discover group, so reachability follows from the
+ * tab list alone.
+ */
+const barOnlyDestinations: ReadonlyArray<NavDestination> = [homeItem, showsItem, radioItem]
+
+/**
+ * The Browse sheet: every desktop menu destination, composed from the
+ * canonical tables above (no forked destination lists), led by a Discover
+ * group. Graph and Atlas are desktop *primary* links (PrimaryNav) with no home
+ * in the Browse/Contribute menus, so without that group they would be
+ * unreachable on mobile; the bar-only destinations the viewer's bar drops
+ * join them at its head.
+ *
+ * Deduped at composition: Leaderboard legitimately appears in both Curation
+ * and Contribute on desktop (two separate menus), but this is ONE sheet, so a
+ * destination renders once, under the first group that claims it.
+ */
+function composeMobileNav(primaryTabs: ReadonlyArray<NavDestination>): MobileNav {
+  const tabHrefs = new Set(primaryTabs.map(t => t.href))
+  const dropped = barOnlyDestinations.filter(d => !tabHrefs.has(d.href))
   const seen = new Set<string>()
-  return [
-    {
-      label: 'Discover',
-      items: [graphItem, atlasItem],
-    },
+  const browseSheetGroups = [
+    { label: 'Discover', items: [...dropped, graphItem, atlasItem] },
     ...browseGroups,
     { label: 'Contribute', items: contributeItems },
     { label: 'Editorial', items: editorialItems },
@@ -454,13 +481,30 @@ export const mobileBrowseGroups: NavGroup[] = (() => {
       return true
     }),
   }))
-})()
+  return {
+    primaryTabs,
+    browseSheetGroups,
+    // External links are excluded; they never match a pathname.
+    browseSheetHrefs: browseSheetGroups.flatMap(g =>
+      g.items.filter(i => !i.external).map(i => i.href)
+    ),
+  }
+}
 
-// Lights the Browse tab as active when the route lives in its sheet (external
-// links excluded; they never match a pathname).
-export const mobileBrowseHrefs = mobileBrowseGroups.flatMap(g =>
-  g.items.filter(i => !i.external).map(i => i.href)
-)
+// THE mobile-tab membership and order decision, per viewer, and nothing
+// else's (PrimaryNav names its own destinations). A signed-in viewer's
+// Library takes Radio's tab, which puts Radio at the head of the Browse
+// sheet's Discover group (Product Designs XakQQ0nYGqnt77PrHKO9IE, P1a boards
+// 2076:26 and 2077:22).
+const mobileNavByViewer: Record<MobileNavViewer, MobileNav> = {
+  'signed-out': composeMobileNav([homeItem, showsItem, radioItem]),
+  'signed-in': composeMobileNav([homeItem, showsItem, navDestination('/library')]),
+}
+
+/** The mobile bar's tabs and Browse sheet for this viewer. */
+export function mobileNavFor(viewer: MobileNavViewer): MobileNav {
+  return mobileNavByViewer[viewer]
+}
 
 /**
  * Row style for links inside bottom sheets and drawers (BottomTabBar's

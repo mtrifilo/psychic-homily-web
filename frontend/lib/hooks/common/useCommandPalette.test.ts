@@ -101,6 +101,30 @@ describe('useCommandPalette', () => {
       expect(recent).toEqual(['Shows', 'Artists'])
     })
 
+    it('drops stored entries the caller names as the same destination', () => {
+      localStorage.setItem(
+        'command-palette-recent',
+        JSON.stringify(['My Library', 'A', 'B', 'C', 'D'])
+      )
+      const { result } = renderHook(() => useCommandPalette())
+
+      act(() => {
+        result.current.addRecentSearch('Library', stored => stored === 'My Library')
+      })
+
+      expect(result.current.getRecentSearches()).toEqual(['Library', 'A', 'B', 'C', 'D'])
+    })
+
+    it.each([['{}'], ['5'], ['true'], ['[null, "Shows", 3]']])(
+      'reads stored %s as only its string entries',
+      stored => {
+        localStorage.setItem('command-palette-recent', stored)
+        const { result } = renderHook(() => useCommandPalette())
+        const expected = stored.startsWith('[') ? ['Shows'] : []
+        expect(result.current.getRecentSearches()).toEqual(expected)
+      }
+    )
+
     it('should limit to 5 recent searches', () => {
       const { result } = renderHook(() => useCommandPalette())
 
