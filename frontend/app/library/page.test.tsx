@@ -307,7 +307,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
   })
 
   describe('tab row', () => {
-    it('renders counts for every follow-management tab', () => {
+    it('shows non-zero counts, drops zero counts from the label, and names every count', () => {
       renderWithProviders(<LibraryPage />)
 
       const tablist = screen.getByRole('tablist')
@@ -318,10 +318,13 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
         'Venues · 2',
         'Scenes · 3',
         'Labels · 1',
-        'Festivals · 0',
-        'Tags · 0',
-        'Releases · 0',
+        'Festivals',
+        'Tags',
+        'Releases',
       ])
+      expect(
+        screen.getByRole('tab', { name: 'Festivals, 0 followed' })
+      ).toBeTruthy()
       expect(mockUseSavedShows).toHaveBeenCalledTimes(2)
       // The context id verbatim: the tab and the SaveButton in its own rows
       // scope their cache entries on the same value.
@@ -342,7 +345,55 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       const tablist = screen.getByRole('tablist')
       expect(tablist.className).toContain('overflow-x-auto')
       expect(tablist.className).toContain('flex-nowrap')
-      expect(tablist.className).toContain('border-b')
+      // The bottom rule sits outside the faded scroller so it stays full width.
+      expect(tablist.className).not.toContain('border-b')
+      expect(tablist.parentElement?.className).toContain('border-b')
+    })
+
+    it('fades the trailing edge while tabs overflow and clears it at the scroll end', () => {
+      let scrollLeft = 0
+      const tablistMetric =
+        (value: () => number) =>
+        function (this: Element) {
+          return this.getAttribute('role') === 'tablist' ? value() : 0
+        }
+      vi.spyOn(Element.prototype, 'scrollWidth', 'get').mockImplementation(
+        tablistMetric(() => 636)
+      )
+      vi.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(
+        tablistMetric(() => 358)
+      )
+      vi.spyOn(Element.prototype, 'scrollLeft', 'get').mockImplementation(
+        tablistMetric(() => scrollLeft)
+      )
+
+      renderWithProviders(<LibraryPage />)
+
+      const tablist = screen.getByRole('tablist')
+      expect(tablist.hasAttribute('data-trailing-fade')).toBe(true)
+      expect(tablist.className).toContain('mask-image')
+
+      scrollLeft = 278
+      fireEvent.scroll(tablist)
+
+      expect(tablist.hasAttribute('data-trailing-fade')).toBe(false)
+      expect(tablist.className).not.toContain('mask-image')
+
+      scrollLeft = 100
+      fireEvent.scroll(tablist)
+
+      expect(tablist.hasAttribute('data-trailing-fade')).toBe(true)
+    })
+
+    it('draws no fade when every tab fits', () => {
+      vi.spyOn(Element.prototype, 'scrollWidth', 'get').mockReturnValue(735)
+      vi.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(760)
+
+      renderWithProviders(<LibraryPage />)
+
+      const tablist = screen.getByRole('tablist')
+      expect(tablist.hasAttribute('data-trailing-fade')).toBe(false)
+      expect(tablist.className).not.toContain('mask-image')
     })
 
     it('scrolls a deep-linked trailing tab into the mobile tab viewport', () => {
@@ -1175,6 +1226,131 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
           'Saved shows move here automatically when the date passes.'
         )
       ).toBeTruthy()
+    })
+
+    it('orders the Shows tab as Upcoming, the calendar card, then Past', () => {
+      mockUseSavedShows.mockImplementation(
+        (timeFilter: 'upcoming' | 'past') => ({
+          data: {
+            pages: [
+              {
+                shows: [
+                  makeSavedShow({
+                    id: timeFilter === 'past' ? 2 : 1,
+                    title: `${timeFilter} show`,
+                    eventDate: '2026-07-20T03:00:00Z',
+                    savedAt: '2026-07-11T12:00:00Z',
+                  }),
+                ],
+                total: 1,
+                limit: 4,
+                offset: 0,
+              },
+            ],
+            pageParams: [{ limit: 4, offset: 0 }],
+          },
+          isLoading: false,
+          error: null,
+          hasNextPage: false,
+          isFetchingNextPage: false,
+          fetchNextPage: mockFetchNextPage,
+        })
+      )
+
+      const { container } = renderWithProviders(<LibraryPage />)
+
+      const anchor = container.querySelector('#calendar-feed')
+      expect(anchor?.className).toContain('scroll-mt-24')
+      expect(
+        within(anchor as HTMLElement).getByTestId('calendar-feed')
+      ).toBeTruthy()
+
+      const upcoming = screen.getByRole('heading', { name: 'Upcoming' })
+      const past = screen.getByRole('heading', { name: 'Past' })
+      expect(
+        upcoming.compareDocumentPosition(anchor as Node) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+      expect(
+        (anchor as Node).compareDocumentPosition(past) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+    })
+
+    it('keeps the calendar anchor mounted while saved shows load', () => {
+      mockUseSavedShows.mockReturnValue({
+        data: undefined,
+        isLoading: true,
+        error: null,
+        hasNextPage: false,
+        isFetchingNextPage: false,
+        fetchNextPage: mockFetchNextPage,
+      })
+
+      const { container } = renderWithProviders(<LibraryPage />)
+
+      expect(container.querySelector('#calendar-feed')).not.toBeNull()
+      expect(screen.queryByRole('heading', { name: 'Upcoming' })).toBeNull()
+      expect(screen.queryByRole('heading', { name: 'Past' })).toBeNull()
+    })
+
+    it('re-anchors a #calendar-feed arrival once the lists finish loading', () => {
+      const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
+      window.history.replaceState(null, '', '/library#calendar-feed')
+      let loaded = false
+      mockUseSavedShows.mockImplementation(() => ({
+        data: loaded
+          ? {
+              pages: [
+                {
+                  shows: [
+                    makeSavedShow({
+                      id: 1,
+                      title: 'Upcoming Artist',
+                      eventDate: '2026-07-20T03:00:00Z',
+                      savedAt: '2026-07-11T12:00:00Z',
+                    }),
+                  ],
+                  total: 1,
+                  limit: 4,
+                  offset: 0,
+                },
+              ],
+              pageParams: [{ limit: 4, offset: 0 }],
+            }
+          : undefined,
+        isLoading: !loaded,
+        error: null,
+        hasNextPage: false,
+        isFetchingNextPage: false,
+        fetchNextPage: mockFetchNextPage,
+      }))
+
+      try {
+        const { container, rerender } = renderWithProviders(<LibraryPage />)
+        expect(scrollIntoView).not.toHaveBeenCalled()
+
+        loaded = true
+        rerender(<LibraryPage />)
+
+        expect(scrollIntoView).toHaveBeenCalledTimes(1)
+        expect(scrollIntoView.mock.contexts[0]).toBe(
+          container.querySelector('#calendar-feed')
+        )
+
+        rerender(<LibraryPage />)
+        expect(scrollIntoView).toHaveBeenCalledTimes(1)
+      } finally {
+        window.history.replaceState(null, '', '/')
+      }
+    })
+
+    it('leaves the scroll alone when the URL does not target the calendar card', () => {
+      const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
+
+      renderWithProviders(<LibraryPage />)
+
+      expect(scrollIntoView).not.toHaveBeenCalled()
     })
 
     it('unsaves an upcoming row with its heart and leaves a past row as a record', () => {
