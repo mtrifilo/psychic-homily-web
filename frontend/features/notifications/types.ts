@@ -173,6 +173,52 @@ export function toRelativeIfSameOrigin(href: string): string {
   return href
 }
 
+/**
+ * The app path an alert URL names, for a caller that renders on the server.
+ *
+ * The backend builds alert_show_url, alert_venue_url and alert_release_url from
+ * FRONTEND_URL, so each always names a page of this app, and its path is that
+ * page on whichever origin is serving (apex or www). Unlike
+ * `toRelativeIfSameOrigin` it needs no `window`, so a server render and the
+ * hydrating client produce the SAME href. Only for those server-built alert
+ * URLs: a URL that may name another site must keep its origin.
+ */
+export function toAppPath(href: string): string {
+  if (!/^https?:\/\//.test(href)) return href
+  try {
+    const url = new URL(href)
+    return url.pathname + url.search + url.hash
+  } catch {
+    return href
+  }
+}
+
+/**
+ * What every alert-row surface (bell, inbox, Home) prints and links when a
+ * row's enrichment came back empty (a merged artist, a deleted show or venue,
+ * a roundup whose members are all gone). The notification still happened, so
+ * the row degrades instead of disappearing; one copy keeps the surfaces saying
+ * and opening the same thing for the same row.
+ */
+export const ALERT_ROW_FALLBACK = {
+  artistSubject: 'An artist you follow',
+  venueSubject: 'A venue you follow',
+  releaseSubject: 'Artists you follow',
+  showHref: '/shows',
+  venueHref: '/venues',
+  releaseHref: '/library',
+} as const
+
+/**
+ * The weekly release roundup's verb. "Last week": the row is delivered only
+ * after its UTC week has closed.
+ */
+export function releaseDigestVerb(releaseCount: number | undefined): string {
+  return releaseCount === 1
+    ? 'added a release last week'
+    : 'added releases last week'
+}
+
 /** Normalize one log entry's deep links for client-side navigation. */
 export function normalizeNotificationDeepLinks(
   entry: NotificationLogEntry

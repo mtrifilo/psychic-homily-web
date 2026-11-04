@@ -213,7 +213,10 @@ describe('SettingsPanel', () => {
       .getByRole('list', { name: 'Home sections' })
       .querySelectorAll('li')
     expect(rows[0]).toHaveTextContent('Latest radio shows')
-    expect(rows[1]).toHaveTextContent('Your upcoming shows')
+    // A section shipped after the document was written (library_updates)
+    // joins it at its default index, slot 2.
+    expect(rows[1]).toHaveTextContent('From your library')
+    expect(rows[2]).toHaveTextContent('Your upcoming shows')
     expect(
       screen.getByRole('checkbox', { name: 'Shows near you this week' })
     ).not.toBeChecked()

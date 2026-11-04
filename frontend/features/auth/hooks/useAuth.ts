@@ -118,25 +118,9 @@ interface UserPreferencesData {
     window: 'month' | 'quarter' | 'all_time'
     scene: string | null
   } | null
-  // Signed-in home section order + visibility. Absent/null = the shipped
-  // default layout. Array order is placement, and a hidden section keeps its
-  // slot; a known section the document omits is appended in its default slot
-  // by the reader. The backend owns the id whitelist.
-  home_layout?: {
-    version: number
-    sections:
-      | {
-          id:
-            | 'saved_shows'
-            | 'library_updates'
-            | 'nearby_shows'
-            | 'community_stats'
-            | 'city_graph'
-            | 'radio_shows'
-          visible: boolean
-        }[]
-      | null
-  } | null
+  // Signed-in home section order + visibility, as the generated contract
+  // types it. Absent/null = the shipped default layout.
+  home_layout?: components['schemas']['HomeLayout'] | null
   // Set when the one-time first-save hint is first shown (the first time is
   // kept). Absent/null = never shown, the only state in which it may render.
   first_save_hint_dismissed_at?: string | null

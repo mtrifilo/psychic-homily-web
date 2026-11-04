@@ -37,6 +37,9 @@ export interface HomeSectionDefinition {
   title: string
   description: string
   defaultVisible: boolean
+  /** The section renders nothing while it has nothing to say, so being
+   *  visible in the layout does not mean it is on screen. */
+  mayRenderNothing?: true
 }
 
 /**
@@ -58,6 +61,7 @@ export const HOME_SECTIONS: readonly HomeSectionDefinition[] = [
     title: 'From your library',
     description: 'What changed for the artists and venues you follow.',
     defaultVisible: true,
+    mayRenderNothing: true,
   },
   {
     id: 'nearby_shows',
@@ -280,8 +284,8 @@ export function resolveHomeLinkSlots(
 
 /**
  * The section the passkey offer renders under: saved shows while it is
- * visible, otherwise the first visible section, so the offer never sits above
- * the viewer's own shows and never above every section. `null` when no
+ * visible, otherwise the first visible section that always paints, so the
+ * offer never sits above the viewer's own shows and never above every section. `null` when no
  * section in `sections` is visible; the caller then places the offer after
  * them.
  *
@@ -291,8 +295,10 @@ export function resolveHomeLinkSlots(
 export function resolvePasskeyOfferSlot(
   sections: readonly ResolvedHomeSection[]
 ): HomeSectionId | null {
+  // A section that may render nothing is skipped as the fallback: anchored
+  // under an empty slot, the offer would sit above every painted section.
   const anchor =
     sections.find(section => section.id === 'saved_shows' && section.visible) ??
-    sections.find(section => section.visible)
+    sections.find(section => section.visible && !section.mayRenderNothing)
   return anchor?.id ?? null
 }

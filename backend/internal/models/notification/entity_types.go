@@ -8,23 +8,21 @@ import (
 
 // NotificationEntityTypes is every entity_type a notification_log row can
 // carry: the vocabulary a client may name when it narrows an inbox read
-// (GET /me/notifications?types=...).
+// (GET /me/notifications?types=...), and the declared inventory the inbox's
+// show-visibility dispositions are checked against in both directions
+// (services/notification inbox_visibility_inventory_test.go).
 //
-// The comment pair is spelled as literals because its constants live in
-// services/engagement, which this package cannot import. Those two literals,
-// and the completeness of this list, are pinned against the service's
-// visibility inventory (inboxEntityTypeDispositions) by
-// TestNotificationEntityTypesMatchInboxInventory, so a discriminator added
-// there without a line here fails that test instead of answering 422 to every
-// client that asks for it.
+// A new discriminator is added HERE as well as to its const block. Nothing can
+// enumerate a package's constants, so a constant left off this list is a 422
+// for any client that asks for it and has no visibility disposition checked.
 var NotificationEntityTypes = []string{
 	NotificationEntityShow,
 	NotificationEntityArtistShowAlert,
 	NotificationEntityVenueShowAlert,
 	NotificationEntityArtistReleaseDigest,
 	NotificationEntityRequestFulfillmentProposed,
-	"comment_reply",
-	"comment_mention",
+	NotificationEntityCommentReply,
+	NotificationEntityCommentMention,
 }
 
 // ParseNotificationEntityTypes reads a comma-separated entity_type list into

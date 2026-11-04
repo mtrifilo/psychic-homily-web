@@ -374,11 +374,12 @@ test.describe('Homepage (signed in)', () => {
     // Asserted, not assumed. If a previous run left this worker's user
     // customized, fail HERE naming the reason, rather than three assertions
     // later in a way that reads as a product bug.
-    await expect(sectionRows).toHaveCount(5)
+    await expect(sectionRows).toHaveCount(6)
     await expect(sectionRows.nth(0)).toContainText('Your upcoming shows')
-    await expect(sectionRows.nth(1)).toContainText('Shows near you this week')
-    await expect(sectionRows.nth(3)).toContainText('Latest radio shows')
-    await expect(sectionRows.nth(4)).toContainText('Scene graph')
+    await expect(sectionRows.nth(1)).toContainText('From your library')
+    await expect(sectionRows.nth(2)).toContainText('Shows near you this week')
+    await expect(sectionRows.nth(4)).toContainText('Latest radio shows')
+    await expect(sectionRows.nth(5)).toContainText('Scene graph')
     await expect(
       page.getByRole('button', { name: 'Reset to default' })
     ).toBeDisabled()
@@ -402,7 +403,7 @@ test.describe('Homepage (signed in)', () => {
     // section rather than a re-sort.
     const moveWritten = layoutWrite('PUT')
     await page.getByRole('button', { name: 'Move Community stats up' }).click()
-    await expect(sectionRows.nth(1)).toContainText('Community stats')
+    await expect(sectionRows.nth(2)).toContainText('Community stats')
     await moveWritten
 
     // Persisted on the account, not in this tab.
@@ -412,7 +413,7 @@ test.describe('Homepage (signed in)', () => {
     await expect(
       page.getByRole('checkbox', { name: 'Latest radio shows' })
     ).not.toBeChecked()
-    await expect(sectionRows.nth(1)).toContainText('Community stats')
+    await expect(sectionRows.nth(2)).toContainText('Community stats')
 
     // Back to the shipped layout, so the rest of this worker's specs see the
     // page they were written against.
@@ -421,7 +422,7 @@ test.describe('Homepage (signed in)', () => {
     await expect(
       page.getByRole('checkbox', { name: 'Latest radio shows' })
     ).toBeChecked()
-    await expect(sectionRows.nth(1)).toContainText('Shows near you this week')
+    await expect(sectionRows.nth(2)).toContainText('Shows near you this week')
     await resetWritten
     await page.keyboard.press('Escape')
     await expect(radioHeading).toBeVisible()
@@ -510,6 +511,7 @@ test.describe('Homepage (signed in)', () => {
       page.getByRole('link', { name: /all upcoming shows/i })
     ).toHaveCount(1)
 
+    await hide('From your library')
     await hide('Community stats')
     await hide('Latest radio shows')
     await hide('Scene graph')

@@ -24,11 +24,11 @@ export const LIBRARY_UPDATES_LIMIT = 5
  * `types` vocabulary accepts (an unknown one is a 422 for the whole read) and
  * one `describeLibraryUpdate` can render.
  */
-export const LIBRARY_UPDATE_ENTITY_TYPES: readonly string[] = [
+export const LIBRARY_UPDATE_ENTITY_TYPES = [
   NOTIFICATION_ENTITY_ARTIST_SHOW_ALERT,
   NOTIFICATION_ENTITY_VENUE_SHOW_ALERT,
   NOTIFICATION_ENTITY_ARTIST_RELEASE_DIGEST,
-]
+] as const
 
 const LIBRARY_UPDATE_TYPES_PARAM = LIBRARY_UPDATE_ENTITY_TYPES.join(',')
 

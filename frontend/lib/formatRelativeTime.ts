@@ -10,10 +10,21 @@ import { ensureUTC } from './ensureUTC'
  */
 export function formatRelativeTime(
   dateStr: string,
-  options?: { short?: boolean }
+  options?: {
+    short?: boolean
+    /**
+     * The instant to measure from. Defaults to the clock. A server-rendered
+     * caller passes a value the hydrating client sees too (a query's
+     * `dataUpdatedAt`), so both renders produce the same text.
+     */
+    now?: Date
+    /** Zone the short form's absolute-date fallback reads in. Defaults to
+     *  the runtime's, which differs between a server and a browser. */
+    timeZone?: string
+  }
 ): string {
   const date = ensureUTC(dateStr)
-  const now = new Date()
+  const now = options?.now ?? new Date()
   const diffMs = now.getTime() - date.getTime()
   const diffSec = Math.floor(diffMs / 1000)
   const diffMin = Math.floor(diffSec / 60)
@@ -27,10 +38,13 @@ export function formatRelativeTime(
     if (diffDays < 7) return `${diffDays}d ago`
     if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`
 
+    const timeZone = options?.timeZone
+    const year = (d: Date) => d.toLocaleDateString('en-US', { year: 'numeric', timeZone })
     return date.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
-      year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
+      year: year(date) !== year(now) ? 'numeric' : undefined,
+      timeZone,
     })
   }
 

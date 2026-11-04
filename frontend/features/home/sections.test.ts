@@ -352,9 +352,23 @@ describe('resolvePasskeyOfferSlot', () => {
   it('falls back to the first visible section when saved shows is hidden', () => {
     expect(
       resolvePasskeyOfferSlot(
+        setHomeSectionVisibility(
+          setHomeSectionVisibility(sections, 'saved_shows', false),
+          'library_updates',
+          false
+        )
+      )
+    ).toBe('nearby_shows')
+  })
+
+  // From your library renders nothing while it has no updates; anchored under
+  // it, the offer would sit above every painted section.
+  it('skips a section that may render nothing when falling back', () => {
+    expect(
+      resolvePasskeyOfferSlot(
         setHomeSectionVisibility(sections, 'saved_shows', false)
       )
-    ).toBe('library_updates')
+    ).toBe('nearby_shows')
   })
 
   // Collapsing sections are still rendered but hidden: the offer must not

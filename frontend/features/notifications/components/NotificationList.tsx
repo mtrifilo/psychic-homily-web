@@ -14,7 +14,9 @@ import Link from 'next/link'
 import { MessageCircle, AtSign, Calendar, BellRing, CalendarPlus, ExternalLink, PackageCheck, Building2, Disc3 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
+  ALERT_ROW_FALLBACK,
   formatTimeAgo,
+  releaseDigestVerb,
   isArtistReleaseDigestNotification,
   isArtistShowAlertNotification,
   isCommentNotification,
@@ -262,8 +264,8 @@ function NotificationRow({ entry, variant, onItemClick, onMarkRead, dimmed }: Ro
     // `||` rather than `??` so an empty string falls back too. The Go field is
     // `omitempty`, so a missing show should arrive as undefined either way; this
     // does not depend on that holding.
-    const href = entry.alert_show_url || '/shows'
-    const artist = entry.alert_artist_name || 'An artist you follow'
+    const href = entry.alert_show_url || ALERT_ROW_FALLBACK.showHref
+    const artist = entry.alert_artist_name || ALERT_ROW_FALLBACK.artistSubject
     return (
       <li>
         <Link
@@ -310,8 +312,8 @@ function NotificationRow({ entry, variant, onItemClick, onMarkRead, dimmed }: Ro
     // relativized by the query hook so the click stays client-side and its
     // mark-read survives. `||` rather than `??` so an empty string (a merged or
     // deleted venue) falls back too.
-    const href = entry.alert_venue_url || '/venues'
-    const venue = entry.alert_venue_name || 'A venue you follow'
+    const href = entry.alert_venue_url || ALERT_ROW_FALLBACK.venueHref
+    const venue = entry.alert_venue_name || ALERT_ROW_FALLBACK.venueSubject
     // The count comes from the server and is the FULL batch size, which is not
     // always the number of shows named in the summary. Defaulting to 1 keeps
     // the sentence grammatical if enrichment came back empty; the summary line
@@ -363,20 +365,18 @@ function NotificationRow({ entry, variant, onItemClick, onMarkRead, dimmed }: Ro
     // the link only then; any larger week opens the reader's follow list.
     // Already relativized by the query hook so the click stays client-side and
     // its mark-read survives.
-    const href = entry.alert_release_url || '/library'
+    const href = entry.alert_release_url || ALERT_ROW_FALLBACK.releaseHref
     // Both counts are FULL sizes from the server. A row whose members are all
     // gone (deleted, uncredited, unfollowed) arrives with no counts, and then
     // states no count rather than an invented one.
     const artistCount = entry.alert_release_artist_count
     const releaseCount = entry.alert_release_count
     const subject = !artistCount
-      ? 'Artists you follow'
+      ? ALERT_ROW_FALLBACK.releaseSubject
       : artistCount === 1
         ? '1 artist you follow'
         : `${artistCount} artists you follow`
-    // "Last week": the row is delivered only after its UTC week has closed.
-    const verb =
-      releaseCount === 1 ? 'added a release last week' : 'added releases last week'
+    const verb = releaseDigestVerb(releaseCount)
     return (
       <li>
         <Link
