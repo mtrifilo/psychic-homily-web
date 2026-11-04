@@ -54,6 +54,12 @@ export const HOME_SECTIONS: readonly HomeSectionDefinition[] = [
     defaultVisible: true,
   },
   {
+    id: 'library_updates',
+    title: 'From your library',
+    description: 'What changed for the artists and venues you follow.',
+    defaultVisible: true,
+  },
+  {
     id: 'nearby_shows',
     title: 'Shows near you this week',
     description: 'Upcoming shows near you that you have not saved yet.',

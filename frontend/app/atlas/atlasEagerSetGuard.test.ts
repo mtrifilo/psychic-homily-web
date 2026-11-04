@@ -86,6 +86,7 @@ const FORBIDDEN_ON_ATLAS: ReadonlyArray<readonly [label: string, matches: Matche
         'features/notifications/components/NotificationList.tsx',
         'features/notifications/components/NoNotificationsYet.tsx',
         'features/notifications/hooks/index.ts',
+        'features/notifications/queryKeys.ts',
         'features/notifications/types.ts',
       ].includes(id),
   ],
