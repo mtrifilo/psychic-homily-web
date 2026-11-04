@@ -16,8 +16,10 @@ interface AsHeardOnProps {
 
 /**
  * One station+show the entity was played on. Links to the playlist of the
- * latest episode it was played on; without a `last_played` date the row
- * falls back to the show page and names no date.
+ * latest day it was played on; without a `last_played` date the row falls
+ * back to the show page and names no date. Episode URLs are keyed by day, so
+ * when a show has two episodes on that date the link opens the one the
+ * episode route ranks first, which need not be the one with the play.
  */
 function AsHeardOnRow({ item }: { item: RadioAsHeardOn }) {
   const showHref = `/radio/${item.station_slug}/${item.show_slug}`
