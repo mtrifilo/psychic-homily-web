@@ -472,16 +472,35 @@ type RadioTopLabelResponse struct {
 	PlayCount int     `json:"play_count"`
 }
 
-// RadioAsHeardOnResponse represents a station/show where an entity was played
+// RadioAsHeardOnMaxRecentPlays caps RadioAsHeardOnResponse.RecentPlays.
+const RadioAsHeardOnMaxRecentPlays = 10
+
+// RadioAsHeardOnResponse represents a station/show where an entity was played.
+// PlayCount is the true total while RecentPlays is capped at
+// RadioAsHeardOnMaxRecentPlays. LatestPlayID and LatestPlayPosition always
+// describe RecentPlays[0], so a row's deep link and its first listed play
+// cannot disagree.
 type RadioAsHeardOnResponse struct {
-	StationID   uint   `json:"station_id"`
-	StationName string `json:"station_name"`
-	StationSlug string `json:"station_slug"`
-	ShowID      uint   `json:"show_id"`
-	ShowName    string `json:"show_name"`
-	ShowSlug    string `json:"show_slug"`
-	PlayCount   int    `json:"play_count"`
-	LastPlayed  string `json:"last_played"`
+	StationID          uint                 `json:"station_id"`
+	StationName        string               `json:"station_name"`
+	StationSlug        string               `json:"station_slug"`
+	ShowID             uint                 `json:"show_id"`
+	ShowName           string               `json:"show_name"`
+	ShowSlug           string               `json:"show_slug"`
+	PlayCount          int                  `json:"play_count"`
+	LastPlayed         string               `json:"last_played"`
+	LatestPlayID       uint                 `json:"latest_play_id" doc:"radio_plays id of the most recent play on this show"`
+	LatestPlayPosition int                  `json:"latest_play_position" doc:"Playlist position of the most recent play on this show"`
+	RecentPlays        []RadioAsHeardOnPlay `json:"recent_plays" doc:"The most recent plays on this show, newest first, at most 10; one entry per play, so an episode with two plays of the entity contributes two"`
+}
+
+// RadioAsHeardOnPlay is one play of the entity on a show, addressable on the
+// episode page as /radio/{station_slug}/{show_slug}/{air_date}#play-{play_id}.
+type RadioAsHeardOnPlay struct {
+	AirDate    string  `json:"air_date" doc:"Episode air date, YYYY-MM-DD" example:"2026-11-02"`
+	PlayID     uint    `json:"play_id"`
+	Position   int     `json:"position"`
+	TrackTitle *string `json:"track_title"`
 }
 
 // RadioNewReleaseRadarEntry represents a new release discovered across radio stations

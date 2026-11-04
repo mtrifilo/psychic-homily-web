@@ -9,6 +9,7 @@ import {
   formatPlayTime,
   formatRelativeMinutes,
   getRotationStatusColor,
+  playAnchorId,
 } from '@/features/radio'
 import type { RadioPlay } from '@/features/radio'
 
@@ -22,6 +23,12 @@ interface PlaylistTableProps {
    * rendering: chronological, absolute times.
    */
   live?: boolean
+  /**
+   * The play the visitor arrived at (`#play-{id}`): its row takes the
+   * newest-row tint and `aria-current`. Null or an id with no row here
+   * highlights nothing.
+   */
+  highlightedPlayId?: number | null
 }
 
 /**
@@ -58,7 +65,11 @@ const NEWEST_NOW_MAX_AGE_MS = 10 * 60 * 1000
  * one and is otherwise blank (never fabricated); position keeps the row order.
  * dj_comment renders as an indented full-width sub-row under its track.
  */
-export function PlaylistTable({ plays, live = false }: PlaylistTableProps) {
+export function PlaylistTable({
+  plays,
+  live = false,
+  highlightedPlayId = null,
+}: PlaylistTableProps) {
   // Live regime: the API's chronological order reversed = newest-first.
   // `now` is captured per render; the parent's poll + minute tick re-render
   // this table, which is what keeps the relative labels fresh (no effect).
@@ -94,13 +105,17 @@ export function PlaylistTable({ plays, live = false }: PlaylistTableProps) {
                 ? 'now'
                 : formatRelativeMinutes(play.air_timestamp, now)
             const matched = play.artist_id != null
+            const isAnchored = play.id === highlightedPlayId
+            const tinted = isNewest || isAnchored
 
             return (
               <Fragment key={play.id}>
                 <tr
+                  id={playAnchorId(play.id)}
                   data-live-newest={isNewest || undefined}
+                  aria-current={isAnchored ? 'true' : undefined}
                   className={cn(
-                    isNewest && 'bg-primary/5',
+                    tinted && 'bg-primary/5',
                     play.dj_comment && 'border-b-0!'
                   )}
                 >
@@ -198,7 +213,7 @@ export function PlaylistTable({ plays, live = false }: PlaylistTableProps) {
                   </td>
                 </tr>
                 {play.dj_comment && (
-                  <tr className={cn(isNewest && 'bg-primary/5')}>
+                  <tr className={cn(tinted && 'bg-primary/5')}>
                     <td aria-hidden="true" />
                     <td colSpan={6} className="pt-0!">
                       <span className="font-data text-xs text-muted-foreground">

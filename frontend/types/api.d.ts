@@ -13298,10 +13298,34 @@ export interface components {
             /** @description The earliest episode air date counted (YYYY-MM-DD) */
             window_start: string;
         };
+        RadioAsHeardOnPlay: {
+            /**
+             * @description Episode air date, YYYY-MM-DD
+             * @example 2026-11-02
+             */
+            air_date: string;
+            /** Format: int64 */
+            play_id: number;
+            /** Format: int64 */
+            position: number;
+            track_title: string | null;
+        };
         RadioAsHeardOnResponse: {
             last_played: string;
+            /**
+             * Format: int64
+             * @description radio_plays id of the most recent play on this show
+             */
+            latest_play_id: number;
+            /**
+             * Format: int64
+             * @description Playlist position of the most recent play on this show
+             */
+            latest_play_position: number;
             /** Format: int64 */
             play_count: number;
+            /** @description The most recent plays on this show, newest first, at most 10; one entry per play, so an episode with two plays of the entity contributes two */
+            recent_plays: components["schemas"]["RadioAsHeardOnPlay"][] | null;
             /** Format: int64 */
             show_id: number;
             show_name: string;

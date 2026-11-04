@@ -18,6 +18,7 @@ export { useStationNowPlaying } from './useStationNowPlaying'
 export { useRecentRadioEpisodes } from './useRecentRadioEpisodes'
 // PSY-1051: show + playlist page rebuild
 export { useEpisodeNeighbors } from './useEpisodeNeighbors'
+export { useAnchoredPlayId } from './useAnchoredPlayId'
 // PSY-1050: station-page aggregations (PSY-1048 endpoints)
 export { useStationEpisodes } from './useStationEpisodes'
 export { useStationTopArtists } from './useStationTopArtists'

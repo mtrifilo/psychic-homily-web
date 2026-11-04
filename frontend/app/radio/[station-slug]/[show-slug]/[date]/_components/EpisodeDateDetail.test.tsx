@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { act, render, screen } from '@testing-library/react'
+import { installMatchMedia } from '@/test/mocks/matchMedia'
 import type { RadioEpisodeDetail } from '@/features/radio'
 import { localIso } from '@/features/radio/lib/localIso.testutil'
 import { makeRadioPlay } from '@/features/radio/lib/radioPlay.testutil'
@@ -268,5 +269,102 @@ describe('EpisodeDateDetail live regime (PSY-1511)', () => {
       screen.queryByRole('link', { name: /play archive/i })
     ).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /mixcloud/i })).not.toBeInTheDocument()
+  })
+})
+
+describe('EpisodeDateDetail arrival at a #play-{id} anchor', () => {
+  const REDUCED_MOTION = '(prefers-reduced-motion: reduce)'
+  const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView)
+  let restoreMatchMedia: (() => void) | null = null
+
+  const episodeWithPlays = () =>
+    makeEpisode({
+      plays: [
+        makeRadioPlay({ id: 11, position: 1 }),
+        makeRadioPlay({ id: 12, position: 2, artist_name: 'Neu!' }),
+      ],
+    })
+
+  const anchoredRow = () => document.querySelector('[aria-current="true"]')
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    restoreMatchMedia?.()
+    restoreMatchMedia = null
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('highlights the anchored row and scrolls it to the center', () => {
+    window.history.replaceState(null, '', '/radio/wfmu/night-owl/2026-06-08#play-12')
+    setEpisode(episodeWithPlays())
+    render(<EpisodeDateDetail {...props} />)
+
+    const row = document.getElementById('play-12')
+    expect(anchoredRow()).toBe(row)
+    expect(row?.className).toContain('bg-primary/5')
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center', behavior: 'smooth' })
+    expect(scrollIntoView.mock.contexts[0]).toBe(row)
+  })
+
+  it('scrolls instantly under reduced motion', () => {
+    restoreMatchMedia = installMatchMedia({ [REDUCED_MOTION]: true }).restore
+    window.history.replaceState(null, '', '/radio/wfmu/night-owl/2026-06-08#play-12')
+    setEpisode(episodeWithPlays())
+    render(<EpisodeDateDetail {...props} />)
+
+    expect(scrollIntoView).toHaveBeenLastCalledWith({ block: 'center', behavior: 'instant' })
+  })
+
+  it('renders the plain playlist when the anchored play is not on this episode', () => {
+    window.history.replaceState(null, '', '/radio/wfmu/night-owl/2026-06-08#play-999')
+    setEpisode(episodeWithPlays())
+    render(<EpisodeDateDetail {...props} />)
+
+    expect(screen.getByText('Neu!')).toBeInTheDocument()
+    expect(anchoredRow()).toBeNull()
+    expect(scrollIntoView).not.toHaveBeenCalled()
+  })
+
+  it('does not re-scroll when a poll re-renders the same anchored playlist', () => {
+    window.history.replaceState(null, '', '/radio/wfmu/night-owl/2026-06-08#play-12')
+    setEpisode(episodeWithPlays())
+    const { rerender } = render(<EpisodeDateDetail {...props} />)
+    setEpisode(episodeWithPlays(), 60_000)
+    rerender(<EpisodeDateDetail {...props} />)
+
+    expect(anchoredRow()).toBe(document.getElementById('play-12'))
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+  })
+
+  it('clears the highlight on the next navigation', () => {
+    window.history.replaceState(null, '', '/radio/wfmu/night-owl/2026-06-08#play-12')
+    setEpisode(episodeWithPlays())
+    const { rerender } = render(<EpisodeDateDetail {...props} />)
+    expect(anchoredRow()).not.toBeNull()
+
+    // A client navigation to the next episode: pushState, no hash, no event.
+    window.history.pushState(null, '', '/radio/wfmu/night-owl/2026-06-15')
+    setEpisode(episodeWithPlays())
+    rerender(<EpisodeDateDetail {...props} date="2026-06-15" />)
+
+    expect(anchoredRow()).toBeNull()
+  })
+
+  it('follows a hash change to another play on the page', () => {
+    window.history.replaceState(null, '', '/radio/wfmu/night-owl/2026-06-08#play-12')
+    setEpisode(episodeWithPlays())
+    render(<EpisodeDateDetail {...props} />)
+
+    window.history.replaceState(null, '', '/radio/wfmu/night-owl/2026-06-08#play-11')
+    act(() => {
+      window.dispatchEvent(new HashChangeEvent('hashchange'))
+    })
+
+    expect(anchoredRow()).toBe(document.getElementById('play-11'))
+    expect(scrollIntoView.mock.contexts.at(-1)).toBe(document.getElementById('play-11'))
   })
 })

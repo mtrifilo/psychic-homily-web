@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -557,6 +558,90 @@ func TestGetReleaseRadioPlays_BySlug(t *testing.T) {
 	if resp.Body.Count != 1 {
 		t.Errorf("expected count 1, got %d", resp.Body.Count)
 	}
+}
+
+// asHeardOnDeepLinkRow is a row carrying the deep-link fields the frontend
+// builds /radio/{station}/{show}/{air_date}#play-{play_id} from.
+func asHeardOnDeepLinkRow() *contracts.RadioAsHeardOnResponse {
+	title := "Sunflower"
+	return &contracts.RadioAsHeardOnResponse{
+		StationID: 1, StationName: "KEXP", StationSlug: "kexp",
+		ShowID: 2, ShowName: "Morning Show", ShowSlug: "morning-show",
+		PlayCount: 2, LastPlayed: "2026-01-08",
+		LatestPlayID: 77, LatestPlayPosition: 4,
+		RecentPlays: []contracts.RadioAsHeardOnPlay{
+			{AirDate: "2026-01-08", PlayID: 77, Position: 4, TrackTitle: &title},
+			{AirDate: "2026-01-01", PlayID: 51, Position: 2, TrackTitle: nil},
+		},
+	}
+}
+
+// assertAsHeardOnDeepLinkWire pins the JSON names the frontend reads; a
+// renamed tag would otherwise compile and silently break every deep link.
+func assertAsHeardOnDeepLinkWire(t *testing.T, body any) {
+	t.Helper()
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var wire struct {
+		Stations []map[string]json.RawMessage `json:"stations"`
+	}
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(wire.Stations) != 1 {
+		t.Fatalf("expected 1 station, got %d", len(wire.Stations))
+	}
+	row := wire.Stations[0]
+	if got := string(row["latest_play_id"]); got != "77" {
+		t.Errorf("latest_play_id = %s, want 77", got)
+	}
+	if got := string(row["latest_play_position"]); got != "4" {
+		t.Errorf("latest_play_position = %s, want 4", got)
+	}
+	var plays []map[string]json.RawMessage
+	if err := json.Unmarshal(row["recent_plays"], &plays); err != nil {
+		t.Fatalf("recent_plays: %v", err)
+	}
+	if len(plays) != 2 {
+		t.Fatalf("expected 2 recent plays, got %d", len(plays))
+	}
+	want := map[string]string{"air_date": `"2026-01-08"`, "play_id": "77", "position": "4", "track_title": `"Sunflower"`}
+	for key, value := range want {
+		if got := string(plays[0][key]); got != value {
+			t.Errorf("recent_plays[0].%s = %s, want %s", key, got, value)
+		}
+	}
+	if got := string(plays[1]["track_title"]); got != "null" {
+		t.Errorf("recent_plays[1].track_title = %s, want null", got)
+	}
+}
+
+func TestGetArtistRadioPlays_DeepLinkFieldsOnWire(t *testing.T) {
+	radioMock := &testhelpers.MockRadioService{
+		GetAsHeardOnForArtistFn: func(uint) ([]*contracts.RadioAsHeardOnResponse, error) {
+			return []*contracts.RadioAsHeardOnResponse{asHeardOnDeepLinkRow()}, nil
+		},
+	}
+	resp, err := testRadioHandler(radioMock).GetArtistRadioPlaysHandler(context.Background(), &GetArtistRadioPlaysRequest{Slug: "42"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertAsHeardOnDeepLinkWire(t, resp.Body)
+}
+
+func TestGetReleaseRadioPlays_DeepLinkFieldsOnWire(t *testing.T) {
+	radioMock := &testhelpers.MockRadioService{
+		GetAsHeardOnForReleaseFn: func(uint) ([]*contracts.RadioAsHeardOnResponse, error) {
+			return []*contracts.RadioAsHeardOnResponse{asHeardOnDeepLinkRow()}, nil
+		},
+	}
+	resp, err := testRadioHandler(radioMock).GetReleaseRadioPlaysHandler(context.Background(), &GetReleaseRadioPlaysRequest{Slug: "10"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertAsHeardOnDeepLinkWire(t, resp.Body)
 }
 
 func TestGetReleaseRadioPlays_ReleaseNotFound(t *testing.T) {

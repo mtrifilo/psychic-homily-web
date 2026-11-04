@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -889,6 +890,151 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetAsHeardOnForRelease_Succes
 	suite.Require().NoError(err)
 	suite.Len(resp, 1)
 	suite.Equal("KEXP", resp[0].StationName)
+}
+
+// createLinkedPlay seeds a play linked to an artist and/or release, titled so
+// the recent-plays assertions can tell plays apart.
+func (suite *RadioServiceIntegrationTestSuite) createLinkedPlay(episodeID uint, position int, title string, artistID, releaseID *uint) *catalogm.RadioPlay {
+	play := &catalogm.RadioPlay{
+		EpisodeID:  episodeID,
+		Position:   position,
+		ArtistName: "Linked",
+		TrackTitle: &title,
+		ArtistID:   artistID,
+		ReleaseID:  releaseID,
+	}
+	suite.Require().NoError(suite.db.Create(play).Error)
+	return play
+}
+
+func recentPlayTitles(plays []contracts.RadioAsHeardOnPlay) []string {
+	titles := make([]string, len(plays))
+	for i, p := range plays {
+		if p.TrackTitle != nil {
+			titles[i] = *p.TrackTitle
+		}
+	}
+	return titles
+}
+
+func (suite *RadioServiceIntegrationTestSuite) TestGetAsHeardOnForArtist_RecentPlaysNewestFirst() {
+	kexp := suite.createStation("KEXP")
+	morning := suite.createShow(kexp.ID, "Morning Show")
+	wfmu := suite.createStation("WFMU")
+	jamie := suite.createShow(wfmu.ID, "Jamie")
+	artist := suite.createArtist("Low")
+	other := suite.createArtist("Someone Else")
+
+	older := suite.createEpisode(morning.ID, "2026-01-01")
+	newer := suite.createEpisode(morning.ID, "2026-01-08")
+	elsewhere := suite.createEpisode(jamie.ID, "2026-01-05")
+
+	suite.createLinkedPlay(older.ID, 2, "Words", &artist.ID, nil)
+	suite.createLinkedPlay(newer.ID, 1, "Lullaby", &artist.ID, nil)
+	latest := suite.createLinkedPlay(newer.ID, 4, "Sunflower", &artist.ID, nil)
+	suite.createLinkedPlay(newer.ID, 5, "Not Theirs", &other.ID, nil)
+	onlyJamie := suite.createLinkedPlay(elsewhere.ID, 0, "Plastic Cup", &artist.ID, nil)
+
+	resp, err := suite.radioService.GetAsHeardOnForArtist(artist.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 2)
+
+	top := resp[0]
+	suite.Equal("Morning Show", top.ShowName)
+	suite.Equal(3, top.PlayCount)
+	suite.Equal(latest.ID, top.LatestPlayID)
+	suite.Equal(4, top.LatestPlayPosition)
+	suite.Equal([]string{"Sunflower", "Lullaby", "Words"}, recentPlayTitles(top.RecentPlays))
+	suite.Equal("2026-01-08", top.RecentPlays[0].AirDate)
+	suite.Equal(latest.ID, top.RecentPlays[0].PlayID)
+	suite.Equal(4, top.RecentPlays[0].Position)
+	suite.Equal("2026-01-01", top.RecentPlays[2].AirDate)
+
+	second := resp[1]
+	suite.Equal("Jamie", second.ShowName)
+	suite.Equal("WFMU", second.StationName)
+	suite.Equal(1, second.PlayCount)
+	suite.Equal(onlyJamie.ID, second.LatestPlayID)
+	suite.Require().Len(second.RecentPlays, 1)
+	suite.Equal("2026-01-05", second.RecentPlays[0].AirDate)
+}
+
+func (suite *RadioServiceIntegrationTestSuite) TestGetAsHeardOnForArtist_RecentPlaysCappedPlayCountTrue() {
+	station := suite.createStation("KEXP")
+	show := suite.createShow(station.ID, "Morning Show")
+	artist := suite.createArtist("Low")
+
+	total := contracts.RadioAsHeardOnMaxRecentPlays + 2
+	for day := 1; day <= total; day++ {
+		ep := suite.createEpisode(show.ID, fmt.Sprintf("2026-02-%02d", day))
+		suite.createLinkedPlay(ep.ID, 0, fmt.Sprintf("Day %d", day), &artist.ID, nil)
+	}
+
+	resp, err := suite.radioService.GetAsHeardOnForArtist(artist.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1)
+	suite.Equal(total, resp[0].PlayCount)
+	suite.Require().Len(resp[0].RecentPlays, contracts.RadioAsHeardOnMaxRecentPlays)
+	suite.Equal(fmt.Sprintf("2026-02-%02d", total), resp[0].RecentPlays[0].AirDate)
+	suite.Equal("2026-02-03", resp[0].RecentPlays[contracts.RadioAsHeardOnMaxRecentPlays-1].AirDate)
+	suite.Equal(resp[0].RecentPlays[0].PlayID, resp[0].LatestPlayID)
+}
+
+func (suite *RadioServiceIntegrationTestSuite) TestGetAsHeardOnForRelease_RecentPlays() {
+	station := suite.createStation("KEXP")
+	show := suite.createShow(station.ID, "Morning Show")
+	release := suite.createRelease("Things We Lost in the Fire")
+	artist := suite.createArtist("Low")
+
+	older := suite.createEpisode(show.ID, "2026-03-01")
+	newer := suite.createEpisode(show.ID, "2026-03-15")
+	suite.createLinkedPlay(older.ID, 3, "Sunflower", &artist.ID, &release.ID)
+	latest := suite.createLinkedPlay(newer.ID, 7, "Dinosaur Act", &artist.ID, &release.ID)
+	// Same artist, no release link: counts for the artist, never the release.
+	suite.createLinkedPlay(newer.ID, 9, "Lullaby", &artist.ID, nil)
+
+	resp, err := suite.radioService.GetAsHeardOnForRelease(release.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1)
+	suite.Equal(2, resp[0].PlayCount)
+	suite.Equal(latest.ID, resp[0].LatestPlayID)
+	suite.Equal(7, resp[0].LatestPlayPosition)
+	suite.Equal([]string{"Dinosaur Act", "Sunflower"}, recentPlayTitles(resp[0].RecentPlays))
+	suite.Equal("2026-03-15", resp[0].RecentPlays[0].AirDate)
+}
+
+// Same-day siblings share one day URL; the latest play must sit in the
+// sibling that URL resolves to, or the row's deep link would miss its anchor.
+func (suite *RadioServiceIntegrationTestSuite) TestGetAsHeardOnForArtist_LatestPlayInSameDayWinner() {
+	station := suite.createStation("KEXP")
+	show := suite.createShow(station.ID, "Morning Show")
+	artist := suite.createArtist("Low")
+
+	now := time.Now().UTC()
+	earlyStart, earlyEnd := now.Add(-50*time.Hour), now.Add(-49*time.Hour)
+	lateStart, lateEnd := now.Add(-48*time.Hour), now.Add(-47*time.Hour)
+	earlyID, lateID := "early", "late"
+	early := &catalogm.RadioEpisode{ShowID: show.ID, AirDate: "2026-04-01", StartsAt: &earlyStart, EndsAt: &earlyEnd, ExternalID: &earlyID}
+	late := &catalogm.RadioEpisode{ShowID: show.ID, AirDate: "2026-04-01", StartsAt: &lateStart, EndsAt: &lateEnd, ExternalID: &lateID}
+	// The later-starting sibling gets the LOWER id, so id order alone would
+	// pick the wrong one.
+	suite.Require().NoError(suite.db.Create(late).Error)
+	suite.Require().NoError(suite.db.Create(early).Error)
+
+	suite.createLinkedPlay(early.ID, 9, "Early Set", &artist.ID, nil)
+	inWinner := suite.createLinkedPlay(late.ID, 1, "Late Set", &artist.ID, nil)
+
+	resp, err := suite.radioService.GetAsHeardOnForArtist(artist.ID)
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1)
+
+	episode, err := suite.radioService.GetEpisodeByShowAndDate(show.ID, "2026-04-01")
+	suite.Require().NoError(err)
+	suite.Equal(late.ID, episode.ID)
+	suite.Equal(inWinner.ID, resp[0].LatestPlayID)
 }
 
 // =============================================================================
