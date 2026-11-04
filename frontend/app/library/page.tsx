@@ -243,6 +243,43 @@ function SavedShowsSection({
   )
 }
 
+const REANCHOR_CANCEL_EVENTS = ['wheel', 'touchmove', 'keydown'] as const
+
+// The Upcoming list renders above the calendar card, so a `#calendar-feed`
+// hash scroll that lands while the lists load ends short once they fill in.
+// Returns the anchor's ref and scrolls it into view once, when that initial
+// load settles. A mount whose lists are already settled (a Back navigation, a
+// cached revisit) never re-anchors, and neither does a load during which the
+// viewer scrolled, swiped or pressed a key.
+function useCalendarFeedReanchor(isInitialLoading: boolean) {
+  const anchorRef = useRef<HTMLDivElement | null>(null)
+  const isReanchorPendingRef = useRef(isInitialLoading)
+
+  useEffect(() => {
+    if (!isInitialLoading || !isReanchorPendingRef.current) return
+    const cancel = () => {
+      isReanchorPendingRef.current = false
+    }
+    for (const type of REANCHOR_CANCEL_EVENTS) {
+      window.addEventListener(type, cancel, { passive: true })
+    }
+    return () => {
+      for (const type of REANCHOR_CANCEL_EVENTS) {
+        window.removeEventListener(type, cancel)
+      }
+    }
+  }, [isInitialLoading])
+
+  useEffect(() => {
+    if (isInitialLoading || !isReanchorPendingRef.current) return
+    isReanchorPendingRef.current = false
+    if (window.location.hash !== '#calendar-feed') return
+    anchorRef.current?.scrollIntoView({ block: 'start' })
+  }, [isInitialLoading])
+
+  return anchorRef
+}
+
 function ShowsTab({ currentUserId }: { currentUserId?: string }) {
   const { view, setView } = useLibraryView()
   const upcoming = useInfiniteSavedShows(
@@ -275,17 +312,7 @@ function ShowsTab({ currentUserId }: { currentUserId?: string }) {
   const isUnsavePending =
     useIsMutating({ mutationKey: unsaveShowMutationKey }) > 0
   const hasShowBuckets = !isInitialLoading && !error && !isEmpty
-  const calendarFeedRef = useRef<HTMLDivElement | null>(null)
-
-  // The Upcoming list renders above the calendar card, so a hash scroll to the
-  // card that lands while the lists load ends short once they fill in.
-  // Re-anchor once, when the initial load settles.
-  useEffect(() => {
-    if (isInitialLoading) return
-    if (window.location.hash !== '#calendar-feed') return
-    calendarFeedRef.current?.scrollIntoView({ block: 'start' })
-  }, [isInitialLoading])
-
+  const calendarFeedRef = useCalendarFeedReanchor(isInitialLoading)
   const isSavedShowActionPending =
     isUnsavePending || upcoming.isFetching || past.isFetching
 
@@ -300,27 +327,7 @@ function ShowsTab({ currentUserId }: { currentUserId?: string }) {
 
   return (
     <div className="space-y-7">
-      {isInitialLoading ? (
-        <div className="flex justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      ) : error ? (
-        <div className="py-12 text-center text-destructive">
-          <p>Failed to load your shows. Please try again later.</p>
-        </div>
-      ) : isEmpty ? (
-        <EmptyState
-          title="Nothing saved yet."
-          description="Save a show and it lands here — upcoming shows first, past ones kept as your record."
-          browseHref="/shows"
-          browseLabel="Browse shows"
-          discoveryLinks={[
-            { label: 'explore the graph', href: '/graph' },
-            { label: 'the atlas', href: '/atlas' },
-            { label: 'show submissions', href: '/contribute/submissions' },
-          ]}
-        />
-      ) : (
+      {hasShowBuckets ? (
         <SavedShowsSection
           title="Upcoming"
           shows={upcomingShows}
@@ -338,18 +345,40 @@ function ShowsTab({ currentUserId }: { currentUserId?: string }) {
           }
           isRemovalPending={isSavedShowActionPending}
         />
+      ) : isInitialLoading ? (
+        <div className="flex justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      ) : error ? (
+        <div className="py-12 text-center text-destructive">
+          <p>Failed to load your shows. Please try again later.</p>
+        </div>
+      ) : (
+        <EmptyState
+          title="Nothing saved yet."
+          description="Save a show and it lands here — upcoming shows first, past ones kept as your record."
+          browseHref="/shows"
+          browseLabel="Browse shows"
+          discoveryLinks={[
+            { label: 'explore the graph', href: '/graph' },
+            { label: 'the atlas', href: '/atlas' },
+            { label: 'show submissions', href: '/contribute/submissions' },
+          ]}
+        />
       )}
 
       {/* Anchor target: the signed-in home's "Subscribe to calendar →" links
           here, and CalendarFeedSection returns a different root per state, so
-          the id lives on the wrapper rather than inside it. It stays outside
-          the load-state branches so it is mounted in every state. */}
+          the id lives on the wrapper rather than inside it. The wrapper is
+          mounted in every load state so the hash always resolves; the card
+          inside waits for the initial load, so the list arriving above it
+          cannot push it out from under a tap. */}
       <div
         id="calendar-feed"
         ref={calendarFeedRef}
         className="scroll-mt-24"
       >
-        <CalendarFeedSection variant="library" />
+        {!isInitialLoading && <CalendarFeedSection variant="library" />}
       </div>
 
       {hasShowBuckets && (

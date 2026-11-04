@@ -386,7 +386,11 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       renderWithProviders(<LibraryPage />)
 
       const tablist = screen.getByRole('tablist')
-      expect(tablist.className).toContain('mask-image')
+      // The fade width is pinned here and in the fade-clearing scroll test
+      // below (48px reserve), so the two copies cannot drift apart silently.
+      expect(tablist.className).toContain(
+        '[mask-image:linear-gradient(to_right,black_calc(100%_-_48px),transparent)]'
+      )
 
       scrollLeft = 278
       fireEvent.scroll(tablist)
@@ -1302,12 +1306,35 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       ).toBeTruthy()
     })
 
-    it('keeps the calendar anchor mounted while saved shows load', () => {
+    it('keeps the calendar anchor mounted but holds the card while saved shows load', () => {
       mockUseSavedShows.mockReturnValue(savedShowsResult())
 
       const { container } = renderWithProviders(<LibraryPage />)
 
       expect(container.querySelector('#calendar-feed')).not.toBeNull()
+      expect(screen.queryByTestId('calendar-feed')).toBeNull()
+      expect(screen.queryByRole('heading', { name: 'Upcoming' })).toBeNull()
+      expect(screen.queryByRole('heading', { name: 'Past' })).toBeNull()
+    })
+
+    it('shows the error, then the calendar card, and no buckets when a list fails', () => {
+      mockUseSavedShows.mockReturnValue({
+        ...savedShowsResult(),
+        isLoading: false,
+        error: new Error('boom'),
+      })
+
+      const { container } = renderWithProviders(<LibraryPage />)
+
+      const message = screen.getByText(
+        'Failed to load your shows. Please try again later.'
+      )
+      const anchor = container.querySelector('#calendar-feed') as Node
+      expect(within(anchor as HTMLElement).getByTestId('calendar-feed')).toBeTruthy()
+      expect(
+        message.compareDocumentPosition(anchor) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
       expect(screen.queryByRole('heading', { name: 'Upcoming' })).toBeNull()
       expect(screen.queryByRole('heading', { name: 'Past' })).toBeNull()
     })
@@ -1342,6 +1369,49 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
 
         rerender(<LibraryPage />)
         expect(scrollIntoView).toHaveBeenCalledTimes(1)
+      } finally {
+        window.history.replaceState(null, '', '/')
+      }
+    })
+
+    it('does not re-anchor a mount whose lists are already settled', () => {
+      const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
+      window.history.replaceState(null, '', '/library#calendar-feed')
+      mockUseSavedShows.mockReturnValue(
+        savedShowsResult([
+          makeSavedShow({
+            id: 1,
+            title: 'Upcoming Artist',
+            eventDate: '2026-07-20T03:00:00Z',
+            savedAt: '2026-07-11T12:00:00Z',
+          }),
+        ])
+      )
+
+      try {
+        renderWithProviders(<LibraryPage />)
+        expect(scrollIntoView).not.toHaveBeenCalled()
+      } finally {
+        window.history.replaceState(null, '', '/')
+      }
+    })
+
+    it('does not re-anchor after the viewer scrolls during the load', () => {
+      const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
+      window.history.replaceState(null, '', '/library#calendar-feed')
+      let loaded = false
+      mockUseSavedShows.mockImplementation(() =>
+        savedShowsResult(loaded ? [] : undefined)
+      )
+
+      try {
+        const { rerender } = renderWithProviders(<LibraryPage />)
+        fireEvent.wheel(window)
+
+        loaded = true
+        rerender(<LibraryPage />)
+
+        expect(scrollIntoView).not.toHaveBeenCalled()
       } finally {
         window.history.replaceState(null, '', '/')
       }

@@ -12,7 +12,9 @@ const SCROLL_END_TOLERANCE_PX = 1
  *
  * The ref must be attached when the calling component mounts; the listeners
  * bind once. Direct children are observed as well as the scroller, because a
- * child that widens grows scrollWidth without resizing the scroller.
+ * child that widens grows scrollWidth without resizing the scroller. Only the
+ * children present at mount are observed, so the scroller's child list must
+ * be fixed for its lifetime.
  */
 export function useTrailingOverflow(
   scrollerRef: RefObject<HTMLElement | null>
