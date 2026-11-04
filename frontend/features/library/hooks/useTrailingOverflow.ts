@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, type RefObject } from 'react'
+import { useLayoutEffect, useState, type RefObject } from 'react'
 
 // Fractional zoom and device pixel ratios can leave scrollLeft a fraction
 // short of its maximum when the scroller is at its end.
@@ -21,7 +21,9 @@ export function useTrailingOverflow(
 ): boolean {
   const [hasTrailingOverflow, setHasTrailingOverflow] = useState(false)
 
-  useEffect(() => {
+  // Measured before paint, so an overflowing scroller never paints a frame
+  // without its fade.
+  useLayoutEffect(() => {
     const scroller = scrollerRef.current
     if (!scroller) return
 

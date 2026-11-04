@@ -1292,7 +1292,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       expect(anchor?.className).toContain('scroll-mt-24')
       expect(
         within(anchor as HTMLElement).getByTestId('calendar-feed')
-      ).toBeTruthy()
+      ).toBeVisible()
 
       const upcoming = screen.getByRole('heading', { name: 'Upcoming' })
       const past = screen.getByRole('heading', { name: 'Past' })
@@ -1311,8 +1311,9 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
 
       const { container } = renderWithProviders(<LibraryPage />)
 
-      expect(container.querySelector('#calendar-feed')).not.toBeNull()
-      expect(screen.queryByTestId('calendar-feed')).toBeNull()
+      expect(container.querySelector('#calendar-feed')).toBeVisible()
+      // Mounted, so its own read starts now, but hidden until the lists land.
+      expect(screen.getByTestId('calendar-feed')).not.toBeVisible()
       expect(screen.queryByRole('heading', { name: 'Upcoming' })).toBeNull()
       expect(screen.queryByRole('heading', { name: 'Past' })).toBeNull()
     })
@@ -1330,7 +1331,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
         'Failed to load your shows. Please try again later.'
       )
       const anchor = container.querySelector('#calendar-feed') as Node
-      expect(within(anchor as HTMLElement).getByTestId('calendar-feed')).toBeTruthy()
+      expect(within(anchor as HTMLElement).getByTestId('calendar-feed')).toBeVisible()
       expect(
         message.compareDocumentPosition(anchor) &
           Node.DOCUMENT_POSITION_FOLLOWING

@@ -243,14 +243,19 @@ function SavedShowsSection({
   )
 }
 
-const REANCHOR_CANCEL_EVENTS = ['wheel', 'touchmove', 'keydown'] as const
+const REANCHOR_CANCEL_EVENTS = [
+  'wheel',
+  'touchmove',
+  'keydown',
+  'pointerdown',
+] as const
 
 // The Upcoming list renders above the calendar card, so a `#calendar-feed`
 // hash scroll that lands while the lists load ends short once they fill in.
 // Returns the anchor's ref and scrolls it into view once, when that initial
 // load settles. A mount whose lists are already settled (a Back navigation, a
 // cached revisit) never re-anchors, and neither does a load during which the
-// viewer scrolled, swiped or pressed a key.
+// viewer scrolled, swiped, pressed a key or a pointer (a scrollbar drag).
 function useCalendarFeedReanchor(isInitialLoading: boolean) {
   const anchorRef = useRef<HTMLDivElement | null>(null)
   const isReanchorPendingRef = useRef(isInitialLoading)
@@ -370,15 +375,18 @@ function ShowsTab({ currentUserId }: { currentUserId?: string }) {
       {/* Anchor target: the signed-in home's "Subscribe to calendar →" links
           here, and CalendarFeedSection returns a different root per state, so
           the id lives on the wrapper rather than inside it. The wrapper is
-          mounted in every load state so the hash always resolves; the card
-          inside waits for the initial load, so the list arriving above it
-          cannot push it out from under a tap. */}
+          visible in every load state so the hash always resolves. The card
+          mounts with the tab, so its own read starts at once, but stays hidden
+          until the initial load settles, so the list arriving above it cannot
+          push it out from under a tap. */}
       <div
         id="calendar-feed"
         ref={calendarFeedRef}
         className="scroll-mt-24"
       >
-        {!isInitialLoading && <CalendarFeedSection variant="library" />}
+        <div hidden={isInitialLoading}>
+          <CalendarFeedSection variant="library" />
+        </div>
       </div>
 
       {hasShowBuckets && (
