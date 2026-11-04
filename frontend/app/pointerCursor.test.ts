@@ -9,9 +9,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
  * The pointer-cursor base rule in globals.css, read from the CSS Tailwind
  * actually emits: globals.css is compiled through the project's PostCSS
  * plugin (`@tailwindcss/postcss`, the one postcss.config.mjs loads) with
- * optimization on, as a production build runs it. Candidate scanning points at
- * an empty directory, so only the stylesheet itself is compiled; base rules do
- * not depend on scanned classes.
+ * optimization and minification on, as a production build runs it. Candidate
+ * scanning points at an empty directory, so only the stylesheet itself is
+ * compiled; base rules do not depend on scanned classes.
  *
  * The rule must stay in `@layer base`: there a cursor utility on an element
  * (`cursor-grab`, `disabled:cursor-not-allowed`) still overrides it.
@@ -28,9 +28,8 @@ const EXPECTED_SELECTORS = [
   ':where([role="button"],[role="link"],[role="tab"],[role="menuitem"],[role="menuitemcheckbox"],[role="menuitemradio"],[role="option"],[role="radio"],[role="checkbox"],[role="switch"],[role="combobox"]:not(input)):not(:disabled,[aria-disabled="true"])',
 ]
 
-/** Quote style and whitespace are the optimizer's choice, not the contract. */
-const normalize = (selector: string) =>
-  selector.replace(/'/g, '"').replace(/\s+/g, '')
+/** Quotes and whitespace are the minifier's choice, not the contract. */
+const normalize = (selector: string) => selector.replace(/['"\s]/g, '')
 
 let scanDir: string
 let pointerRules: Rule[]
@@ -39,7 +38,7 @@ beforeAll(async () => {
   scanDir = mkdtempSync(join(tmpdir(), 'pointer-cursor-scan-'))
   const from = resolve(process.cwd(), 'app/globals.css')
   const result = await postcss([
-    tailwindcss({ base: scanDir, optimize: { minify: false } }),
+    tailwindcss({ base: scanDir, optimize: true }),
   ]).process(readFileSync(from, 'utf8'), { from })
 
   pointerRules = []

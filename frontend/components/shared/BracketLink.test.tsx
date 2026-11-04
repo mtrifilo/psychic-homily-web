@@ -68,8 +68,9 @@ describe('BracketLink', () => {
   })
 
   describe('cursor', () => {
-    // The pointer comes from the base rule in app/globals.css, which a cursor
-    // utility on the element would override, so an enabled bracket sets none.
+    // The button branch's pointer comes from the base rule in app/globals.css
+    // and the link branch's from the browser's link style; a cursor utility on
+    // either would override it, so an enabled bracket sets none.
     it('sets no cursor utility on the enabled button branch', () => {
       render(<BracketLink label="Follow" onClick={vi.fn()} />)
       expect(screen.getByRole('button').className).not.toMatch(/\bcursor-/)
