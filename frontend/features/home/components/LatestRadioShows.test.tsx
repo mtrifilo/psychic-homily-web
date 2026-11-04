@@ -170,7 +170,23 @@ describe('LatestRadioShows', () => {
       // the artists the row does not show follow it.
       expect(screen.queryByText('Stereolab · Broadcast · Pram')).toBeNull()
       expect(wfmu).toHaveAccessibleName(
-        'WFMU · Strength Through Failure, Jersey City · live now. Latest show with Stereolab, Broadcast, Pram. Open the station page.'
+        'WFMU · Strength Through Failure, Jersey City · live now. Latest show: Strength Through Failure with Stereolab, Broadcast, Pram. Open the station page.'
+      )
+    })
+
+    it('keeps the "Latest show" qualifier when the episode has no artists, and omits it with no episode', () => {
+      useStationEpisodes.mockImplementation(({ stationSlug }: { stationSlug: string }) =>
+        stationSlug === 'wfmu'
+          ? { data: { episodes: [episodeRow({ artist_preview: [] })], total: 1 } }
+          : { data: { episodes: [], total: 0 } }
+      )
+      useStationNowPlaying.mockReturnValue({ data: { on_air: true } })
+      render(<LatestRadioShows variant="rows" />)
+      expect(rowFor(/^WFMU · Strength Through Failure/)).toHaveAccessibleName(
+        'WFMU · Strength Through Failure, Jersey City · live now. Latest show: Strength Through Failure. Open the station page.'
+      )
+      expect(rowFor(/^KEXP, Seattle/)).toHaveAccessibleName(
+        'KEXP, Seattle · live now. Open the station page.'
       )
     })
 

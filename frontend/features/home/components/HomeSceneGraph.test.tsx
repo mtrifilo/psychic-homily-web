@@ -708,10 +708,9 @@ describe('HomeSceneGraph', () => {
   })
 
   // The signed-in home's narrow form: one row that names this scene, stands as
-  // the section's heading, and links to the music map in one tap (the scene
-  // page's graph section is itself only a link at this width).
+  // the section's heading, and links to the unrooted music map in one tap.
   describe('linkRow narrow form', () => {
-    it('renders one heading-tier link row to the scene graph below the breakpoint', async () => {
+    it('renders one heading-tier link row to the music map below the breakpoint', async () => {
       setContainerWidth(500)
       const { container } = render(<HomeSceneGraph narrowForm="linkRow" />)
 

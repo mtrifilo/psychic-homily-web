@@ -331,10 +331,12 @@ test.describe('Homepage (signed in)', () => {
     await expect(
       authenticatedPage.getByRole('link', { name: 'All stations →' })
     ).toHaveAttribute('href', '/radio')
-    // The row's name opens with its visible text: "KEXP" or "KEXP · {show}",
-    // depending on whether the seed carries a KEXP episode.
+    // The row's name opens with its visible text. The seed carries one KEXP
+    // episode, so line 1 names it; line 2 depends on now-playing.
     await expect(
-      authenticatedPage.getByRole('link', { name: /^KEXP[ ,·]/ })
+      authenticatedPage.getByRole('link', {
+        name: /^KEXP · The Morning Show, Seattle · /,
+      })
     ).toHaveAttribute('href', '/radio/kexp')
     await expect(
       authenticatedPage.getByRole('link', { name: /browse all stations/i })

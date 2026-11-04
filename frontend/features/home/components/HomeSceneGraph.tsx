@@ -12,11 +12,11 @@
  * the ArtistContextPanel (PSY-1345) with playable audio first and "Open page →"
  * as the navigation path. Full-power interactivity lives on the dedicated
  * /graph page (the re-pointed Observatory, PSY-1079…1086), which HAS since
- * shipped (app/graph/page.tsx; /explore permanently redirects to it). This
- * section's CTA nonetheless still points at the scene page's graph section,
- * `/scenes/{slug}#graph` — scene-scoped, matching what the canvas above it
- * shows. Whether it should re-point at /graph is an open question, not a
- * documented decision; do not read this note as one.
+ * shipped (app/graph/page.tsx; /explore permanently redirects to it). The
+ * desktop CTA still points at the scene page's graph section,
+ * `/scenes/{slug}#graph`, scene-scoped to match the canvas above it; whether
+ * it should re-point at /graph is an open question. The sub-640px forms
+ * target /graph (see HomeSceneGraphNarrowForm).
  *
  * Perf posture (PSY-868): the section
  * lazy-mounts via IntersectionObserver, all data fetching waits for
@@ -271,13 +271,17 @@ const ForceGraphView = createLazyForceGraphView(<SceneGraphSkeleton />)
 
 /**
  * What the section becomes below the canvas gate. Both forms link to the
- * music map (`/graph`), not to this scene's page: at this width the scene
- * page's own graph section is itself one line of link, and the map takes no
- * scene or city parameter. `teaser` is the logged-out homepage's line of body
- * text. `linkRow` is the signed-in home's form: one hairline-ruled row,
- * "Scene graph · {city}, mapped →", standing as the section's heading. Its
- * Customize row promises exactly that ("A link on phones"), so the two forms
- * must not converge without that copy changing in `../sections`.
+ * unrooted music map (`/graph`), not to this scene's page, whose own graph
+ * section is itself one line of link at this width. The map takes no scene or
+ * city parameter, only `?artist=`; the scene page roots its phone link on the
+ * scene's most-booked artist, which needs the graph payload this section skips
+ * below the gate. So a phone tap lands on the map's catalog-wide start screen,
+ * not on this scene: one tap, at the cost of the scene focus. `teaser` is the
+ * logged-out homepage's line of body text. `linkRow` is the signed-in home's
+ * form: one hairline-ruled row, "Scene graph · {city}, mapped →", standing as
+ * the section's heading. Its Customize row promises exactly that ("A link on
+ * phones"), so the two forms must not converge without that copy changing in
+ * `../sections`.
  */
 export type HomeSceneGraphNarrowForm = 'teaser' | 'linkRow'
 

@@ -165,11 +165,16 @@ function StationRow({ editorial }: { editorial: StationEditorial }) {
 
   // aria-label REPLACES the accessible name computed from the row's content.
   // It opens with the row's visible text in visual order, so a speech user
-  // can say what they see (WCAG 2.5.3), then the latest show's artists the row
-  // does not show.
+  // can say what they see (WCAG 2.5.3). The "Latest show" sentence follows
+  // whenever there is an episode: line 1 sits beside "live now" but names the
+  // newest imported episode, which need not be the show on air.
   const ariaLabel = [
     `${title}, ${detail}.`,
-    artists.length > 0 ? `Latest show with ${artists.join(', ')}.` : '',
+    latest
+      ? `Latest show: ${latest.show_name}${
+          artists.length > 0 ? ` with ${artists.join(', ')}` : ''
+        }.`
+      : '',
     'Open the station page.',
   ]
     .filter(Boolean)
