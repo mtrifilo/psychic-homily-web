@@ -79,8 +79,9 @@ describe('AsHeardOn', () => {
   })
 
   it('renders the station, pluralized play count and last-played date', () => {
-    expect(renderArtistRow()).toHaveTextContent('KEXP · 3 plays · last on May 1')
-    expect(screen.getByText('May 1')).toHaveClass('font-data')
+    const link = renderArtistRow()!
+    expect(link).toHaveTextContent('KEXP · 3 plays · last on May 1')
+    expect(within(link).getByText('May 1')).toHaveClass('font-data')
   })
 
   it('singularizes a single play and offers no disclosure', () => {
@@ -135,7 +136,7 @@ describe('AsHeardOn', () => {
     expect(screen.getByText('As heard on')).toBeInTheDocument()
     expect(screen.getByText('Morning Show').closest('a')).toHaveAttribute(
       'href',
-      '/radio/kexp/morning-show/2026-05-01'
+      '/radio/kexp/morning-show/2026-05-01#play-77'
     )
   })
 
