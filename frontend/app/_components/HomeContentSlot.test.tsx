@@ -41,10 +41,12 @@ vi.mock('@/lib/ssr/reportServerFetchFailure', async importOriginal => {
 const mockResolveHomeViewer = vi.fn()
 const mockGetAuthenticatedHomeLayout = vi.fn()
 const mockPrefetchHomeSavedShows = vi.fn()
+const mockPrefetchHomeLibraryUpdates = vi.fn()
 vi.mock('@/lib/auth-hydration', () => ({
   resolveHomeViewer: () => mockResolveHomeViewer(),
   getAuthenticatedHomeLayout: () => mockGetAuthenticatedHomeLayout(),
   prefetchHomeSavedShows: () => mockPrefetchHomeSavedShows(),
+  prefetchHomeLibraryUpdates: () => mockPrefetchHomeLibraryUpdates(),
 }))
 
 // The variants are stood in by NAMED functions, so a test can find the element
@@ -554,12 +556,47 @@ describe('HomeContentSlot, other viewers', () => {
     mockResolveHomeViewer.mockResolvedValue('authenticated')
     mockGetAuthenticatedHomeLayout.mockResolvedValue(null)
     mockPrefetchHomeSavedShows.mockResolvedValue({ mutations: [], queries: [] })
+    mockPrefetchHomeLibraryUpdates.mockResolvedValue({ mutations: [], queries: [] })
 
     const tree = await renderSlot()
 
     expect(findElements(tree, node => node.type === SignedInHome)).toHaveLength(1)
     expect(upcomingFetch).not.toHaveBeenCalled()
     expect(citiesFetch).not.toHaveBeenCalled()
+  })
+
+  it('prefetches the rows of each visible row section, under the signed-in page', async () => {
+    const saved = { mutations: [], queries: [{ queryKey: ['saved'] }] }
+    const updates = { mutations: [], queries: [{ queryKey: ['updates'] }] }
+    mockResolveHomeViewer.mockResolvedValue('authenticated')
+    mockGetAuthenticatedHomeLayout.mockResolvedValue(null)
+    mockPrefetchHomeSavedShows.mockResolvedValue(saved)
+    mockPrefetchHomeLibraryUpdates.mockResolvedValue(updates)
+
+    const tree = await renderSlot()
+
+    const states = findElements(tree, node => node.type === HydrationBoundary).map(
+      node => (node.props as { state?: unknown }).state
+    )
+    expect(states).toEqual([saved, updates])
+  })
+
+  it('skips the library-updates read for a viewer who hid that section', async () => {
+    mockResolveHomeViewer.mockResolvedValue('authenticated')
+    mockGetAuthenticatedHomeLayout.mockResolvedValue({
+      version: 1,
+      sections: [
+        { id: 'saved_shows', visible: true },
+        { id: 'library_updates', visible: false },
+      ],
+    })
+    mockPrefetchHomeSavedShows.mockResolvedValue({ mutations: [], queries: [] })
+    mockPrefetchHomeLibraryUpdates.mockClear()
+
+    await renderSlot()
+
+    expect(mockPrefetchHomeLibraryUpdates).not.toHaveBeenCalled()
+    expect(mockPrefetchHomeSavedShows).toHaveBeenCalled()
   })
 
   it('makes no upcoming-shows read when the viewer could not be resolved', async () => {

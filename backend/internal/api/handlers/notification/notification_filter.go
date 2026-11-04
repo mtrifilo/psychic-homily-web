@@ -118,9 +118,14 @@ type QuickCreateFilterResponse struct {
 }
 
 // GetNotificationsRequest is the request for GET /me/notifications
+//
+// Types is a comma-separated string rather than a []string so the parsing and
+// the 422 for an unknown value live in one function
+// (notificationm.ParseNotificationEntityTypes) that a test can call directly.
 type GetNotificationsRequest struct {
-	Limit  int `query:"limit" default:"20" minimum:"1" maximum:"100" doc:"Number of notifications per page"`
-	Offset int `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
+	Limit  int    `query:"limit" default:"20" minimum:"1" maximum:"100" doc:"Number of notifications per page"`
+	Offset int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
+	Types  string `query:"types" doc:"Comma-separated notification entity_type values to return. Omitted means every type. An unknown type is a 422 whose message names the accepted values. Narrows the list only; unread_count stays the viewer's full inbox count." example:"artist_show_alert,venue_show_alert"`
 }
 
 // GetNotificationsResponse is the response for GET /me/notifications
@@ -396,8 +401,12 @@ func (h *NotificationFilterHandler) GetNotificationsHandler(ctx context.Context,
 	if offset < 0 {
 		offset = 0
 	}
+	entityTypes, err := notificationm.ParseNotificationEntityTypes(req.Types)
+	if err != nil {
+		return nil, huma.Error422UnprocessableEntity(err.Error())
+	}
 
-	notifications, err := h.filterService.GetUserNotifications(middleware.GetShowViewerFromContext(ctx), limit, offset)
+	notifications, err := h.filterService.GetUserNotifications(middleware.GetShowViewerFromContext(ctx), limit, offset, entityTypes...)
 	if err != nil {
 		requestID := logger.GetRequestID(ctx)
 		logger.FromContext(ctx).Error("get_notifications_failed",
@@ -410,6 +419,9 @@ func (h *NotificationFilterHandler) GetNotificationsHandler(ctx context.Context,
 		)
 	}
 
+	// Deliberately NOT narrowed by Types: the bell badge and a filtered reader
+	// share this field, and a count that changed meaning per request would
+	// make the badge depend on which surface fetched last.
 	unreadCount, err := h.filterService.GetUnreadCount(middleware.GetShowViewerFromContext(ctx))
 	if err != nil {
 		// Non-fatal

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"reflect"
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
@@ -327,7 +328,10 @@ func TestGetNotificationsHandler_NoAuth(t *testing.T) {
 
 func TestGetNotificationsHandler_Success(t *testing.T) {
 	mock := &testhelpers.MockNotificationFilterService{
-		GetUserNotificationsFn: func(_ contracts.ShowViewer, limit, offset int) ([]contracts.NotificationLogEntry, error) {
+		GetUserNotificationsFn: func(_ contracts.ShowViewer, limit, offset int, entityTypes ...string) ([]contracts.NotificationLogEntry, error) {
+			if len(entityTypes) != 0 {
+				t.Errorf("no types param must mean no narrowing, got %v", entityTypes)
+			}
 			return []contracts.NotificationLogEntry{
 				{ID: 1, EntityType: "show", EntityID: 42, Channel: "email"},
 			}, nil
@@ -348,6 +352,61 @@ func TestGetNotificationsHandler_Success(t *testing.T) {
 	}
 	if resp.Body.UnreadCount != 3 {
 		t.Errorf("expected unread count 3, got %d", resp.Body.UnreadCount)
+	}
+}
+
+func TestGetNotificationsHandler_TypesNarrowsListButNotUnreadCount(t *testing.T) {
+	var gotTypes []string
+	unreadCalls := 0
+	mock := &testhelpers.MockNotificationFilterService{
+		GetUserNotificationsFn: func(_ contracts.ShowViewer, limit, offset int, entityTypes ...string) ([]contracts.NotificationLogEntry, error) {
+			gotTypes = entityTypes
+			return []contracts.NotificationLogEntry{
+				{ID: 7, EntityType: "venue_show_alert", EntityID: 3, Channel: "in_app"},
+			}, nil
+		},
+		GetUnreadCountFn: func(_ contracts.ShowViewer) (int64, error) {
+			unreadCalls++
+			return 11, nil
+		},
+	}
+	h := NewNotificationFilterHandler(mock, "test-secret")
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	resp, err := h.GetNotificationsHandler(ctx, &GetNotificationsRequest{
+		Limit: 5,
+		Types: "artist_show_alert, venue_show_alert,artist_show_alert",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{"artist_show_alert", "venue_show_alert"}
+	if !reflect.DeepEqual(gotTypes, want) {
+		t.Errorf("service got types %v, want %v (trimmed, deduplicated, in request order)", gotTypes, want)
+	}
+	// The unread count is the viewer's WHOLE inbox: the filtered list holds one
+	// row, the count says eleven, and the count read takes no types at all.
+	if resp.Body.UnreadCount != 11 || unreadCalls != 1 {
+		t.Errorf("unread_count = %d after %d call(s), want the unfiltered 11 from one call",
+			resp.Body.UnreadCount, unreadCalls)
+	}
+}
+
+func TestGetNotificationsHandler_UnknownTypeIs422(t *testing.T) {
+	for _, types := range []string{"bogus", "artist_show_alert,bogus", "artist_show_alert,"} {
+		t.Run(types, func(t *testing.T) {
+			mock := &testhelpers.MockNotificationFilterService{
+				GetUserNotificationsFn: func(_ contracts.ShowViewer, _, _ int, _ ...string) ([]contracts.NotificationLogEntry, error) {
+					t.Error("the service must not be reached with an invalid types filter")
+					return nil, nil
+				},
+			}
+			h := NewNotificationFilterHandler(mock, "test-secret")
+			ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+			_, err := h.GetNotificationsHandler(ctx, &GetNotificationsRequest{Limit: 5, Types: types})
+			testhelpers.AssertHumaError(t, err, 422)
+		})
 	}
 }
 

@@ -38,9 +38,11 @@ import {
   getAuthenticatedHomeLayout,
   getAuthenticatedNavMode,
   isAuthenticatedViewer,
+  prefetchHomeLibraryUpdates,
   prefetchHomeSavedShows,
   resolveHomeViewer,
 } from './auth-hydration'
+import { LIBRARY_UPDATES_QUERY_KEY } from '@/features/notifications/libraryUpdates'
 import { queryKeys } from './queryClient'
 import { resetServerFetchReportThrottleForTests } from '@/lib/ssr/reportServerFetchFailure'
 
@@ -491,6 +493,83 @@ describe('prefetchHomeSavedShows', () => {
     vi.stubGlobal('fetch', fetchSpy)
 
     const state = await prefetchHomeSavedShows()
+
+    expect((state as { queries: SeededEntry[] }).queries).toHaveLength(0)
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe('prefetchHomeLibraryUpdates', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  const updatesKey = JSON.stringify(LIBRARY_UPDATES_QUERY_KEY)
+  const seeded = (state: { queries: SeededEntry[] }) =>
+    state.queries.find(q => JSON.stringify(q.queryKey) === updatesKey)
+
+  function stubUpdatesRead(read: () => unknown) {
+    mockGet.mockReturnValue({ value: 'token' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url.endsWith('/auth/profile')
+          ? {
+              ok: true,
+              status: 200,
+              json: async () => ({ success: true, user: { id: 'u1' } }),
+            }
+          : read()
+      )
+    )
+  }
+
+  it("seeds the hook's exact key with the filtered read", async () => {
+    const body = {
+      notifications: [{ id: 3, entity_type: 'artist_show_alert' }],
+      unread_count: 9,
+    }
+    stubUpdatesRead(() => ({ ok: true, status: 200, json: async () => body }))
+
+    const state = await prefetchHomeLibraryUpdates()
+
+    expect(seeded(state as { queries: SeededEntry[] })?.state.data).toEqual(body)
+    const calls = (fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls
+    expect(String(calls[1][0])).toContain(
+      '/me/notifications?limit=5&offset=0&types=artist_show_alert%2Cvenue_show_alert%2Cartist_release_digest'
+    )
+  })
+
+  // Go encodes an empty slice it never allocated as null: "no rows" is still
+  // an answer, and seeding it is what keeps the module from fetching again.
+  it('seeds a null notification list as an answer', async () => {
+    const body = { notifications: null, unread_count: 0 }
+    stubUpdatesRead(() => ({ ok: true, status: 200, json: async () => body }))
+
+    const state = await prefetchHomeLibraryUpdates()
+
+    expect(seeded(state as { queries: SeededEntry[] })?.state.data).toEqual(body)
+  })
+
+  it('seeds nothing for a failed or malformed read', async () => {
+    stubUpdatesRead(() => new Response(null, { status: 422 }))
+    expect(
+      seeded((await prefetchHomeLibraryUpdates()) as { queries: SeededEntry[] })
+    ).toBeUndefined()
+
+    stubUpdatesRead(() => ({ ok: true, status: 200, json: async () => ({ shows: [] }) }))
+    expect(
+      seeded((await prefetchHomeLibraryUpdates()) as { queries: SeededEntry[] })
+    ).toBeUndefined()
+  })
+
+  it('seeds nothing and reads nothing for a viewer with no session', async () => {
+    mockGet.mockReturnValue(undefined)
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const state = await prefetchHomeLibraryUpdates()
 
     expect((state as { queries: SeededEntry[] }).queries).toHaveLength(0)
     expect(fetchSpy).not.toHaveBeenCalled()

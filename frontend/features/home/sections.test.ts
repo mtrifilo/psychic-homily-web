@@ -22,9 +22,10 @@ function order(sections: { id: string }[]) {
 }
 
 describe('HOME_SECTIONS', () => {
-  it('ships radio before the scene graph', () => {
+  it('ships library updates second and radio before the scene graph', () => {
     expect(DEFAULT_ORDER).toEqual([
       'saved_shows',
+      'library_updates',
       'nearby_shows',
       'community_stats',
       'radio_shows',
@@ -44,6 +45,7 @@ describe('resolveHomeLayout', () => {
     const stored = document([
       { id: 'radio_shows', visible: true },
       { id: 'saved_shows', visible: true },
+      { id: 'library_updates', visible: true },
       { id: 'nearby_shows', visible: true },
       { id: 'community_stats', visible: true },
       { id: 'city_graph', visible: true },
@@ -52,6 +54,7 @@ describe('resolveHomeLayout', () => {
     expect(order(resolveHomeLayout(stored))).toEqual([
       'radio_shows',
       'saved_shows',
+      'library_updates',
       'nearby_shows',
       'community_stats',
       'city_graph',
@@ -61,6 +64,7 @@ describe('resolveHomeLayout', () => {
   it('keeps a hidden section in its slot so re-showing restores position', () => {
     const stored = document([
       { id: 'saved_shows', visible: true },
+      { id: 'library_updates', visible: true },
       { id: 'nearby_shows', visible: false },
       { id: 'community_stats', visible: true },
       { id: 'radio_shows', visible: true },
@@ -69,11 +73,12 @@ describe('resolveHomeLayout', () => {
 
     const resolved = resolveHomeLayout(stored)
     expect(order(resolved)).toEqual(DEFAULT_ORDER)
-    expect(resolved[1]).toMatchObject({ id: 'nearby_shows', visible: false })
+    expect(resolved[2]).toMatchObject({ id: 'nearby_shows', visible: false })
   })
 
-  // A stored document names every section, so a viewer who saved a layout
-  // under an earlier default keeps that order: it is theirs, not the default.
+  // A viewer who saved a layout under an earlier default keeps that order: it
+  // is theirs, not the default. A section shipped since (library_updates)
+  // joins it at its default index, slot 2.
   it('keeps a full stored order written under an earlier default', () => {
     const stored = document([
       { id: 'saved_shows', visible: true },
@@ -85,6 +90,7 @@ describe('resolveHomeLayout', () => {
 
     expect(order(resolveHomeLayout(stored))).toEqual([
       'saved_shows',
+      'library_updates',
       'nearby_shows',
       'community_stats',
       'city_graph',
@@ -125,7 +131,7 @@ describe('resolveHomeLayout', () => {
 
     const resolved = resolveHomeLayout(stored)
     expect(order(resolved)).toEqual(DEFAULT_ORDER)
-    expect(resolved[2]).toMatchObject({ id: 'community_stats', visible: true })
+    expect(resolved[3]).toMatchObject({ id: 'community_stats', visible: true })
   })
 
   it('keeps the first occurrence of a duplicated id', () => {
@@ -158,6 +164,7 @@ describe('moveHomeSection', () => {
 
     expect(order(moved ?? [])).toEqual([
       'saved_shows',
+      'library_updates',
       'community_stats',
       'nearby_shows',
       'radio_shows',
@@ -183,6 +190,7 @@ describe('moveHomeSection', () => {
 
     expect(order(moved ?? [])).toEqual([
       'saved_shows',
+      'library_updates',
       'nearby_shows',
       'radio_shows',
       'community_stats',
@@ -198,7 +206,7 @@ describe('setHomeSectionVisibility', () => {
     const hidden = setHomeSectionVisibility(sections, 'nearby_shows', false)
 
     expect(order(hidden)).toEqual(DEFAULT_ORDER)
-    expect(hidden[1].visible).toBe(false)
+    expect(hidden[2]).toMatchObject({ id: 'nearby_shows', visible: false })
   })
 })
 
@@ -214,6 +222,7 @@ describe('toHomeLayoutDocument', () => {
       version: 1,
       sections: [
         { id: 'saved_shows', visible: true },
+        { id: 'library_updates', visible: true },
         { id: 'nearby_shows', visible: true },
         { id: 'community_stats', visible: true },
         { id: 'radio_shows', visible: false },
@@ -345,7 +354,7 @@ describe('resolvePasskeyOfferSlot', () => {
       resolvePasskeyOfferSlot(
         setHomeSectionVisibility(sections, 'saved_shows', false)
       )
-    ).toBe('nearby_shows')
+    ).toBe('library_updates')
   })
 
   // Collapsing sections are still rendered but hidden: the offer must not

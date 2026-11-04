@@ -314,8 +314,11 @@ function HomeSectionSlot({
       aria-hidden={transition === 'collapse' || undefined}
       className="w-full"
     >
-      {/* The spacer is a CHILD so the slot's height animation encloses it. */}
-      <div className={isLast ? undefined : 'pb-14'}>{children}</div>
+      {/* The spacer is a CHILD so the slot's height animation encloses it.
+          A section that renders nothing (an omitted module, a self-hidden
+          band) leaves it empty, and an empty spacer takes no space, so the
+          next section moves up into the slot. */}
+      <div className={isLast ? 'empty:hidden' : 'pb-14 empty:hidden'}>{children}</div>
     </div>
   )
 }

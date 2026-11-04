@@ -106,6 +106,7 @@ vi.mock('@/components/shared/SaveButton', () => ({
 
 const SECTIONS = {
   saved_shows: <SavedShowsModule />,
+  library_updates: <div>library_updates</div>,
   nearby_shows: <NearbyShowsSection id="nearby" />,
   community_stats: <div>community_stats</div>,
   city_graph: <div>city_graph</div>,
@@ -232,6 +233,7 @@ describe('the relocating link rows across every layout', () => {
     const steps: [HomeSectionId, HomeDiscoverLinksSlot][] = [
       ['nearby_shows', 'saved'],
       ['saved_shows', 'pageEnd'],
+      ['library_updates', 'pageEnd'],
       ['community_stats', 'pageEnd'],
       ['city_graph', 'pageEnd'],
       ['radio_shows', 'empty'],

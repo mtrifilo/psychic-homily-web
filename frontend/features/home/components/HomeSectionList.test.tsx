@@ -84,6 +84,7 @@ describe('HomeSectionList', () => {
       version: 1,
       sections: [
         { id: 'saved_shows', visible: true },
+        { id: 'library_updates', visible: true },
         { id: 'community_stats', visible: true },
         { id: 'nearby_shows', visible: true },
         { id: 'radio_shows', visible: true },
@@ -103,7 +104,7 @@ describe('HomeSectionList', () => {
     const regions = screen.getAllByRole('status')
     expect(regions).toHaveLength(1)
     expect(regions[0]).toHaveTextContent(
-      'Community stats moved up, now 2 of 5.'
+      'Community stats moved up, now 3 of 6.'
     )
   })
 
@@ -128,7 +129,7 @@ describe('HomeSectionList', () => {
     const { rerender } = render(<HomeSectionList />)
 
     await user.click(
-      screen.getByRole('button', { name: 'Move Shows near you this week up' })
+      screen.getByRole('button', { name: 'Move From your library up' })
     )
     applyDocument(persist.mock.calls[0][0])
     rerender(<HomeSectionList />)
@@ -136,7 +137,7 @@ describe('HomeSectionList', () => {
     // Now first in the list: its own ▲ is disabled, so focus lands on ▼.
     await waitFor(() => {
       expect(
-        screen.getByRole('button', { name: 'Move Shows near you this week down' })
+        screen.getByRole('button', { name: 'Move From your library down' })
       ).toHaveFocus()
     })
   })
@@ -170,7 +171,7 @@ describe('HomeSectionList', () => {
     rerender(<HomeSectionList />)
 
     const rows = screen.getAllByRole('listitem')
-    expect(within(rows[2]).getByText('hidden')).toBeInTheDocument()
+    expect(within(rows[3]).getByText('hidden')).toBeInTheDocument()
     expect(
       screen.getByRole('checkbox', { name: 'Community stats' })
     ).not.toBeChecked()
