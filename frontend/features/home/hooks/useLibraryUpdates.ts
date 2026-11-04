@@ -27,10 +27,11 @@ export interface LibraryUpdate {
  * The viewer's newest followed-entity updates for the signed-in home, or
  * `undefined` until the read has answered (or when it failed).
  *
- * Recency is measured from `dataUpdatedAt`, the instant the rows were read,
- * not from the clock: a server-prefetched entry hydrates with the same
+ * Recency is measured from `dataUpdatedAt`, the instant the rows were last
+ * read, not from the clock: a server-prefetched entry hydrates with the same
  * `dataUpdatedAt`, so the server render and the hydrating client print the
- * same "2d ago". It is at most one stale window behind the clock.
+ * same "2d ago". It advances on every refetch (a mount past `staleTime`, a
+ * window focus, any mark-read), and holds still between them.
  *
  * Rows of kinds this surface cannot render are dropped here rather than in
  * the component, so "no updates" means the same thing to the empty rule as it

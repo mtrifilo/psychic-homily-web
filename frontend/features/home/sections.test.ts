@@ -361,6 +361,20 @@ describe('resolvePasskeyOfferSlot', () => {
     ).toBe('nearby_shows')
   })
 
+  it('skips the scene graph too, which hides when the area has no scenes', () => {
+    const graphFirst = moveHomeSection(
+      moveHomeSection(sections, 'city_graph', 'up')!,
+      'city_graph',
+      'up'
+    )!
+    const layout = ['saved_shows', 'nearby_shows', 'community_stats'].reduce(
+      (current, id) =>
+        setHomeSectionVisibility(current, id as typeof sections[number]['id'], false),
+      graphFirst
+    )
+    expect(resolvePasskeyOfferSlot(layout)).toBe('radio_shows')
+  })
+
   // From your library renders nothing while it has no updates; anchored under
   // it, the offer would sit above every painted section.
   it('skips a section that may render nothing when falling back', () => {
