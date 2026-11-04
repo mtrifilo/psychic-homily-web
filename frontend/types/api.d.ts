@@ -11901,7 +11901,7 @@ export interface components {
              * @description Section id
              * @enum {string}
              */
-            id: "saved_shows" | "nearby_shows" | "community_stats" | "city_graph" | "radio_shows";
+            id: "saved_shows" | "nearby_shows" | "community_stats" | "city_graph" | "radio_shows" | "library_updates";
             /** @description Whether the section renders */
             visible: boolean;
         };
@@ -12717,9 +12717,17 @@ export interface components {
             alert_release_url?: string;
             /** Format: int64 */
             alert_show_count?: number;
+            /** Format: date-time */
+            alert_show_event_date?: string;
+            /** Format: date-time */
+            alert_show_first_date?: string;
+            /** Format: date-time */
+            alert_show_last_date?: string;
             alert_show_summary?: string;
+            alert_show_timezone?: string;
             alert_show_title?: string;
             alert_show_url?: string;
+            alert_show_venue_name?: string;
             alert_venue_name?: string;
             alert_venue_url?: string;
             channel: string;
@@ -29386,6 +29394,11 @@ export interface operations {
                 limit?: number;
                 /** @description Offset for pagination */
                 offset?: number;
+                /**
+                 * @description Comma-separated notification entity_type values to return. Omitted means every type. An unknown type is a 422 whose message names the accepted values. Narrows the list only; unread_count stays the viewer's full inbox count.
+                 * @example artist_show_alert,venue_show_alert
+                 */
+                types?: string;
             };
             header?: never;
             path?: never;

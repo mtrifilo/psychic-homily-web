@@ -22,6 +22,7 @@ import type {
 } from '@/features/shows/types'
 import {
   getAuthenticatedHomeLayout,
+  prefetchHomeLibraryUpdates,
   prefetchHomeSavedShows,
   resolveHomeViewer,
 } from '@/lib/auth-hydration'
@@ -59,19 +60,20 @@ export async function HomeContentSlot() {
   const viewer = await resolveHomeViewer()
   if (viewer === 'authenticated') {
     const layout = await getAuthenticatedHomeLayout()
-    // The rows are prefetched only for a viewer whose saved-shows section is
-    // actually on their page. Hiding it should take the list out of the page
-    // SOURCE too, not just out of the render, and it saves the backend read.
-    // Both reads share the same `React.cache()`d profile, so asking for the
-    // layout first costs nothing.
-    const wantsSavedShows = resolveHomeLayout(layout).some(
-      section => section.id === 'saved_shows' && section.visible
-    )
+    // A section's rows are prefetched only while that section is visible: a
+    // hidden section's rows stay out of the page SOURCE, not just the render.
+    const sections = resolveHomeLayout(layout)
+    const isVisible = (id: string) =>
+      sections.some(section => section.id === id && section.visible)
+    const [savedShowsState, libraryUpdatesState] = await Promise.all([
+      isVisible('saved_shows') ? prefetchHomeSavedShows() : undefined,
+      isVisible('library_updates') ? prefetchHomeLibraryUpdates() : undefined,
+    ])
     return (
-      <HydrationBoundary
-        state={wantsSavedShows ? await prefetchHomeSavedShows() : undefined}
-      >
-        <SignedInHome layout={layout} />
+      <HydrationBoundary state={savedShowsState}>
+        <HydrationBoundary state={libraryUpdatesState}>
+          <SignedInHome layout={layout} />
+        </HydrationBoundary>
       </HydrationBoundary>
     )
   }

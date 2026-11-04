@@ -12,6 +12,7 @@ import {
 import { useRouter } from 'next/navigation'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
+import { cn } from '@/lib/utils'
 import { animateSlotHeight, useFlipReorder } from '../homeLayoutMotion'
 import { useHomeLayout } from '../hooks/useHomeLayout'
 import {
@@ -314,8 +315,11 @@ function HomeSectionSlot({
       aria-hidden={transition === 'collapse' || undefined}
       className="w-full"
     >
-      {/* The spacer is a CHILD so the slot's height animation encloses it. */}
-      <div className={isLast ? undefined : 'pb-14'}>{children}</div>
+      {/* The spacer is a CHILD so the slot's height animation encloses it.
+          A section that renders nothing (an omitted module, a self-hidden
+          band) leaves it empty, and an empty spacer takes no space, so the
+          next section moves up into the slot. */}
+      <div className={cn('empty:hidden', !isLast && 'pb-14')}>{children}</div>
     </div>
   )
 }

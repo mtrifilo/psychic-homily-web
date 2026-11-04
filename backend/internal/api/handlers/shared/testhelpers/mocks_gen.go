@@ -2505,7 +2505,7 @@ type MockNotificationFilterService struct {
 	QuickCreateFilterFn        func(uint, string, uint) (*notificationm.NotificationFilter, error)
 	MatchAndNotifyFn           func(*catalogm.Show) error
 	MatchAndNotifyBatchFn      func([]catalogm.Show) error
-	GetUserNotificationsFn     func(contracts.ShowViewer, int, int) ([]contracts.NotificationLogEntry, error)
+	GetUserNotificationsFn     func(contracts.ShowViewer, int, int, ...string) ([]contracts.NotificationLogEntry, error)
 	GetUnreadCountFn           func(contracts.ShowViewer) (int64, error)
 	MarkNotificationsReadFn    func(contracts.ShowViewer, []uint) (int64, error)
 	MarkAllNotificationsReadFn func(contracts.ShowViewer) (int64, error)
@@ -2560,9 +2560,9 @@ func (m *MockNotificationFilterService) MatchAndNotifyBatch(shows []catalogm.Sho
 	}
 	return nil
 }
-func (m *MockNotificationFilterService) GetUserNotifications(viewer contracts.ShowViewer, limit int, offset int) ([]contracts.NotificationLogEntry, error) {
+func (m *MockNotificationFilterService) GetUserNotifications(viewer contracts.ShowViewer, limit int, offset int, entityTypes ...string) ([]contracts.NotificationLogEntry, error) {
 	if m.GetUserNotificationsFn != nil {
-		return m.GetUserNotificationsFn(viewer, limit, offset)
+		return m.GetUserNotificationsFn(viewer, limit, offset, entityTypes...)
 	}
 	return nil, nil
 }

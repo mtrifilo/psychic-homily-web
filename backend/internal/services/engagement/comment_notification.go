@@ -38,12 +38,12 @@ const (
 	// when a subscriber receives a new comment on an entity they're
 	// subscribed to. entity_id holds the comment_id; the comment's parent
 	// entity (artist/show/etc.) is resolved at read time via JOIN.
-	NotificationEntityCommentReply = "comment_reply"
+	NotificationEntityCommentReply = notificationm.NotificationEntityCommentReply
 
 	// NotificationEntityCommentMention marks a notification_log row created
 	// when a user is @-mentioned in a comment. entity_id holds the
 	// comment_id; mentions are not gated by subscription.
-	NotificationEntityCommentMention = "comment_mention"
+	NotificationEntityCommentMention = notificationm.NotificationEntityCommentMention
 )
 
 // CommentNotificationService sends emails to subscribers and @-mentioned users on

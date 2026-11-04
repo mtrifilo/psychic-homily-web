@@ -141,14 +141,12 @@ func TestEveryInboxEntityTypeHasADisposition(t *testing.T) {
 // naming a constant nothing writes is a claim about nothing, and it hides the
 // removal of a family the predicate still thinks it covers.
 func TestInboxEntityTypeInventoryHasNoStaleEntries(t *testing.T) {
-	known := map[string]bool{
-		notificationm.NotificationEntityShow:                       true,
-		notificationm.NotificationEntityArtistShowAlert:            true,
-		notificationm.NotificationEntityVenueShowAlert:             true,
-		notificationm.NotificationEntityRequestFulfillmentProposed: true,
-		notificationm.NotificationEntityArtistReleaseDigest:        true,
-		engagement.NotificationEntityCommentReply:                  true,
-		engagement.NotificationEntityCommentMention:                true,
+	// The declared inventory is the production vocabulary the inbox `types`
+	// filter accepts, so this map, that vocabulary and the predicate's lists
+	// cannot drift apart.
+	known := make(map[string]bool, len(notificationm.NotificationEntityTypes))
+	for _, entityType := range notificationm.NotificationEntityTypes {
+		known[entityType] = true
 	}
 
 	var stale []string

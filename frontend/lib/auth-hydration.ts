@@ -39,6 +39,10 @@ import { API_BASE_URL } from '@/lib/api-base'
 import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
 import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import { SAVED_SHOWS_COLLAPSED_COUNT } from '@/features/shows/savedShowsConstants'
+import {
+  LIBRARY_UPDATES_PATH,
+  LIBRARY_UPDATES_QUERY_KEY,
+} from '@/features/notifications/libraryUpdates'
 // `features/home/sections` is isomorphic (no 'use client'), so this server
 // helper reads real values from it rather than client references.
 import {
@@ -198,20 +202,39 @@ if (typeof HOME_SAVED_SHOWS_LIMIT !== 'number') {
     'SAVED_SHOWS_COLLAPSED_COUNT must come from an isomorphic module; it is a client reference here'
   )
 }
+if (typeof LIBRARY_UPDATES_PATH !== 'string') {
+  throw new Error(
+    'LIBRARY_UPDATES_PATH must come from an isomorphic module; it is a client reference here'
+  )
+}
 
-/** Bound on the server-side saved-shows read: a hung backend must not hold the
- *  page body, and the fallback (seed nothing) is already the client's path. */
-const HOME_SAVED_SHOWS_PREFETCH_TIMEOUT_MS = 3_000
+/** Bound on each server-side home read: a hung backend must not hold the page
+ *  body, and the fallback (seed nothing) is already the client's path. */
+const HOME_PREFETCH_TIMEOUT_MS = 3_000
 
 /**
- * Prefetch the signed-in home's saved-shows rows on the server so the first
- * paint carries them and nothing shifts when the client query settles.
+ * One signed-in home read, prefetched on the server under the key its client
+ * hook builds, so the first paint carries the rows and the client query finds
+ * the entry fresh instead of refetching on mount.
  *
- * The key is built the way `useSavedShows` builds it, so the client query
- * finds this entry fresh and does not refetch on mount. A failed or absent
- * read seeds nothing; the client query then runs as it always did.
+ * Seeds nothing (and the client query runs as it always did) for a viewer the
+ * profile read did not name, for a missing cookie, for a non-2xx answer, and
+ * for a body `isPayload` rejects.
  */
-export const prefetchHomeSavedShows = cache(async () => {
+async function prefetchSignedInHomeRead({
+  path,
+  queryKey,
+  isPayload,
+  service,
+  pathFamily,
+}: {
+  /** Path and query relative to the API base. */
+  path: string
+  queryKey: (userId: unknown) => readonly unknown[]
+  isPayload: (body: unknown) => boolean
+  service: string
+  pathFamily: string
+}): Promise<DehydratedState> {
   const queryClient = getQueryClient()
   const resolution = await fetchAuthProfile()
   const userId =
@@ -223,14 +246,9 @@ export const prefetchHomeSavedShows = cache(async () => {
   const authToken = (await cookies()).get('auth_token')?.value
   if (userId == null || !authToken) return dehydrate(queryClient)
 
-  const deadline = AbortSignal.timeout(HOME_SAVED_SHOWS_PREFETCH_TIMEOUT_MS)
+  const deadline = AbortSignal.timeout(HOME_PREFETCH_TIMEOUT_MS)
   try {
-    const params = new URLSearchParams({
-      limit: String(HOME_SAVED_SHOWS_LIMIT),
-      offset: '0',
-      time_filter: 'upcoming',
-    })
-    const response = await fetch(`${API_BASE_URL}/saved-shows?${params}`, {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
       headers: { ...serverReadHeaders(), Cookie: `auth_token=${authToken}` },
       cache: 'no-store',
       signal: deadline,
@@ -238,24 +256,17 @@ export const prefetchHomeSavedShows = cache(async () => {
     if (!response.ok) {
       reportServerFetchFailure({
         response,
-        service: 'ssr-saved-shows-prefetch',
-        pathFamily: '/saved-shows',
+        service,
+        pathFamily,
         notFoundIsAnswer: false,
         level: 'warning',
       })
       return dehydrate(queryClient)
     }
     const body: unknown = await response.json()
-    if (!body || typeof body !== 'object' || !Array.isArray((body as { shows?: unknown }).shows)) {
-      return dehydrate(queryClient)
-    }
+    if (!isPayload(body)) return dehydrate(queryClient)
     await queryClient.prefetchQuery({
-      queryKey: queryKeys.savedShows.list(
-        String(userId),
-        HOME_SAVED_SHOWS_LIMIT,
-        0,
-        'upcoming'
-      ),
+      queryKey: queryKey(userId),
       queryFn: () => body,
     })
   } catch (error) {
@@ -271,7 +282,62 @@ export const prefetchHomeSavedShows = cache(async () => {
     }
   }
   return dehydrate(queryClient)
-})
+}
+
+function isSavedShowsPayload(body: unknown): boolean {
+  return (
+    !!body &&
+    typeof body === 'object' &&
+    Array.isArray((body as { shows?: unknown }).shows)
+  )
+}
+
+/** A `null` notifications list is a valid answer (no rows), so only the
+ *  envelope is checked. */
+function isNotificationListPayload(body: unknown): boolean {
+  return (
+    !!body &&
+    typeof body === 'object' &&
+    'notifications' in body &&
+    typeof (body as { unread_count?: unknown }).unread_count === 'number'
+  )
+}
+
+/**
+ * Prefetch the signed-in home's saved-shows rows. The key is built the way
+ * `useSavedShows` builds it.
+ */
+export const prefetchHomeSavedShows = cache(() =>
+  prefetchSignedInHomeRead({
+    path: `/saved-shows?${new URLSearchParams({
+      limit: String(HOME_SAVED_SHOWS_LIMIT),
+      offset: '0',
+      time_filter: 'upcoming',
+    })}`,
+    queryKey: userId =>
+      queryKeys.savedShows.list(
+        String(userId),
+        HOME_SAVED_SHOWS_LIMIT,
+        0,
+        'upcoming'
+      ),
+    isPayload: isSavedShowsPayload,
+    service: 'ssr-saved-shows-prefetch',
+    pathFamily: '/saved-shows',
+  })
+)
+
+/** Prefetch the "From your library" rows under the key `useLibraryUpdates`
+ *  reads. */
+export const prefetchHomeLibraryUpdates = cache(() =>
+  prefetchSignedInHomeRead({
+    path: LIBRARY_UPDATES_PATH,
+    queryKey: () => LIBRARY_UPDATES_QUERY_KEY,
+    isPayload: isNotificationListPayload,
+    service: 'ssr-library-updates-prefetch',
+    pathFamily: '/me/notifications',
+  })
+)
 
 /**
  * The authenticated viewer's stored signed-in-home layout, or `null` when

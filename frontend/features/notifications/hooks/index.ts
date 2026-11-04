@@ -23,6 +23,7 @@ import {
   FILTER_SOURCE_MANAGED,
   normalizeNotificationDeepLinks,
 } from '../types'
+import { NOTIFICATION_LOG_KEY } from '../queryKeys'
 
 // ──────────────────────────────────────────────
 // API endpoints (not in central API_ENDPOINTS yet)
@@ -212,9 +213,6 @@ export function useQuickCreateFilter() {
 // ──────────────────────────────────────────────
 // Inbox: notification log query + mark-read mutation (PSY-595)
 // ──────────────────────────────────────────────
-
-/** Query key for the user's notification log (bell + inbox surfaces). */
-const NOTIFICATION_LOG_KEY = ['notifications', 'log'] as const
 
 /**
  * The default page size, and therefore the ONE cache entry the bell popover

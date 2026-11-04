@@ -1041,7 +1041,12 @@ func (s *NotificationFilterService) sendEmail(to, subject, html, unsubscribeURL 
 // in batched follow-up passes so the bell/inbox can render a readable line with
 // a working link target: comment-driven rows (PSY-595), request-fulfillment rows
 // (PSY-890), and artist show-alert rows (PSY-1896).
-func (s *NotificationFilterService) GetUserNotifications(viewer contracts.ShowViewer, limit, offset int) ([]contracts.NotificationLogEntry, error) {
+//
+// entityTypes, when given, narrows the list to rows of those discriminators
+// (the caller validates them against notificationm.NotificationEntityTypes);
+// none means every inbox row. The narrowing is applied ON TOP of the
+// visibility predicates, never instead of them.
+func (s *NotificationFilterService) GetUserNotifications(viewer contracts.ShowViewer, limit, offset int, entityTypes ...string) ([]contracts.NotificationLogEntry, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -1077,12 +1082,16 @@ func (s *NotificationFilterService) GetUserNotifications(viewer contracts.ShowVi
 		LIMIT 1
 	)`
 	inboxVisibleSQL, inboxVisibleArgs := inboxRowsVisibleTo("nl", viewer)
-	err := s.db.Table("notification_log nl").
+	query := s.db.Table("notification_log nl").
 		Select("nl.*, COALESCE(nf.name, CASE WHEN nl.entity_type = 'show' AND nl.filter_id IS NULL THEN "+sceneNameSubquery+" END, '') as filter_name").
 		Joins("LEFT JOIN notification_filters nf ON nf.id = nl.filter_id").
 		Where("nl.user_id = ?", userID).
 		Where(inboxVisibleRows("nl")).
-		Where(inboxVisibleSQL, inboxVisibleArgs...).
+		Where(inboxVisibleSQL, inboxVisibleArgs...)
+	if len(entityTypes) > 0 {
+		query = query.Where("nl.entity_type IN ?", entityTypes)
+	}
+	err := query.
 		Order("nl.sent_at DESC").
 		Limit(limit).
 		Offset(offset).
@@ -1477,9 +1486,13 @@ func (s *NotificationFilterService) enrichArtistShowAlertNotifications(entries [
 	}
 
 	type showRow struct {
-		ID    uint
-		Title string
-		Slug  *string
+		ID            uint
+		Title         string
+		Slug          *string
+		EventDate     time.Time
+		VenueName     *string
+		VenueTimezone *string
+		VenueState    *string
 	}
 	// FENCED HERE TOO, matching the venue twin below rather than relying on the
 	// row having been dropped upstream (PSY-1983). inboxRowsVisibleTo already
@@ -1491,8 +1504,12 @@ func (s *NotificationFilterService) enrichArtistShowAlertNotifications(entries [
 	visibleShows, visibleShowArgs := shared.VisibleShowPredicateSQL("shows", viewer)
 	var shows []showRow
 	if err := s.db.Table("shows").
-		Select("id, title, slug").
-		Where("id IN ?", showIDs).
+		Select("shows.id, shows.title, shows.slug, shows.event_date, "+
+			"v.venue_name, v.venue_timezone, v.venue_state").
+		Joins("LEFT JOIN LATERAL "+shared.PrimaryVenueLateralSQL(
+			"iv.name AS venue_name, iv.timezone AS venue_timezone, iv.state AS venue_state",
+			"shows.id")+" v ON true").
+		Where("shows.id IN ?", showIDs).
 		Where(visibleShows, visibleShowArgs...).
 		Scan(&shows).Error; err != nil {
 		log.Printf("warning: failed to load shows for inbox enrichment: %v", err)
@@ -1533,6 +1550,12 @@ func (s *NotificationFilterService) enrichArtistShowAlertNotifications(entries [
 			continue
 		}
 		e.AlertShowTitle = show.Title
+		eventDate := show.EventDate
+		e.AlertShowEventDate = &eventDate
+		if show.VenueName != nil {
+			e.AlertShowVenueName = *show.VenueName
+		}
+		e.AlertShowTimezone = alertZoneName(show.VenueTimezone, derefString(show.VenueState))
 		// Same slug-then-id fallback showEmailContent uses: entity slugs are
 		// nullable, and "/shows/" with an empty slug resolves to the index.
 		if show.Slug != nil && *show.Slug != "" {
@@ -1698,11 +1721,23 @@ func (s *NotificationFilterService) enrichVenueShowAlertNotifications(
 		venueID uint
 		day     string
 	}
+	// Members arrive in event_date order within a batch, so the first one seen
+	// opens the span and every later one extends it.
+	type batchStats struct {
+		count       int
+		first, last time.Time
+	}
 	byBatch := make(map[batchKey][]string, len(venueIDs))
-	counts := make(map[batchKey]int, len(venueIDs))
+	stats := make(map[batchKey]*batchStats, len(venueIDs))
 	for _, m := range members {
 		key := batchKey{venueID: m.VenueID, day: m.AlertDay}
-		counts[key]++
+		st := stats[key]
+		if st == nil {
+			st = &batchStats{first: m.EventDate}
+			stats[key] = st
+		}
+		st.count++
+		st.last = m.EventDate
 		if len(byBatch[key]) >= venueAlertSummaryLimit {
 			continue
 		}
@@ -1719,9 +1754,14 @@ func (s *NotificationFilterService) enrichVenueShowAlertNotifications(
 			continue
 		}
 		key := batchKey{venueID: e.EntityID, day: e.AlertBucket}
-		e.AlertShowCount = counts[key]
+		if st := stats[key]; st != nil {
+			e.AlertShowCount = st.count
+			first, last := st.first, st.last
+			e.AlertShowFirstDate = &first
+			e.AlertShowLastDate = &last
+		}
 		summary := byBatch[key]
-		if extra := counts[key] - len(summary); extra > 0 {
+		if extra := e.AlertShowCount - len(summary); extra > 0 {
 			summary = append(append([]string{}, summary...), fmt.Sprintf("and %d more", extra))
 		}
 		e.AlertShowSummary = strings.Join(summary, " · ")
@@ -1732,7 +1772,19 @@ func (s *NotificationFilterService) enrichVenueShowAlertNotifications(
 		}
 		e.AlertVenueName = v.Name
 		e.AlertVenueURL = entityURL(s.frontendURL, "venues", v.Slug, v.ID)
+		e.AlertShowTimezone = alertZoneName(v.Timezone, v.State)
 	}
+}
+
+// alertZoneName is the zone an alert row's show dates read in, or "" (the
+// field is omitted) when the server does not actually know it: a guessed zone
+// published as fact would let a client print a confident date on the wrong
+// clock. Same contract as shared.EventZone, which every show payload uses.
+func alertZoneName(timezone *string, state string) string {
+	if _, name := shared.EventZone(timezone, state); name != nil {
+		return *name
+	}
+	return ""
 }
 
 // enrichRequestNotifications populates request_title + request_url on

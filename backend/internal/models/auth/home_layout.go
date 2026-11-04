@@ -26,6 +26,7 @@ const HomeLayoutVersion = 1
 // are renamed only alongside a migration that rewrites stored documents.
 const (
 	HomeSectionSavedShows     = "saved_shows"
+	HomeSectionLibraryUpdates = "library_updates"
 	HomeSectionNearbyShows    = "nearby_shows"
 	HomeSectionCommunityStats = "community_stats"
 	HomeSectionCityGraph      = "city_graph"
@@ -37,9 +38,9 @@ const (
 // a section the user can neither see nor remove.
 //
 // The default render order is the frontend registry's (HOME_SECTIONS in
-// frontend/features/home/sections.ts): saved_shows, nearby_shows,
-// community_stats, radio_shows, city_graph. This slice's own order is not
-// that order: it spells the enum tag on HomeLayoutSection.ID (see
+// frontend/features/home/sections.ts): saved_shows, library_updates,
+// nearby_shows, community_stats, radio_shows, city_graph. This slice's own
+// order is not that order: it spells the enum tag on HomeLayoutSection.ID (see
 // homeSectionVocabularyCSV), and nothing reads it as a render order.
 //
 // A document may OMIT ids, and Validate accepts that on the CONTRACT that a
@@ -59,6 +60,7 @@ var knownHomeSections = []string{
 	HomeSectionCommunityStats,
 	HomeSectionCityGraph,
 	HomeSectionRadioShows,
+	HomeSectionLibraryUpdates,
 }
 
 // ErrInvalidHomeLayout marks every rejection below, so one errors.Is at the
@@ -77,7 +79,7 @@ func homeSectionVocabularyCSV() string {
 // HomeLayoutSection is one section's placement and visibility. Position in the
 // enclosing slice is the placement; a hidden section keeps its slot.
 type HomeLayoutSection struct {
-	ID      string `json:"id" enum:"saved_shows,nearby_shows,community_stats,city_graph,radio_shows" doc:"Section id"`
+	ID      string `json:"id" enum:"saved_shows,nearby_shows,community_stats,city_graph,radio_shows,library_updates" doc:"Section id"`
 	Visible bool   `json:"visible" doc:"Whether the section renders"`
 }
 
@@ -86,7 +88,7 @@ type HomeLayoutSection struct {
 // the next read returns.
 type HomeLayout struct {
 	Version  int                 `json:"version" doc:"Document version; must be 1"`
-	Sections []HomeLayoutSection `json:"sections" maxItems:"5" doc:"Sections in render order; a hidden section keeps its slot"`
+	Sections []HomeLayoutSection `json:"sections" maxItems:"6" doc:"Sections in render order; a hidden section keeps its slot"`
 }
 
 // Validate reports whether the document may be stored. Every rejection wraps

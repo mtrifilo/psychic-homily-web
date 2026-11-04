@@ -81,6 +81,7 @@ describe('useHomeLayout', () => {
 
     expect(result.current.sections.map(section => section.id)).toEqual([
       'saved_shows',
+      'library_updates',
       'nearby_shows',
       'community_stats',
       'city_graph',

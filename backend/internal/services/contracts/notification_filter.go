@@ -119,6 +119,17 @@ type NotificationLogEntry struct {
 	AlertArtistName string `json:"alert_artist_name,omitempty"`
 	AlertShowTitle  string `json:"alert_show_title,omitempty"`
 	AlertShowURL    string `json:"alert_show_url,omitempty"`
+	// AlertShowVenueName and AlertShowEventDate name where and when the
+	// announced show happens. A multi-venue show names its primary venue
+	// (shared.PrimaryVenueLateralSQL's pick).
+	AlertShowVenueName string     `json:"alert_show_venue_name,omitempty"`
+	AlertShowEventDate *time.Time `json:"alert_show_event_date,omitempty"`
+
+	// AlertShowTimezone is the IANA zone every show date on this row reads in:
+	// the show's venue on an artist alert, the followed venue on a venue alert.
+	// Resolved server-side (stored zone, then the venue's state), and omitted
+	// when neither names one, so a present value is never a guess.
+	AlertShowTimezone string `json:"alert_show_timezone,omitempty"`
 
 	// AlertBucket is the calendar day a COALESCED alert covers, as YYYY-MM-DD,
 	// and it is part of that alert's identity rather than a timestamp about it:
@@ -140,6 +151,11 @@ type NotificationLogEntry struct {
 	// AlertShowCount is the batch's FULL size, which is not always the number of
 	// shows named in AlertShowSummary — the summary is capped.
 	AlertShowCount int `json:"alert_show_count,omitempty"`
+	// AlertShowFirstDate and AlertShowLastDate bound the event dates of the
+	// shows AlertShowCount counts (the same member set, after the same
+	// filters). Equal when the batch holds one show; absent when it holds none.
+	AlertShowFirstDate *time.Time `json:"alert_show_first_date,omitempty"`
+	AlertShowLastDate  *time.Time `json:"alert_show_last_date,omitempty"`
 	// AlertShowSummary is a short, already-joined preview of the batch's shows,
 	// server-side capped so one busy venue-day cannot produce an inbox row
 	// hundreds of entries long.
@@ -202,7 +218,10 @@ type NotificationFilterServiceInterface interface {
 	// for the public tier on the listing gates, and these are self-scoped, so
 	// the idiom that is correct there would mean "user 0" here; they error
 	// rather than answer emptily.
-	GetUserNotifications(viewer ShowViewer, limit, offset int) ([]NotificationLogEntry, error)
+	//
+	// GetUserNotifications' entityTypes, when given, narrows the list to those
+	// discriminators; the unread count stays global regardless.
+	GetUserNotifications(viewer ShowViewer, limit, offset int, entityTypes ...string) ([]NotificationLogEntry, error)
 	GetUnreadCount(viewer ShowViewer) (int64, error)
 	// MarkNotificationsRead flips read_at on the given IDs that belong to the
 	// viewer. Returns the count actually updated; already-read, gated-show and

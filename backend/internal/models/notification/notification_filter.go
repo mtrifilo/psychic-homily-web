@@ -198,4 +198,10 @@ const (
 	// request enters pending_fulfillment). entity_id holds the request_id; the
 	// requester is notified so they can approve or reject. PSY-890.
 	NotificationEntityRequestFulfillmentProposed = "request_fulfillment_proposed"
+
+	// NotificationEntityCommentReply and NotificationEntityCommentMention mark
+	// the comment-driven in-app rows (PSY-595); entity_id holds the comment id.
+	// services/engagement writes them under its own names, which alias these.
+	NotificationEntityCommentReply   = "comment_reply"
+	NotificationEntityCommentMention = "comment_mention"
 )

@@ -37,6 +37,10 @@ export interface HomeSectionDefinition {
   title: string
   description: string
   defaultVisible: boolean
+  /** The section renders nothing in a normal, non-error state (it has nothing
+   *  to show), so being visible in the layout does not mean it is on screen.
+   *  A section that hides only on a failed read is not flagged. */
+  mayRenderNothing?: true
 }
 
 /**
@@ -52,6 +56,13 @@ export const HOME_SECTIONS: readonly HomeSectionDefinition[] = [
     title: 'Your upcoming shows',
     description: 'Shows you saved, soonest first.',
     defaultVisible: true,
+  },
+  {
+    id: 'library_updates',
+    title: 'From your library',
+    description: 'What changed for the artists and venues you follow.',
+    defaultVisible: true,
+    mayRenderNothing: true,
   },
   {
     id: 'nearby_shows',
@@ -79,6 +90,8 @@ export const HOME_SECTIONS: readonly HomeSectionDefinition[] = [
     description:
       'The scene, mapped. A link on phones, the graph on larger screens.',
     defaultVisible: true,
+    // Self-hides when the viewer's area has no scenes.
+    mayRenderNothing: true,
   },
 ]
 
@@ -277,10 +290,11 @@ export function resolveHomeLinkSlots(
 
 /**
  * The section the passkey offer renders under: saved shows while it is
- * visible, otherwise the first visible section, so the offer never sits above
- * the viewer's own shows and never above every section. `null` when no
- * section in `sections` is visible; the caller then places the offer after
- * them.
+ * visible, otherwise the first visible section that always paints, so the
+ * offer never sits above the viewer's own shows and never above every
+ * section. `null` when no visible section always paints (none is visible, or
+ * only sections that may render nothing); the caller then places the offer
+ * after them.
  *
  * `sections` is what is on screen, in order, with the visibility the caller
  * wants the offer to follow.
@@ -288,8 +302,10 @@ export function resolveHomeLinkSlots(
 export function resolvePasskeyOfferSlot(
   sections: readonly ResolvedHomeSection[]
 ): HomeSectionId | null {
+  // A section that may render nothing is skipped as the fallback: anchored
+  // under an empty slot, the offer would sit above every painted section.
   const anchor =
     sections.find(section => section.id === 'saved_shows' && section.visible) ??
-    sections.find(section => section.visible)
+    sections.find(section => section.visible && !section.mayRenderNothing)
   return anchor?.id ?? null
 }
