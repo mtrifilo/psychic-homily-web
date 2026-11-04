@@ -1,5 +1,6 @@
 import { formatInTimezone } from './timeUtils'
-import { resolveShowTimezone } from './formatters'
+import { isShowTimezoneResolved, resolveShowTimezone } from './formatters'
+import { venueLocalDaysUntil } from './showTiming'
 
 export interface DateBadgeParts {
   /** Short day of week, uppercase: "TUE" */
@@ -88,4 +89,35 @@ export function formatShowDateBadge(
     dayOfWeek,
     monthDay: formatShowMonthDay(dateString, state, timezone),
   }
+}
+
+/** The two days a show row names in words instead of a date. */
+export type ShowRelativeDay = 'today' | 'tomorrow'
+
+/**
+ * Whether a show falls today or tomorrow on the VENUE's calendar, or `null`
+ * when the row should print its date instead.
+ *
+ * Venue-local on both sides, matching the rule that every time on a show row
+ * is venue-local: "today" is the venue's date now, not the reader's. A show
+ * that has already started stays `today` until the venue's day ends, and an
+ * after-midnight set (1 AM) is `today` only on the date it starts, not on the
+ * evening before it.
+ *
+ * `null` on a zone the site is guessing at. A same-day word on a guessed zone
+ * can be a calendar day wrong, so those rows keep the weaker date claim, the
+ * same refusal `formatShowTime` makes for the clock beside it.
+ */
+export function showRelativeDay(
+  dateString: string,
+  state: string | null | undefined,
+  timezone: string | null | undefined,
+  now: Date
+): ShowRelativeDay | null {
+  if (!isShowTimezoneResolved(state, timezone)) return null
+  const days = venueLocalDaysUntil(
+    { eventDate: dateString, state, timezone },
+    now
+  )
+  return days === 0 ? 'today' : days === 1 ? 'tomorrow' : null
 }

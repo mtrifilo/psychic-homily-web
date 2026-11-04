@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import Link from 'next/link'
 import { SavedShowsModule } from './SavedShowsModule'
 import type { SavedShowResponse } from '@/features/shows/types'
@@ -25,7 +25,11 @@ vi.mock('@/features/shows/hooks/useSavedShows', () => ({
 
 const saveButtonProps = vi.fn()
 vi.mock('@/components/shared/SaveButton', () => ({
-  SaveButton: (props: { showId: number }) => {
+  SaveButton: (props: {
+    showId: number
+    showLabel?: boolean
+    showCount?: boolean
+  }) => {
     saveButtonProps(props)
     return <button type="button">save-{props.showId}</button>
   },
@@ -304,6 +308,22 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
     expect(saveButtonProps).toHaveBeenCalledWith(
       expect.objectContaining({ saveData: { save_count: 0, is_saved: true } })
     )
+  })
+
+  it('paints an icon-only heart and no save age on home rows', () => {
+    mockUseSavedShows.mockReturnValue({
+      data: { shows: [savedShow(1)], total: 1 },
+      isPending: false,
+      error: null,
+    })
+
+    render(<SavedShowsModule />)
+
+    const row = screen.getByRole('article', { name: 'Show 1' })
+    expect(within(row).queryByText(/^saved /)).not.toBeInTheDocument()
+    const props = saveButtonProps.mock.calls[0][0]
+    expect(props.showLabel).toBeFalsy()
+    expect(props.showCount).toBe(false)
   })
 
   it('takes the public count from the batch once it lands', () => {

@@ -110,6 +110,7 @@ import {
   useShowSaveCountBatch,
   useUnsaveShow,
   useSaveShowToggle,
+  unsaveShowMutationKey,
 } from './useSavedShows'
 
 // The write-side rule (see AuthStatus in lib/context/AuthContext): the save
@@ -634,6 +635,77 @@ describe('useSaveShowToggle', () => {
     expect(mockApiRequest).toHaveBeenCalledWith(
       '/saved-shows/1000',
       expect.objectContaining({ method: 'DELETE' })
+    )
+  })
+
+  // Library's rows unsave through this toggle. Their lists can hold many
+  // loaded pages, so the unsave must patch the row out rather than refetch
+  // every page in both buckets.
+  // Library serializes page loads against unsaves by this key; a heart's
+  // unsave that ran unkeyed would slip past that gate.
+  it('runs its unsave under the shared unsave mutation key', async () => {
+    let resolveDelete: (v: unknown) => void = () => {}
+    mockApiRequest.mockImplementationOnce(
+      () => new Promise(res => { resolveDelete = res })
+    )
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    )
+
+    const { result } = renderHook(
+      () => useSaveShowToggle(1200, true, '7', 'patch-infinite'),
+      { wrapper }
+    )
+    let toggling: Promise<void> = Promise.resolve()
+    act(() => {
+      toggling = result.current.toggle()
+    })
+
+    await waitFor(() =>
+      expect(
+        queryClient.isMutating({ mutationKey: unsaveShowMutationKey })
+      ).toBe(1)
+    )
+    await act(async () => {
+      resolveDelete({ message: 'Unsaved' })
+      await toggling
+    })
+    expect(queryClient.isMutating({ mutationKey: unsaveShowMutationKey })).toBe(0)
+  })
+
+  it('patches the infinite lists on unsave when asked to', async () => {
+    mockApiRequest.mockResolvedValueOnce({ message: 'Unsaved' })
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const infiniteKey = queryKeys.savedShows.infiniteList('7', 'upcoming')
+    queryClient.setQueryData(infiniteKey, {
+      pages: [{ shows: [{ id: 1100 }, { id: 1101 }], total: 2, limit: 4, offset: 0 }],
+      pageParams: [{ limit: 4, offset: 0 }],
+    })
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    )
+
+    const { result } = renderHook(
+      () => useSaveShowToggle(1100, true, '7', 'patch-infinite'),
+      { wrapper }
+    )
+    await act(async () => {
+      await result.current.toggle()
+    })
+
+    const cached = queryClient.getQueryData<{
+      pages: Array<{ shows: Array<{ id: number }>; total: number }>
+    }>(infiniteKey)
+    expect(cached?.pages[0].shows).toEqual([{ id: 1101 }])
+    expect(cached?.pages[0].total).toBe(1)
+    expect(refetchAfterMutation).not.toHaveBeenCalledWith(
+      expect.anything(),
+      queryKeys.savedShows.all
     )
   })
 

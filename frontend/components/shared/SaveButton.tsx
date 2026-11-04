@@ -5,6 +5,7 @@ import { Heart } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { BracketLink } from './BracketLink'
 import { useSaveShowToggle, useShowSaveCount } from '@/features/shows'
+import type { UnsaveSyncMode } from '@/features/shows/hooks/useSavedShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import {
   resolveBatchedSaveData,
@@ -51,7 +52,29 @@ interface SaveButtonProps {
    * inline among other verbs, where the hint reads left to right from it.
    */
   hintAlign?: 'start' | 'end'
+  /**
+   * How an unsave from this control syncs the saved-show lists. Library's own
+   * rows pass `patch-infinite` so an unsave removes the row from its loaded
+   * pages without refetching every one of them.
+   */
+  unsaveSync?: UnsaveSyncMode
+  /**
+   * The filled heart's colour. `red` everywhere unless a surface's own design
+   * says otherwise; the shared show row passes `primary`.
+   */
+  savedTone?: 'red' | 'primary'
 }
+
+/**
+ * Filled-heart classes per {@link SaveButtonProps.savedTone}. The primary tone
+ * paints the SVG's fill and stroke directly rather than `text-primary`: the
+ * heart is an icon, and the text-token rule (lib/primaryTextUsage.lint.test.ts)
+ * reserves `text-primary` for icon boxes sized in the same class string.
+ */
+const SAVED_HEART_CLASS = {
+  red: 'fill-red-500 text-red-500',
+  primary: 'fill-primary stroke-primary',
+} as const
 
 export function SaveButton({
   showId,
@@ -63,6 +86,8 @@ export function SaveButton({
   className,
   disabled = false,
   hintAlign = 'end',
+  unsaveSync = 'invalidate',
+  savedTone = 'red',
 }: SaveButtonProps) {
   const { isAuthenticated, authStatus, user } = useAuthContext()
   const shouldOpenFirstSaveHint = useShouldOpenFirstSaveHint()
@@ -100,7 +125,8 @@ export function SaveButton({
   const { isLoading, toggle, error } = useSaveShowToggle(
     showId,
     isSaved,
-    user?.id
+    user?.id,
+    unsaveSync
   )
   // Disabled while unsettled, as every control in this class is: it ships
   // ENABLED in server HTML with pre-hydration click replay, and a click that
@@ -194,8 +220,11 @@ export function SaveButton({
     )
   }
 
+  // `size-*`, not `h-* w-*`: Button sizes any svg whose class names no `size-`
+  // utility, which would otherwise hold every heart at 16px whatever `size`
+  // says, and leave a caller's `[&_svg]:size-*` losing on specificity.
   const iconSize =
-    size === 'sm' ? 'h-4 w-4' : size === 'md' ? 'h-5 w-5' : 'h-6 w-6'
+    size === 'sm' ? 'size-4' : size === 'md' ? 'size-5' : 'size-6'
   const buttonSize =
     size === 'sm' ? 'h-8 w-8' : size === 'md' ? 'h-10 w-10' : 'h-12 w-12'
   const hasCount = saveCount > 0
@@ -226,7 +255,7 @@ export function SaveButton({
         <Heart
           className={`${iconSize} transition-all ${
             isSaved
-              ? 'fill-red-500 text-red-500'
+              ? SAVED_HEART_CLASS[savedTone]
               : 'text-muted-foreground hover:text-foreground'
           } ${isLoading ? 'opacity-50' : ''}`}
         />

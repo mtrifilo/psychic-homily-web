@@ -214,8 +214,10 @@ test.describe('Library page (formerly /collection)', () => {
         savedCard.locator(`a[href="/shows/${reservedShowSlug}"]`)
       ).toBeVisible()
 
-      // Remove from the new Library row itself; this both exercises the ticket's
-      // removal affordance and cleans up the reserved fixture.
+      // Unsave from the Library row's heart; this both exercises the row's
+      // removal affordance and cleans up the reserved fixture. The row is
+      // the article named for the show, so the bare heart name is unique
+      // inside it.
       await Promise.all([
         authenticatedPage.waitForResponse(
           resp =>
@@ -224,9 +226,7 @@ test.describe('Library page (formerly /collection)', () => {
           { timeout: 10_000 }
         ),
         savedCard
-          .getByRole('button', {
-            name: `Remove ${reservedShowTitle} from saved shows`,
-          })
+          .getByRole('button', { name: 'Remove from saved shows' })
           .click(),
       ])
       await expect(savedCard).not.toBeVisible({ timeout: 5_000 })

@@ -9,6 +9,7 @@ import type { HomeShowCitySelection } from '../hooks/useHomeShowCitySelection'
 import { usePrefetchRoutes } from '@/lib/hooks/common/usePrefetchRoutes'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { ShowCard } from './ShowCard'
+import { ShowRow, ShowRowSaveButton } from './ShowRow'
 import { CityFilters } from '@/components/filters'
 import { GeoDefaultAffordance } from '@/components/filters/GeoDefaultAffordance'
 import { SaveDefaultsButton } from '@/components/filters/SaveDefaultsButton'
@@ -56,6 +57,18 @@ interface HomeShowListViewProps {
   /** City name for the sentences that describe an exhausted page; omitted when
    *  no city resolved, which those sentences then leave out. */
   excludedLabel?: string
+  /**
+   * `cards` is the anonymous home's bordered `ShowCard` list; `rows` is the
+   * dense `ShowRow` the signed-in home shares with its saved shows and Library.
+   */
+  layout?: 'cards' | 'rows'
+  /**
+   * Hide the city filter bar (picker, chips, "All Cities") below `md`. Set
+   * only by a caller that renders its own phone city control, or the picker
+   * would be unreachable there. The save-as-default offer and the geo notice
+   * still render at every width.
+   */
+  hideCityFiltersBelowMd?: boolean
 }
 
 /**
@@ -73,6 +86,8 @@ export function HomeShowListView({
   excludeSaved = false,
   withinDays,
   excludedLabel,
+  layout = 'cards',
+  hideCityFiltersBelowMd = false,
 }: HomeShowListViewProps) {
   const { user, isAuthenticated } = useAuthContext()
   const isAdmin = user?.is_admin ?? false
@@ -192,43 +207,78 @@ export function HomeShowListView({
             ? `Every show${inPlace}${windowLabel} is already in your saved shows.`
             : `The next ${windowedShows.length} shows${inPlace} are all in your saved shows.`
 
+  // Only a selection the viewer made themselves is offered as a default: a geo
+  // match or the liveliest-city guess is not theirs to persist with one click.
+  const saveDefaults =
+    isAuthenticated && source === 'user' && selectionDiffersFromFavorites ? (
+      <SaveDefaultsButton
+        selectedCities={effectiveCities}
+        favoriteCities={favoriteCities}
+      />
+    ) : null
+  const geoAffordance = geoAffordanceCity ? (
+    <GeoDefaultAffordance
+      city={geoAffordanceCity}
+      onChange={() => onFilterChange([])}
+    />
+  ) : null
+
   return (
     <div className="w-full">
       {/* Show the filter whenever ≥1 city has shows (PSY-932) — consistent
           with /venues and /artists; hidden only when there are no cities. */}
       {cities.length > 0 && (
-        <div className="mb-6">
+        <div
+          className={hideCityFiltersBelowMd ? 'mb-6 hidden md:block' : 'mb-6'}
+        >
           <CityFilters
             cities={cities}
             selectedCities={effectiveCities}
             onFilterChange={onFilterChange}
             resultNoun={{ singular: 'show', plural: 'shows' }}
           >
-            {/* Only a selection the viewer made themselves is offered as a
-                default: a geo match or the liveliest-city guess is not theirs
-                to persist with one click. */}
-            {isAuthenticated &&
-              source === 'user' &&
-              selectionDiffersFromFavorites && (
-                <SaveDefaultsButton
-                  selectedCities={effectiveCities}
-                  favoriteCities={favoriteCities}
-                />
-              )}
+            {saveDefaults}
           </CityFilters>
-          {geoAffordanceCity && (
-            <GeoDefaultAffordance
-              city={geoAffordanceCity}
-              onChange={() => onFilterChange([])}
-            />
-          )}
+          {geoAffordance}
         </div>
       )}
+      {/* Below md only the bar itself gives way to the caller's control; the
+          save-as-default offer and the "from your location" notice stay. */}
+      {cities.length > 0 &&
+        hideCityFiltersBelowMd &&
+        (saveDefaults || geoAffordance) && (
+          <div
+            data-testid="home-city-phone-extras"
+            className="mb-4 flex flex-col items-start gap-1 md:hidden"
+          >
+            {/* A row, as in the bar: SaveDefaultsButton's items center
+                themselves on the cross axis. */}
+            {saveDefaults && (
+              <div className="flex items-center gap-2">{saveDefaults}</div>
+            )}
+            {geoAffordance}
+          </div>
+        )}
 
       <div className={isFetching && !rowsAreUnrefreshedSeed ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}>
         {emptyMessage ? (
           <div className="text-center py-8 text-muted-foreground">
             <p>{emptyMessage}</p>
+          </div>
+        ) : layout === 'rows' ? (
+          <div className="flex flex-col">
+            {visibleShows.map(show => (
+              <ShowRow
+                key={show.id}
+                show={show}
+                trailing={
+                  <ShowRowSaveButton
+                    showId={show.id}
+                    saveData={batchedSaveFor(saveCounts, show.id)}
+                  />
+                }
+              />
+            ))}
           </div>
         ) : (
           <div className="flex flex-col gap-3">

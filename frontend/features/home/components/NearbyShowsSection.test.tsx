@@ -6,7 +6,7 @@ import type { CityState } from '@/components/filters'
 import type { HomeShowCitySource } from '@/features/shows/hooks/useHomeShowCitySelection'
 
 const selection = {
-  cities: [],
+  cities: [] as { city: string; state: string; count: number }[],
   favoriteCities: [] as CityState[],
   effectiveCities: [] as CityState[],
   source: 'none' as HomeShowCitySource,
@@ -38,6 +38,7 @@ const phoenix = { city: 'Phoenix', state: 'AZ' }
 const tucson = { city: 'Tucson', state: 'AZ' }
 
 beforeEach(() => {
+  selection.cities = []
   selection.effectiveCities = []
   selection.source = 'none'
   selection.isResolving = false
@@ -128,8 +129,46 @@ describe('NearbyShowsSection', () => {
         excludeSaved: true,
         withinDays: 7,
         excludedLabel: 'Phoenix, AZ',
+        layout: 'rows',
+        hideCityFiltersBelowMd: true,
       })
     )
+  })
+
+  // The list hides its filter bar below md; this control is what replaces it
+  // there, so it must read the same selection the rows were fetched with.
+  it('puts the phone city control in the header, hidden from md up', () => {
+    selection.effectiveCities = [phoenix]
+    selection.source = 'favorites'
+    selection.cities = [{ ...phoenix, count: 12 }]
+
+    render(<NearbyShowsSection id="nearby" />)
+
+    const control = screen.getByRole('button', {
+      name: 'Change city, now Phoenix, AZ',
+    })
+    expect(control.className).toContain('md:hidden')
+    // On the heading's own line, not after the subline or the link slot.
+    const heading = screen.getByRole('heading', {
+      name: 'Shows near you this week',
+    })
+    expect(control.parentElement).toBe(heading.parentElement)
+    expect(
+      heading.parentElement?.contains(
+        screen.getByText('Phoenix, AZ · tap ♡ to save')
+      )
+    ).toBe(false)
+  })
+
+  it('holds the city control while geo is still deciding', () => {
+    selection.cities = [{ ...phoenix, count: 12 }]
+    selection.isResolving = true
+
+    render(<NearbyShowsSection id="nearby" />)
+
+    expect(
+      screen.queryByRole('button', { name: /Change city/ })
+    ).not.toBeInTheDocument()
   })
 
   it('asks the selection to resolve a city, because its copy names one', () => {

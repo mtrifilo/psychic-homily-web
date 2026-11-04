@@ -218,14 +218,36 @@ export const useSaveShow = () => {
 }
 
 /**
- * Hook to unsave (remove) a show from user's list
- * Requires authentication
+ * How an unsave reaches the cached saved-show lists. `patch-infinite` is for a
+ * surface rendering the infinite Library lists, which may hold many pages: it
+ * patches the row out of them instead of refetching every page.
  */
+export type UnsaveSyncMode = 'invalidate' | 'patch-infinite'
+
+/**
+ * Shared key for every unsave, whichever control fired it.
+ *
+ * Library pages its saved shows by offset, so an unsave in flight while those
+ * pages are read (a next page, or a refetch of the loaded ones) shifts the
+ * server's list under an offset (a row is skipped) and the read's result
+ * overwrites the row-removal patch (the unsaved row comes back). Library
+ * holds its unsave and "View all" controls while either is in flight by
+ * reading `useIsMutating({ mutationKey: unsaveShowMutationKey })` beside its
+ * queries' `isFetching`; each row's heart owns its own mutation, so a
+ * page-level `isPending` cannot see them. A read the page did not start (a
+ * reconnect refetch landing mid-unsave) is not held.
+ */
+export const unsaveShowMutationKey = ['savedShows', 'unsave'] as const
+
 interface UseUnsaveShowOptions {
-  syncMode?: 'invalidate' | 'patch-infinite'
+  syncMode?: UnsaveSyncMode
   userId?: string
 }
 
+/**
+ * Hook to unsave (remove) a show from user's list
+ * Requires authentication
+ */
 export const useUnsaveShow = ({
   syncMode = 'invalidate',
   userId,
@@ -233,6 +255,7 @@ export const useUnsaveShow = ({
   const queryClient = useQueryClient()
 
   return useMutation({
+    mutationKey: unsaveShowMutationKey,
     mutationFn: async (showId: number): Promise<SaveShowResponse> => {
       return apiRequest<SaveShowResponse>(
         API_ENDPOINTS.SAVED_SHOWS.UNSAVE(showId),
@@ -298,15 +321,19 @@ export const useUnsaveShow = ({
  * already holds it, from either the batch or the single save-count query, both
  * of which return is_saved alongside the public count. Re-querying it would
  * mean two requests for the same fact.
+ *
+ * `unsaveSync` is the unsave's list sync (see {@link UnsaveSyncMode}); a save
+ * always refetches.
  */
 export const useSaveShowToggle = (
   showId: number,
   isSaved: boolean,
-  userId?: string
+  userId?: string,
+  unsaveSync: UnsaveSyncMode = 'invalidate'
 ) => {
   const queryClient = useQueryClient()
   const saveShow = useSaveShow()
-  const unsaveShow = useUnsaveShow()
+  const unsaveShow = useUnsaveShow({ syncMode: unsaveSync, userId })
 
   const isLoading = saveShow.isPending || unsaveShow.isPending
 

@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { redirect } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
+import { useIsMutating } from '@tanstack/react-query'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useAuthRouteGuard } from '@/lib/hooks/common/useAuthRouteGuard'
 import {
@@ -44,6 +45,7 @@ import {
   type LibraryView,
 } from '@/features/library'
 import { SavedShowRow } from '@/features/shows/components/SavedShowRow'
+import { unsaveShowMutationKey } from '@/features/shows/hooks/useSavedShows'
 
 // ---------------------------------------------------------------------------
 // Tab definitions
@@ -200,17 +202,7 @@ function SavedShowsSection({
               key={show.id}
               show={show}
               isPast={isPast}
-              action={
-                <button
-                  type="button"
-                  onClick={() => onRemove(show.id)}
-                  disabled={isRemovalPending}
-                  className="whitespace-nowrap transition-colors hover:text-destructive disabled:cursor-wait disabled:opacity-60"
-                  aria-label={`Remove ${show.title} from saved shows`}
-                >
-                  {removingShowId === show.id ? 'removing…' : '✕ remove'}
-                </button>
-              }
+              disabled={isRemovalPending}
             />
           ))}
         </div>
@@ -274,10 +266,14 @@ function ShowsTab({ currentUserId }: { currentUserId?: string }) {
     (upcoming.isLoading && !upcoming.data) || (past.isLoading && !past.data)
   const error = upcoming.error ?? past.error
   const isEmpty = upcomingTotal + pastTotal === 0
+  // Every unsave, the wall's and each table row's heart alike, serializes with
+  // every read of these lists: a next page AND a refetch of the loaded ones,
+  // which re-derives each later page's offset as it goes. See
+  // `unsaveShowMutationKey`.
+  const isUnsavePending =
+    useIsMutating({ mutationKey: unsaveShowMutationKey }) > 0
   const isSavedShowActionPending =
-    unsaveShow.isPending ||
-    upcoming.isFetchingNextPage ||
-    past.isFetchingNextPage
+    isUnsavePending || upcoming.isFetching || past.isFetching
 
   const fetchAllPages = async (
     query: typeof upcoming | typeof past

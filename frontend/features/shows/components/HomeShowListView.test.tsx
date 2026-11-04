@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { HomeShowListView } from './HomeShowListView'
 import type { HomeShowCitySelection } from '../hooks/useHomeShowCitySelection'
 
@@ -27,6 +27,29 @@ vi.mock('@/lib/context/AuthContext', () => ({
 vi.mock('./ShowCard', () => ({
   ShowCard: ({ show }: { show: { id: number; title: string } }) => (
     <div data-testid="show-card">{show.title}</div>
+  ),
+}))
+vi.mock('./ShowRow', () => ({
+  ShowRow: ({
+    show,
+    trailing,
+  }: {
+    show: { id: number; title: string }
+    trailing: React.ReactNode
+  }) => (
+    <div data-testid="show-row">
+      {show.title}
+      {trailing}
+    </div>
+  ),
+  ShowRowSaveButton: ({
+    saveData,
+  }: {
+    saveData?: { is_saved: boolean } | 'pending'
+  }) => (
+    <span data-testid="row-heart">
+      {saveData === 'pending' ? 'pending' : String(saveData?.is_saved)}
+    </span>
   ),
 }))
 vi.mock('@/components/filters', () => ({
@@ -84,6 +107,74 @@ describe('HomeShowListView', () => {
     render(<HomeShowListView selection={selection} />)
 
     expect(screen.getAllByTestId('show-card')).toHaveLength(2)
+  })
+
+  it('paints dense rows with the batch heart when asked for rows', () => {
+    render(<HomeShowListView selection={selection} layout="rows" />)
+
+    expect(screen.queryByTestId('show-card')).not.toBeInTheDocument()
+    const rows = screen.getAllByTestId('show-row')
+    expect(rows).toHaveLength(2)
+    expect(screen.getAllByTestId('row-heart').map(h => h.textContent)).toEqual([
+      'true',
+      'false',
+    ])
+  })
+
+  it('keeps the filter bar at every width unless the caller owns a phone control', () => {
+    const withCities: HomeShowCitySelection = {
+      ...baseSelection,
+      cities: [{ ...phoenix, count: 3 }],
+    }
+    const { unmount } = render(<HomeShowListView selection={withCities} />)
+    expect(
+      screen.getByTestId('city-filters').parentElement?.className
+    ).not.toContain('hidden')
+    unmount()
+
+    render(
+      <HomeShowListView selection={withCities} hideCityFiltersBelowMd />
+    )
+    const bar = screen.getByTestId('city-filters').parentElement
+    expect(bar?.className).toContain('hidden')
+    expect(bar?.className).toContain('md:block')
+  })
+
+  it('keeps the save-as-default offer and the geo notice on phones when the bar hides', () => {
+    render(
+      <HomeShowListView
+        selection={{
+          ...baseSelection,
+          cities: [{ ...phoenix, count: 3 }],
+          effectiveCities: [phoenix],
+          source: 'user',
+          selectionDiffersFromFavorites: true,
+          geoAffordanceCity: phoenix,
+        }}
+        hideCityFiltersBelowMd
+      />
+    )
+
+    const extras = screen.getByTestId('home-city-phone-extras')
+    expect(extras.className).toContain('md:hidden')
+    expect(
+      within(extras).getByRole('button', { name: 'Save as default' })
+    ).toBeInTheDocument()
+    expect(within(extras).getByText(/from your location/)).toBeInTheDocument()
+  })
+
+  it('adds no phone extras when the bar stays at every width', () => {
+    render(
+      <HomeShowListView
+        selection={{
+          ...baseSelection,
+          cities: [{ ...phoenix, count: 3 }],
+          geoAffordanceCity: phoenix,
+        }}
+      />
+    )
+
+    expect(screen.queryByTestId('home-city-phone-extras')).not.toBeInTheDocument()
   })
 
   it('asks for only its rows when it is not excluding', () => {

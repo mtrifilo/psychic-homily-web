@@ -274,12 +274,57 @@ describe('SaveButton', () => {
     render(
       <SaveButton showId={42} saveData={{ save_count: 2, is_saved: true }} />
     )
-    expect(mockUseSaveShowToggle).toHaveBeenCalledWith(42, true, 42)
+    expect(mockUseSaveShowToggle).toHaveBeenCalledWith(42, true, 42, 'invalidate')
   })
 
   it('defaults isSaved to false while the count query is still loading', () => {
     render(<SaveButton showId={42} />)
-    expect(mockUseSaveShowToggle).toHaveBeenCalledWith(42, false, 42)
+    expect(mockUseSaveShowToggle).toHaveBeenCalledWith(42, false, 42, 'invalidate')
+  })
+
+  it('fills the saved heart red unless the surface asks for primary', () => {
+    const { container, rerender } = render(
+      <SaveButton showId={1} saveData={{ save_count: 0, is_saved: true }} />
+    )
+    const heart = () => container.querySelector('svg')!
+    expect(heart().getAttribute('class')).toContain('fill-red-500')
+
+    rerender(
+      <SaveButton
+        showId={1}
+        saveData={{ save_count: 0, is_saved: true }}
+        savedTone="primary"
+      />
+    )
+    expect(heart().getAttribute('class')).toContain('fill-primary stroke-primary')
+    expect(heart().getAttribute('class')).not.toContain('red-500')
+
+    // The hollow state is the same in every tone.
+    rerender(
+      <SaveButton
+        showId={1}
+        saveData={{ save_count: 0, is_saved: false }}
+        savedTone="primary"
+      />
+    )
+    expect(heart().getAttribute('class')).toContain('text-muted-foreground')
+    expect(heart().getAttribute('class')).not.toContain('fill-primary')
+  })
+
+  it('passes the unsave sync mode through to the toggle', () => {
+    render(
+      <SaveButton
+        showId={42}
+        saveData={{ save_count: 0, is_saved: true }}
+        unsaveSync="patch-infinite"
+      />
+    )
+    expect(mockUseSaveShowToggle).toHaveBeenCalledWith(
+      42,
+      true,
+      42,
+      'patch-infinite'
+    )
   })
 
   // ── Interaction

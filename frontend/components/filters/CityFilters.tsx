@@ -8,10 +8,15 @@ import {
   useRef,
   type RefObject,
 } from 'react'
-import { Search, Check, ChevronsUpDown } from 'lucide-react'
-import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem, CommandPopoverContent } from '@/components/ui/command'
+import { Search, ChevronsUpDown } from 'lucide-react'
+import { CommandPopoverContent } from '@/components/ui/command'
 import { Popover, PopoverTrigger } from '@/components/ui/popover'
 import { RemovableFilterChip } from './RemovableFilterChip'
+import {
+  CityCommandList,
+  sortCitiesByCount,
+  toggleCitySelection,
+} from './CityCommandList'
 import { cityKey, cityLabel } from './cityParams'
 import { CityFilterSheet, type ResultNoun } from './CityFilterSheet'
 import { useSoftKeyboardViewport } from '@/lib/hooks/common/useSoftKeyboardViewport'
@@ -148,16 +153,7 @@ export function CityFilters({
     replayOnHydrate.ref(node)
   }, [])
 
-  const selectedSet = useMemo(
-    () => new Set(selectedCities.map(cityKey)),
-    [selectedCities]
-  )
-
-  // Cities sorted by count descending for the dropdown
-  const sortedCities = useMemo(
-    () => [...cities].sort((a, b) => b.count - a.count),
-    [cities]
-  )
+  const sortedCities = useMemo(() => sortCitiesByCount(cities), [cities])
 
   // Popular cities: top N with count >= threshold
   const popularCities = useMemo(() => {
@@ -168,12 +164,7 @@ export function CityFilters({
   }, [sortedCities, showPopularCities])
 
   const handleToggleCity = (city: CityWithCount) => {
-    const key = cityKey(city)
-    if (selectedSet.has(key)) {
-      onFilterChange(selectedCities.filter(c => cityKey(c) !== key))
-    } else {
-      onFilterChange([...selectedCities, { city: city.city, state: city.state }])
-    }
+    onFilterChange(toggleCitySelection(selectedCities, city))
   }
 
   const handleRemoveCity = (city: CityState) => {
@@ -244,39 +235,11 @@ export function CityFilters({
             align="start"
             side="bottom"
           >
-            <Command>
-              <CommandInput placeholder="Search cities..." />
-              <CommandList>
-                <CommandEmpty>No cities found.</CommandEmpty>
-                <CommandGroup>
-                  {sortedCities.map(city => {
-                    const key = cityKey(city)
-                    const isSelected = selectedSet.has(key)
-                    return (
-                      <CommandItem
-                        key={key}
-                        value={cityLabel(city)}
-                        onSelect={() => handleToggleCity(city)}
-                        data-testid={`city-option-${city.city}-${city.state}`.toLowerCase().replace(/\s+/g, '-')}
-                      >
-                        <Check
-                          className={cn(
-                            'mr-2 h-4 w-4 shrink-0',
-                            isSelected ? 'opacity-100' : 'opacity-0'
-                          )}
-                        />
-                        <span className="flex-1 truncate">
-                          {cityLabel(city)}
-                        </span>
-                        <span className="ml-2 text-xs text-muted-foreground">
-                          ({formatCount(city.count)})
-                        </span>
-                      </CommandItem>
-                    )
-                  })}
-                </CommandGroup>
-              </CommandList>
-            </Command>
+            <CityCommandList
+              cities={sortedCities}
+              selectedCities={selectedCities}
+              onToggle={handleToggleCity}
+            />
           </CommandPopoverContent>
         </Popover>
 

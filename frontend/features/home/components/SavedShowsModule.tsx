@@ -4,15 +4,15 @@ import { useMemo } from 'react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { SaveButton } from '@/components/shared/SaveButton'
 // Concrete module paths, not the feature barrels: Turbopack does not
 // tree-shake a `'use client'` barrel per export, so importing one here would
 // ship the whole shows surface into the home chunk. See
 // features/sharedChunkBarrelGuard.test.ts.
+import { SAVED_SHOW_ROW_GRID } from '@/features/shows/components/SavedShowRow'
 import {
-  SAVED_SHOW_ROW_GRID,
-  SavedShowRow,
-} from '@/features/shows/components/SavedShowRow'
+  ShowRow,
+  ShowRowSaveButton,
+} from '@/features/shows/components/ShowRow'
 import {
   SAVED_SHOWS_COLLAPSED_COUNT,
   useSavedShows,
@@ -46,9 +46,9 @@ type ModuleState = 'loading' | 'error' | 'empty' | 'rows'
  * It closes the save loop — save a show, come back, see it — which previously
  * had its second half only at /library, two clicks behind the avatar.
  *
- * Every row carries a SaveButton in its SAVED state rather than Library's
- * "✕ remove": an unsave here is the same gesture that made the save, and its
- * invalidation already refreshes both this list and Library's. `is_saved` is
+ * Every row carries a SaveButton in its SAVED state: an unsave here is the
+ * same gesture that made the save, and its invalidation already refreshes
+ * both this list and Library's. `is_saved` is
  * asserted rather than read back, because these rows ARE the viewer's saved
  * shows; waiting on the save-count batch to learn that would paint an empty
  * heart labelled "Save show" on every row of a saved-shows list, and a click in
@@ -176,7 +176,7 @@ export function SavedShowsModule() {
         // guaranteed minimum, so reserving the maximum would drop the rest of
         // the page ~160px for the zero-save viewer this module is designed for.
         <div aria-busy="true" className="flex flex-col">
-          <Skeleton className="my-2.5 h-9 w-full rounded-none md:my-3" aria-hidden />
+          <Skeleton className="my-1.5 h-11 w-full rounded-none" aria-hidden />
         </div>
       )}
 
@@ -204,24 +204,18 @@ export function SavedShowsModule() {
       {state === 'rows' && (
         <div className="flex flex-col">
           {shows.map(show => (
-            <SavedShowRow
+            <ShowRow
               key={show.id}
               show={show}
-              isPast={false}
-              action={
-                <SaveButton
+              trailing={
+                <ShowRowSaveButton
                   showId={show.id}
-                  showLabel
-                  // The row is about THIS viewer's save; the public count is
-                  // a different fact and stays in the accessible name only.
-                  showCount={false}
                   // Asserted, not read back — see the note on this component.
                   saveData={{
                     save_count:
                       saveCounts?.[String(show.id)]?.save_count ?? 0,
                     is_saved: true,
                   }}
-                  className="-my-1 h-auto py-1"
                 />
               }
             />

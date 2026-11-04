@@ -10,6 +10,7 @@ import { cityLabel } from '@/components/filters/cityParams'
 import { HomeCityShowsLink } from './HomeCityShowsLink'
 import { SignedInHomeDiscoverLinks } from './HomeDiscoverLinks'
 import { useHomeCityLinkSlot, useHomeDiscoverLinksSlot } from './HomeLinkSlots'
+import { NearbyCityControl } from './NearbyCityControl'
 
 /** Rows the section paints, the count on the approved board. */
 const NEARBY_ROWS = 4
@@ -80,13 +81,25 @@ export function NearbyShowsSection({ id }: { id: string }) {
       className="flex w-full flex-col gap-4"
     >
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <div className="min-w-0">
-          <h2
-            id="home-nearby-shows-heading"
-            className="text-2xl font-semibold tracking-tight text-foreground"
-          >
-            {heading}
-          </h2>
+        {/* Full width below md, so the link slot wraps under it and the
+            phone city control trails the heading on the heading's own line;
+            content width from md, where the control is hidden. */}
+        <div className="min-w-0 basis-full md:basis-auto">
+          <div className="flex items-center justify-between gap-3">
+            <h2
+              id="home-nearby-shows-heading"
+              className="min-w-0 text-2xl font-semibold tracking-tight text-foreground"
+            >
+              {heading}
+            </h2>
+            {/* Held while geo decides, as the heading's own claim is. */}
+            {!isResolvingCity && (
+              <NearbyCityControl
+                selection={selection}
+                className="shrink-0 md:hidden"
+              />
+            )}
+          </div>
           <p className="mt-0.5 text-sm text-muted-foreground">{subline}</p>
         </div>
         {ownsCityLink && <HomeCityShowsLink cities={effectiveCities} />}
@@ -98,6 +111,8 @@ export function NearbyShowsSection({ id }: { id: string }) {
         excludeSaved={isAuthenticated}
         withinDays={NEXT_7_DAYS}
         excludedLabel={cityCount > 0 ? cityNames : undefined}
+        layout="rows"
+        hideCityFiltersBelowMd
       />
 
       {ownsDiscoverLinks && <SignedInHomeDiscoverLinks className="pt-2" />}
