@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { toEpisodeDate } from './episodeDate'
 
 describe('toEpisodeDate', () => {
-  it('takes the calendar date from the UTC-midnight timestamp the API sends', () => {
+  it('takes the written date from a UTC-midnight timestamp', () => {
     expect(toEpisodeDate('2025-01-15T00:00:00Z')).toBe('2025-01-15')
   })
 
