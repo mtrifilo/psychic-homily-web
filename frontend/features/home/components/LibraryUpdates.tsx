@@ -97,7 +97,7 @@ export function LibraryUpdateRow({ update }: { update: LibraryUpdate }) {
         // column of the show rows around this module.
         className={cn(SHOW_ROW_GRID, 'group transition-colors hover:bg-muted/40')}
       >
-        <span className="font-data text-[11px] font-bold uppercase text-muted-foreground md:text-xs">
+        <span className="font-data text-xs font-bold uppercase text-muted-foreground">
           {copy.label}
         </span>
         <span className="min-w-0">
