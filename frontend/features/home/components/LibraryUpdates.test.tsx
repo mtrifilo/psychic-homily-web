@@ -118,7 +118,8 @@ afterEach(() => {
 })
 
 describe('LibraryUpdates', () => {
-  it('asks the inbox for the update kinds only', async () => {
+  // The five-row cap is the server's: the read asks for limit=5.
+  it('asks the inbox for the five newest rows of the update kinds only', async () => {
     notifications = [ARTIST_UNREAD]
     renderWithProviders(<LibraryUpdates />)
 
@@ -160,15 +161,6 @@ describe('LibraryUpdates', () => {
     expect(digest).toHaveTextContent('Dan Deacon, Primitive Man, Russian Circles')
     expect(digest).toHaveTextContent('added releases last week · 1d ago')
     expect(within(digest).getByText('Unread')).toBeInTheDocument()
-  })
-
-  it('caps the list at five rows', async () => {
-    notifications = Array.from({ length: 7 }, (_, index) =>
-      row(index + 10, { ...ARTIST_UNREAD, id: index + 10 })
-    )
-    renderWithProviders(<LibraryUpdates />)
-
-    expect(await screen.findAllByRole('listitem')).toHaveLength(5)
   })
 
   it('links every update to the inbox in the link colour', async () => {

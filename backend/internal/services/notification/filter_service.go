@@ -1503,20 +1503,12 @@ func (s *NotificationFilterService) enrichArtistShowAlertNotifications(entries [
 	// nothing here to stop it. One index probe per row is the whole cost.
 	visibleShows, visibleShowArgs := shared.VisibleShowPredicateSQL("shows", viewer)
 	var shows []showRow
-	// The lowest-id venue stands for a multi-venue show: show_venues carries no
-	// order, and an unordered pick would let the row's venue change between
-	// reads.
 	if err := s.db.Table("shows").
 		Select("shows.id, shows.title, shows.slug, shows.event_date, "+
-			"v.name AS venue_name, v.timezone AS venue_timezone, v.state AS venue_state").
-		Joins(`LEFT JOIN LATERAL (
-			SELECT venues.name, venues.timezone, venues.state
-			FROM show_venues
-			JOIN venues ON venues.id = show_venues.venue_id
-			WHERE show_venues.show_id = shows.id
-			ORDER BY venues.id
-			LIMIT 1
-		) v ON true`).
+			"v.venue_name, v.venue_timezone, v.venue_state").
+		Joins("LEFT JOIN LATERAL "+shared.PrimaryVenueLateralSQL(
+			"iv.name AS venue_name, iv.timezone AS venue_timezone, iv.state AS venue_state",
+			"shows.id")+" v ON true").
 		Where("shows.id IN ?", showIDs).
 		Where(visibleShows, visibleShowArgs...).
 		Scan(&shows).Error; err != nil {
@@ -1563,11 +1555,7 @@ func (s *NotificationFilterService) enrichArtistShowAlertNotifications(entries [
 		if show.VenueName != nil {
 			e.AlertShowVenueName = *show.VenueName
 		}
-		venueState := ""
-		if show.VenueState != nil {
-			venueState = *show.VenueState
-		}
-		e.AlertShowTimezone = utils.EventLocation(show.VenueTimezone, venueState).String()
+		e.AlertShowTimezone = alertZoneName(show.VenueTimezone, derefString(show.VenueState))
 		// Same slug-then-id fallback showEmailContent uses: entity slugs are
 		// nullable, and "/shows/" with an empty slug resolves to the index.
 		if show.Slug != nil && *show.Slug != "" {
@@ -1733,21 +1721,23 @@ func (s *NotificationFilterService) enrichVenueShowAlertNotifications(
 		venueID uint
 		day     string
 	}
-	type dateSpan struct{ first, last time.Time }
+	// Members arrive in event_date order within a batch, so the first one seen
+	// opens the span and every later one extends it.
+	type batchStats struct {
+		count       int
+		first, last time.Time
+	}
 	byBatch := make(map[batchKey][]string, len(venueIDs))
-	counts := make(map[batchKey]int, len(venueIDs))
-	spans := make(map[batchKey]dateSpan, len(venueIDs))
+	stats := make(map[batchKey]*batchStats, len(venueIDs))
 	for _, m := range members {
 		key := batchKey{venueID: m.VenueID, day: m.AlertDay}
-		counts[key]++
-		// Members arrive in event_date order within a batch, so the first one
-		// seen opens the span and every later one extends it.
-		span, seen := spans[key]
-		if !seen {
-			span.first = m.EventDate
+		st := stats[key]
+		if st == nil {
+			st = &batchStats{first: m.EventDate}
+			stats[key] = st
 		}
-		span.last = m.EventDate
-		spans[key] = span
+		st.count++
+		st.last = m.EventDate
 		if len(byBatch[key]) >= venueAlertSummaryLimit {
 			continue
 		}
@@ -1764,17 +1754,17 @@ func (s *NotificationFilterService) enrichVenueShowAlertNotifications(
 			continue
 		}
 		key := batchKey{venueID: e.EntityID, day: e.AlertBucket}
-		e.AlertShowCount = counts[key]
-		summary := byBatch[key]
-		if extra := counts[key] - len(summary); extra > 0 {
-			summary = append(append([]string{}, summary...), fmt.Sprintf("and %d more", extra))
-		}
-		e.AlertShowSummary = strings.Join(summary, " · ")
-		if span, ok := spans[key]; ok {
-			first, last := span.first, span.last
+		if st := stats[key]; st != nil {
+			e.AlertShowCount = st.count
+			first, last := st.first, st.last
 			e.AlertShowFirstDate = &first
 			e.AlertShowLastDate = &last
 		}
+		summary := byBatch[key]
+		if extra := e.AlertShowCount - len(summary); extra > 0 {
+			summary = append(append([]string{}, summary...), fmt.Sprintf("and %d more", extra))
+		}
+		e.AlertShowSummary = strings.Join(summary, " · ")
 
 		v, found := venueByID[e.EntityID]
 		if !found {
@@ -1782,8 +1772,19 @@ func (s *NotificationFilterService) enrichVenueShowAlertNotifications(
 		}
 		e.AlertVenueName = v.Name
 		e.AlertVenueURL = entityURL(s.frontendURL, "venues", v.Slug, v.ID)
-		e.AlertShowTimezone = utils.EventLocation(v.Timezone, v.State).String()
+		e.AlertShowTimezone = alertZoneName(v.Timezone, v.State)
 	}
+}
+
+// alertZoneName is the zone an alert row's show dates read in, or "" (the
+// field is omitted) when the server does not actually know it: a guessed zone
+// published as fact would let a client print a confident date on the wrong
+// clock. Same contract as shared.EventZone, which every show payload uses.
+func alertZoneName(timezone *string, state string) string {
+	if _, name := shared.EventZone(timezone, state); name != nil {
+		return *name
+	}
+	return ""
 }
 
 // enrichRequestNotifications populates request_title + request_url on

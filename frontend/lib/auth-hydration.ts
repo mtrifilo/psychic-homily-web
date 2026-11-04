@@ -284,11 +284,23 @@ async function prefetchSignedInHomeRead({
   return dehydrate(queryClient)
 }
 
-function hasArrayField(field: string) {
-  return (body: unknown): boolean =>
+function isSavedShowsPayload(body: unknown): boolean {
+  return (
     !!body &&
     typeof body === 'object' &&
-    Array.isArray((body as Record<string, unknown>)[field])
+    Array.isArray((body as { shows?: unknown }).shows)
+  )
+}
+
+/** A `null` notifications list is a valid answer (no rows), so only the
+ *  envelope is checked. */
+function isNotificationListPayload(body: unknown): boolean {
+  return (
+    !!body &&
+    typeof body === 'object' &&
+    'notifications' in body &&
+    typeof (body as { unread_count?: unknown }).unread_count === 'number'
+  )
 }
 
 /**
@@ -309,26 +321,19 @@ export const prefetchHomeSavedShows = cache(() =>
         0,
         'upcoming'
       ),
-    isPayload: hasArrayField('shows'),
+    isPayload: isSavedShowsPayload,
     service: 'ssr-saved-shows-prefetch',
     pathFamily: '/saved-shows',
   })
 )
 
-/**
- * Prefetch the "From your library" rows under the key `useLibraryUpdates`
- * reads. A `null` notifications list is a valid answer (no rows), so only the
- * envelope is checked.
- */
+/** Prefetch the "From your library" rows under the key `useLibraryUpdates`
+ *  reads. */
 export const prefetchHomeLibraryUpdates = cache(() =>
   prefetchSignedInHomeRead({
     path: LIBRARY_UPDATES_PATH,
     queryKey: () => LIBRARY_UPDATES_QUERY_KEY,
-    isPayload: body =>
-      !!body &&
-      typeof body === 'object' &&
-      'notifications' in body &&
-      typeof (body as { unread_count?: unknown }).unread_count === 'number',
+    isPayload: isNotificationListPayload,
     service: 'ssr-library-updates-prefetch',
     pathFamily: '/me/notifications',
   })

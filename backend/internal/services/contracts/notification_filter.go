@@ -120,15 +120,15 @@ type NotificationLogEntry struct {
 	AlertShowTitle  string `json:"alert_show_title,omitempty"`
 	AlertShowURL    string `json:"alert_show_url,omitempty"`
 	// AlertShowVenueName and AlertShowEventDate name where and when the
-	// announced show happens. A show booked at several venues names the one
-	// with the lowest id, so the choice is stable across reads.
+	// announced show happens. A multi-venue show names its primary venue
+	// (shared.PrimaryVenueLateralSQL's pick).
 	AlertShowVenueName string     `json:"alert_show_venue_name,omitempty"`
 	AlertShowEventDate *time.Time `json:"alert_show_event_date,omitempty"`
 
 	// AlertShowTimezone is the IANA zone every show date on this row reads in:
 	// the show's venue on an artist alert, the followed venue on a venue alert.
-	// Resolved server-side through utils.EventLocation, so a client formats
-	// dates in it without restating the state fallback.
+	// Resolved server-side (stored zone, then the venue's state), and omitted
+	// when neither names one, so a present value is never a guess.
 	AlertShowTimezone string `json:"alert_show_timezone,omitempty"`
 
 	// AlertBucket is the calendar day a COALESCED alert covers, as YYYY-MM-DD,

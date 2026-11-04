@@ -5,7 +5,6 @@ import { apiRequest, API_BASE_URL } from '@/lib/api'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import type { components } from '@/types/api'
 import {
-  LIBRARY_UPDATES_LIMIT,
   LIBRARY_UPDATES_PATH,
   LIBRARY_UPDATES_QUERY_KEY,
 } from '@/features/notifications/libraryUpdates'
@@ -34,7 +33,7 @@ function selectLibraryUpdates(data: LibraryUpdatesResponse): LibraryUpdate[] {
     const copy = describeLibraryUpdate(entry)
     if (copy) updates.push({ id: entry.id, unread: entry.read_at == null, copy })
   }
-  return updates.slice(0, LIBRARY_UPDATES_LIMIT)
+  return updates
 }
 
 /**

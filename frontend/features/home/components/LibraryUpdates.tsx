@@ -5,9 +5,7 @@ import Link from 'next/link'
 import { ChevronRight } from 'lucide-react'
 import { ALERTS_AREA_HREF } from '@/components/shared/followAlertChoices'
 import { useHomeMetroState } from '@/features/auth/hooks/useAlertPreferences'
-// Concrete module paths, not the feature barrels: Turbopack does not
-// tree-shake a `'use client'` barrel per export. See
-// features/sharedChunkBarrelGuard.test.ts.
+import { SHOW_ROW_GRID } from '@/features/shows/components/ShowRow'
 import { useMarkNotificationsRead } from '@/features/notifications/hooks'
 import { useLibraryFollowingCounts } from '@/lib/hooks/common/useFollow'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -16,14 +14,6 @@ import { useLibraryUpdates, type LibraryUpdate } from '../hooks/useLibraryUpdate
 import { HOME_ACCENT_LINK_CLASS } from './HomeCityShowsLink'
 
 const HEADING_ID = 'home-library-updates-heading'
-
-/**
- * The update row's grid. The columns match the saved-show rows above it
- * (`SAVED_SHOW_ROW_GRID`: 74px, 104px from `md`) so the kind labels line up
- * under the date column, with a third column for the unread dot and chevron.
- */
-const UPDATE_ROW_GRID =
-  'grid grid-cols-[74px_minmax(0,1fr)_auto] items-center gap-x-3 border-b border-border py-2.5 md:grid-cols-[104px_minmax(0,1fr)_auto] md:gap-x-5 md:py-3'
 
 /**
  * "From your library" (PSY-2589, Figma `2168:100` / `2185:1392`): the
@@ -103,7 +93,9 @@ export function LibraryUpdateRow({ update }: { update: LibraryUpdate }) {
         onClick={() => {
           if (unread) markRead.mutate([update.id])
         }}
-        className={cn(UPDATE_ROW_GRID, 'group transition-colors hover:bg-muted/40')}
+        // The show row's grid, so the kind labels line up under the date
+        // column of the show rows around this module.
+        className={cn(SHOW_ROW_GRID, 'group transition-colors hover:bg-muted/40')}
       >
         <span className="font-data text-[11px] font-bold uppercase text-muted-foreground md:text-xs">
           {copy.label}
