@@ -1,5 +1,5 @@
-import { CommunityPulseBand } from './CommunityPulseBand'
 import { HomeLayoutRuntime } from './HomeLayoutRuntime'
+import { HomeNameplate } from './HomeNameplate'
 import { HomeSceneGraph } from './HomeSceneGraph'
 import { LatestRadioShows } from './LatestRadioShows'
 import { LibraryUpdates } from './LibraryUpdates'
@@ -11,8 +11,10 @@ import type { HomeLayoutDocument } from '../sections'
 const NEARBY_SECTION_ID = 'home-shows-near-you'
 
 /**
- * The signed-in home: the viewer's saved shows in place of the
- * logged-out wordmark hero, with the general "Upcoming shows" section dropped.
+ * The signed-in home: a masthead (HomeNameplate: the dateline, and from `xl`
+ * the wordmark nameplate) over the viewer's saved shows, in place of the
+ * logged-out hero, with the general "Upcoming shows" section and the stats
+ * band dropped.
  * /shows stays one click away through the city link, which cascades from the
  * nearby section to the saved-shows footer to the page-end row so some
  * surface always carries it, and through "Find a show" in the zero-saves
@@ -51,11 +53,11 @@ export function SignedInHome({
   return (
     <HomeLayoutRuntime
       initialLayout={layout}
+      masthead={<HomeNameplate />}
       sections={{
         saved_shows: <SavedShowsModule />,
         library_updates: <LibraryUpdates />,
         nearby_shows: <NearbyShowsSection id={NEARBY_SECTION_ID} />,
-        community_stats: <CommunityPulseBand />,
         city_graph: <HomeSceneGraph narrowForm="linkRow" />,
         radio_shows: <LatestRadioShows variant="rows" />,
       }}

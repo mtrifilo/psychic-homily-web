@@ -4,8 +4,15 @@ import type { ReactNode } from 'react'
 import { HOME_SECTIONS } from '../sections'
 
 vi.mock('./HomeLayoutRuntime', () => ({
-  HomeLayoutRuntime: ({ sections }: { sections: Record<string, ReactNode> }) => (
+  HomeLayoutRuntime: ({
+    sections,
+    masthead,
+  }: {
+    sections: Record<string, ReactNode>
+    masthead?: ReactNode
+  }) => (
     <>
+      <div data-testid="masthead-slot">{masthead}</div>
       {Object.entries(sections).map(([id, node]) => (
         <div key={id} data-testid={`slot-${id}`}>
           {node}
@@ -17,7 +24,6 @@ vi.mock('./HomeLayoutRuntime', () => ({
 vi.mock('./SavedShowsModule', () => ({ SavedShowsModule: () => null }))
 vi.mock('./LibraryUpdates', () => ({ LibraryUpdates: () => null }))
 vi.mock('./NearbyShowsSection', () => ({ NearbyShowsSection: () => null }))
-vi.mock('./CommunityPulseBand', () => ({ CommunityPulseBand: () => null }))
 vi.mock('./HomeSceneGraph', () => ({
   HomeSceneGraph: ({ narrowForm }: { narrowForm: string }) => (
     <div data-testid="scene-graph" data-narrow-form={narrowForm} />
@@ -29,7 +35,31 @@ vi.mock('./LatestRadioShows', () => ({
   ),
 }))
 
+vi.mock('./HomeNameplate', () => ({
+  HomeNameplate: () => <div data-testid="nameplate" />,
+}))
+
 import { SignedInHome } from './SignedInHome'
+
+describe('SignedInHome masthead and sections', () => {
+  it('mounts the nameplate as the masthead, outside the sections', () => {
+    render(<SignedInHome />)
+
+    expect(screen.getByTestId('masthead-slot')).toContainElement(
+      screen.getByTestId('nameplate')
+    )
+  })
+
+  // The registry has no stats section (its counts render in the dateline).
+  it('hands over exactly the registry sections, without the stats band', () => {
+    render(<SignedInHome />)
+
+    const slots = screen
+      .getAllByTestId(/^slot-/)
+      .map(slot => slot.dataset.testid?.replace('slot-', ''))
+    expect(slots.sort()).toEqual(HOME_SECTIONS.map(section => section.id).sort())
+  })
+})
 
 describe('SignedInHome section forms', () => {
   it('mounts the radio rows and the phone link row for the graph', () => {

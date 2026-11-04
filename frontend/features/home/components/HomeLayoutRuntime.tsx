@@ -54,9 +54,15 @@ interface StagedTransition {
 export function HomeLayoutRuntime({
   initialLayout,
   sections,
+  masthead,
 }: {
   initialLayout?: HomeLayoutDocument | null
   sections: Record<HomeSectionId, ReactNode>
+  /** Above the sections and outside them: it is not hideable or movable.
+   *  It owns the whole gap between the top bar and the first section (the
+   *  page adds none for this variant), so without one the first section sits
+   *  flush under the bar. */
+  masthead?: ReactNode
 }) {
   const { authStatus } = useAuthContext()
   const router = useRouter()
@@ -233,14 +239,16 @@ export function HomeLayoutRuntime({
           Home
         </h1>
 
+        {masthead}
+
         {/* The gap between sections rides INSIDE each slot rather than on this
             container: on the container it survives the height animation and
             vanishes at unmount, snapping everything below up by its full
             height. It also cannot be padding on the slot itself, because
             padding floors a border-box element's rendered height, so the slot
             would stop 56px short of collapsing and drop that at unmount
-            instead. */}
-        <div className="mt-4 flex w-full flex-col">{column}</div>
+            instead. The gap above it is the masthead's own. */}
+        <div className="flex w-full flex-col">{column}</div>
 
         {/* Outside the column and never conditional: the popover it anchors
             must survive the page emptying while it is open. */}

@@ -39,21 +39,22 @@ const (
 //
 // The default render order is the frontend registry's (HOME_SECTIONS in
 // frontend/features/home/sections.ts): saved_shows, library_updates,
-// nearby_shows, community_stats, radio_shows, city_graph. This slice's own
+// nearby_shows, radio_shows, city_graph (community_stats is still accepted
+// but no longer rendered; the frontend drops it on read). This slice's own
 // order is not that order: it spells the enum tag on HomeLayoutSection.ID (see
 // homeSectionVocabularyCSV), and nothing reads it as a render order.
 //
 // A document may OMIT ids, and Validate accepts that on the CONTRACT that a
 // client restores any known section the document leaves out at its index in
 // that default order. That is what lets a new section ship without rewriting
-// stored rows. The
-// consuming frontend is not built yet (PSY-2104), so nothing enforces its half
-// of that contract today.
+// stored rows. community_stats is the exception: the frontend has retired it,
+// so it never restores it, drops it on read, and leaves it out of the next
+// write; a stored visibility for it does not survive that write.
 //
-// These ids are unverified against a renderer: no component keyed to them
-// exists yet. Renaming one after the first production write costs a data
-// migration that rewrites stored documents, so they should be confirmed
-// against the real sections before that write happens.
+// Every id but community_stats is keyed to a rendered section (the registry
+// in frontend/features/home/sections.ts, mounted by SignedInHome). Stored
+// documents carry these ids, so renaming one costs a data migration that
+// rewrites them.
 var knownHomeSections = []string{
 	HomeSectionSavedShows,
 	HomeSectionNearbyShows,

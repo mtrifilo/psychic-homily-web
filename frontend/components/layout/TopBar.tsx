@@ -1,9 +1,14 @@
 'use client'
 
 import Image from 'next/image'
+import { usePathname } from 'next/navigation'
 import { ChromeLink } from '@/components/layout/nav/ChromeLink'
 import { Moon, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ScryingGridWordmark } from '@/features/home/components/scrying-grid/ScryingGridWordmark'
+import { WORDMARK_ONE_LINE } from '@/features/home/components/scrying-grid/wordmarkPresets'
+import { useAuthContext } from '@/lib/context/AuthContext'
+import { cn } from '@/lib/utils'
 import { useThemeToggle } from './mode-toggle'
 import { PrimaryNav } from './nav/PrimaryNav'
 import { SearchTrigger } from './nav/SearchTrigger'
@@ -45,8 +50,21 @@ const glitchFilter = (
 // `variant` (PSY-1116): in side-nav mode the global nav lives in the left
 // Sidebar, so the top bar drops its PrimaryNav and becomes a slim brand +
 // search + theme + account bar. 'full' (default) is the top-nav-mode chrome.
+//
+// The signed-in Home tab's masthead: below `sm`, where the bar has no text
+// wordmark, on `/` for a viewer settled as signed in, the dot-field wordmark
+// takes the eye's cell. From `sm` this bar is as shipped and HomeNameplate
+// shows the wordmark instead; the two files' `sm` classes are one contract, so
+// change them together. It reads the same
+// settled auth signal as BottomTabBar, which AuthHydrator seeds before the
+// shell renders, so the server HTML already carries the right brand and
+// hydration does not swap it.
 export function TopBar({ variant = 'full' }: { variant?: 'full' | 'slim' } = {}) {
   const { toggle: toggleTheme } = useThemeToggle()
+  const pathname = usePathname()
+  const { user, authStatus } = useAuthContext()
+  const showsHomeWordmark =
+    pathname === '/' && authStatus === 'authenticated' && user !== null
 
   return (
     <>
@@ -60,8 +78,26 @@ export function TopBar({ variant = 'full' }: { variant?: 'full' | 'slim' } = {})
             PSY-1638) — and it still would not free enough room. The search
             field on the right is the designated slack absorber instead. */}
         <div className="flex shrink-0 items-center gap-3 xl:gap-[30px]">
-          <ChromeLink href="/" aria-label="Psychic Homily — home" className="flex items-center gap-2 transition-opacity hover:opacity-80">
-            <div className="relative size-[36px] overflow-hidden rounded-md">
+          <ChromeLink href="/" aria-label="Psychic Homily, home" className="flex items-center gap-2 transition-opacity hover:opacity-80">
+            {/* Below a 390px viewport the mark narrows (the ink re-fits)
+                rather than push the 36px search target past the bar's right
+                padding: 100vw less the two 16px paddings, the search target
+                and a 16px gap. Nothing else shares the row below `sm`. */}
+            {showsHomeWordmark && (
+              <ScryingGridWordmark
+                preset="bar"
+                lines={WORDMARK_ONE_LINE}
+                heading={false}
+                motion="settle"
+                className="max-w-[calc(100vw-5.25rem)] sm:hidden"
+              />
+            )}
+            <div
+              className={cn(
+                'relative size-[36px] overflow-hidden rounded-md',
+                showsHomeWordmark && 'hidden sm:block'
+              )}
+            >
               {/* Raster, not vector, on purpose (PSY-1771): the predecessor
                   `/PsychicHomilyLogov2.svg` put 166 KB on the wire of every
                   route because `next/image` cannot optimize SVG. Same artwork

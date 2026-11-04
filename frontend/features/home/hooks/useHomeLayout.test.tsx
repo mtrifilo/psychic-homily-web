@@ -83,7 +83,6 @@ describe('useHomeLayout', () => {
       'saved_shows',
       'library_updates',
       'nearby_shows',
-      'community_stats',
       'city_graph',
       'radio_shows',
     ])

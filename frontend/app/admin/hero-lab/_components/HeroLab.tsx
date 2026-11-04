@@ -16,6 +16,7 @@ import { MirageHaze } from './MirageHaze'
 import { MagneticLetters } from './MagneticLetters'
 import { ScryingPool } from './ScryingPool'
 import { DustDissolve } from './DustDissolve'
+import { SignedInMarks } from './SignedInMarks'
 import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 
 const STAGES: StageMeta[] = [
@@ -133,6 +134,8 @@ export function HeroLab() {
           </a>
         </p>
       </header>
+
+      <SignedInMarks />
 
       {STAGES.map((s) => (
         <StageFrame key={s.id} meta={s}>

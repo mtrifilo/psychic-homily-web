@@ -108,7 +108,6 @@ const SECTIONS = {
   saved_shows: <SavedShowsModule />,
   library_updates: <div>library_updates</div>,
   nearby_shows: <NearbyShowsSection id="nearby" />,
-  community_stats: <div>community_stats</div>,
   city_graph: <div>city_graph</div>,
   radio_shows: <div>radio_shows</div>,
 }
@@ -207,7 +206,7 @@ describe('the relocating link rows across every layout', () => {
   )
 
   it('renders the city link above the Discover row in the page-end row', () => {
-    layout = layoutShowing(['community_stats'])
+    layout = layoutShowing(['radio_shows'])
 
     render(<HomeLayoutRuntime initialLayout={null} sections={SECTIONS} />)
 
@@ -234,7 +233,6 @@ describe('the relocating link rows across every layout', () => {
       ['nearby_shows', 'saved'],
       ['saved_shows', 'pageEnd'],
       ['library_updates', 'pageEnd'],
-      ['community_stats', 'pageEnd'],
       ['city_graph', 'pageEnd'],
       ['radio_shows', 'empty'],
     ]

@@ -40,8 +40,44 @@ export interface SampleOpts {
   fontFamily: string
   /** Sampling step in device px — smaller = denser field. */
   gapDev?: number
-  /** Scale the fit box (<1 = more margin around the wordmark inside the canvas). */
+  /** Scale the em-box fit box (<1 = more margin around the wordmark inside
+   *  the canvas). Not read with `fillInk`. */
   padScale?: number
+  /** Fit and centre the glyphs' measured ink box in the whole canvas, rather
+   *  than the em box in the hero's margined box. For a canvas sized to the
+   *  wordmark itself, where an em-box fit clips the caps. */
+  fillInk?: boolean
+  /** Glyph weight; the hero samples the bold cut. */
+  fontWeight?: number
+}
+
+/** Share of the canvas the ink fills with `fillInk`: under 1 so the edge
+ *  cells are not cut in half. */
+const INK_FILL = 0.98
+
+/** Draw the lines so their ink box is as large as fits and centred. */
+function drawInkFilled(ctx: CanvasRenderingContext2D, lines: readonly string[], fontFamily: string, weight: number) {
+  const { width, height } = ctx.canvas
+  ctx.font = `${weight} 100px ${fontFamily}`
+  const metrics = lines.map((l) => ctx.measureText(l))
+  const widest = Math.max(1, ...metrics.map((m) => m.actualBoundingBoxLeft + m.actualBoundingBoxRight))
+  // The tallest ascent and deepest descent of any line, so every line fits.
+  const ascent = Math.max(...metrics.map((m) => m.actualBoundingBoxAscent))
+  const descent = Math.max(...metrics.map((m) => m.actualBoundingBoxDescent))
+  // Ink height at 100px: that ascent, the line gaps, that descent.
+  const inkHeight100 = ascent + descent + (lines.length - 1) * LINE_GAP_FACTOR * 100
+  const size = Math.max(8, Math.min((width * INK_FILL) / widest, (height * INK_FILL) / Math.max(1, inkHeight100)) * 100)
+  const scale = size / 100
+  ctx.font = `${weight} ${size}px ${fontFamily}`
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'alphabetic'
+  const top = (height - inkHeight100 * scale) / 2
+  lines.forEach((line, i) => {
+    const m = metrics[i]
+    const inkWidth = (m.actualBoundingBoxLeft + m.actualBoundingBoxRight) * scale
+    const x = (width - inkWidth) / 2 + m.actualBoundingBoxLeft * scale
+    ctx.fillText(line, x, top + ascent * scale + i * LINE_GAP_FACTOR * size)
+  })
 }
 
 /** Sample the wordmark into a list of lit points (device-px coords). */
@@ -55,16 +91,21 @@ export function sampleWordmark(widthDev: number, heightDev: number, opts: Sample
   if (!ctx) return []
 
   const pad = opts.padScale ?? 1
-  const size = fitFontSize(ctx, opts.lines, canvas.width * 0.86 * pad, canvas.height * 0.78 * pad, opts.fontFamily, FONT_WEIGHT)
-  ctx.font = `${FONT_WEIGHT} ${size}px ${opts.fontFamily}`
+  const weight = opts.fontWeight ?? FONT_WEIGHT
   ctx.fillStyle = '#ffffff'
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  const lineHeight = size * LINE_GAP_FACTOR
-  const n = opts.lines.length
-  for (let i = 0; i < n; i++) {
-    const y = canvas.height / 2 - ((n - 1) / 2) * lineHeight + i * lineHeight
-    ctx.fillText(opts.lines[i], canvas.width / 2, y)
+  if (opts.fillInk) {
+    drawInkFilled(ctx, opts.lines, opts.fontFamily, weight)
+  } else {
+    const size = fitFontSize(ctx, opts.lines, canvas.width * 0.86 * pad, canvas.height * 0.78 * pad, opts.fontFamily, weight)
+    ctx.font = `${weight} ${size}px ${opts.fontFamily}`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    const lineHeight = size * LINE_GAP_FACTOR
+    const n = opts.lines.length
+    for (let i = 0; i < n; i++) {
+      const y = canvas.height / 2 - ((n - 1) / 2) * lineHeight + i * lineHeight
+      ctx.fillText(opts.lines[i], canvas.width / 2, y)
+    }
   }
 
   const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height)
