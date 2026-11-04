@@ -27,11 +27,11 @@ export function ChartModule({
 
   return (
     <section data-testid={testId} className="min-w-0 overflow-hidden">
-      <header className="flex min-h-6 items-start gap-2 border-b-2 border-foreground pb-1.5 font-data leading-none">
+      <header className="flex min-h-6 items-start gap-2 border-b-2 border-foreground pb-1.5 leading-none">
         <h2 className="min-w-0 flex-1 text-xs font-bold">
           {title}
         </h2>
-        <span className="shrink-0 text-xs text-muted-foreground">
+        <span className="shrink-0 font-data text-xs text-muted-foreground">
           {context}
         </span>
         {fullListHref ? (

@@ -85,7 +85,7 @@ export function ShowTicketRow({ show, lifecycle }: ShowTicketRowProps) {
         )}
         <ShowAddToCalendar show={show} lifecycle={lifecycle} />
         {/* SaveButton's bracket branch defaults to the header-linkbox
-            treatment (11px data face); this row is 14px sans, and one odd bracket
+            treatment (12px data face); this row is 14px sans, and one odd bracket
             mid-row reads as a mistake. The count display the Button variant
             carried is deliberately absent here — the mock's row has no
             counts; social proof belongs to the attendance module. */}

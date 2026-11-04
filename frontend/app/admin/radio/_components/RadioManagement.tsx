@@ -936,7 +936,7 @@ export function SyncRunRow({ run }: { run: RadioSyncRun }) {
         <div className="flex items-center gap-2">
           <SyncRunStatusIcon status={run.status} />
           <Badge className={display.color}>{display.label}</Badge>
-          <span className="text-xs text-muted-foreground">
+          <span className="text-xs capitalize text-muted-foreground">
             {run.run_type}
           </span>
           {/* Show-scoped runs (slot fetch PSY-1333, backfill) name their show so a
@@ -1174,7 +1174,7 @@ function GlobalFailureRow({
         <SyncRunStatusIcon status={run.status} />
         <Badge className={display.color}>{display.label}</Badge>
         <span className="font-medium">{run.station_name ?? 'All stations'}</span>
-        <span className="text-xs text-muted-foreground">{run.run_type}</span>
+        <span className="text-xs capitalize text-muted-foreground">{run.run_type}</span>
         <span className="ml-auto text-xs text-muted-foreground">
           {new Date(run.started_at).toLocaleString()}
         </span>

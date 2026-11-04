@@ -77,6 +77,8 @@ function getIntensityLevel(count: number, maxCount: number): number {
   return 4
 }
 
+/** Columns a month label needs before the next one may start. */
+const MONTH_LABEL_MIN_GAP = 3
 const DAY_LABELS = ['', 'Mon', '', 'Wed', '', 'Fri', ''] // Sun, Mon, ..., Sat
 const MONTH_NAMES = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -150,6 +152,11 @@ export function ActivityHeatmap({ username }: ActivityHeatmapProps) {
       const firstDay = weeks[w][0]
       const month = firstDay.getMonth()
       if (month !== lastMonth) {
+        // A 12px month name spans about two 13px columns, so a label fewer
+        // than MONTH_LABEL_MIN_GAP columns after the previous one would
+        // overprint it. The later, full month wins over the partial one.
+        const previous = labels[labels.length - 1]
+        if (previous && w - previous.col < MONTH_LABEL_MIN_GAP) labels.pop()
         labels.push({ label: MONTH_NAMES[month], col: w })
         lastMonth = month
       }

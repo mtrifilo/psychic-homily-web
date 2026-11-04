@@ -450,7 +450,7 @@ export function VenueRailProvenance({
       data-testid="rail-provenance"
       className="font-data text-xs leading-4 text-muted-foreground"
     >
-      {/* Full-strength muted, not a dimmed variant: at 11px an opacity
+      {/* Full-strength muted, not a dimmed variant: at 12px an opacity
           step lands under the 4.5:1 contrast floor. The line's hierarchy
           comes from the VALUE being brighter, not the label dimmer. */}
       <span className="text-muted-foreground">DATA</span>{' '}
