@@ -39,24 +39,27 @@ export const SETTLE_RELEASE_MS = 1000
  *  over the flash-area threshold). */
 const INTRO_FLOOR = 0.12
 
+/** The wordmark on one line, as the bar mark and the nameplate set it. */
+export const WORDMARK_ONE_LINE: readonly string[] = ['PSYCHIC HOMILY']
+
+// Shared by every preset. The boards set Hanken Grotesk Black; a resting dot
+// is about 0.6 x the pitch across (radius = pitch / 4 before the shimmer and
+// ignite scaling); the pointer reaches 1.2 x the container height.
+const PRESET_FONT_WEIGHT = 900
+const PRESET_DOT_PER_PITCH = 0.25
+const PRESET_IGNITE_REACH = 1.2
+const PRESET_FALLBACK_CLASS = 'whitespace-nowrap font-black leading-none'
+
 /** A fixed-size layout of the field, tuned on /admin/hero-lab against the
  *  Product Designs components (bar mark 2240:3336, nameplate 2240:3359). */
 export interface WordmarkPreset {
   /** Sampling pitch in CSS px. */
   gapFactor: number
-  /** Dot radius in CSS px before the shimmer and ignite scaling; a resting
-   *  dot is about 0.6 x the pitch across, as on the boards. */
-  dotRadius: number
-  /** Glyph weight sampled (the boards set Hanken Grotesk Black). */
-  fontWeight: number
-  /** Share of the box the letters' ink fills, centred (see `fillInk` in
-   *  `sampleWordmark`). Under 1 so the edge cells are not cut in half. */
-  inkFill: number
-  /** Pointer reach as a multiple of the container height. */
-  igniteReach: number
   /** Dark-mode bloom pass. */
   bloom: boolean
-  /** Size of the text fallback (no JS, or the canvas could not sample). */
+  /** The box the preset is tuned for; the container takes it. */
+  boxClassName: string
+  /** Text size of the fallback (no JS, or the canvas could not sample). */
   fallbackClassName: string
 }
 
@@ -73,21 +76,15 @@ export interface WordmarkPreset {
 export const WORDMARK_PRESETS = {
   bar: {
     gapFactor: 3,
-    dotRadius: 0.75,
-    fontWeight: 900,
-    inkFill: 0.98,
-    igniteReach: 1.2,
     bloom: false,
-    fallbackClassName: 'whitespace-nowrap text-[22px] font-black leading-none',
+    boxClassName: 'h-[30px] w-[306px]',
+    fallbackClassName: 'text-[22px]',
   },
   nameplate: {
     gapFactor: 4,
-    dotRadius: 1,
-    fontWeight: 900,
-    inkFill: 0.98,
-    igniteReach: 1.2,
     bloom: true,
-    fallbackClassName: 'whitespace-nowrap text-[88px] font-black leading-none',
+    boxClassName: 'h-[100px] w-[1084px]',
+    fallbackClassName: 'text-[88px]',
   },
 } as const satisfies Record<string, WordmarkPreset>
 
@@ -163,6 +160,8 @@ export function ScryingGridWordmark({
   // A string, so a caller's inline array literal does not rebuild the field
   // on every render.
   const linesKey = lines.join('\n')
+  // A module constant per preset, so its identity is stable across renders.
+  const layout = preset ? WORDMARK_PRESETS[preset] : null
 
   useEffect(() => {
     const container = containerRef.current
@@ -176,10 +175,11 @@ export function ScryingGridWordmark({
     // answers its server value (false), and this effect runs once with it.
     const reduced =
       reducedMotion || window.matchMedia(REDUCED_MOTION_QUERY).matches
-    const layout = preset ? WORDMARK_PRESETS[preset] : null
     const settle = motion === 'settle'
     const bloomOn = layout ? layout.bloom : true
-    const baseDot = layout ? layout.dotRadius * dpr : Math.max(1.1, 1.35 * dpr)
+    const baseDot = layout
+      ? layout.gapFactor * PRESET_DOT_PER_PITCH * dpr
+      : Math.max(1.1, 1.35 * dpr)
     const pointer = { x: 0, y: 0, active: false }
     // settle state. The intro's clock advances by frame timestamps, so a
     // pause (off-screen, hidden tab) resumes it where it stopped.
@@ -198,10 +198,11 @@ export function ScryingGridWordmark({
     const HOT: RGB = [255, 244, 224]
     // Pre-rendered grain tile to break gradient banding + add organic texture
     // (the trick behind the Vercel-style glow — noise composited over the pool).
+    // Only the pool modes read it.
     const noiseTile = document.createElement('canvas')
     noiseTile.width = 96
     noiseTile.height = 96
-    const noiseCtx = noiseTile.getContext('2d')
+    const noiseCtx = spotlight === 'cells' ? null : noiseTile.getContext('2d')
     if (noiseCtx) {
       const grain = noiseCtx.createImageData(96, 96)
       for (let i = 0; i < grain.data.length; i += 4) {
@@ -215,8 +216,8 @@ export function ScryingGridWordmark({
     }
     // Offscreen for the HDR-style bloom pass (downscale → bright-pass → additive
     // blurred upscale). Sized to a fraction of the scene in rebuild().
-    const bloomCanvas = document.createElement('canvas')
-    const bloomCtx = bloomCanvas.getContext('2d')
+    const bloomCanvas = bloomOn ? document.createElement('canvas') : null
+    const bloomCtx = bloomCanvas?.getContext('2d') ?? null
     const supportsFilter = !!bloomCtx && 'filter' in bloomCtx
 
     const draw = (time: number, isStatic: boolean) => {
@@ -281,7 +282,7 @@ export function ScryingGridWordmark({
       for (let i = 0; i < particles.length; i++) {
         const p = particles[i]
         let shimmer = REST_BRIGHTNESS
-        if (!isStatic) {
+        if (!isStatic && settleMix < 1) {
           const live = 0.45 + 0.4 * Math.sin(time * 0.0016 + p.phase)
           shimmer = live + (REST_BRIGHTNESS - live) * settleMix
         }
@@ -326,7 +327,7 @@ export function ScryingGridWordmark({
       // the heavy bloom washing out the letterforms. Dark mode only (light mode
       // would wash out). Tuned restrained per the chosen "subtle halo" direction.
       // In settle mode the resting frame is the designed frame, halo included.
-      if (isDark && bloomOn && (settle || !isStatic) && supportsFilter && bloomCtx && bloomCanvas.width > 1) {
+      if (isDark && (settle || !isStatic) && supportsFilter && bloomCanvas && bloomCtx && bloomCanvas.width > 1) {
         const bw = bloomCanvas.width
         const bh = bloomCanvas.height
         bloomCtx.globalCompositeOperation = 'source-over'
@@ -344,29 +345,34 @@ export function ScryingGridWordmark({
       }
     }
 
-    const rebuild = (): boolean => {
+    // 'no-box': the container has no size yet (display:none at this
+    // breakpoint); the ResizeObserver builds the field once it has one.
+    // 'empty': it has a size and the text sampled to nothing.
+    const rebuild = (): 'ready' | 'no-box' | 'empty' => {
       const rect = container.getBoundingClientRect()
-      if (rect.width < 8 || rect.height < 8) return false
+      if (rect.width < 8 || rect.height < 8) return 'no-box'
       const w = Math.round(rect.width * dpr)
       const h = Math.round(rect.height * dpr)
       canvas.width = w
       canvas.height = h
       canvas.style.width = `${rect.width}px`
       canvas.style.height = `${rect.height}px`
-      radius = layout ? h * layout.igniteReach : Math.min(w, h) * 0.3
-      bloomCanvas.width = Math.max(1, Math.round(w / 3))
-      bloomCanvas.height = Math.max(1, Math.round(h / 3))
+      radius = layout ? h * PRESET_IGNITE_REACH : Math.min(w, h) * 0.3
+      if (bloomCanvas) {
+        bloomCanvas.width = Math.max(1, Math.round(w / 3))
+        bloomCanvas.height = Math.max(1, Math.round(h / 3))
+      }
       const points = sampleWordmark(w, h, {
         lines: linesKey.split('\n'),
         fontFamily: resolveFontFamily(),
         gapDev: Math.round(gapFactor * dpr),
         // Oversized: inset the wordmark so the pool has room to fully fade
         // inside the canvas instead of getting sliced at the edge.
-        padScale: spotlight === 'oversized' ? 0.6 : (layout?.inkFill ?? 1),
+        padScale: spotlight === 'oversized' ? 0.6 : 1,
         fillInk: !!layout,
-        fontWeight: layout?.fontWeight,
+        fontWeight: layout ? PRESET_FONT_WEIGHT : undefined,
       })
-      if (points.length === 0) return false
+      if (points.length === 0) return 'empty'
       particles = points.map((p) => ({
         hx: p.x,
         hy: p.y,
@@ -376,7 +382,7 @@ export function ScryingGridWordmark({
         vy: 0,
         phase: Math.random() * Math.PI * 2,
       }))
-      return true
+      return 'ready'
     }
 
     // settle: every particle home and still, so the static frame is the one
@@ -437,13 +443,15 @@ export function ScryingGridWordmark({
 
     const begin = () => {
       if (disposed) return
-      if (!rebuild()) {
-        // Canvas couldn't sample (e.g. zero-size container) — reveal the text.
+      const built = rebuild()
+      if (built === 'no-box') return
+      if (built === 'empty') {
+        // Canvas couldn't sample: reveal the text.
         setFailed(true)
         return
       }
       setEnhanced(true)
-      if (!reduced) resume()
+      resume()
       if (!running) draw(0, true)
     }
     // Fonts must be loaded before sampling, or we sample fallback glyphs.
@@ -490,14 +498,11 @@ export function ScryingGridWordmark({
     const ro = new ResizeObserver(() => {
       cancelAnimationFrame(resizeRaf)
       resizeRaf = requestAnimationFrame(() => {
-        if (disposed || !rebuild()) return
+        if (disposed || rebuild() !== 'ready') return
         setEnhanced(true)
-        // A container with no size at mount (display:none at this breakpoint)
-        // took the text fallback; the canvas replaces it now.
-        setFailed(false)
         if (!running) {
           draw(0, true)
-          if (settle && !reduced) resume()
+          if (settle) resume()
         }
       })
     })
@@ -530,7 +535,7 @@ export function ScryingGridWordmark({
       ro.disconnect()
       io.disconnect()
     }
-  }, [gapFactor, spotlight, reducedMotion, linesKey, motion, preset])
+  }, [gapFactor, spotlight, reducedMotion, linesKey, motion, layout])
 
   // Visible fallback, hidden by default so it never flashes before the
   // canvas; revealed on enhancement failure, or for no-JS (noscript).
@@ -538,11 +543,15 @@ export function ScryingGridWordmark({
     <span
       aria-hidden
       data-hero-fallback
-      className={`block font-display text-foreground transition-opacity duration-700 ${
-        preset ? WORDMARK_PRESETS[preset].fallbackClassName : HERO_FALLBACK_CLASS
-      } ${failed ? 'opacity-100' : 'opacity-0'}`}
+      className={cn(
+        'block font-display text-foreground transition-opacity duration-700',
+        // Size before leading: tailwind-merge drops a leading-* that precedes
+        // a text size.
+        layout ? [layout.fallbackClassName, PRESET_FALLBACK_CLASS] : HERO_FALLBACK_CLASS,
+        failed ? 'opacity-100' : 'opacity-0'
+      )}
     >
-      {linesKey.split('\n').map((line, index) => (
+      {lines.map((line, index) => (
         <Fragment key={index}>
           {index > 0 && <br />}
           {line}
@@ -556,7 +565,11 @@ export function ScryingGridWordmark({
       ref={containerRef}
       role={heading ? undefined : 'img'}
       aria-label={heading ? undefined : ACCESSIBLE_NAME}
-      className={cn('relative isolate flex w-full items-center justify-center select-none', className)}
+      className={cn(
+        'relative isolate flex w-full items-center justify-center select-none',
+        layout?.boxClassName,
+        className
+      )}
       style={{ touchAction: 'pan-y' }}
     >
       {heading ? (
@@ -565,7 +578,7 @@ export function ScryingGridWordmark({
           {fallback}
         </h1>
       ) : (
-        <span className="m-0 text-center">{fallback}</span>
+        <span className="text-center">{fallback}</span>
       )}
       <canvas
         ref={canvasRef}

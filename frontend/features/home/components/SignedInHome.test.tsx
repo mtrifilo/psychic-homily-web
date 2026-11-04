@@ -58,7 +58,6 @@ describe('SignedInHome masthead and sections', () => {
       .getAllByTestId(/^slot-/)
       .map(slot => slot.dataset.testid?.replace('slot-', ''))
     expect(slots.sort()).toEqual(HOME_SECTIONS.map(section => section.id).sort())
-    expect(slots).not.toContain('community_stats')
   })
 })
 

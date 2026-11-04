@@ -244,9 +244,8 @@ export function HomeLayoutRuntime({
             height. It also cannot be padding on the slot itself, because
             padding floors a border-box element's rendered height, so the slot
             would stop 56px short of collapsing and drop that at unmount
-            instead. The top margin is the board's gap under the masthead
-            (20px under the phone dateline, 32px under the desktop hairline). */}
-        <div className="mt-5 flex w-full flex-col xl:mt-8">{column}</div>
+            instead. The gap above it is the masthead's own. */}
+        <div className="flex w-full flex-col">{column}</div>
 
         {/* Outside the column and never conditional: the popover it anchors
             must survive the page emptying while it is open. */}

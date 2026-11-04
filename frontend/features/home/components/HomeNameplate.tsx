@@ -1,7 +1,8 @@
 import { HomeDateline } from './HomeDateline'
-import { ScryingGridWordmark } from './scrying-grid/ScryingGridWordmark'
-
-const NAMEPLATE_LINES = ['PSYCHIC HOMILY']
+import {
+  ScryingGridWordmark,
+  WORDMARK_ONE_LINE,
+} from './scrying-grid/ScryingGridWordmark'
 
 /**
  * The signed-in home's masthead, above the sections (Product Designs Home,
@@ -17,20 +18,22 @@ const NAMEPLATE_LINES = ['PSYCHIC HOMILY']
  * fallback alike.
  */
 export function HomeNameplate() {
+  // pb: the board's gap down to the first section (20px under the phone
+  // dateline, 32px under the desktop hairline).
   return (
-    <>
+    <div className="pb-5 xl:pb-8">
       <HomeDateline form="short" className="pt-3 xl:hidden" />
       <div className="hidden pt-8 xl:block">
         <ScryingGridWordmark
           preset="nameplate"
-          lines={NAMEPLATE_LINES}
+          lines={WORDMARK_ONE_LINE}
           heading={false}
           motion="settle"
-          className="mx-auto h-[100px] w-[1084px] max-w-full"
+          className="mx-auto max-w-full"
         />
         <HomeDateline form="long" className="mt-3.5 text-center" />
         <div aria-hidden className="mt-4 h-px w-full bg-border" />
       </div>
-    </>
+    </div>
   )
 }

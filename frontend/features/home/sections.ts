@@ -38,8 +38,12 @@ type StoredHomeSectionId = components['schemas']['HomeLayoutSection']['id']
  */
 type RetiredHomeSectionId = 'community_stats'
 
+/** `Exclude` that refuses to compile when a retired id is not a stored id,
+ *  so a backend rename cannot leave a stale name here unnoticed. */
+type WithoutRetired<Stored, Retired extends Stored> = Exclude<Stored, Retired>
+
 /** A section the page renders: one registry entry, one component. */
-export type HomeSectionId = Exclude<StoredHomeSectionId, RetiredHomeSectionId>
+export type HomeSectionId = WithoutRetired<StoredHomeSectionId, RetiredHomeSectionId>
 
 export interface HomeSectionDefinition {
   id: HomeSectionId

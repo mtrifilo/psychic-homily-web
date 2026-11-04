@@ -13,14 +13,13 @@ import { useState } from 'react'
 import { Search } from 'lucide-react'
 import {
   ScryingGridWordmark,
+  WORDMARK_ONE_LINE,
   WORDMARK_PRESETS,
 } from '@/features/home/components/scrying-grid/ScryingGridWordmark'
 
-const ONE_LINE = ['PSYCHIC HOMILY']
-
 function presetCaption(name: keyof typeof WORDMARK_PRESETS): string {
   const preset = WORDMARK_PRESETS[name]
-  return `gapFactor ${preset.gapFactor} · dot r ${preset.dotRadius}px · weight ${preset.fontWeight} · bloom ${preset.bloom ? 'on (dark)' : 'off'}`
+  return `gapFactor ${preset.gapFactor} · bloom ${preset.bloom ? 'on (dark)' : 'off'}`
 }
 
 export function SignedInMarks() {
@@ -55,10 +54,10 @@ export function SignedInMarks() {
           <ScryingGridWordmark
             key={`bar-${run}`}
             preset="bar"
-            lines={ONE_LINE}
+            lines={WORDMARK_ONE_LINE}
             heading={false}
             motion="settle"
-            className="h-[30px] w-[306px] shrink-0"
+            className="shrink-0"
           />
           <Search className="size-5 text-foreground" aria-hidden />
         </div>
@@ -71,10 +70,10 @@ export function SignedInMarks() {
             <ScryingGridWordmark
               key={`nameplate-${run}`}
               preset="nameplate"
-              lines={ONE_LINE}
+              lines={WORDMARK_ONE_LINE}
               heading={false}
               motion="settle"
-              className="mx-auto h-[100px] w-[1084px]"
+              className="mx-auto"
             />
           </div>
         </div>

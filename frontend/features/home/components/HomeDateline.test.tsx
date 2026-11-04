@@ -31,10 +31,6 @@ describe('formatDateline', () => {
     )
   })
 
-  it('names no city: the counts are site-wide', () => {
-    expect(formatDateline(WED_NOV_4, PULSE, 'long')).not.toMatch(/,\s*[A-Z]{2}\b/)
-  })
-
   it('agrees in number with a count of one', () => {
     const one = { shows_this_week: 1, entities_in_graph: 1 }
     expect(formatDateline(WED_NOV_4, one, 'short')).toBe(

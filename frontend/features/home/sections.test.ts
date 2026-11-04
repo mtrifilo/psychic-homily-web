@@ -31,10 +31,6 @@ describe('HOME_SECTIONS', () => {
       'city_graph',
     ])
   })
-
-  it('no longer offers the stats band, which the dateline replaced', () => {
-    expect(DEFAULT_ORDER).not.toContain('community_stats')
-  })
 })
 
 describe('resolveHomeLayout', () => {

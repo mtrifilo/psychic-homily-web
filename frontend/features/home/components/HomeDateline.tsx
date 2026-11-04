@@ -7,10 +7,14 @@ import { cn } from '@/lib/utils'
 import { useCommunityPulse } from '../hooks/useCommunityPulse'
 import type { CommunityPulseResponse } from '../types'
 
-export type DatelineForm = 'short' | 'long'
-
-// No `timeZone`: the date is the viewer's own, which is why it renders only
-// after hydration.
+/**
+ * Each form's date, copy (singular then plural), type size and placeholder
+ * width. No `timeZone` on the dates: the date is the viewer's own, which is
+ * why the line renders only after hydration. The counts are site-wide, so no
+ * city: a city beside the show count would read as that city's count. The
+ * short form's "this week" is the owner's phone copy for the rolling
+ * seven-day count; the long form says what the count is.
+ */
 const SHORT_DATE = new Intl.DateTimeFormat('en-US', {
   weekday: 'short',
   month: 'short',
@@ -22,20 +26,25 @@ const LONG_DATE = new Intl.DateTimeFormat('en-US', {
   day: 'numeric',
 })
 
-/** Copy per form, singular then plural. Site-wide counts, so no city: a city
- *  beside the show count would read as that city's count. The short form's
- *  "this week" is the owner's phone copy for the rolling seven-day count; the
- *  long form says what the count is. */
-const COPY = {
+const FORMS = {
   short: {
+    // "Wed, Nov 4" without the comma.
+    date: (date: Date) => SHORT_DATE.format(date).replace(',', ''),
     shows: ['show this week', 'shows this week'],
     entities: ['entity', 'entities'],
+    className: 'text-xs leading-4',
+    placeholderClassName: 'w-64',
   },
   long: {
+    date: (date: Date) => LONG_DATE.format(date),
     shows: ['show in the next 7 days', 'shows in the next 7 days'],
     entities: ['entity in the graph', 'entities in the graph'],
+    className: 'text-[13px] leading-[18px]',
+    placeholderClassName: 'w-[28rem]',
   },
 } as const
+
+export type DatelineForm = keyof typeof FORMS
 
 function counted(value: number, [one, many]: readonly [string, string]): string {
   return `${statNumberFormatter.format(value)} ${value === 1 ? one : many}`
@@ -49,18 +58,13 @@ export function formatDateline(
   pulse: CommunityPulseResponse | undefined,
   form: DatelineForm
 ): string {
-  const day =
-    form === 'short'
-      ? SHORT_DATE.formatToParts(date)
-          .filter(part => part.type !== 'literal')
-          .map(part => part.value)
-          .join(' ')
-      : LONG_DATE.format(date)
+  const spec = FORMS[form]
+  const day = spec.date(date)
   if (!pulse) return day
   return [
     day,
-    counted(pulse.shows_this_week, COPY[form].shows),
-    counted(pulse.entities_in_graph, COPY[form].entities),
+    counted(pulse.shows_this_week, spec.shows),
+    counted(pulse.entities_in_graph, spec.entities),
   ].join(' · ')
 }
 
@@ -83,12 +87,13 @@ export function HomeDateline({
   const [today] = useState(() => new Date())
   const { data, isError } = useCommunityPulse()
   const ready = hydrated && (data !== undefined || isError)
+  const spec = FORMS[form]
 
   return (
     <p
       className={cn(
         'font-data uppercase text-muted-foreground',
-        form === 'short' ? 'text-xs leading-4' : 'text-[13px] leading-[18px]',
+        spec.className,
         className
       )}
     >
@@ -99,7 +104,7 @@ export function HomeDateline({
           aria-hidden
           className={cn(
             'inline-block h-3 animate-pulse rounded-sm bg-muted align-middle',
-            form === 'short' ? 'w-64' : 'w-[28rem]'
+            spec.placeholderClassName
           )}
         />
       )}

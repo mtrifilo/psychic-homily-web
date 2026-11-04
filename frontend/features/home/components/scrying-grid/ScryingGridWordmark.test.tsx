@@ -5,6 +5,7 @@ import {
   SETTLE_INTRO_MS,
   SETTLE_RELEASE_MS,
   ScryingGridWordmark,
+  WORDMARK_ONE_LINE,
   WORDMARK_PRESETS,
 } from './ScryingGridWordmark'
 
@@ -225,9 +226,11 @@ describe('ScryingGridWordmark props', () => {
 
   it('samples, and falls back to, the lines it is given at the preset layout', () => {
     const { container } = render(
-      <ScryingGridWordmark heading={false} lines={['PSYCHIC HOMILY']} preset="bar" />,
+      <ScryingGridWordmark heading={false} lines={WORDMARK_ONE_LINE} preset="bar" />,
     )
     expect(container.querySelector('[data-hero-fallback]')?.textContent).toBe('PSYCHIC HOMILY')
+    // The container takes the preset's box.
+    expect(screen.getByRole('img')).toHaveClass('h-[30px]', 'w-[306px]')
     const dpr = Math.min(window.devicePixelRatio || 1, 2)
     expect(sampleSpy).toHaveBeenCalledWith(
       expect.any(Number),
@@ -235,11 +238,23 @@ describe('ScryingGridWordmark props', () => {
       expect.objectContaining({
         lines: ['PSYCHIC HOMILY'],
         gapDev: Math.round(WORDMARK_PRESETS.bar.gapFactor * dpr),
-        fontWeight: WORDMARK_PRESETS.bar.fontWeight,
+        fontWeight: 900,
         fillInk: true,
-        padScale: WORDMARK_PRESETS.bar.inkFill,
       }),
     )
+  })
+
+  it('waits for a box instead of failing when it mounts with no size (display:none)', () => {
+    vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue({
+      width: 0,
+      height: 0,
+      left: 0,
+      top: 0,
+    } as DOMRect)
+    const { container } = render(<ScryingGridWordmark heading={false} preset="nameplate" />)
+
+    expect(sampleSpy).not.toHaveBeenCalled()
+    expect(container.querySelector('[data-hero-fallback]')).toHaveClass('opacity-0')
   })
 
   it('does not rebuild the field when a re-render passes an equal lines array', () => {

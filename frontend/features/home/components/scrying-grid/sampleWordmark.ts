@@ -40,7 +40,8 @@ export interface SampleOpts {
   fontFamily: string
   /** Sampling step in device px — smaller = denser field. */
   gapDev?: number
-  /** Scale the fit box (<1 = more margin around the wordmark inside the canvas). */
+  /** Scale the em-box fit box (<1 = more margin around the wordmark inside
+   *  the canvas). Not read with `fillInk`. */
   padScale?: number
   /** Fit and centre the glyphs' measured ink box in the whole canvas, rather
    *  than the em box in the hero's margined box. For a canvas sized to the
@@ -50,9 +51,14 @@ export interface SampleOpts {
   fontWeight?: number
 }
 
+/** Share of the canvas the ink fills with `fillInk`: under 1 so the edge
+ *  cells are not cut in half. */
+const INK_FILL = 0.98
+
 /** Draw the lines so their ink box is as large as fits and centred. */
-function drawInkFilled(ctx: CanvasRenderingContext2D, lines: readonly string[], fontFamily: string, weight: number, pad: number) {
+function drawInkFilled(ctx: CanvasRenderingContext2D, lines: readonly string[], fontFamily: string, weight: number) {
   const { width, height } = ctx.canvas
+  const pad = INK_FILL
   ctx.font = `${weight} 100px ${fontFamily}`
   const metrics = lines.map((l) => ctx.measureText(l))
   const widest = Math.max(1, ...metrics.map((m) => m.actualBoundingBoxLeft + m.actualBoundingBoxRight))
@@ -88,7 +94,7 @@ export function sampleWordmark(widthDev: number, heightDev: number, opts: Sample
   const weight = opts.fontWeight ?? FONT_WEIGHT
   ctx.fillStyle = '#ffffff'
   if (opts.fillInk) {
-    drawInkFilled(ctx, opts.lines, opts.fontFamily, weight, pad)
+    drawInkFilled(ctx, opts.lines, opts.fontFamily, weight)
   } else {
     const size = fitFontSize(ctx, opts.lines, canvas.width * 0.86 * pad, canvas.height * 0.78 * pad, opts.fontFamily, weight)
     ctx.font = `${weight} ${size}px ${opts.fontFamily}`

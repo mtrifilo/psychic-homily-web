@@ -5,7 +5,10 @@ import { usePathname } from 'next/navigation'
 import { ChromeLink } from '@/components/layout/nav/ChromeLink'
 import { Moon, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { ScryingGridWordmark } from '@/features/home/components/scrying-grid/ScryingGridWordmark'
+import {
+  ScryingGridWordmark,
+  WORDMARK_ONE_LINE,
+} from '@/features/home/components/scrying-grid/ScryingGridWordmark'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { cn } from '@/lib/utils'
 import { useThemeToggle } from './mode-toggle'
@@ -32,8 +35,6 @@ const glitchFilter = (
     </defs>
   </svg>
 )
-
-const BAR_WORDMARK_LINES = ['PSYCHIC HOMILY']
 
 // The global top bar (PSY-1013) — the primary navigation chrome that replaces
 // the retired left sidebar. It is a thin shell that composes:
@@ -81,10 +82,10 @@ export function TopBar({ variant = 'full' }: { variant?: 'full' | 'slim' } = {})
             {showsHomeWordmark && (
               <ScryingGridWordmark
                 preset="bar"
-                lines={BAR_WORDMARK_LINES}
+                lines={WORDMARK_ONE_LINE}
                 heading={false}
                 motion="settle"
-                className="h-[30px] w-[306px] xl:hidden"
+                className="xl:hidden"
               />
             )}
             <div
