@@ -4,14 +4,18 @@
  * Hero Lab: the production wordmark at the signed-in home's two fixed sizes,
  * each in the box the boards draw: the bar mark 306x30 in a 390px
  * phone bar, and the nameplate 1084x100 in the 1088px content column. Both run
- * `motion="settle"`; "Replay intro" remounts them. The presets' values are
+ * `motion="settle"`; "Replay intro" forgets this tab's played intro (it plays
+ * once per tab session) and remounts them. The presets' values are
  * recorded on WORDMARK_PRESETS. The control bar's reduced-motion toggle does
  * not reach these (the component reads the OS setting only).
  */
 
 import { useState } from 'react'
 import { Search } from 'lucide-react'
-import { ScryingGridWordmark } from '@/features/home/components/scrying-grid/ScryingGridWordmark'
+import {
+  forgetSettleIntroPlayed,
+  ScryingGridWordmark,
+} from '@/features/home/components/scrying-grid/ScryingGridWordmark'
 import {
   WORDMARK_ONE_LINE,
   WORDMARK_PRESETS,
@@ -37,7 +41,10 @@ export function SignedInMarks() {
           </div>
           <button
             type="button"
-            onClick={() => setRun(count => count + 1)}
+            onClick={() => {
+              forgetSettleIntroPlayed()
+              setRun(count => count + 1)
+            }}
             className="rounded-md border border-border bg-card px-3 py-1.5 font-data text-xs text-foreground transition-colors hover:border-primary hover:text-link"
           >
             Replay intro

@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { Activity, StrictMode, useEffect } from 'react'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { installMatchMedia } from '@/test/mocks/matchMedia'
 import {
   SETTLE_INTRO_MS,
+  SETTLE_INTRO_PLAYED_KEY,
   SETTLE_RELEASE_MS,
   ScryingGridWordmark,
 } from './ScryingGridWordmark'
@@ -22,6 +24,14 @@ vi.mock('./sampleWordmark', async importOriginal => ({
   ...(await importOriginal<typeof import('./sampleWordmark')>()),
   sampleWordmark: sampleSpy,
 }))
+
+/** The alpha of the last cell drawn: the field's opacity in the last frame
+ *  (about 0.86 at rest in light mode; at most 0.12 on the intro's first). */
+function lastDrawnAlpha(): number {
+  const match = /rgba\([^)]*,\s*([\d.]+)\)$/.exec(FAKE_CTX.fillStyle)
+  if (!match) throw new Error(`no rgba fill drawn: ${FAKE_CTX.fillStyle}`)
+  return Number(match[1])
+}
 
 const FAKE_CTX = {
   clearRect: vi.fn(),
@@ -307,6 +317,9 @@ describe("ScryingGridWordmark motion='settle'", () => {
     clock = installFrameClock()
     FAKE_CTX.clearRect.mockClear()
     FAKE_CTX.arc.mockClear()
+    // Each test is a fresh tab: no intro has played yet.
+    window.sessionStorage.clear()
+    FAKE_CTX.fillStyle = ''
   })
 
   afterEach(() => {
@@ -395,16 +408,7 @@ describe("ScryingGridWordmark motion='settle'", () => {
   it('reveals the text when a field that mounted with no box samples to nothing', () => {
     const rect = vi.mocked(HTMLElement.prototype.getBoundingClientRect)
     rect.mockReturnValue({ width: 0, height: 0, left: 0, top: 0 } as DOMRect)
-    const resized: ResizeObserverCallback[] = []
-    const originalResizeObserver = window.ResizeObserver
-    window.ResizeObserver = class {
-      constructor(callback: ResizeObserverCallback) {
-        resized.push(callback)
-      }
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    } as unknown as typeof ResizeObserver
+    const resize = installResizeObserver()
     try {
       // With a heading, so the fallback's reveal is the failure path alone.
       const { container } = render(<ScryingGridWordmark motion="settle" preset="nameplate" />)
@@ -414,14 +418,78 @@ describe("ScryingGridWordmark motion='settle'", () => {
       // The breakpoint is crossed and the sample comes back empty.
       rect.mockReturnValue({ width: 1084, height: 100, left: 0, top: 0 } as DOMRect)
       sampleSpy.mockReturnValueOnce([])
-      act(() => {
-        for (const callback of resized) callback([], {} as ResizeObserver)
-      })
+      resize.report()
       clock.advance(16)
 
       expect(fallback).toHaveClass('opacity-100')
     } finally {
-      window.ResizeObserver = originalResizeObserver
+      resize.restore()
+    }
+  })
+
+  it('plays the intro once per session: a later arrival paints the resting frame at once', () => {
+    const first = render(<ScryingGridWordmark motion="settle" heading={false} />)
+    clock.advance(16)
+    expect(window.sessionStorage.getItem(SETTLE_INTRO_PLAYED_KEY)).not.toBeNull()
+    first.unmount()
+
+    FAKE_CTX.arc.mockClear()
+    render(<ScryingGridWordmark motion="settle" heading={false} />)
+    // No loop: the resting frame is already drawn, and nothing rises.
+    expect(clock.pending).toBe(0)
+    expect(FAKE_CTX.arc).toHaveBeenCalled()
+  })
+
+  it('starts on the resting frame when a mark first gets a box after its text was painted', () => {
+    const rect = vi.mocked(HTMLElement.prototype.getBoundingClientRect)
+    rect.mockReturnValue({ width: 0, height: 0, left: 0, top: 0 } as DOMRect)
+    const resize = installResizeObserver()
+    try {
+      // The other breakpoint's mark: mounted with no box.
+      render(<ScryingGridWordmark motion="settle" heading={false} preset="nameplate" />)
+      expect(clock.pending).toBe(0)
+
+      // The breakpoint is crossed: the text shows a frame before the field.
+      rect.mockReturnValue({ width: 1084, height: 100, left: 0, top: 0 } as DOMRect)
+      resize.report()
+      clock.advance(16)
+
+      expect(FAKE_CTX.arc).toHaveBeenCalled()
+      expect(clock.pending).toBe(0)
+      expect(lastDrawnAlpha()).toBeGreaterThan(0.5)
+      expect(window.sessionStorage.getItem(SETTLE_INTRO_PLAYED_KEY)).toBeNull()
+    } finally {
+      resize.restore()
+    }
+  })
+
+  it('still plays the intro after a mount that was torn down before its first frame', () => {
+    // StrictMode mounts, tears down and mounts again before any frame runs.
+    render(
+      <StrictMode>
+        <ScryingGridWordmark motion="settle" heading={false} />
+      </StrictMode>,
+    )
+    expect(window.sessionStorage.getItem(SETTLE_INTRO_PLAYED_KEY)).toBeNull()
+    expect(clock.pending).toBe(1)
+    clock.advance(SETTLE_INTRO_MS / 2)
+    expect(clock.pending).toBe(1)
+    expect(window.sessionStorage.getItem(SETTLE_INTRO_PLAYED_KEY)).not.toBeNull()
+  })
+
+  it('keeps a running field when a resize leaves its size unchanged', () => {
+    const resize = installResizeObserver()
+    try {
+      render(<ScryingGridWordmark motion="settle" heading={false} />)
+      sampleSpy.mockClear()
+      // The observer's first report, at the size the field was built for.
+      resize.report()
+      clock.advance(16)
+      // Re-sampling would reassign the canvas size, which blanks its bitmap.
+      expect(sampleSpy).not.toHaveBeenCalled()
+      expect(clock.pending).toBe(1)
+    } finally {
+      resize.restore()
     }
   })
 
@@ -429,8 +497,325 @@ describe("ScryingGridWordmark motion='settle'", () => {
     matchMedia.set(REDUCED_MOTION_QUERY, true)
     render(<ScryingGridWordmark motion="settle" heading={false} />)
     expect(clock.pending).toBe(0)
-    expect(FAKE_CTX.arc).toHaveBeenCalled()
+    expect(lastDrawnAlpha()).toBeGreaterThan(0.5)
     fireEvent.pointerMove(screen.getByRole('img'), { clientX: 40, clientY: 50 })
     expect(clock.pending).toBe(0)
+  })
+
+  it('does not dim a shown field into the intro when reduced motion turns off', async () => {
+    matchMedia.set(REDUCED_MOTION_QUERY, true)
+    render(<ScryingGridWordmark motion="settle" heading={false} />)
+    expect(lastDrawnAlpha()).toBeGreaterThan(0.5)
+    // The field has been on screen a while.
+    await act(async () => {})
+
+    // The effect re-runs in place: the canvas is not newly appearing.
+    matchMedia.set(REDUCED_MOTION_QUERY, false)
+    expect(lastDrawnAlpha()).toBeGreaterThan(0.5)
+    expect(clock.pending).toBe(0)
+    expect(window.sessionStorage.getItem(SETTLE_INTRO_PLAYED_KEY)).toBeNull()
+  })
+})
+
+/** A FontFaceSet whose readiness the test gives: `check` answers `loaded`;
+ *  `ready` settles on `load`, and a `load()` request on `loadFace` (or
+ *  `load`), so a test can tell which one the code waited on. */
+function installFonts({ loaded }: { loaded: boolean }) {
+  let settleReady: () => void = () => {}
+  const ready = new Promise<void>(resolve => {
+    settleReady = resolve
+  })
+  let settleFace: () => void = () => {}
+  const face = new Promise<void>(resolve => {
+    settleFace = resolve
+  })
+  const check = vi.fn(() => loaded)
+  const loadFace = vi.fn(() => face)
+  Object.defineProperty(document, 'fonts', {
+    configurable: true,
+    value: { check, ready, load: loadFace },
+  })
+  return {
+    check,
+    loadFace,
+    /** Settles the face request alone; `ready` stays pending. */
+    async faceLoaded() {
+      await act(async () => {
+        settleFace()
+        await face
+      })
+    },
+    async load() {
+      await act(async () => {
+        settleFace()
+        settleReady()
+        await ready
+      })
+    },
+    restore() {
+      delete (document as { fonts?: unknown }).fonts
+    },
+  }
+}
+
+/** Calls `onRun` from a passive effect. Rendered BEFORE the mark: React runs
+ *  a commit's passive effects in tree order after all its layout effects, so
+ *  this one runs after the mark's layout effect and before the mark's own
+ *  passive effect. A draw not done by then is a passive-effect draw, painted
+ *  a frame after the mount. */
+function PassiveEffect({ onRun }: { onRun: () => void }) {
+  useEffect(onRun, [onRun])
+  return null
+}
+
+/** Whether the field had drawn when the first passive effect ran. */
+function drawnByFirstPassiveEffect() {
+  const seen: { drawn?: boolean } = {}
+  const onRun = () => {
+    seen.drawn ??= FAKE_CTX.arc.mock.calls.length > 0
+  }
+  return { seen, onRun }
+}
+
+/** A ResizeObserver whose reports the test sends, to the observers that are
+ *  observing something, as a real one reports only observed targets. */
+function installResizeObserver() {
+  const observing = new Set<ResizeObserverCallback>()
+  const original = window.ResizeObserver
+  window.ResizeObserver = class {
+    constructor(private readonly callback: ResizeObserverCallback) {}
+    observe() {
+      observing.add(this.callback)
+    }
+    unobserve() {
+      observing.delete(this.callback)
+    }
+    disconnect() {
+      observing.delete(this.callback)
+    }
+  } as unknown as typeof ResizeObserver
+  return {
+    report() {
+      act(() => {
+        for (const callback of observing) callback([], {} as ResizeObserver)
+      })
+    },
+    restore() {
+      window.ResizeObserver = original
+    },
+  }
+}
+
+describe('ScryingGridWordmark first paint', () => {
+  let matchMedia: ReturnType<typeof installMatchMedia>
+  let clock: ReturnType<typeof installFrameClock>
+  let fonts: ReturnType<typeof installFonts> | null = null
+
+  beforeEach(() => {
+    matchMedia = installMatchMedia({ [REDUCED_MOTION_QUERY]: false })
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      FAKE_CTX as unknown as CanvasRenderingContext2D,
+    )
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 306,
+      height: 30,
+      left: 0,
+      top: 0,
+    } as DOMRect)
+    clock = installFrameClock()
+    FAKE_CTX.arc.mockClear()
+    sampleSpy.mockClear()
+    window.sessionStorage.clear()
+    FAKE_CTX.fillStyle = ''
+  })
+
+  afterEach(() => {
+    fonts?.restore()
+    fonts = null
+    matchMedia.restore()
+    vi.restoreAllMocks()
+  })
+
+  it('draws the dots before the first paint and never shows the text when the font is already loaded', () => {
+    fonts = installFonts({ loaded: true })
+    const { seen, onRun } = drawnByFirstPassiveEffect()
+    const { container } = render(
+      <>
+        <PassiveEffect onRun={onRun} />
+        <ScryingGridWordmark preset="bar" lines={WORDMARK_ONE_LINE} heading={false} motion="settle" />
+      </>,
+    )
+
+    expect(seen.drawn).toBe(true)
+    // The mount task ends handed over (the cold-load test below ends it
+    // still on the text): the browser's first paint is the dots.
+    const fallback = container.querySelector('[data-hero-fallback]')
+    const canvas = container.querySelector('canvas')
+    expect(fallback).toHaveClass('opacity-0')
+    expect(canvas).toHaveClass('opacity-100')
+    // No cross-fade: a transition would animate from the text it replaced.
+    expect(fallback).not.toHaveClass('transition-opacity')
+    expect(canvas).not.toHaveClass('transition-opacity')
+    // The face checked is the one sampled: the preset's weight, the mark's text.
+    expect(fonts.check).toHaveBeenCalledWith(expect.stringMatching(/^900 100px /), 'PSYCHIC HOMILY')
+    // The intro still runs on this first arrival of the session.
+    expect(clock.pending).toBe(1)
+  })
+
+  it('keeps the text until the font is ready on a cold load, then cross-fades', async () => {
+    fonts = installFonts({ loaded: false })
+    const resize = installResizeObserver()
+    try {
+      const { container } = render(<ScryingGridWordmark preset="bar" heading={false} motion="settle" />)
+      const fallback = container.querySelector('[data-hero-fallback]')
+      // A resize before the font is ready samples nothing: it would rasterise
+      // fallback glyphs.
+      resize.report()
+      clock.advance(16)
+      expect(sampleSpy).not.toHaveBeenCalled()
+      expect(fallback).toHaveClass('opacity-100')
+
+      // It waits on the sampled face itself, not on fonts.ready.
+      expect(fonts.loadFace).toHaveBeenCalledWith(expect.stringMatching(/^900 100px /), 'PSYCHIC HOMILY')
+      await fonts.faceLoaded()
+      expect(sampleSpy).toHaveBeenCalled()
+      expect(fallback).toHaveClass('opacity-0', 'transition-opacity')
+      expect(container.querySelector('canvas')).toHaveClass('opacity-100', 'transition-opacity')
+      // The text was painted first: the field cross-fades in at rest.
+      expect(clock.pending).toBe(0)
+      expect(lastDrawnAlpha()).toBeGreaterThan(0.5)
+    } finally {
+      resize.restore()
+    }
+  })
+
+  it('hides the server-painted text at hydration when the font is already loaded', async () => {
+    fonts = installFonts({ loaded: true })
+    const { renderToString } = await import('react-dom/server')
+    const container = document.createElement('div')
+    container.innerHTML = renderToString(
+      <>
+        <PassiveEffect onRun={() => {}} />
+        <ScryingGridWordmark preset="bar" heading={false} motion="settle" />
+      </>,
+    )
+    document.body.appendChild(container)
+    expect(container.querySelector('[data-hero-fallback]')).toHaveClass('opacity-100')
+
+    const { seen, onRun } = drawnByFirstPassiveEffect()
+    render(
+      <>
+        <PassiveEffect onRun={onRun} />
+        <ScryingGridWordmark preset="bar" heading={false} motion="settle" />
+      </>,
+      { container, hydrate: true },
+    )
+
+    expect(seen.drawn).toBe(true)
+    const fallback = container.querySelector('[data-hero-fallback]')
+    expect(fallback).toHaveClass('opacity-0')
+    expect(fallback).not.toHaveClass('transition-opacity')
+  })
+
+  it('replaces server-painted text with the resting frame, and leaves the intro for the first client-side arrival', async () => {
+    fonts = installFonts({ loaded: true })
+    const { renderToString } = await import('react-dom/server')
+    const container = document.createElement('div')
+    container.innerHTML = renderToString(<ScryingGridWordmark preset="bar" heading={false} motion="settle" />)
+    document.body.appendChild(container)
+
+    const hydrated = render(<ScryingGridWordmark preset="bar" heading={false} motion="settle" />, {
+      container,
+      hydrate: true,
+    })
+    // No rise from faint cells over the text it replaced: the resting frame,
+    // no loop, and the session's intro still unplayed.
+    expect(lastDrawnAlpha()).toBeGreaterThan(0.5)
+    expect(clock.pending).toBe(0)
+    clock.advance(SETTLE_INTRO_MS)
+    expect(window.sessionStorage.getItem(SETTLE_INTRO_PLAYED_KEY)).toBeNull()
+    hydrated.unmount()
+
+    // Home -> Shows -> Home: the canvas is the first thing the cell shows.
+    render(<ScryingGridWordmark preset="bar" heading={false} motion="settle" />)
+    expect(lastDrawnAlpha()).toBeLessThanOrEqual(0.12)
+    expect(clock.pending).toBe(1)
+    clock.advance(16)
+    expect(window.sessionStorage.getItem(SETTLE_INTRO_PLAYED_KEY)).not.toBeNull()
+  })
+
+  it('keeps the resting frame over server-painted text under StrictMode\'s double effect', async () => {
+    fonts = installFonts({ loaded: true })
+    const { renderToString } = await import('react-dom/server')
+    const ui = (
+      <StrictMode>
+        <ScryingGridWordmark preset="bar" heading={false} motion="settle" />
+      </StrictMode>
+    )
+    const container = document.createElement('div')
+    container.innerHTML = renderToString(ui)
+    document.body.appendChild(container)
+
+    render(ui, { container, hydrate: true })
+    expect(lastDrawnAlpha()).toBeGreaterThan(0.5)
+    expect(clock.pending).toBe(0)
+  })
+
+  it('plays the intro when a hydrated mark is shown again after being hidden (an Activity re-show)', async () => {
+    fonts = installFonts({ loaded: true })
+    const { renderToString } = await import('react-dom/server')
+    const ui = (mode: 'visible' | 'hidden') => (
+      <Activity mode={mode}>
+        <ScryingGridWordmark preset="nameplate" heading={false} motion="settle" />
+      </Activity>
+    )
+    const container = document.createElement('div')
+    container.innerHTML = renderToString(ui('visible'))
+    document.body.appendChild(container)
+
+    const view = render(ui('visible'), { container, hydrate: true })
+    expect(lastDrawnAlpha()).toBeGreaterThan(0.5)
+    expect(clock.pending).toBe(0)
+    await act(async () => {})
+
+    // Home -> Shows: the page is kept, hidden. Shows -> Home: shown again,
+    // the canvas first in the cell.
+    view.rerender(ui('hidden'))
+    await act(async () => {})
+    view.rerender(ui('visible'))
+
+    expect(lastDrawnAlpha()).toBeLessThanOrEqual(0.12)
+    expect(clock.pending).toBe(1)
+    clock.advance(16)
+    expect(window.sessionStorage.getItem(SETTLE_INTRO_PLAYED_KEY)).not.toBeNull()
+  })
+
+  it('keeps the hero\'s early field: a resize before the font builds it, and fonts.ready resamples it', async () => {
+    fonts = installFonts({ loaded: false })
+    const resize = installResizeObserver()
+    try {
+      const { container } = render(<ScryingGridWordmark />)
+      resize.report()
+      clock.advance(16)
+      expect(sampleSpy).toHaveBeenCalledTimes(1)
+      expect(container.querySelector('canvas')).toHaveClass('opacity-100', 'transition-opacity')
+
+      await fonts.load()
+      expect(sampleSpy).toHaveBeenCalledTimes(2)
+    } finally {
+      resize.restore()
+    }
+  })
+
+  it('leaves the hero as it was: it waits for fonts.ready and fades in, even with the font loaded', async () => {
+    fonts = installFonts({ loaded: true })
+    const { container } = render(<ScryingGridWordmark />)
+    expect(sampleSpy).not.toHaveBeenCalled()
+    expect(container.querySelector('canvas')).toHaveClass('opacity-0')
+
+    await fonts.load()
+    expect(sampleSpy).toHaveBeenCalled()
+    expect(container.querySelector('canvas')).toHaveClass('opacity-100', 'transition-opacity')
+    expect(container.querySelector('[data-hero-fallback]')).toHaveClass('opacity-0')
   })
 })
