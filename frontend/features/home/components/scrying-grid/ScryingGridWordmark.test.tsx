@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { StrictMode, useEffect } from 'react'
+import { Activity, StrictMode, useEffect } from 'react'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { installMatchMedia } from '@/test/mocks/matchMedia'
 import {
@@ -319,6 +319,7 @@ describe("ScryingGridWordmark motion='settle'", () => {
     FAKE_CTX.arc.mockClear()
     // Each test is a fresh tab: no intro has played yet.
     window.sessionStorage.clear()
+    FAKE_CTX.fillStyle = ''
   })
 
   afterEach(() => {
@@ -496,9 +497,23 @@ describe("ScryingGridWordmark motion='settle'", () => {
     matchMedia.set(REDUCED_MOTION_QUERY, true)
     render(<ScryingGridWordmark motion="settle" heading={false} />)
     expect(clock.pending).toBe(0)
-    expect(FAKE_CTX.arc).toHaveBeenCalled()
+    expect(lastDrawnAlpha()).toBeGreaterThan(0.5)
     fireEvent.pointerMove(screen.getByRole('img'), { clientX: 40, clientY: 50 })
     expect(clock.pending).toBe(0)
+  })
+
+  it('does not dim a shown field into the intro when reduced motion turns off', async () => {
+    matchMedia.set(REDUCED_MOTION_QUERY, true)
+    render(<ScryingGridWordmark motion="settle" heading={false} />)
+    expect(lastDrawnAlpha()).toBeGreaterThan(0.5)
+    // The field has been on screen a while.
+    await act(async () => {})
+
+    // The effect re-runs in place: the canvas is not newly appearing.
+    matchMedia.set(REDUCED_MOTION_QUERY, false)
+    expect(lastDrawnAlpha()).toBeGreaterThan(0.5)
+    expect(clock.pending).toBe(0)
+    expect(window.sessionStorage.getItem(SETTLE_INTRO_PLAYED_KEY)).toBeNull()
   })
 })
 
@@ -611,6 +626,7 @@ describe('ScryingGridWordmark first paint', () => {
     FAKE_CTX.arc.mockClear()
     sampleSpy.mockClear()
     window.sessionStorage.clear()
+    FAKE_CTX.fillStyle = ''
   })
 
   afterEach(() => {
@@ -722,6 +738,52 @@ describe('ScryingGridWordmark first paint', () => {
 
     // Home -> Shows -> Home: the canvas is the first thing the cell shows.
     render(<ScryingGridWordmark preset="bar" heading={false} motion="settle" />)
+    expect(lastDrawnAlpha()).toBeLessThanOrEqual(0.12)
+    expect(clock.pending).toBe(1)
+    clock.advance(16)
+    expect(window.sessionStorage.getItem(SETTLE_INTRO_PLAYED_KEY)).not.toBeNull()
+  })
+
+  it('keeps the resting frame over server-painted text under StrictMode\'s double effect', async () => {
+    fonts = installFonts({ loaded: true })
+    const { renderToString } = await import('react-dom/server')
+    const ui = (
+      <StrictMode>
+        <ScryingGridWordmark preset="bar" heading={false} motion="settle" />
+      </StrictMode>
+    )
+    const container = document.createElement('div')
+    container.innerHTML = renderToString(ui)
+    document.body.appendChild(container)
+
+    render(ui, { container, hydrate: true })
+    expect(lastDrawnAlpha()).toBeGreaterThan(0.5)
+    expect(clock.pending).toBe(0)
+  })
+
+  it('plays the intro when a hydrated mark is shown again after being hidden (an Activity re-show)', async () => {
+    fonts = installFonts({ loaded: true })
+    const { renderToString } = await import('react-dom/server')
+    const ui = (mode: 'visible' | 'hidden') => (
+      <Activity mode={mode}>
+        <ScryingGridWordmark preset="nameplate" heading={false} motion="settle" />
+      </Activity>
+    )
+    const container = document.createElement('div')
+    container.innerHTML = renderToString(ui('visible'))
+    document.body.appendChild(container)
+
+    const view = render(ui('visible'), { container, hydrate: true })
+    expect(lastDrawnAlpha()).toBeGreaterThan(0.5)
+    expect(clock.pending).toBe(0)
+    await act(async () => {})
+
+    // Home -> Shows: the page is kept, hidden. Shows -> Home: shown again,
+    // the canvas first in the cell.
+    view.rerender(ui('hidden'))
+    await act(async () => {})
+    view.rerender(ui('visible'))
+
     expect(lastDrawnAlpha()).toBeLessThanOrEqual(0.12)
     expect(clock.pending).toBe(1)
     clock.advance(16)

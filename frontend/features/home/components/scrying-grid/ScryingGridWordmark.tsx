@@ -147,11 +147,13 @@ export function ScryingGridWordmark({
   /**
    * - `rest` (default): shimmers continuously while on screen.
    * - `settle`: one intro of SETTLE_INTRO_MS per tab session across every
-   *   settle mark (SETTLE_INTRO_PLAYED_KEY), played only when the canvas is
-   *   the first thing the cell shows (a client-side mount); a field that
+   *   settle mark (SETTLE_INTRO_PLAYED_KEY), played only by a mark without
+   *   a heading whose canvas is the first thing its cell shows (a
+   *   client-side mount, or a re-show after being hidden); a field that
    *   replaces painted text, and every later field, starts on the resting
-   *   frame. Then the loop STOPS on the resting frame. The pointer (hover, touch) ignites the
-   *   cells while it is over the field; within SETTLE_RELEASE_MS of leaving,
+   *   frame. Then the loop STOPS on the resting frame. The pointer (hover,
+   *   touch) ignites the cells while it is over the field; within
+   *   SETTLE_RELEASE_MS of leaving,
    *   the field is back at rest and the loop stops again. Paused off-screen
    *   and in a hidden tab. Nothing restarts on its own.
    */
@@ -180,11 +182,22 @@ export function ScryingGridWordmark({
   // Without a heading the text fallback is the server HTML's paint (see the
   // fallback below); with one it is hidden until needed.
   const fallbackIsFirstPaint = !heading
-  // Whether this instance mounted by hydrating server HTML, which has already
-  // painted the fallback. Fixed at mount: the hydration render is the only
-  // one where useHydrated answers false.
+  // Whether a field built now may start the intro: only while the canvas
+  // would be the first thing the cell shows.
+  // - False from a hydration mount (useHydrated answers false only in the
+  //   hydration render): the server HTML has painted the text.
+  // - False once a field has taken the cell.
+  // - True again when the instance comes back after being away (an
+  //   <Activity> re-show), a fresh arrival.
+  // Both changes land in microtasks, after the commit, so an immediate
+  // re-run in the same commit (StrictMode's double effect, a dependency
+  // change) decides with the answer the cell had, and cancels the away
+  // change: a re-run in place never dims a painted field. Limitation: a
+  // hydration that React abandons for a client render (a recoverable
+  // mismatch) reads as a client mount.
   const hydrated = useHydrated()
-  const mountedByHydration = useRef(!hydrated)
+  const introMayStart = useRef(hydrated)
+  const away = useRef(false)
   const reducedMotion = useReducedMotion()
   // A string, so a caller's inline array literal does not rebuild the field
   // on every render.
@@ -195,6 +208,7 @@ export function ScryingGridWordmark({
   // A layout effect, so a field that can draw at mount draws before the
   // browser paints the mount (see begin below).
   useLayoutEffect(() => {
+    away.current = false
     const container = containerRef.current
     const canvas = canvasRef.current
     if (!container || !canvas) return
@@ -234,6 +248,11 @@ export function ScryingGridWordmark({
     // A handover never changes once made: the first one is the one painted.
     const handOver = (mode: HandoverMode) =>
       setHandover(current => (current === 'pending' ? mode : current))
+    // A field has taken the cell (see introMayStart).
+    const fieldTookCell = () =>
+      queueMicrotask(() => {
+        introMayStart.current = false
+      })
     const HOT: RGB = [255, 244, 224]
     // Pre-rendered grain tile to break gradient banding + add organic texture
     // (the trick behind the Vercel-style glow — noise composited over the pool).
@@ -505,6 +524,7 @@ export function ScryingGridWordmark({
         if (built === 'empty' && particles.length === 0) setFailed(true)
         if (built !== 'ready') return
         handOver('fade')
+        fieldTookCell()
         if (!running) {
           draw(0, true)
           if (settle) resume()
@@ -525,14 +545,15 @@ export function ScryingGridWordmark({
       }
       handOver(mode)
       // The intro plays only when the canvas is the first thing the cell
-      // shows: drawn before the first paint of a client-side mount. Over text
-      // already painted (hydration, a cross-fade after the font, a box that
-      // appears later) a rise from faint cells would read as text, then
-      // dim, then bright; that field starts on the resting frame and leaves
-      // the session's intro unplayed.
-      if (settle && !reduced && mode === 'instant' && !mountedByHydration.current && !settleIntroPlayed()) {
+      // shows: drawn before the first paint of an arrival. Over text already
+      // painted (hydration, a cross-fade after the font, a box that appears
+      // later) or a field already shown, a rise from faint cells would read
+      // as bright, then dim, then bright; that field starts on the resting
+      // frame and leaves the session's intro unplayed.
+      if (settle && !reduced && mode === 'instant' && introMayStart.current && !settleIntroPlayed()) {
         introElapsed = 0
       }
+      fieldTookCell()
       resume()
       // The first frame now, running or not, so the canvas is never blank
       // when it is shown.
@@ -610,6 +631,12 @@ export function ScryingGridWordmark({
 
     return () => {
       disposed = true
+      // Away until the next run; only a run in a later commit (a re-show)
+      // finds the cell newly appearing.
+      away.current = true
+      queueMicrotask(() => {
+        if (away.current) introMayStart.current = true
+      })
       stopLoop()
       cancelAnimationFrame(resizeRaf)
       container.removeEventListener('pointermove', onMove)
