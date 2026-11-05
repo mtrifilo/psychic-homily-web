@@ -46,31 +46,29 @@ func assertRFC5545Wire(t *testing.T, feed []byte, wantEvents int) {
 			"line %d carries a bare CR: %q", i+1, line)
 	}
 
-	// Unfold only now that every line ending is known to be CRLF: a continuation
-	// line opens with one space or tab (RFC 5545 3.1).
-	var content []string
-	for _, raw := range physical {
-		line := string(bytes.TrimSuffix(raw, []byte("\r")))
-		if len(content) > 0 && (strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")) {
-			content[len(content)-1] += line[1:]
-			continue
-		}
-		content = append(content, line)
-	}
-
-	events, dtstamps, inside := 0, 0, false
-	for _, line := range content {
-		switch {
-		case line == "BEGIN:VEVENT":
+	// icsContentLines normalizes line endings, which is safe only now that every
+	// one is known to be CRLF.
+	events := 0
+	var event []string
+	for _, line := range icsContentLines(string(feed)) {
+		switch line {
+		case "BEGIN:VEVENT":
 			events++
-			dtstamps, inside = 0, true
-		case line == "END:VEVENT":
-			assert.Equalf(t, 1, dtstamps, "VEVENT %d must carry exactly one DTSTAMP", events)
-			inside = false
-		case inside && (strings.HasPrefix(line, "DTSTAMP:") || strings.HasPrefix(line, "DTSTAMP;")):
-			dtstamps++
-			assert.Regexpf(t, icsUTCDateTime, strings.TrimPrefix(line, "DTSTAMP:"),
-				"VEVENT %d: DTSTAMP must be a bare UTC DATE-TIME, got %q", events, line)
+			event = []string{}
+		case "END:VEVENT":
+			assert.Equalf(t, 1, countICSProperty(event, "DTSTAMP"),
+				"VEVENT %d must carry exactly one DTSTAMP", events)
+			for _, prop := range event {
+				if strings.HasPrefix(prop, "DTSTAMP:") || strings.HasPrefix(prop, "DTSTAMP;") {
+					assert.Regexpf(t, icsUTCDateTime, strings.TrimPrefix(prop, "DTSTAMP:"),
+						"VEVENT %d: DTSTAMP must be a bare UTC DATE-TIME, got %q", events, prop)
+				}
+			}
+			event = nil
+		default:
+			if event != nil {
+				event = append(event, line)
+			}
 		}
 	}
 	require.Equal(t, wantEvents, events, "VEVENT count on the wire")
