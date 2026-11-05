@@ -399,16 +399,7 @@ describe("ScryingGridWordmark motion='settle'", () => {
   it('reveals the text when a field that mounted with no box samples to nothing', () => {
     const rect = vi.mocked(HTMLElement.prototype.getBoundingClientRect)
     rect.mockReturnValue({ width: 0, height: 0, left: 0, top: 0 } as DOMRect)
-    const resized: ResizeObserverCallback[] = []
-    const originalResizeObserver = window.ResizeObserver
-    window.ResizeObserver = class {
-      constructor(callback: ResizeObserverCallback) {
-        resized.push(callback)
-      }
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    } as unknown as typeof ResizeObserver
+    const resize = installResizeObserver()
     try {
       // With a heading, so the fallback's reveal is the failure path alone.
       const { container } = render(<ScryingGridWordmark motion="settle" preset="nameplate" />)
@@ -418,14 +409,12 @@ describe("ScryingGridWordmark motion='settle'", () => {
       // The breakpoint is crossed and the sample comes back empty.
       rect.mockReturnValue({ width: 1084, height: 100, left: 0, top: 0 } as DOMRect)
       sampleSpy.mockReturnValueOnce([])
-      act(() => {
-        for (const callback of resized) callback([], {} as ResizeObserver)
-      })
+      resize.report()
       clock.advance(16)
 
       expect(fallback).toHaveClass('opacity-100')
     } finally {
-      window.ResizeObserver = originalResizeObserver
+      resize.restore()
     }
   })
 
@@ -525,22 +514,27 @@ function drawnByFirstPassiveEffect() {
   return { seen, onRun }
 }
 
-/** A ResizeObserver whose reports the test sends. */
+/** A ResizeObserver whose reports the test sends, to the observers that are
+ *  observing something, as a real one reports only observed targets. */
 function installResizeObserver() {
-  const callbacks: ResizeObserverCallback[] = []
+  const observing = new Set<ResizeObserverCallback>()
   const original = window.ResizeObserver
   window.ResizeObserver = class {
-    constructor(callback: ResizeObserverCallback) {
-      callbacks.push(callback)
+    constructor(private readonly callback: ResizeObserverCallback) {}
+    observe() {
+      observing.add(this.callback)
     }
-    observe() {}
-    unobserve() {}
-    disconnect() {}
+    unobserve() {
+      observing.delete(this.callback)
+    }
+    disconnect() {
+      observing.delete(this.callback)
+    }
   } as unknown as typeof ResizeObserver
   return {
     report() {
       act(() => {
-        for (const callback of callbacks) callback([], {} as ResizeObserver)
+        for (const callback of observing) callback([], {} as ResizeObserver)
       })
     },
     restore() {
