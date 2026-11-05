@@ -493,23 +493,38 @@ describe("ScryingGridWordmark motion='settle'", () => {
   })
 })
 
-/** A FontFaceSet whose readiness the test gives: `check` answers `loaded`,
- *  and `ready` and every `load()` settle when the test calls `load`. */
+/** A FontFaceSet whose readiness the test gives: `check` answers `loaded`;
+ *  `ready` settles on `load`, and a `load()` request on `loadFace` (or
+ *  `load`), so a test can tell which one the code waited on. */
 function installFonts({ loaded }: { loaded: boolean }) {
-  let settle: () => void = () => {}
+  let settleReady: () => void = () => {}
   const ready = new Promise<void>(resolve => {
-    settle = resolve
+    settleReady = resolve
+  })
+  let settleFace: () => void = () => {}
+  const face = new Promise<void>(resolve => {
+    settleFace = resolve
   })
   const check = vi.fn(() => loaded)
+  const loadFace = vi.fn(() => face)
   Object.defineProperty(document, 'fonts', {
     configurable: true,
-    value: { check, ready, load: vi.fn(() => ready) },
+    value: { check, ready, load: loadFace },
   })
   return {
     check,
+    loadFace,
+    /** Settles the face request alone; `ready` stays pending. */
+    async faceLoaded() {
+      await act(async () => {
+        settleFace()
+        await face
+      })
+    },
     async load() {
       await act(async () => {
-        settle()
+        settleFace()
+        settleReady()
         await ready
       })
     },
@@ -635,7 +650,9 @@ describe('ScryingGridWordmark first paint', () => {
       expect(sampleSpy).not.toHaveBeenCalled()
       expect(fallback).toHaveClass('opacity-100')
 
-      await fonts.load()
+      // It waits on the sampled face itself, not on fonts.ready.
+      expect(fonts.loadFace).toHaveBeenCalledWith(expect.stringMatching(/^900 100px /), 'PSYCHIC HOMILY')
+      await fonts.faceLoaded()
       expect(sampleSpy).toHaveBeenCalled()
       expect(fallback).toHaveClass('opacity-0', 'transition-opacity')
       expect(container.querySelector('canvas')).toHaveClass('opacity-100', 'transition-opacity')

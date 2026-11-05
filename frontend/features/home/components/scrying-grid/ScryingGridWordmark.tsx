@@ -527,11 +527,12 @@ export function ScryingGridWordmark({
       // when it is shown.
       draw(running ? performance.now() : 0, !running)
     }
-    // Without a heading the text fallback is the first paint, so a mount
-    // whose font is already loaded (any client-side mount after the first
-    // page load) samples and draws here, before that paint, and hands over
-    // at once: the fallback is never seen. The hero's fallback is never
-    // shown, so it keeps its fade-in. Otherwise sampling waits for the font.
+    // Without a heading, a mount whose face is already loaded samples and
+    // draws here, before the browser paints, and hands over at once: on a
+    // client-side mount the fallback is never painted, and at hydration the
+    // server HTML's text is replaced in one frame. Otherwise sampling waits
+    // for the face, then cross-fades. The hero's fallback is never shown, so
+    // it keeps its fade-in.
     const face = { lines, fontFamily, fontWeight }
     const fadeIn = () => begin('fade')
     if (fallbackIsFirstPaint) {
