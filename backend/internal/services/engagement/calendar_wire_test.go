@@ -2,6 +2,7 @@ package engagement
 
 import (
 	"bytes"
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -25,10 +26,17 @@ import (
 // DATE-TIME in UTC, with no TZID parameter.
 var icsUTCDateTime = regexp.MustCompile(`^\d{8}T\d{6}Z$`)
 
+// icsSequence is RFC 5545 3.8.7.4's SEQUENCE: a non-negative INTEGER.
+var icsSequence = regexp.MustCompile(`^SEQUENCE:\d+$`)
+
 // assertRFC5545Wire fails unless feed is a wire-valid calendar carrying
 // wantEvents VEVENTs: every line ends in CRLF with no bare CR or LF anywhere,
-// every VEVENT has exactly one DTSTAMP in UTC form, and golang-ical's own
-// parser reads the bytes back.
+// every VEVENT has exactly one DTSTAMP in UTC form and exactly one
+// non-negative SEQUENCE, and golang-ical's own parser reads the bytes back.
+//
+// SEQUENCE is optional in RFC 5545 but required here: every surface shares one
+// UID per show, and a copy without it ranks below an edited copy that has it
+// (RFC 5546 2.1.5).
 func assertRFC5545Wire(t *testing.T, feed []byte, wantEvents int) {
 	t.Helper()
 
@@ -58,10 +66,16 @@ func assertRFC5545Wire(t *testing.T, feed []byte, wantEvents int) {
 		case "END:VEVENT":
 			assert.Equalf(t, 1, countICSProperty(event, "DTSTAMP"),
 				"VEVENT %d must carry exactly one DTSTAMP", events)
+			assert.Equalf(t, 1, countICSProperty(event, "SEQUENCE"),
+				"VEVENT %d must carry exactly one SEQUENCE", events)
 			for _, prop := range event {
 				if strings.HasPrefix(prop, "DTSTAMP:") || strings.HasPrefix(prop, "DTSTAMP;") {
 					assert.Regexpf(t, icsUTCDateTime, strings.TrimPrefix(prop, "DTSTAMP:"),
 						"VEVENT %d: DTSTAMP must be a bare UTC DATE-TIME, got %q", events, prop)
+				}
+				if strings.HasPrefix(prop, "SEQUENCE:") || strings.HasPrefix(prop, "SEQUENCE;") {
+					assert.Regexpf(t, icsSequence, prop,
+						"VEVENT %d: SEQUENCE must be a non-negative integer", events)
 				}
 			}
 			event = nil
@@ -107,6 +121,9 @@ func TestICSWire_SavedShowsFeed(t *testing.T) {
 	assert.Contains(t, string(first), "DTSTAMP:20260601T120000Z\r\n",
 		"DTSTAMP comes from the show's UpdatedAt in UTC")
 	assert.Contains(t, string(first), "DTSTAMP:20260603T000000Z\r\n")
+	assert.Contains(t, string(first), "SEQUENCE:0\r\n", "an unedited show is SEQUENCE 0")
+	assert.Contains(t, string(first), fmt.Sprintf("SEQUENCE:%d\r\n", showSequence(created, edited)),
+		"an edited show carries the sequence the sibling feeds give it")
 
 	// Emptying the source proves the second read comes from feedCache, and the
 	// cached bytes must be the same wire bytes.

@@ -440,9 +440,10 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 		event.SetDtStampTime(show.UpdatedAt.UTC())
 		event.SetCreatedTime(show.CreatedAt)
 		event.SetModifiedAt(show.UpdatedAt)
-		// No SEQUENCE, unlike the sibling feeds. RFC 5546 2.1.5 orders copies
-		// of one UID by SEQUENCE, then DTSTAMP, so once a show is edited a
-		// public copy (SEQUENCE > 0) outranks this one (absent, read as 0).
+		// SEQUENCE from the helper every surface uses: RFC 5546 2.1.5 orders
+		// copies of one UID by SEQUENCE, then DTSTAMP, so this copy and a
+		// public one for the same show must rank as equals.
+		event.SetSequence(showSequence(show.CreatedAt, show.UpdatedAt))
 
 		// Times, naming, location, description and link are assembled by the
 		// helper the per-show download also uses, rather than by a local copy of
