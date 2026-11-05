@@ -17,10 +17,17 @@
  * field is drawn once, static, with no animation or pointer reaction.
  */
 
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useLayoutEffect, useRef, useState } from 'react'
 import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 import { cn } from '@/lib/utils'
-import { readWordmarkColors, resolveFontFamily, rgba, sampleWordmark, type RGB } from './sampleWordmark'
+import {
+  isWordmarkFontReady,
+  readWordmarkColors,
+  resolveFontFamily,
+  rgba,
+  sampleWordmark,
+  type RGB,
+} from './sampleWordmark'
 import { WORDMARK_PRESETS, type WordmarkPresetName } from './wordmarkPresets'
 
 const DEFAULT_LINES: readonly string[] = ['PSYCHIC', 'HOMILY']
@@ -39,6 +46,35 @@ export const SETTLE_RELEASE_MS = 1000
  *  only ever brightens: a fade, never a flash (WCAG 2.3.1; the nameplate is
  *  over the flash-area threshold). */
 const INTRO_FLOOR = 0.12
+/** sessionStorage: present once a `settle` intro has started in this tab.
+ *  Every settle mark shares it (the bar mark and the nameplate are one mark
+ *  at two breakpoints), so later arrivals paint the resting frame at once. */
+export const SETTLE_INTRO_PLAYED_KEY = 'ph-wordmark-intro-played'
+
+function settleIntroPlayed(): boolean {
+  try {
+    return window.sessionStorage.getItem(SETTLE_INTRO_PLAYED_KEY) !== null
+  } catch {
+    return false
+  }
+}
+
+function recordSettleIntroPlayed(): void {
+  try {
+    window.sessionStorage.setItem(SETTLE_INTRO_PLAYED_KEY, '1')
+  } catch {
+    // Storage unavailable: the intro plays on every arrival.
+  }
+}
+
+/**
+ * How the canvas took over from the text fallback:
+ * - `pending`: it has not; the fallback rules.
+ * - `instant`: before the first paint of the mount, so no cross-fade runs and
+ *   the fallback is never seen.
+ * - `fade`: after a paint, by cross-fading the two.
+ */
+type Handover = 'pending' | 'instant' | 'fade'
 
 // Shared by every preset. The boards set Hanken Grotesk Black; a resting dot
 // is about 0.6 x the pitch across (radius = pitch / 4 before the shimmer and
@@ -119,7 +155,8 @@ export function ScryingGridWordmark({
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [enhanced, setEnhanced] = useState(false)
+  const [handover, setHandover] = useState<Handover>('pending')
+  const enhanced = handover !== 'pending'
   // The visible fallback is hidden for JS users so the solid-font wordmark
   // never flashes before the canvas fades in. It's only revealed if enhancement
   // fails (`failed`), or for no-JS via the <noscript> style below.
@@ -131,7 +168,9 @@ export function ScryingGridWordmark({
   // A module constant per preset, so its identity is stable across renders.
   const layout = preset ? WORDMARK_PRESETS[preset] : null
 
-  useEffect(() => {
+  // A layout effect, so a field that can draw at mount draws before the
+  // browser paints the mount (see begin below).
+  useLayoutEffect(() => {
     const container = containerRef.current
     const canvas = canvasRef.current
     if (!container || !canvas) return
@@ -152,7 +191,8 @@ export function ScryingGridWordmark({
     const pointer = { x: 0, y: 0, active: false }
     // settle state. The intro's clock advances by frame timestamps, so a
     // pause (off-screen, hidden tab) resumes it where it stopped.
-    let introElapsed = settle && !reduced ? 0 : SETTLE_INTRO_MS
+    let introElapsed = settle && !reduced && !settleIntroPlayed() ? 0 : SETTLE_INTRO_MS
+    let introRecorded = false
     let lastFrameAt: number | null = null
     let releasing = false
     let releaseStart: number | null = null
@@ -164,6 +204,14 @@ export function ScryingGridWordmark({
     let raf = 0
     let resizeRaf = 0
     let disposed = false
+    // Nothing samples before begin(): a sample taken before the font is ready
+    // rasterises fallback glyphs.
+    let begun = false
+    const fontFamily = resolveFontFamily()
+    const fontWeight = layout ? PRESET_FONT_WEIGHT : undefined
+    // A handover never changes once made: the first one is the one painted.
+    const handOver = (mode: Exclude<Handover, 'pending'>) =>
+      setHandover(current => (current === 'pending' ? mode : current))
     const HOT: RGB = [255, 244, 224]
     // Pre-rendered grain tile to break gradient banding + add organic texture
     // (the trick behind the Vercel-style glow — noise composited over the pool).
@@ -317,11 +365,17 @@ export function ScryingGridWordmark({
     // 'no-box': the container has no size yet (display:none at this
     // breakpoint); the ResizeObserver builds the field once it has one.
     // 'empty': it has a size and the text sampled to nothing.
-    const rebuild = (): 'ready' | 'no-box' | 'empty' => {
+    // 'unchanged' (only with keepSameSize): the field is built at this size.
+    const rebuild = (keepSameSize = false): 'ready' | 'unchanged' | 'no-box' | 'empty' => {
       const rect = container.getBoundingClientRect()
       if (rect.width < 8 || rect.height < 8) return 'no-box'
       const w = Math.round(rect.width * dpr)
       const h = Math.round(rect.height * dpr)
+      // Assigning a canvas's size clears its bitmap even when the size is the
+      // same, which would blank a running field until its next frame.
+      if (keepSameSize && particles.length > 0 && canvas.width === w && canvas.height === h) {
+        return 'unchanged'
+      }
       canvas.width = w
       canvas.height = h
       canvas.style.width = `${rect.width}px`
@@ -333,13 +387,13 @@ export function ScryingGridWordmark({
       }
       const points = sampleWordmark(w, h, {
         lines: linesKey.split('\n'),
-        fontFamily: resolveFontFamily(),
+        fontFamily,
         gapDev: Math.round(gapFactor * dpr),
         // Oversized: inset the wordmark so the pool has room to fully fade
         // inside the canvas instead of getting sliced at the edge.
         padScale: spotlight === 'oversized' ? 0.6 : 1,
         fillInk: !!layout,
-        fontWeight: layout ? PRESET_FONT_WEIGHT : undefined,
+        fontWeight,
       })
       if (points.length === 0) return 'empty'
       particles = points.map((p) => ({
@@ -370,6 +424,12 @@ export function ScryingGridWordmark({
     const frame = (now: number) => {
       if (disposed || !running) return
       if (settle) {
+        // Recorded by a frame, not when the loop starts: a mount torn down
+        // before its first frame (StrictMode's double mount) showed no intro.
+        if (!introRecorded && introElapsed < SETTLE_INTRO_MS) {
+          introRecorded = true
+          recordSettleIntroPlayed()
+        }
         // The first frame after a (re)start adds no time, so a pause is never
         // billed to the intro.
         introElapsed = Math.min(
@@ -410,8 +470,9 @@ export function ScryingGridWordmark({
       if (!settle || (inView && !document.hidden)) startLoop()
     }
 
-    const begin = () => {
+    const begin = (mode: 'instant' | 'fade') => {
       if (disposed) return
+      begun = true
       const built = rebuild()
       if (built === 'no-box') return
       if (built === 'empty') {
@@ -419,13 +480,22 @@ export function ScryingGridWordmark({
         setFailed(true)
         return
       }
-      setEnhanced(true)
+      handOver(mode)
       resume()
-      if (!running) draw(0, true)
+      // The first frame now, running or not, so the canvas is never blank
+      // when it is shown.
+      draw(running ? performance.now() : 0, !running)
     }
-    // Fonts must be loaded before sampling, or we sample fallback glyphs.
-    if (document.fonts?.ready) document.fonts.ready.then(begin).catch(begin)
-    else begin()
+    // Without a heading the text fallback is the first paint, so a mount
+    // whose font is already loaded (any client-side mount after the first
+    // page load) samples and draws here, before that paint, and hands over
+    // at once: the fallback is never seen. The hero's fallback is never
+    // shown, so it keeps its fade-in. Otherwise sampling waits for the font.
+    const fontReady = isWordmarkFontReady({ lines: linesKey.split('\n'), fontFamily, fontWeight })
+    const fadeIn = () => begin('fade')
+    if (!heading && fontReady) begin('instant')
+    else if (document.fonts?.ready) document.fonts.ready.then(fadeIn).catch(fadeIn)
+    else fadeIn()
 
     const onMove = (e: PointerEvent) => {
       const rect = container.getBoundingClientRect()
@@ -467,14 +537,14 @@ export function ScryingGridWordmark({
     const ro = new ResizeObserver(() => {
       cancelAnimationFrame(resizeRaf)
       resizeRaf = requestAnimationFrame(() => {
-        if (disposed) return
-        const built = rebuild()
+        if (disposed || !begun) return
+        const built = rebuild(true)
         // A field that mounted with no box gets its first build here, so an
         // empty sample reveals the text as it would in begin(). A field that
         // already drew keeps its last frame.
         if (built === 'empty' && particles.length === 0) setFailed(true)
         if (built !== 'ready') return
-        setEnhanced(true)
+        handOver('fade')
         if (!running) {
           draw(0, true)
           if (settle) resume()
@@ -510,21 +580,27 @@ export function ScryingGridWordmark({
       ro.disconnect()
       io.disconnect()
     }
-  }, [gapFactor, spotlight, reducedMotion, linesKey, motion, layout])
+  }, [gapFactor, spotlight, reducedMotion, linesKey, motion, layout, heading])
 
   // The text fallback. With `heading` (the hero) it is hidden until needed,
   // so the solid-font wordmark never flashes before the canvas. Without it
-  // (the bar mark, the nameplate) it IS the first paint: visible in the server
-  // HTML and until the canvas enhances, then cross-faded out, so the brand is
-  // never a blank cell before hydration. Revealed on enhancement failure, and
+  // (the bar mark, the nameplate) it is the server HTML's paint, so the brand
+  // is never a blank cell before hydration, and it stays until the canvas
+  // takes over: at once when the font is ready at mount (hydration on a
+  // loaded font, every client-side mount), by a cross-fade when the field
+  // waited for the font (a cold load). Revealed on enhancement failure, and
   // for no-JS by the noscript rule below.
   const fallbackVisible = failed || (!heading && !enhanced)
+  // No transition on an instant handover: it lands before the first paint,
+  // and a transition would animate it from the style forced at mount.
+  const fade = handover !== 'instant' && 'transition-opacity duration-700'
   const fallback = (
     <span
       aria-hidden
       data-hero-fallback
       className={cn(
-        'block font-display text-foreground transition-opacity duration-700',
+        'block font-display text-foreground',
+        fade,
         layout ? PRESET_FALLBACK_CLASS : HERO_FALLBACK_CLASS,
         fallbackVisible ? 'opacity-100' : 'opacity-0'
       )}
@@ -561,9 +637,11 @@ export function ScryingGridWordmark({
       <canvas
         ref={canvasRef}
         aria-hidden
-        className={`pointer-events-none absolute inset-0 h-full w-full transition-opacity duration-700 ${
+        className={cn(
+          'pointer-events-none absolute inset-0 h-full w-full',
+          fade,
           enhanced ? 'opacity-100' : 'opacity-0'
-        }`}
+        )}
       />
       {/* No-JS: the canvas never enhances, so reveal the text fallback. */}
       <noscript>

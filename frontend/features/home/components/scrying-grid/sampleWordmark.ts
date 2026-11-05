@@ -121,6 +121,30 @@ export function sampleWordmark(widthDev: number, heightDev: number, opts: Sample
 }
 
 /**
+ * Whether the face the sampler draws with is loaded, so a sample taken now
+ * rasterises the real glyphs. Answers true where there is no FontFaceSet, or
+ * no face of that family to load. Checks the first family alone: next/font
+ * lists a size-adjusted local fallback face after it that is never loaded
+ * once the real face is in, and `check` on the whole list answers false for
+ * it.
+ */
+export function isWordmarkFontReady({
+  lines,
+  fontFamily,
+  fontWeight = FONT_WEIGHT,
+}: Pick<SampleOpts, 'lines' | 'fontFamily' | 'fontWeight'>): boolean {
+  const fonts = document.fonts
+  if (!fonts?.check) return true
+  const primaryFamily = fontFamily.split(',')[0].trim()
+  try {
+    return fonts.check(`${fontWeight} 100px ${primaryFamily}`, lines.join(' '))
+  } catch {
+    // A family string `check` cannot parse: wait for fonts.ready instead.
+    return false
+  }
+}
+
+/**
  * Resolve a next/font CSS variable (e.g. `--font-display`) to the concrete
  * hashed font-family string Canvas2D needs. Must be called in the browser.
  */
