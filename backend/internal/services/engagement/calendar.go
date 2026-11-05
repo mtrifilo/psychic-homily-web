@@ -433,11 +433,16 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 		// the UID format lives in one place rather than being spelled out per
 		// surface and drifting.
 		event := cal.AddEvent(showEventUID(show.ID))
-		// DTSTAMP discipline as in the venue feed's buildCalendar, which
-		// documents the reasons in full.
+		// DTSTAMP is required on every VEVENT (RFC 5545 3.6.1) and golang-ical
+		// does not add one. It comes from UpdatedAt, never time.Now(), so every
+		// surface sharing this show's UID stamps it identically and identical
+		// DB state serializes to identical bytes.
 		event.SetDtStampTime(show.UpdatedAt.UTC())
 		event.SetCreatedTime(show.CreatedAt)
 		event.SetModifiedAt(show.UpdatedAt)
+		// No SEQUENCE, unlike the sibling feeds. RFC 5546 2.1.5 orders copies
+		// of one UID by SEQUENCE, then DTSTAMP, so once a show is edited a
+		// public copy (SEQUENCE > 0) outranks this one (absent, read as 0).
 
 		// Times, naming, location, description and link are assembled by the
 		// helper the per-show download also uses, rather than by a local copy of
@@ -452,11 +457,6 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 		applyShowEventContent(event, &show.ShowResponse, frontendURL)
 	}
 
-	// No SEQUENCE, unlike the sibling feeds. The surfaces share a UID per show
-	// and RFC 5546 3.2 resolves a UID collision in favour of the higher
-	// SEQUENCE, so a subscriber to both this feed and a public one sees the
-	// public copy win.
-	//
 	// RFC 5545 3.1 mandates CRLF line endings, and golang-ical defaults to bare
 	// LF; strict clients reject an LF-delimited calendar outright.
 	data := []byte(cal.Serialize(ics.WithNewLine("\r\n")))

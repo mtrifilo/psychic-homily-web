@@ -96,16 +96,21 @@ func TestICSWire_SavedShowsFeed(t *testing.T) {
 		show(2, strings.Repeat("A Very Long Title For A Very Long Night ", 4), edited),
 		show(3, "Last Call", edited),
 	}
-	svc := &CalendarService{db: &gorm.DB{}, savedShowSvc: &mockSavedShowSvc{shows: shows, total: int64(len(shows))}}
+	saved := &mockSavedShowSvc{shows: shows, total: int64(len(shows))}
+	svc := &CalendarService{db: &gorm.DB{}, savedShowSvc: saved}
 
 	first, err := svc.GenerateICSFeed(1, "https://psychichomily.com")
 	require.NoError(t, err)
 	assertRFC5545Wire(t, first, len(shows))
+	require.Contains(t, string(first), "\r\n ",
+		"the fixture must fold at least one line, or CRLF on continuation lines goes unchecked")
 	assert.Contains(t, string(first), "DTSTAMP:20260601T120000Z\r\n",
 		"DTSTAMP comes from the show's UpdatedAt in UTC")
 	assert.Contains(t, string(first), "DTSTAMP:20260603T000000Z\r\n")
 
-	// The second read is served from feedCache; it must be the same wire bytes.
+	// Emptying the source proves the second read comes from feedCache, and the
+	// cached bytes must be the same wire bytes.
+	saved.shows, saved.total = nil, 0
 	cached, err := svc.GenerateICSFeed(1, "https://psychichomily.com")
 	require.NoError(t, err)
 	assert.Equal(t, first, cached)
