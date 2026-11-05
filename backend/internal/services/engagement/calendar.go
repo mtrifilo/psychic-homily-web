@@ -433,6 +433,11 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 		// the UID format lives in one place rather than being spelled out per
 		// surface and drifting.
 		event := cal.AddEvent(showEventUID(show.ID))
+		// DTSTAMP is REQUIRED on every VEVENT under METHOD:PUBLISH (RFC 5545
+		// 3.6.1) and golang-ical does not add one; a strict importer drops an
+		// event that lacks it. Taken from UpdatedAt, as the venue feed does, so
+		// identical DB state renders identical bytes.
+		event.SetDtStampTime(show.UpdatedAt.UTC())
 		event.SetCreatedTime(show.CreatedAt)
 		event.SetModifiedAt(show.UpdatedAt)
 
@@ -449,24 +454,16 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 		applyShowEventContent(event, &show.ShowResponse, frontendURL)
 	}
 
-	// REMAINING DIVERGENCE from the two sibling feeds, recorded so the next
-	// reader does not mistake any of it for an oversight. The safety gap is
-	// closed above: every community-editable value now passes through
-	// sanitizeICSText, which golang-ical's TEXT escaper does not do for CR.
-	// What is still different:
+	// REMAINING DIVERGENCE from the sibling feeds, recorded so the next reader
+	// does not mistake it for an oversight: no SEQUENCE. This one is not merely
+	// cosmetic: the surfaces share a UID per show, and RFC 5546 3.2 resolves a
+	// UID collision in favour of the higher SEQUENCE, so a subscriber to both
+	// this feed and a public one always sees the public copy win. It is a
+	// wire-format change wanting its own test, so it is tracked as its own work.
 	//
-	//   - No DTSTAMP per VEVENT, though RFC 5545 requires one under
-	//     METHOD:PUBLISH.
-	//   - Bare LF line endings, though RFC 5545 3.1 mandates CRLF and strict
-	//     clients reject an LF-delimited calendar.
-	//   - No SEQUENCE. This one is not merely cosmetic: the surfaces share a
-	//     UID per show, and RFC 5546 3.2 resolves a UID collision in favour of
-	//     the higher SEQUENCE, so a subscriber to both this feed and a public
-	//     one always sees the public copy win.
-	//
-	// Each is a wire-format change wanting its own test, so they are tracked as
-	// their own work rather than folded into a security fix.
-	data := []byte(cal.Serialize())
+	// RFC 5545 3.1 mandates CRLF line endings, and golang-ical defaults to bare
+	// LF; strict clients reject an LF-delimited calendar outright.
+	data := []byte(cal.Serialize(ics.WithNewLine("\r\n")))
 	s.feedCache.store(userID, data, icsFeedCacheTTL)
 	return data, nil
 }
