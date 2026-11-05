@@ -25,6 +25,14 @@ vi.mock('./sampleWordmark', async importOriginal => ({
   sampleWordmark: sampleSpy,
 }))
 
+/** The alpha of the last cell drawn: the field's opacity in the last frame
+ *  (about 0.86 at rest in light mode; at most 0.12 on the intro's first). */
+function lastDrawnAlpha(): number {
+  const match = /rgba\([^)]*,\s*([\d.]+)\)$/.exec(FAKE_CTX.fillStyle)
+  if (!match) throw new Error(`no rgba fill drawn: ${FAKE_CTX.fillStyle}`)
+  return Number(match[1])
+}
+
 const FAKE_CTX = {
   clearRect: vi.fn(),
   beginPath: vi.fn(),
@@ -431,7 +439,7 @@ describe("ScryingGridWordmark motion='settle'", () => {
     expect(FAKE_CTX.arc).toHaveBeenCalled()
   })
 
-  it('starts on the resting frame when a mark first gets a box after this tab\'s intro played', () => {
+  it('starts on the resting frame when a mark first gets a box after its text was painted', () => {
     const rect = vi.mocked(HTMLElement.prototype.getBoundingClientRect)
     rect.mockReturnValue({ width: 0, height: 0, left: 0, top: 0 } as DOMRect)
     const resize = installResizeObserver()
@@ -440,14 +448,15 @@ describe("ScryingGridWordmark motion='settle'", () => {
       render(<ScryingGridWordmark motion="settle" heading={false} preset="nameplate" />)
       expect(clock.pending).toBe(0)
 
-      // The visible mark's intro plays; then the breakpoint is crossed.
-      window.sessionStorage.setItem(SETTLE_INTRO_PLAYED_KEY, '1')
+      // The breakpoint is crossed: the text shows a frame before the field.
       rect.mockReturnValue({ width: 1084, height: 100, left: 0, top: 0 } as DOMRect)
       resize.report()
       clock.advance(16)
 
       expect(FAKE_CTX.arc).toHaveBeenCalled()
       expect(clock.pending).toBe(0)
+      expect(lastDrawnAlpha()).toBeGreaterThan(0.5)
+      expect(window.sessionStorage.getItem(SETTLE_INTRO_PLAYED_KEY)).toBeNull()
     } finally {
       resize.restore()
     }
@@ -656,6 +665,9 @@ describe('ScryingGridWordmark first paint', () => {
       expect(sampleSpy).toHaveBeenCalled()
       expect(fallback).toHaveClass('opacity-0', 'transition-opacity')
       expect(container.querySelector('canvas')).toHaveClass('opacity-100', 'transition-opacity')
+      // The text was painted first: the field cross-fades in at rest.
+      expect(clock.pending).toBe(0)
+      expect(lastDrawnAlpha()).toBeGreaterThan(0.5)
     } finally {
       resize.restore()
     }
@@ -687,6 +699,33 @@ describe('ScryingGridWordmark first paint', () => {
     const fallback = container.querySelector('[data-hero-fallback]')
     expect(fallback).toHaveClass('opacity-0')
     expect(fallback).not.toHaveClass('transition-opacity')
+  })
+
+  it('replaces server-painted text with the resting frame, and leaves the intro for the first client-side arrival', async () => {
+    fonts = installFonts({ loaded: true })
+    const { renderToString } = await import('react-dom/server')
+    const container = document.createElement('div')
+    container.innerHTML = renderToString(<ScryingGridWordmark preset="bar" heading={false} motion="settle" />)
+    document.body.appendChild(container)
+
+    const hydrated = render(<ScryingGridWordmark preset="bar" heading={false} motion="settle" />, {
+      container,
+      hydrate: true,
+    })
+    // No rise from faint cells over the text it replaced: the resting frame,
+    // no loop, and the session's intro still unplayed.
+    expect(lastDrawnAlpha()).toBeGreaterThan(0.5)
+    expect(clock.pending).toBe(0)
+    clock.advance(SETTLE_INTRO_MS)
+    expect(window.sessionStorage.getItem(SETTLE_INTRO_PLAYED_KEY)).toBeNull()
+    hydrated.unmount()
+
+    // Home -> Shows -> Home: the canvas is the first thing the cell shows.
+    render(<ScryingGridWordmark preset="bar" heading={false} motion="settle" />)
+    expect(lastDrawnAlpha()).toBeLessThanOrEqual(0.12)
+    expect(clock.pending).toBe(1)
+    clock.advance(16)
+    expect(window.sessionStorage.getItem(SETTLE_INTRO_PLAYED_KEY)).not.toBeNull()
   })
 
   it('keeps the hero\'s early field: a resize before the font builds it, and fonts.ready resamples it', async () => {

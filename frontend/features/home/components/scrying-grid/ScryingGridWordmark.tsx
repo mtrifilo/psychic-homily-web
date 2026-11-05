@@ -18,6 +18,7 @@
  */
 
 import { Fragment, useLayoutEffect, useRef, useState } from 'react'
+import { useHydrated } from '@/lib/hooks/common/useHydrated'
 import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 import { cn } from '@/lib/utils'
 import {
@@ -49,8 +50,8 @@ export const SETTLE_RELEASE_MS = 1000
 const INTRO_FLOOR = 0.12
 /** sessionStorage: present once a `settle` intro has started in this tab.
  *  Every settle mark shares it (the bar mark and the nameplate are one mark
- *  at two breakpoints), so a field built later in the tab paints the resting
- *  frame at once. */
+ *  at two breakpoints), so later client-side arrivals paint the resting frame
+ *  at once. */
 export const SETTLE_INTRO_PLAYED_KEY = 'ph-wordmark-intro-played'
 
 function settleIntroPlayed(): boolean {
@@ -145,10 +146,11 @@ export function ScryingGridWordmark({
   heading?: boolean
   /**
    * - `rest` (default): shimmers continuously while on screen.
-   * - `settle`: one intro of SETTLE_INTRO_MS on first visibility, once per
-   *   tab session across every settle mark (SETTLE_INTRO_PLAYED_KEY; later
-   *   fields start on the resting frame), then the loop STOPS on the
-   *   resting frame. The pointer (hover, touch) ignites the
+   * - `settle`: one intro of SETTLE_INTRO_MS per tab session across every
+   *   settle mark (SETTLE_INTRO_PLAYED_KEY), played only when the canvas is
+   *   the first thing the cell shows (a client-side mount); a field that
+   *   replaces painted text, and every later field, starts on the resting
+   *   frame. Then the loop STOPS on the resting frame. The pointer (hover, touch) ignites the
    *   cells while it is over the field; within SETTLE_RELEASE_MS of leaving,
    *   the field is back at rest and the loop stops again. Paused off-screen
    *   and in a hidden tab. Nothing restarts on its own.
@@ -178,6 +180,11 @@ export function ScryingGridWordmark({
   // Without a heading the text fallback is the server HTML's paint (see the
   // fallback below); with one it is hidden until needed.
   const fallbackIsFirstPaint = !heading
+  // Whether this instance mounted by hydrating server HTML, which has already
+  // painted the fallback. Fixed at mount: the hydration render is the only
+  // one where useHydrated answers false.
+  const hydrated = useHydrated()
+  const mountedByHydration = useRef(!hydrated)
   const reducedMotion = useReducedMotion()
   // A string, so a caller's inline array literal does not rebuild the field
   // on every render.
@@ -207,8 +214,9 @@ export function ScryingGridWordmark({
       : Math.max(1.1, 1.35 * dpr)
     const pointer = { x: 0, y: 0, active: false }
     // settle state. The intro's clock advances by frame timestamps, so a
-    // pause (off-screen, hidden tab) resumes it where it stopped.
-    let introElapsed = settle && !reduced ? 0 : SETTLE_INTRO_MS
+    // pause (off-screen, hidden tab) resumes it where it stopped. It starts
+    // finished: only begin() starts an intro (see there).
+    let introElapsed = SETTLE_INTRO_MS
     let lastFrameAt: number | null = null
     let releasing = false
     let releaseStart: number | null = null
@@ -410,12 +418,6 @@ export function ScryingGridWordmark({
         fontWeight,
       })
       if (points.length === 0) return 'empty'
-      // Read when the field first builds, not at mount: a mark mounted with
-      // no box (the other breakpoint's) builds later, maybe after this tab's
-      // intro has played.
-      if (particles.length === 0 && introElapsed === 0 && settleIntroPlayed()) {
-        introElapsed = SETTLE_INTRO_MS
-      }
       particles = points.map((p) => ({
         hx: p.x,
         hy: p.y,
@@ -522,6 +524,15 @@ export function ScryingGridWordmark({
         return
       }
       handOver(mode)
+      // The intro plays only when the canvas is the first thing the cell
+      // shows: drawn before the first paint of a client-side mount. Over text
+      // already painted (hydration, a cross-fade after the font, a box that
+      // appears later) a rise from faint cells would read as text, then
+      // dim, then bright; that field starts on the resting frame and leaves
+      // the session's intro unplayed.
+      if (settle && !reduced && mode === 'instant' && !mountedByHydration.current && !settleIntroPlayed()) {
+        introElapsed = 0
+      }
       resume()
       // The first frame now, running or not, so the canvas is never blank
       // when it is shown.
