@@ -431,6 +431,28 @@ describe("ScryingGridWordmark motion='settle'", () => {
     expect(FAKE_CTX.arc).toHaveBeenCalled()
   })
 
+  it('starts on the resting frame when a mark first gets a box after this tab\'s intro played', () => {
+    const rect = vi.mocked(HTMLElement.prototype.getBoundingClientRect)
+    rect.mockReturnValue({ width: 0, height: 0, left: 0, top: 0 } as DOMRect)
+    const resize = installResizeObserver()
+    try {
+      // The other breakpoint's mark: mounted with no box.
+      render(<ScryingGridWordmark motion="settle" heading={false} preset="nameplate" />)
+      expect(clock.pending).toBe(0)
+
+      // The visible mark's intro plays; then the breakpoint is crossed.
+      window.sessionStorage.setItem(SETTLE_INTRO_PLAYED_KEY, '1')
+      rect.mockReturnValue({ width: 1084, height: 100, left: 0, top: 0 } as DOMRect)
+      resize.report()
+      clock.advance(16)
+
+      expect(FAKE_CTX.arc).toHaveBeenCalled()
+      expect(clock.pending).toBe(0)
+    } finally {
+      resize.restore()
+    }
+  })
+
   it('still plays the intro after a mount that was torn down before its first frame', () => {
     // StrictMode mounts, tears down and mounts again before any frame runs.
     render(
@@ -472,7 +494,7 @@ describe("ScryingGridWordmark motion='settle'", () => {
 })
 
 /** A FontFaceSet whose readiness the test gives: `check` answers `loaded`,
- *  and `ready` settles when the test calls `load`. */
+ *  and `ready` and every `load()` settle when the test calls `load`. */
 function installFonts({ loaded }: { loaded: boolean }) {
   let settle: () => void = () => {}
   const ready = new Promise<void>(resolve => {
@@ -481,7 +503,7 @@ function installFonts({ loaded }: { loaded: boolean }) {
   const check = vi.fn(() => loaded)
   Object.defineProperty(document, 'fonts', {
     configurable: true,
-    value: { check, ready },
+    value: { check, ready, load: vi.fn(() => ready) },
   })
   return {
     check,
@@ -497,9 +519,11 @@ function installFonts({ loaded }: { loaded: boolean }) {
   }
 }
 
-/** Calls `onRun` from a passive effect. A sibling after the mark, so its
- *  first run follows the mark's layout effects: a draw not done by then
- *  would come from a passive effect or later, a frame after the mount. */
+/** Calls `onRun` from a passive effect. Rendered BEFORE the mark: React runs
+ *  a commit's passive effects in tree order after all its layout effects, so
+ *  this one runs after the mark's layout effect and before the mark's own
+ *  passive effect. A draw not done by then is a passive-effect draw, painted
+ *  a frame after the mount. */
 function PassiveEffect({ onRun }: { onRun: () => void }) {
   useEffect(onRun, [onRun])
   return null
@@ -577,8 +601,8 @@ describe('ScryingGridWordmark first paint', () => {
     const { seen, onRun } = drawnByFirstPassiveEffect()
     const { container } = render(
       <>
-        <ScryingGridWordmark preset="bar" lines={WORDMARK_ONE_LINE} heading={false} motion="settle" />
         <PassiveEffect onRun={onRun} />
+        <ScryingGridWordmark preset="bar" lines={WORDMARK_ONE_LINE} heading={false} motion="settle" />
       </>,
     )
 
@@ -626,8 +650,8 @@ describe('ScryingGridWordmark first paint', () => {
     const container = document.createElement('div')
     container.innerHTML = renderToString(
       <>
-        <ScryingGridWordmark preset="bar" heading={false} motion="settle" />
         <PassiveEffect onRun={() => {}} />
+        <ScryingGridWordmark preset="bar" heading={false} motion="settle" />
       </>,
     )
     document.body.appendChild(container)
@@ -636,8 +660,8 @@ describe('ScryingGridWordmark first paint', () => {
     const { seen, onRun } = drawnByFirstPassiveEffect()
     render(
       <>
-        <ScryingGridWordmark preset="bar" heading={false} motion="settle" />
         <PassiveEffect onRun={onRun} />
+        <ScryingGridWordmark preset="bar" heading={false} motion="settle" />
       </>,
       { container, hydrate: true },
     )
@@ -646,6 +670,23 @@ describe('ScryingGridWordmark first paint', () => {
     const fallback = container.querySelector('[data-hero-fallback]')
     expect(fallback).toHaveClass('opacity-0')
     expect(fallback).not.toHaveClass('transition-opacity')
+  })
+
+  it('keeps the hero\'s early field: a resize before the font builds it, and fonts.ready resamples it', async () => {
+    fonts = installFonts({ loaded: false })
+    const resize = installResizeObserver()
+    try {
+      const { container } = render(<ScryingGridWordmark />)
+      resize.report()
+      clock.advance(16)
+      expect(sampleSpy).toHaveBeenCalledTimes(1)
+      expect(container.querySelector('canvas')).toHaveClass('opacity-100', 'transition-opacity')
+
+      await fonts.load()
+      expect(sampleSpy).toHaveBeenCalledTimes(2)
+    } finally {
+      resize.restore()
+    }
   })
 
   it('leaves the hero as it was: it waits for fonts.ready and fades in, even with the font loaded', async () => {

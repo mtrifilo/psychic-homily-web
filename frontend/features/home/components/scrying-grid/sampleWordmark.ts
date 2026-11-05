@@ -120,27 +120,47 @@ export function sampleWordmark(widthDev: number, heightDev: number, opts: Sample
   return points
 }
 
+type WordmarkFace = Pick<SampleOpts, 'lines' | 'fontFamily' | 'fontWeight'>
+
 /**
- * Whether the face the sampler draws with is loaded, so a sample taken now
- * rasterises the real glyphs. Answers true where there is no FontFaceSet, or
- * no face of that family to load. Checks the first family alone: next/font
+ * The FontFaceSet query for the face the sampler draws with: its weight, the
+ * first family, and the text drawn. The first family alone, because next/font
  * lists a size-adjusted local fallback face after it that is never loaded
- * once the real face is in, and `check` on the whole list answers false for
- * it.
+ * once the real face is in, and a query on the whole list never matches as
+ * loaded.
  */
-export function isWordmarkFontReady({
-  lines,
-  fontFamily,
-  fontWeight = FONT_WEIGHT,
-}: Pick<SampleOpts, 'lines' | 'fontFamily' | 'fontWeight'>): boolean {
+function faceQuery({ lines, fontFamily, fontWeight = FONT_WEIGHT }: WordmarkFace): [string, string] {
+  const primaryFamily = fontFamily.split(',')[0].trim()
+  return [`${fontWeight} 100px ${primaryFamily}`, lines.join(' ')]
+}
+
+/**
+ * Whether that face is loaded, so a sample taken now rasterises the real
+ * glyphs. True where there is no FontFaceSet, or no face of that family to
+ * load; false for a query the set cannot parse.
+ */
+export function isWordmarkFontReady(face: WordmarkFace): boolean {
   const fonts = document.fonts
   if (!fonts?.check) return true
-  const primaryFamily = fontFamily.split(',')[0].trim()
   try {
-    return fonts.check(`${fontWeight} 100px ${primaryFamily}`, lines.join(' '))
+    return fonts.check(...faceQuery(face))
   } catch {
-    // A family string `check` cannot parse: wait for fonts.ready instead.
     return false
+  }
+}
+
+/**
+ * Loads that face, starting the request if nothing has asked for it yet.
+ * Settles (resolves or rejects) once the face is loaded or has failed; at
+ * once where there is no FontFaceSet.
+ */
+export function loadWordmarkFont(face: WordmarkFace): Promise<unknown> {
+  const fonts = document.fonts
+  if (!fonts?.load) return Promise.resolve()
+  try {
+    return fonts.load(...faceQuery(face))
+  } catch (error) {
+    return Promise.reject(error)
   }
 }
 

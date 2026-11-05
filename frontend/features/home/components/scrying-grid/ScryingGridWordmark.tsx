@@ -22,6 +22,7 @@ import { useReducedMotion } from '@/lib/hooks/common/useReducedMotion'
 import { cn } from '@/lib/utils'
 import {
   isWordmarkFontReady,
+  loadWordmarkFont,
   readWordmarkColors,
   resolveFontFamily,
   rgba,
@@ -48,7 +49,8 @@ export const SETTLE_RELEASE_MS = 1000
 const INTRO_FLOOR = 0.12
 /** sessionStorage: present once a `settle` intro has started in this tab.
  *  Every settle mark shares it (the bar mark and the nameplate are one mark
- *  at two breakpoints), so later arrivals paint the resting frame at once. */
+ *  at two breakpoints), so a field built later in the tab paints the resting
+ *  frame at once. */
 export const SETTLE_INTRO_PLAYED_KEY = 'ph-wordmark-intro-played'
 
 function settleIntroPlayed(): boolean {
@@ -67,12 +69,23 @@ function recordSettleIntroPlayed(): void {
   }
 }
 
+/** Lets the next `settle` field built in this tab play its intro (Hero Lab's
+ *  replay control). */
+export function forgetSettleIntroPlayed(): void {
+  try {
+    window.sessionStorage.removeItem(SETTLE_INTRO_PLAYED_KEY)
+  } catch {
+    // Storage unavailable: nothing was recorded.
+  }
+}
+
 /**
  * How the canvas took over from the text fallback:
  * - `pending`: it has not; the fallback rules.
- * - `instant`: before the first paint of the mount, so no cross-fade runs and
- *   the fallback is never seen.
- * - `fade`: after a paint, by cross-fading the two.
+ * - `instant`: in the mount's layout effect, with no transition. On a
+ *   client-side mount the fallback is never painted; at hydration the server
+ *   HTML's text is replaced in one frame (no cross-fade over a drawn canvas).
+ * - `fade`: after the field waited for the font, by cross-fading the two.
  */
 type HandoverMode = 'instant' | 'fade'
 type Handover = 'pending' | HandoverMode
@@ -132,8 +145,10 @@ export function ScryingGridWordmark({
   heading?: boolean
   /**
    * - `rest` (default): shimmers continuously while on screen.
-   * - `settle`: one intro of SETTLE_INTRO_MS on first visibility, then the
-   *   loop STOPS on the resting frame. The pointer (hover, touch) ignites the
+   * - `settle`: one intro of SETTLE_INTRO_MS on first visibility, once per
+   *   tab session across every settle mark (SETTLE_INTRO_PLAYED_KEY; later
+   *   fields start on the resting frame), then the loop STOPS on the
+   *   resting frame. The pointer (hover, touch) ignites the
    *   cells while it is over the field; within SETTLE_RELEASE_MS of leaving,
    *   the field is back at rest and the loop stops again. Paused off-screen
    *   and in a hidden tab. Nothing restarts on its own.
@@ -193,7 +208,7 @@ export function ScryingGridWordmark({
     const pointer = { x: 0, y: 0, active: false }
     // settle state. The intro's clock advances by frame timestamps, so a
     // pause (off-screen, hidden tab) resumes it where it stopped.
-    let introElapsed = settle && !reduced && !settleIntroPlayed() ? 0 : SETTLE_INTRO_MS
+    let introElapsed = settle && !reduced ? 0 : SETTLE_INTRO_MS
     let lastFrameAt: number | null = null
     let releasing = false
     let releaseStart: number | null = null
@@ -364,15 +379,15 @@ export function ScryingGridWordmark({
     // 'no-box': the container has no size yet (display:none at this
     // breakpoint); the ResizeObserver builds the field once it has one.
     // 'empty': it has a size and the text sampled to nothing.
-    // 'unchanged': the field is already built at this size.
-    const rebuild = (): 'ready' | 'unchanged' | 'no-box' | 'empty' => {
+    // 'unchanged' (unless `resample`): the field is already built at this size.
+    const rebuild = (resample = false): 'ready' | 'unchanged' | 'no-box' | 'empty' => {
       const rect = container.getBoundingClientRect()
       if (rect.width < 8 || rect.height < 8) return 'no-box'
       const w = Math.round(rect.width * dpr)
       const h = Math.round(rect.height * dpr)
       // Assigning a canvas's size clears its bitmap even when the size is the
       // same, which would blank a running field until its next frame.
-      if (particles.length > 0 && canvas.width === w && canvas.height === h) {
+      if (!resample && particles.length > 0 && canvas.width === w && canvas.height === h) {
         return 'unchanged'
       }
       canvas.width = w
@@ -395,6 +410,12 @@ export function ScryingGridWordmark({
         fontWeight,
       })
       if (points.length === 0) return 'empty'
+      // Read when the field first builds, not at mount: a mark mounted with
+      // no box (the other breakpoint's) builds later, maybe after this tab's
+      // intro has played.
+      if (particles.length === 0 && introElapsed === 0 && settleIntroPlayed()) {
+        introElapsed = SETTLE_INTRO_MS
+      }
       particles = points.map((p) => ({
         hx: p.x,
         hy: p.y,
@@ -467,8 +488,10 @@ export function ScryingGridWordmark({
       if (!settle || (inView && !document.hidden)) startLoop()
     }
 
-    // Observed from begin(), so no resize samples before the font is ready:
-    // that would rasterise fallback glyphs.
+    // Without a heading the observer starts in begin(), so the text stays
+    // until a field sampled in the loaded face replaces it. The hero's
+    // starts at mount: its fallback is hidden, so an early field in a
+    // fallback face (resampled by begin) beats an empty cell.
     const ro = new ResizeObserver(() => {
       cancelAnimationFrame(resizeRaf)
       resizeRaf = requestAnimationFrame(() => {
@@ -490,7 +513,8 @@ export function ScryingGridWordmark({
     const begin = (mode: HandoverMode) => {
       if (disposed) return
       ro.observe(container)
-      const built = rebuild()
+      // Resamples a field the hero's observer built before the font loaded.
+      const built = rebuild(true)
       if (built === 'no-box') return
       if (built === 'empty') {
         // Canvas couldn't sample: reveal the text.
@@ -508,10 +532,17 @@ export function ScryingGridWordmark({
     // page load) samples and draws here, before that paint, and hands over
     // at once: the fallback is never seen. The hero's fallback is never
     // shown, so it keeps its fade-in. Otherwise sampling waits for the font.
+    const face = { lines, fontFamily, fontWeight }
     const fadeIn = () => begin('fade')
-    if (fallbackIsFirstPaint && isWordmarkFontReady({ lines, fontFamily, fontWeight })) begin('instant')
-    else if (document.fonts?.ready) document.fonts.ready.then(fadeIn).catch(fadeIn)
-    else fadeIn()
+    if (fallbackIsFirstPaint) {
+      if (isWordmarkFontReady(face)) begin('instant')
+      // The face itself, which loading other fonts does not settle.
+      else loadWordmarkFont(face).then(fadeIn, fadeIn)
+    } else {
+      ro.observe(container)
+      if (document.fonts?.ready) document.fonts.ready.then(fadeIn).catch(fadeIn)
+      else fadeIn()
+    }
 
     const onMove = (e: PointerEvent) => {
       const rect = container.getBoundingClientRect()
