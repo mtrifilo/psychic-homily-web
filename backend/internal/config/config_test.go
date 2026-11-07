@@ -362,6 +362,15 @@ func TestLoad_SessionLifetimeBounds(t *testing.T) {
 			}
 		})
 	}
+	// Stage is a deployed environment too and refuses the same way.
+	t.Run("zero in stage refuses", func(t *testing.T) {
+		t.Setenv("ENVIRONMENT", "stage")
+		deployedEnv(t)
+		t.Setenv("JWT_EXPIRY_HOURS", "0")
+		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "JWT_EXPIRY_HOURS") {
+			t.Errorf("Load() = %v, want a refusal naming JWT_EXPIRY_HOURS", err)
+		}
+	})
 	t.Run("unset in production is the default and boots", func(t *testing.T) {
 		t.Setenv("ENVIRONMENT", "production")
 		deployedEnv(t)
