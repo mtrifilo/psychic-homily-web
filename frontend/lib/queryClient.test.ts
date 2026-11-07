@@ -146,16 +146,6 @@ describe('queryClient module', () => {
       }
     )
 
-    it('auth invalidates the auth family without cancelling', async () => {
-      const { createInvalidateQueries } = await import('./queryClient')
-      const { client, cancel, invalidate } = spiedClient()
-
-      await createInvalidateQueries(client).auth()
-
-      expect(cancel).not.toHaveBeenCalled()
-      expect(keysOf(invalidate)).toEqual([['auth']])
-    })
-
     it('restarts a pending personal fetch before stale data can land', async () => {
       const { createInvalidateQueries } = await import('./queryClient')
       const queryClient = new QueryClient({

@@ -973,16 +973,13 @@ export function refetchSignedInProfile(queryClient: QueryClient) {
 }
 
 /**
- * Refetches grouped by query family. Every entry except `auth` goes through
+ * Refetches grouped by query family. Every entry goes through
  * `refetchAfterMutation`, so a write that lands during a query's first fetch is
  * not hidden by that fetch's pre-write response. Each entry returns a promise
- * that never rejects.
+ * that never rejects. The auth family is not here: the profile is refetched by
+ * `refetchSignedInProfile`, and a session renewal writes the cache directly.
  */
 export const createInvalidateQueries = (queryClient: QueryClient) => ({
-  auth: () =>
-    // eslint-disable-next-line no-restricted-syntax -- a token refresh runs inside a signed-in session whose profile holds data, so this restarts the profile's in-flight fetch rather than reusing it, and the profile stays uncancelled for the cache error handlers (see refetchSignedInProfile)
-    queryClient.invalidateQueries({ queryKey: ['auth'] }),
-
   shows: () => refetchAfterMutation(queryClient, queryKeys.shows.all),
 
   artists: () => refetchAfterMutation(queryClient, queryKeys.artists.all),

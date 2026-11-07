@@ -94,6 +94,25 @@ func (s *AuthHandlerIntegrationSuite) decodeRefresh(w *httptest.ResponseRecorder
 	return body
 }
 
+// renewedSessionCookie returns the renewed session a cookie-presented refresh
+// answers in Set-Cookie, asserting that is the only place it appears: the
+// HttpOnly session never comes back in the body, where script could read it,
+// and the cookie's clock restarts at the full configured lifetime.
+func (s *AuthHandlerIntegrationSuite) renewedSessionCookie(w *httptest.ResponseRecorder) string {
+	s.T().Helper()
+	s.Require().Equal(http.StatusOK, w.Code, "body: %s", w.Body.String())
+	body := s.decodeRefresh(w)
+	s.True(body.Success)
+	s.Nil(body.Token, "a cookie credential is renewed in Set-Cookie, not in the body")
+	cookies := (&http.Response{Header: w.Header()}).Cookies()
+	s.Require().Len(cookies, 1, "exactly the renewed auth cookie")
+	s.Equal(config.AuthCookieName, cookies[0].Name)
+	s.NotEmpty(cookies[0].Value)
+	s.WithinDuration(time.Now().Add(s.cfg.JWT.SessionLifetime()), cookies[0].Expires, time.Minute,
+		"the renewal restarts the session clock")
+	return cookies[0].Value
+}
+
 // assertRefusedAsValidationRefuses asserts w carries the code and message
 // session validation gives a revoked or closed session (401 TOKEN_INVALID,
 // "Invalid token"), no token, and exactly one cookie: the auth cookie,
@@ -163,12 +182,9 @@ func (s *AuthHandlerIntegrationSuite) TestRefresh_SessionAfterARevocationRenewsW
 
 	w := s.refreshThroughTheMiddleware(seam, session)
 
-	s.Require().Equal(http.StatusOK, w.Code, "body: %s", w.Body.String())
-	body := s.decodeRefresh(w)
-	s.True(body.Success)
-	s.Require().NotNil(body.Token)
+	renewedToken := s.renewedSessionCookie(w)
 	s.Equal(1, seam.mints)
-	renewed, _, err := s.jwtService().ValidateSession(*body.Token)
+	renewed, _, err := s.jwtService().ValidateSession(renewedToken)
 	s.Require().NoError(err, "the renewal names the current stamp")
 	s.Equal(user.ID, renewed.ID)
 }
@@ -186,9 +202,7 @@ func (s *AuthHandlerIntegrationSuite) TestRefresh_RevocationDuringTheMintLeavesT
 
 	w := s.refreshThroughTheMiddleware(seam, session)
 
-	s.Require().Equal(http.StatusOK, w.Code, "body: %s", w.Body.String())
-	body := s.decodeRefresh(w)
-	s.Require().NotNil(body.Token)
-	_, _, err := s.jwtService().ValidateSession(*body.Token)
+	renewedToken := s.renewedSessionCookie(w)
+	_, _, err := s.jwtService().ValidateSession(renewedToken)
 	s.True(errors.Is(err, servicesshared.ErrSessionRevoked), "the renewal is refused as revoked, got %v", err)
 }

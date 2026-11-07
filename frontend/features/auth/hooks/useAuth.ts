@@ -16,7 +16,6 @@ import {
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import {
   queryKeys,
-  createInvalidateQueries,
   refreshViewerTierQueries,
   refetchSignedInProfile,
   releaseExpiredSessionLatch,
@@ -159,15 +158,16 @@ export interface UserProfile {
    */
   has_password?: components['schemas']['UserProfileResponseBody']['has_password']
   passkey_count?: components['schemas']['UserProfileResponseBody']['passkey_count']
+  /**
+   * The session is old enough that the client should POST /auth/refresh once
+   * to restart its clock (SessionRenewal). Absent when not due.
+   */
+  session_renewal_due?: components['schemas']['UserProfileResponseBody']['session_renewal_due']
 }
 
-interface RefreshTokenResponse {
-  success: boolean
-  token?: string
-  message: string
-  error_code?: AuthErrorCodeType
-  request_id?: string
-}
+// The wire shape; the web client never receives `token` (a cookie credential
+// is renewed in Set-Cookie), so nothing here reads it.
+type RefreshTokenResponse = components['schemas']['RefreshTokenResponseBody']
 
 /**
  * Cache work shared by every transition INTO an authenticated session: login,
@@ -515,10 +515,18 @@ export const useUpdateProfile = () => {
   })
 }
 
-// Refresh token mutation
+/**
+ * Renew the session the browser holds. The backend answers a cookie credential
+ * with Set-Cookie only (no token in the body), so success leaves nothing for
+ * this hook to store: it marks the cached profile as no longer due so a
+ * remount of `SessionRenewal` does not ask again before the next page load
+ * (the component's own ref latch covers the in-flight window and Strict
+ * Mode; the two are not redundant). Failure changes nothing visible: the
+ * session the viewer has still works until it expires, and the next load asks
+ * again.
+ */
 export const useRefreshToken = () => {
   const queryClient = useQueryClient()
-  const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
     mutationFn: async (): Promise<RefreshTokenResponse> => {
@@ -531,16 +539,14 @@ export const useRefreshToken = () => {
     },
     onSuccess: data => {
       authLogger.tokenRefresh(data.success, data.request_id)
-
       if (data.success) {
-        // Invalidate auth queries to refetch with new token
-        invalidateQueries.auth()
+        queryClient.setQueryData<UserProfile>(queryKeys.auth.profile, previous =>
+          previous ? { ...previous, session_renewal_due: false } : previous
+        )
       }
     },
     onError: error => {
       authLogger.error('Token refresh failed', error)
-      // Clear all cached data on refresh failure
-      queryClient.clear()
     },
   })
 }

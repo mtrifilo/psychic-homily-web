@@ -4,6 +4,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { NuqsAdapter } from 'nuqs/adapters/next/app'
 import { getQueryClient } from '@/lib/queryClient'
 import { AuthProvider } from '@/lib/context/AuthContext'
+import { SessionRenewal } from '@/features/auth/components/SessionRenewal'
 // PSY-961: app-level Create-collection drawer, openable from any surface
 // (the /collections button + the AddToCollectionButton "Create … with
 // {entity}" CTA). Its heavy form is lazy-loaded inside the provider, so this
@@ -58,6 +59,9 @@ export function Providers({ children }: ProvidersProps) {
 export function SessionProviders({ children }: ProvidersProps) {
     return (
         <AuthProvider>
+            {/* Not a provider: the once-per-load session renewal lives here
+                because it needs the seeded profile and must mount once. */}
+            <SessionRenewal />
             <CreateCollectionDrawerProvider>
                 {children}
             </CreateCollectionDrawerProvider>

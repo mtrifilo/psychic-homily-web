@@ -1894,8 +1894,14 @@ func TestRefreshTokenHandler_Success(t *testing.T) {
 	if !resp.Body.Success {
 		t.Error("expected success=true")
 	}
+	// A Bearer client (the iOS app) cannot take a cookie, so it gets the token
+	// in the body and no Set-Cookie; the cookie form is covered in
+	// session_renewal_test.go.
 	if resp.Body.Token != "new-token" {
 		t.Errorf("expected token=new-token, got %s", resp.Body.Token)
+	}
+	if resp.SetCookie != "" {
+		t.Errorf("Set-Cookie = %q, want none for a Bearer credential", resp.SetCookie)
 	}
 }
 

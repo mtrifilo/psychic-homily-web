@@ -22,3 +22,17 @@ func CtxWithSessionAuthTime(user *authm.User, authAt time.Time) context.Context 
 func CtxWithSession(user *authm.User, authAt time.Time) context.Context {
 	return context.WithValue(CtxWithSessionAuthTime(user, authAt), middleware.SessionCredentialContextKey, true)
 }
+
+// CtxWithSessionIssuedAt is CtxWithSession for a session token minted at
+// issuedAt (middleware.SessionIssuedAtContextKey), which is how old the
+// session is for renewal.
+func CtxWithSessionIssuedAt(user *authm.User, authAt, issuedAt time.Time) context.Context {
+	return context.WithValue(CtxWithSession(user, authAt), middleware.SessionIssuedAtContextKey, issuedAt)
+}
+
+// CtxWithCookieSession is CtxWithSessionIssuedAt for a session the request
+// presented as the auth cookie rather than a Bearer header
+// (middleware.SessionCredentialSourceContextKey).
+func CtxWithCookieSession(user *authm.User, authAt, issuedAt time.Time) context.Context {
+	return context.WithValue(CtxWithSessionIssuedAt(user, authAt, issuedAt), middleware.SessionCredentialSourceContextKey, middleware.CredentialSourceCookie)
+}

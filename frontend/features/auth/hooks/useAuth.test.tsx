@@ -2,11 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { createWrapper, createWrapperWithClient, createTestQueryClient } from '@/test/utils'
 import { AuthErrorCode, AuthError } from '@/lib/errors'
+import { queryKeys } from '@/lib/queryClient'
 import { refetchFailedProfileOnly } from './useAuth'
 
 // Create a mock for apiRequest that we can control
 const mockApiRequest = vi.fn()
-const mockInvalidateAuth = vi.fn()
 const mockRefreshViewerTierQueries = vi.fn()
 const mockResetViewerTierQueries = vi.fn()
 
@@ -82,7 +82,6 @@ vi.mock('@/lib/queryClient', () => ({
   refetchSignedInProfile: (...args: unknown[]) =>
     mockRefetchSignedInProfile(...args),
   createInvalidateQueries: () => ({
-    auth: mockInvalidateAuth,
   }),
   // PSY-1857: every transition into an authenticated session drops the caches
   // whose payload depends on the viewer's privilege tier. Behaviour against
@@ -129,7 +128,6 @@ describe('useAuth hooks', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
-    mockInvalidateAuth.mockReset()
   })
 
   describe('useLogin', () => {
@@ -730,18 +728,28 @@ describe('useAuth hooks', () => {
       )
     })
 
-    it('invalidates auth queries on successful refresh (so profile re-fetches)', async () => {
-      // PSY-700 named "token refresh on expiry" as a critical scenario.
-      // When refresh succeeds, downstream auth queries must re-fetch so
-      // the just-renewed session info appears in the UI without a
-      // hard refresh.
+    it('marks the cached profile as no longer due on success, without refetching', async () => {
+      // The backend renews a cookie session in Set-Cookie only, so there is
+      // nothing to store; the cached profile just stops asking. A refetch
+      // would be one more request per returning viewer for no new data.
+      const queryClient = createTestQueryClient()
+      // Nothing observes the profile in a bare hook render, and the test
+      // client collects unobserved queries at once; keep this one so the
+      // hook's write can be read back.
+      queryClient.setQueryDefaults(queryKeys.auth.profile, { gcTime: Infinity })
+      queryClient.setQueryData(queryKeys.auth.profile, {
+        success: true,
+        message: 'Profile retrieved',
+        user: { id: 1 },
+        session_renewal_due: true,
+      })
       mockApiRequest.mockResolvedValueOnce({
         success: true,
         message: 'Token refreshed',
       })
 
       const { result } = renderHook(() => useRefreshToken(), {
-        wrapper: createWrapper(),
+        wrapper: createWrapperWithClient(queryClient),
       })
 
       await act(async () => {
@@ -749,13 +757,19 @@ describe('useAuth hooks', () => {
       })
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
-      expect(mockInvalidateAuth).toHaveBeenCalled()
+      expect(
+        (queryClient.getQueryData(queryKeys.auth.profile) as { session_renewal_due?: boolean })
+          .session_renewal_due
+      ).toBe(false)
     })
 
-    it('does NOT invalidate auth on refresh response with success=false', async () => {
-      // Backend can return 200 with success=false (e.g. expired refresh
-      // token). Invalidating in that case would trigger a stale-data
-      // refetch on the soon-to-redirect page.
+    it('leaves the profile marked due on a 200 with success=false', async () => {
+      // The backend can answer 200 with success=false; nothing was renewed,
+      // so the next page load should ask again.
+      const queryClient = createTestQueryClient()
+      queryClient.setQueryDefaults(queryKeys.auth.profile, { gcTime: Infinity })
+      const profile = { success: true, message: 'Profile retrieved', user: { id: 1 }, session_renewal_due: true }
+      queryClient.setQueryData(queryKeys.auth.profile, profile)
       mockApiRequest.mockResolvedValueOnce({
         success: false,
         message: 'Refresh token expired',
@@ -763,7 +777,7 @@ describe('useAuth hooks', () => {
       })
 
       const { result } = renderHook(() => useRefreshToken(), {
-        wrapper: createWrapper(),
+        wrapper: createWrapperWithClient(queryClient),
       })
 
       await act(async () => {
@@ -771,12 +785,17 @@ describe('useAuth hooks', () => {
       })
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
-      expect(mockInvalidateAuth).not.toHaveBeenCalled()
+      expect(queryClient.getQueryData(queryKeys.auth.profile)).toEqual(profile)
     })
 
-    it('clears cache on refresh failure', async () => {
+    it('leaves the cache alone on refresh failure', async () => {
+      // The session the viewer holds still works until it expires; wiping
+      // the cache would read as a sign-out for a request that only renews.
       const queryClient = createTestQueryClient()
       const clearSpy = vi.spyOn(queryClient, 'clear')
+      const profile = { success: true, message: 'Profile retrieved', user: { id: 1 }, session_renewal_due: true }
+      queryClient.setQueryDefaults(queryKeys.auth.profile, { gcTime: Infinity })
+      queryClient.setQueryData(queryKeys.auth.profile, profile)
 
       mockApiRequest.mockRejectedValueOnce(new Error('Refresh failed'))
 
@@ -790,7 +809,8 @@ describe('useAuth hooks', () => {
 
       await waitFor(() => expect(result.current.isError).toBe(true))
 
-      expect(clearSpy).toHaveBeenCalled()
+      expect(clearSpy).not.toHaveBeenCalled()
+      expect(queryClient.getQueryData(queryKeys.auth.profile)).toEqual(profile)
     })
 
     it('surfaces refresh error to the caller', async () => {
