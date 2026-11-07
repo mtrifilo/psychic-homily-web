@@ -81,8 +81,6 @@ vi.mock('@/lib/queryClient', () => ({
   },
   refetchSignedInProfile: (...args: unknown[]) =>
     mockRefetchSignedInProfile(...args),
-  createInvalidateQueries: () => ({
-  }),
   // PSY-1857: every transition into an authenticated session drops the caches
   // whose payload depends on the viewer's privilege tier. Behaviour against
   // the real implementation is covered in viewerTierCache.test.tsx; here it is
@@ -105,7 +103,7 @@ import {
   useLogout,
   useProfile,
   useUpdateProfile,
-  useRefreshToken,
+  useRenewSession,
   useSendVerificationEmail,
   useConfirmVerification,
   useChangePassword,
@@ -702,14 +700,14 @@ describe('useAuth hooks', () => {
     })
   })
 
-  describe('useRefreshToken', () => {
+  describe('useRenewSession', () => {
     it('calls refresh endpoint', async () => {
       mockApiRequest.mockResolvedValueOnce({
         success: true,
         message: 'Token refreshed',
       })
 
-      const { result } = renderHook(() => useRefreshToken(), {
+      const { result } = renderHook(() => useRenewSession(), {
         wrapper: createWrapper(),
       })
 
@@ -748,7 +746,7 @@ describe('useAuth hooks', () => {
         message: 'Token refreshed',
       })
 
-      const { result } = renderHook(() => useRefreshToken(), {
+      const { result } = renderHook(() => useRenewSession(), {
         wrapper: createWrapperWithClient(queryClient),
       })
 
@@ -761,6 +759,43 @@ describe('useAuth hooks', () => {
         (queryClient.getQueryData(queryKeys.auth.profile) as { session_renewal_due?: boolean })
           .session_renewal_due
       ).toBe(false)
+    })
+
+    it('a sign-out waits for a renewal in flight and aborts it, so its cookie cannot be put back', async () => {
+      // The renewal hangs until aborted; the logout answers at once.
+      mockApiRequest.mockImplementationOnce(
+        (_url, init) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () =>
+              reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+            )
+          })
+      )
+      mockApiRequest.mockResolvedValueOnce({ success: true, message: 'Logged out' })
+      const queryClient = createTestQueryClient()
+      const { result: renew } = renderHook(() => useRenewSession(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+      const { result: logout } = renderHook(() => useLogout(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      act(() => {
+        renew.current.mutate()
+      })
+      await waitFor(() => expect(mockApiRequest).toHaveBeenCalledTimes(1))
+
+      await act(async () => {
+        logout.current.mutate()
+      })
+
+      await waitFor(() => expect(mockApiRequest).toHaveBeenCalledTimes(2))
+      expect(mockApiRequest.mock.calls[1][0]).toBe('/auth/logout')
+      // The abandoned renewal settles before the logout is sent, and reads as
+      // "nothing renewed" rather than as a failure.
+      await waitFor(() => expect(renew.current.isPending).toBe(false))
+      expect(renew.current.isError).toBe(false)
+      expect(renew.current.data).toEqual(expect.objectContaining({ success: false }))
     })
 
     it('leaves the profile marked due on a 200 with success=false', async () => {
@@ -776,7 +811,7 @@ describe('useAuth hooks', () => {
         error_code: 'TOKEN_EXPIRED',
       })
 
-      const { result } = renderHook(() => useRefreshToken(), {
+      const { result } = renderHook(() => useRenewSession(), {
         wrapper: createWrapperWithClient(queryClient),
       })
 
@@ -799,7 +834,7 @@ describe('useAuth hooks', () => {
 
       mockApiRequest.mockRejectedValueOnce(new Error('Refresh failed'))
 
-      const { result } = renderHook(() => useRefreshToken(), {
+      const { result } = renderHook(() => useRenewSession(), {
         wrapper: createWrapperWithClient(queryClient),
       })
 
@@ -817,7 +852,7 @@ describe('useAuth hooks', () => {
       const error = new Error('Network error')
       mockApiRequest.mockRejectedValueOnce(error)
 
-      const { result } = renderHook(() => useRefreshToken(), {
+      const { result } = renderHook(() => useRenewSession(), {
         wrapper: createWrapper(),
       })
 

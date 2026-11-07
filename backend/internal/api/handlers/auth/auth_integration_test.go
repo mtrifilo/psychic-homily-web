@@ -486,7 +486,8 @@ func (s *AuthHandlerIntegrationSuite) TestRegister_BreachCheckUnreachable() {
 func (s *AuthHandlerIntegrationSuite) TestRefreshToken_Success() {
 	h := s.newAuthHandler(false)
 	user := s.createUserWithPassword("refresh@test.com", "strong-password-123!")
-	ctx := s.ctxWithUser(user)
+	// A Bearer caller, as the iOS app: the renewal comes back in the body.
+	ctx := testhelpers.CtxWithBearerSession(user, time.Time{}, time.Time{})
 
 	resp, err := h.RefreshTokenHandler(ctx, &struct{}{})
 	s.Require().NoError(err)
@@ -497,7 +498,8 @@ func (s *AuthHandlerIntegrationSuite) TestRefreshToken_Success() {
 func (s *AuthHandlerIntegrationSuite) TestRefreshToken_UserDeletedFromDB() {
 	h := s.newAuthHandler(false)
 	user := s.createUserWithPassword("refresh-del@test.com", "strong-password-123!")
-	ctx := s.ctxWithUser(user)
+	// A Bearer caller, as the iOS app: the renewal comes back in the body.
+	ctx := testhelpers.CtxWithBearerSession(user, time.Time{}, time.Time{})
 
 	// Hard-delete the user (must clean FKs first)
 	sqlDB, _ := s.deps.DB.DB()

@@ -31,8 +31,13 @@ func CtxWithSessionIssuedAt(user *authm.User, authAt, issuedAt time.Time) contex
 }
 
 // CtxWithCookieSession is CtxWithSessionIssuedAt for a session the request
-// presented as the auth cookie rather than a Bearer header
-// (middleware.SessionCredentialSourceContextKey).
+// presented as the auth cookie (middleware.SessionCredentialSourceContextKey).
 func CtxWithCookieSession(user *authm.User, authAt, issuedAt time.Time) context.Context {
 	return context.WithValue(CtxWithSessionIssuedAt(user, authAt, issuedAt), middleware.SessionCredentialSourceContextKey, middleware.CredentialSourceCookie)
+}
+
+// CtxWithBearerSession is CtxWithSessionIssuedAt for a session the request
+// presented in the Authorization header, as the iOS app does.
+func CtxWithBearerSession(user *authm.User, authAt, issuedAt time.Time) context.Context {
+	return context.WithValue(CtxWithSessionIssuedAt(user, authAt, issuedAt), middleware.SessionCredentialSourceContextKey, middleware.CredentialSourceHeader)
 }

@@ -20,19 +20,20 @@ func profileHandlerFor(user *authm.User) *AuthHandler {
 	})
 }
 
-// The profile asks for a renewal only once the session is older than
-// SessionRenewalAfter: one request a day per returning viewer, a clock that
-// lags their last visit by less than that.
+// The profile asks for a renewal only once the session is older than the
+// configured threshold (JWTConfig.SessionRenewalAfter): one request a day per
+// returning viewer, a clock that lags their last visit by less than that.
 func TestGetProfileHandler_SessionRenewalDue(t *testing.T) {
 	user := &authm.User{ID: 1, Email: strPtr("test@example.com")}
 	now := time.Now()
+	after := testConfig().JWT.SessionRenewalAfter()
 	cases := map[string]struct {
 		issuedAt time.Time
 		want     bool
 	}{
 		"minted just now":                 {now, false},
-		"just inside the threshold":       {now.Add(-SessionRenewalAfter + time.Minute), false},
-		"just past the threshold":         {now.Add(-SessionRenewalAfter - time.Minute), true},
+		"just inside the threshold":       {now.Add(-after + time.Minute), false},
+		"just past the threshold":         {now.Add(-after - time.Minute), true},
 		"twenty days old":                 {now.Add(-20 * 24 * time.Hour), true},
 		"age unknown (no believable iat)": {time.Time{}, false},
 	}
@@ -76,6 +77,35 @@ func refreshHandler() *AuthHandler {
 			},
 		}
 	})
+}
+
+// A session with no recorded source is a middleware contract violation; the
+// handler mints nothing rather than guess a channel.
+func TestRefreshTokenHandler_UnknownCredentialSourceMintsNothing(t *testing.T) {
+	mints := 0
+	h := authHandler(func(ah *AuthHandler) {
+		ah.authService = &testhelpers.MockAuthService{
+			GetUserProfileFn: func(userID uint) (*authm.User, error) {
+				return &authm.User{ID: userID, IsActive: true}, nil
+			},
+			RefreshUserTokenFn: func(user *authm.User, authAt time.Time) (string, error) {
+				mints++
+				return "renewed-token", nil
+			},
+		}
+	})
+	ctx := testhelpers.CtxWithSessionIssuedAt(&authm.User{ID: 1}, time.Now().Add(-time.Hour), time.Now().Add(-25*time.Hour))
+
+	resp, err := h.RefreshTokenHandler(ctx, &struct{}{})
+	if err == nil {
+		t.Fatal("expected a server error for a session with no credential source")
+	}
+	if mints != 0 {
+		t.Errorf("minted %d tokens, want none", mints)
+	}
+	if resp.Body.Token != "" || resp.SetCookie != "" || resp.Body.Success {
+		t.Errorf("response = %+v / Set-Cookie %q, want no session in either channel", resp.Body, resp.SetCookie)
+	}
 }
 
 // A browser holds the session as an HttpOnly cookie, so the renewal goes back

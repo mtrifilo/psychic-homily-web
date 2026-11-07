@@ -13,8 +13,8 @@ import (
 // the middleware cannot mistake it for a cookie session.
 func TestSessionFactsAccessors_ZeroWhenAbsent(t *testing.T) {
 	ctx := context.Background()
-	if SessionPresentedAsCookieFromContext(ctx) {
-		t.Error("an anonymous context is not a cookie session")
+	if SessionCredentialSourceFromContext(ctx) != "" {
+		t.Error("an anonymous context has no credential source")
 	}
 	if !GetSessionIssuedAtFromContext(ctx).IsZero() {
 		t.Error("an anonymous context has no session age")
@@ -27,8 +27,8 @@ func TestSessionFactsAccessors_ZeroWhenAbsent(t *testing.T) {
 func TestWithPrincipal_APITokenRecordsNoSource(t *testing.T) {
 	user := &authm.User{ID: 1}
 	ctx := withPrincipal(context.Background(), user, auth.SessionFacts{}, false, CredentialSourceCookie)
-	if SessionPresentedAsCookieFromContext(ctx) {
-		t.Error("an API token in the cookie must not read as a cookie session")
+	if SessionCredentialSourceFromContext(ctx) != "" {
+		t.Error("an API token in the cookie must record no source")
 	}
 	if IsSessionCredentialFromContext(ctx) {
 		t.Error("an API token is not a session credential")
@@ -42,14 +42,14 @@ func TestWithPrincipal_SessionRecordsSourceAndFacts(t *testing.T) {
 	issued := time.Now().Add(-time.Hour).Truncate(time.Second)
 	facts := auth.SessionFacts{AuthAt: issued, IssuedAt: issued}
 	ctx := withPrincipal(context.Background(), &authm.User{ID: 1}, facts, true, CredentialSourceCookie)
-	if !SessionPresentedAsCookieFromContext(ctx) {
+	if SessionCredentialSourceFromContext(ctx) != CredentialSourceCookie {
 		t.Error("a cookie session reads as one")
 	}
 	if !GetSessionIssuedAtFromContext(ctx).Equal(issued) || !GetSessionAuthTimeFromContext(ctx).Equal(issued) {
 		t.Error("the session facts are planted")
 	}
 	header := withPrincipal(context.Background(), &authm.User{ID: 1}, facts, true, CredentialSourceHeader)
-	if SessionPresentedAsCookieFromContext(header) {
-		t.Error("a Bearer session does not read as a cookie session")
+	if SessionCredentialSourceFromContext(header) != CredentialSourceHeader {
+		t.Error("a Bearer session reads as one")
 	}
 }

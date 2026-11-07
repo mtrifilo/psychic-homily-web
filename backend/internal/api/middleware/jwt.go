@@ -457,14 +457,15 @@ func GetSessionIssuedAtFromContext(ctx context.Context) time.Time {
 	return issuedAt
 }
 
-// SessionPresentedAsCookieFromContext reports whether the request's session
-// was read from the auth cookie rather than the Authorization header
-// (SessionCredentialSourceContextKey); false for an API token however it
-// arrived. A browser holds the session as an HttpOnly cookie and can take a
-// renewal only as Set-Cookie; a Bearer client takes it only in the body.
-func SessionPresentedAsCookieFromContext(ctx context.Context) bool {
+// SessionCredentialSourceFromContext returns where the request's session was
+// read from, CredentialSourceCookie or CredentialSourceHeader, or "" for an
+// API token however it arrived and for a context no JWT middleware built. A
+// browser holds the session as an HttpOnly cookie and can take a renewal only
+// as Set-Cookie; a Bearer client takes it only in the body; a handler that
+// renews treats "" as a contract violation rather than guessing.
+func SessionCredentialSourceFromContext(ctx context.Context) string {
 	source, _ := ctx.Value(SessionCredentialSourceContextKey).(string)
-	return source == CredentialSourceCookie
+	return source
 }
 
 // GetUserFromContext extracts user from request context

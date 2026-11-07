@@ -69,6 +69,42 @@ func (s *AuthHandlerIntegrationSuite) refreshThroughTheMiddleware(seam *refreshS
 	return api.Post("/auth/refresh", "Cookie: auth_token="+session)
 }
 
+// refreshThroughTheMiddlewareAsBearer is refreshThroughTheMiddleware for a
+// client that presents the session in the Authorization header (the iOS app).
+func (s *AuthHandlerIntegrationSuite) refreshThroughTheMiddlewareAsBearer(seam *refreshSeamAuthService, session string) *httptest.ResponseRecorder {
+	s.T().Helper()
+	h := s.newAuthHandler(false)
+	seam.AuthServiceInterface = h.authService
+	h.authService = seam
+
+	api, _ := newWireTestAPI(s.T())
+	huma.Register(api, huma.Operation{
+		OperationID: "refresh-bearer",
+		Method:      http.MethodPost,
+		Path:        "/auth/refresh",
+		Middlewares: huma.Middlewares{middleware.LenientHumaJWTMiddleware(s.jwtService(), 7*24*time.Hour)},
+	}, h.RefreshTokenHandler)
+	return api.Post("/auth/refresh", "Authorization: Bearer "+session)
+}
+
+// A Bearer client is renewed in the body and gets no Set-Cookie at all, on
+// the wire: Huma omits the empty string header.
+func (s *AuthHandlerIntegrationSuite) TestRefresh_BearerCredentialIsRenewedInTheBodyOnly() {
+	user := s.createUserWithPassword("refresh-bearer@test.com", "strong-password-123!")
+	session := s.sessionFor(user)
+
+	w := s.refreshThroughTheMiddlewareAsBearer(&refreshSeamAuthService{}, session)
+
+	s.Require().Equal(http.StatusOK, w.Code, "body: %s", w.Body.String())
+	body := s.decodeRefresh(w)
+	s.True(body.Success)
+	s.Require().NotNil(body.Token, "a Bearer client takes the renewal in the body")
+	s.Empty(w.Header().Values("Set-Cookie"), "no Set-Cookie header, not even an empty one")
+	renewed, _, err := s.jwtService().ValidateSession(*body.Token)
+	s.Require().NoError(err)
+	s.Equal(user.ID, renewed.ID)
+}
+
 func (s *AuthHandlerIntegrationSuite) jwtService() *auth.JWTService {
 	return auth.NewJWTService(s.deps.DB, s.cfg, s.deps.UserService)
 }

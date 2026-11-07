@@ -485,19 +485,24 @@ func (h *AuthHandler) LogoutHandler(ctx context.Context, input *struct{}) (*Logo
 	return resp, nil
 }
 
-// SessionRenewalAfter is how old a session is before the profile asks the
-// client to renew it. It bounds two things against each other: a returning
-// viewer costs at most one renewal request a day, and the session's sliding
-// clock lags their last visit by less than a day.
-const SessionRenewalAfter = 24 * time.Hour
-
-// sessionRenewalDue reports whether the request's session is old enough for
-// the client to renew (SessionRenewalAfter). False for an API token and for a
-// session whose age is unknown.
-func sessionRenewalDue(ctx context.Context) bool {
+// sessionRenewalDue reports whether the request's session is older than after
+// (JWTConfig.SessionRenewalAfter), so the client should renew it. False for an
+// API token and for a session whose age is unknown.
+//
+// This is the backend end of the sliding session, and the profile is the only
+// place it can start: on a cold page load the profile is fetched by the Next
+// server, which forwards the cookie and drops the backend's response headers,
+// so a Set-Cookie written here would never reach the browser on the most
+// common return path. The flag rides in the profile payload the server render
+// seeds; the browser's SessionRenewal component
+// (frontend/features/auth/components/SessionRenewal.tsx) posts to
+// /auth/refresh once when it is set; RefreshTokenHandler answers that cookie
+// credential with Set-Cookie carrying the full lifetime, and the clock
+// restarts.
+func sessionRenewalDue(ctx context.Context, after time.Duration) bool {
 	issuedAt := middleware.GetSessionIssuedAtFromContext(ctx)
 	return middleware.IsSessionCredentialFromContext(ctx) &&
-		!issuedAt.IsZero() && time.Since(issuedAt) > SessionRenewalAfter
+		!issuedAt.IsZero() && time.Since(issuedAt) > after
 }
 
 // UserProfileResponse represents user profile response
@@ -505,9 +510,10 @@ type UserProfileResponse struct {
 	Body struct {
 		Success bool        `json:"success" example:"true" doc:"Success status"`
 		User    *authm.User `json:"user,omitempty" doc:"User information"`
-		// The session is older than SessionRenewalAfter; a browser client
-		// posts to /auth/refresh once to restart its 60-day clock. Absent when
-		// not due, for an API token, and on every refusal.
+		// The session is older than JWTConfig.SessionRenewalAfter; a browser
+		// client posts to /auth/refresh once to restart the session's clock
+		// (sessionRenewalDue). Absent when not due, for an API token, and on
+		// every refusal.
 		SessionRenewalDue bool `json:"session_renewal_due,omitempty" doc:"True when the session is old enough that the client should POST /auth/refresh once to renew it. Absent otherwise."`
 		// Pointers so an answer that could not read them omits them rather
 		// than claiming no password and no passkeys.
@@ -524,10 +530,11 @@ type UserProfileResponse struct {
 // HttpOnly session never becomes readable to script; a Bearer credential (the
 // iOS app) gets it only in the body.
 //
-// The header is the serialized cookie as a string, not an http.Cookie: Huma
-// writes an http.Cookie-typed header field's struct fields (Name, Value,
-// Expires, ...) as headers of their own, and an empty string is the one shape
-// it omits, which a Bearer caller needs.
+// The header is the serialized cookie as a string, not an http.Cookie, because
+// a Bearer caller must get no header at all: Huma writes a zero http.Cookie
+// through String() as an empty "Set-Cookie:" line (ChangePasswordResponse
+// tolerates that), writes a []http.Cookie's struct fields as headers of their
+// own (the login defect), and omits only an empty string.
 type RefreshTokenResponse struct {
 	SetCookie string `header:"Set-Cookie" doc:"The renewed session as a Set-Cookie value, when the request presented the session as the auth cookie; absent for a Bearer credential, which gets the token in the body instead"`
 	Body      struct {
@@ -539,7 +546,10 @@ type RefreshTokenResponse struct {
 	}
 }
 
-// RefreshTokenHandler renews the presented session.
+// RefreshTokenHandler renews the presented session. A browser calls it once
+// per returning page load, when the profile said the session is due
+// (sessionRenewalDue); the iOS app calls it on a 401 inside the lenient
+// grace. The renewal goes back the way the credential came (RefreshTokenResponse).
 //
 // It mints from the user the session's validation loaded (the context user),
 // never from a row read after it, so the new token names the revocation stamp
@@ -581,6 +591,23 @@ func (h *AuthHandler) RefreshTokenHandler(ctx context.Context, input *struct{}) 
 	logger.AuthDebug(ctx, "refresh_token_attempt",
 		"user_id", contextUser.ID,
 	)
+
+	// The renewal is answered in the channel the credential arrived in, and a
+	// session with no recorded source is a middleware contract violation (a
+	// route mounted without the JWT middleware). Fail closed before anything
+	// is minted: guessing the channel could hand the HttpOnly cookie session
+	// to script in the body.
+	source := middleware.SessionCredentialSourceFromContext(ctx)
+	if source != middleware.CredentialSourceCookie && source != middleware.CredentialSourceHeader {
+		authErr := autherrors.ErrServiceUnavailable("refresh_token_credential_source_unknown", nil)
+		logger.AuthError(ctx, "refresh_token_credential_source_unknown", authErr,
+			"user_id", contextUser.ID,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, authErr
+	}
 
 	// Re-read the account. Two discriminated failures:
 	//   - Typed CodeUserNotFound  → HTTP 401 + CodeUnauthorized. The session
@@ -651,10 +678,11 @@ func (h *AuthHandler) RefreshTokenHandler(ctx context.Context, input *struct{}) 
 	)
 
 	resp.Body.Success = true
-	if middleware.SessionPresentedAsCookieFromContext(ctx) {
+	switch source {
+	case middleware.CredentialSourceCookie:
 		cookie := h.config.NewSessionCookie(newToken)
 		resp.SetCookie = cookie.String()
-	} else {
+	case middleware.CredentialSourceHeader:
 		resp.Body.Token = newToken
 	}
 	resp.Body.Message = "Token refreshed"
@@ -760,7 +788,7 @@ func (h *AuthHandler) GetProfileHandler(ctx context.Context, input *struct{}) (*
 
 	resp.Body.Success = true
 	resp.Body.User = user
-	resp.Body.SessionRenewalDue = sessionRenewalDue(ctx)
+	resp.Body.SessionRenewalDue = sessionRenewalDue(ctx, h.config.JWT.SessionRenewalAfter())
 	resp.Body.Message = "Profile retrieved"
 	return resp, nil
 }

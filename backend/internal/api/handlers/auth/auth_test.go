@@ -1885,7 +1885,7 @@ func TestRefreshTokenHandler_Success(t *testing.T) {
 			},
 		}
 	})
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	ctx := testhelpers.CtxWithBearerSession(&authm.User{ID: 1}, time.Time{}, time.Time{})
 
 	resp, err := h.RefreshTokenHandler(ctx, &struct{}{})
 	if err != nil {
@@ -1895,8 +1895,8 @@ func TestRefreshTokenHandler_Success(t *testing.T) {
 		t.Error("expected success=true")
 	}
 	// A Bearer client (the iOS app) cannot take a cookie, so it gets the token
-	// in the body and no Set-Cookie; the cookie form is covered in
-	// session_renewal_test.go.
+	// in the body and no Set-Cookie; the cookie form and the no-source refusal
+	// are covered in session_renewal_test.go.
 	if resp.Body.Token != "new-token" {
 		t.Errorf("expected token=new-token, got %s", resp.Body.Token)
 	}
@@ -1926,7 +1926,7 @@ func TestRefreshTokenHandler_MintsFromTheValidatedUser(t *testing.T) {
 		}
 	})
 
-	resp, err := h.RefreshTokenHandler(testhelpers.CtxWithUser(validated), &struct{}{})
+	resp, err := h.RefreshTokenHandler(testhelpers.CtxWithBearerSession(validated, time.Time{}, time.Time{}), &struct{}{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1976,7 +1976,7 @@ func TestRefreshTokenHandler_ReReadNoLongerMatchingTheSessionIsRefused(t *testin
 					},
 				}
 			})
-			ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsActive: true, SessionsValidAfter: tc.validatedStamp})
+			ctx := testhelpers.CtxWithBearerSession(&authm.User{ID: 1, IsActive: true, SessionsValidAfter: tc.validatedStamp}, time.Time{}, time.Time{})
 
 			resp, err := h.RefreshTokenHandler(ctx, &struct{}{})
 
@@ -2012,7 +2012,7 @@ func TestRefreshTokenHandler_ProfileFails(t *testing.T) {
 			},
 		}
 	})
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	ctx := testhelpers.CtxWithBearerSession(&authm.User{ID: 1}, time.Time{}, time.Time{})
 
 	resp, err := h.RefreshTokenHandler(ctx, &struct{}{})
 
@@ -2064,7 +2064,7 @@ func TestRefreshTokenHandler_DeletedUserReturns401(t *testing.T) {
 			},
 		}
 	})
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	ctx := testhelpers.CtxWithBearerSession(&authm.User{ID: 1}, time.Time{}, time.Time{})
 
 	resp, err := h.RefreshTokenHandler(ctx, &struct{}{})
 
@@ -2115,7 +2115,7 @@ func TestRefreshTokenHandler_TokenFails(t *testing.T) {
 			},
 		}
 	})
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	ctx := testhelpers.CtxWithBearerSession(&authm.User{ID: 1}, time.Time{}, time.Time{})
 
 	resp, err := h.RefreshTokenHandler(ctx, &struct{}{})
 

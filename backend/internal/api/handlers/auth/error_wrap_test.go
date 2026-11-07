@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -81,7 +82,7 @@ func TestDeletedUser401CarriesNoErrorDetail(t *testing.T) {
 			GetUserProfileFn: func(uint) (*authm.User, error) { return nil, notFound },
 		}
 	})
-	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	ctx := testhelpers.CtxWithBearerSession(&authm.User{ID: 1}, time.Time{}, time.Time{})
 
 	_, refreshErr := h.RefreshTokenHandler(ctx, &struct{}{})
 	_, profileErr := h.GetProfileHandler(ctx, &struct{}{})

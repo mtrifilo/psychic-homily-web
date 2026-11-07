@@ -37,8 +37,13 @@ func newWireTestAPI(t *testing.T) (humatest.TestAPI, huma.Middlewares) {
 	humaerr.Install()
 	_, api := humatest.New(t, huma.DefaultConfig("auth-wire", "1.0.0"))
 
+	// A Bearer session, as the real middleware would plant it: the refresh
+	// handler refuses a session with no credential source.
 	withUser := huma.Middlewares{func(ctx huma.Context, next func(huma.Context)) {
-		next(huma.WithValue(ctx, middleware.UserContextKey, &authm.User{ID: 1}))
+		ctx = huma.WithValue(ctx, middleware.UserContextKey, &authm.User{ID: 1})
+		ctx = huma.WithValue(ctx, middleware.SessionCredentialContextKey, true)
+		ctx = huma.WithValue(ctx, middleware.SessionCredentialSourceContextKey, middleware.CredentialSourceHeader)
+		next(ctx)
 	}}
 	return api, withUser
 }

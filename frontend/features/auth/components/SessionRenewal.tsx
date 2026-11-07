@@ -1,39 +1,70 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { useProfile, useRefreshToken } from '@/features/auth/hooks/useAuth'
+import { usePathname } from 'next/navigation'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { profileQueryOptions, useRenewSession } from '@/features/auth/hooks/useAuth'
+
+/** How long a tab waits before re-asking after a renewal attempt that left the flag set. */
+export const SESSION_RENEWAL_RETRY_MS = 5 * 60 * 1000
+
+/**
+ * How often a tab that stays open re-reads the profile, so the renewal flag
+ * reaches it without a page load. Daily use through client navigation alone
+ * would otherwise never see the flag again, and the session would end on day
+ * sixty despite the visits.
+ */
+export const SESSION_RENEWAL_POLL_MS = 6 * 60 * 60 * 1000
 
 /**
  * Restarts the signed-in session's clock when the viewer comes back.
  *
- * The profile every page load reads (seeded by the server render, so this
- * works on a cold load too) says `session_renewal_due` once the session is
- * older than a day. This posts to /auth/refresh exactly once per page load in
- * that case; the backend answers with a fresh auth cookie carrying the full
- * session lifetime. Nothing renders, and a failed renewal is left alone: the
- * session the viewer has keeps working, and the next load asks again.
+ * The backend end is `sessionRenewalDue` (backend/internal/api/handlers/auth):
+ * the profile every page load reads says `session_renewal_due` once the
+ * session is older than a day, and it is the profile that has to say so,
+ * because on a cold load the profile is fetched by the Next server, which
+ * drops a Set-Cookie the backend might write. This posts to /auth/refresh when
+ * the flag is set; the backend answers with a fresh auth cookie carrying the
+ * full session lifetime. Nothing renders.
  *
- * Once per page load, not per flag change: the latch is a ref so React Strict
- * Mode's doubled effect and a profile refetch that still says due cannot send
- * a second request. `useRefreshToken` separately marks the cached profile as
- * no longer due on success, which covers a remount; the two are not redundant.
+ * Asking is bounded two ways. A ref holds the time of the last attempt, so
+ * React Strict Mode's doubled effect, a profile refetch that still says due,
+ * and a failed attempt cannot send another request inside
+ * SESSION_RENEWAL_RETRY_MS; `useRenewSession` marks the cached profile as not
+ * due on success, which resets the ref, so the next profile read that says due
+ * again (a later day) asks again. The two are not redundant.
  *
- * The flag is trusted as sent: the backend sets it only on a successful
- * profile for a session credential, and the server-rendered seed carries it
- * through unchanged.
+ * Not on /auth pages: those run their own session changes on mount (magic
+ * link, recovery, password reset, the Google completion step), and a renewal
+ * answering after one of them would put the previous session's cookie back.
+ * Click-started session changes elsewhere wait for a renewal in flight
+ * instead (`settlePendingSessionRenewal`).
  */
 export function SessionRenewal() {
-  const { data: profile } = useProfile()
-  const { mutate: renew } = useRefreshToken()
-  const attempted = useRef(false)
+  const pathname = usePathname()
+  const queryClient = useQueryClient()
+  const { data: profile } = useQuery({
+    ...profileQueryOptions(queryClient),
+    refetchInterval: SESSION_RENEWAL_POLL_MS,
+    refetchIntervalInBackground: false,
+  })
+  const { mutate: renew } = useRenewSession()
+  const lastAttemptAt = useRef<number | null>(null)
 
+  const onAuthSurface = pathname?.startsWith('/auth') === true
   const due = profile?.session_renewal_due === true
 
   useEffect(() => {
-    if (!due || attempted.current) return
-    attempted.current = true
+    if (!due) {
+      lastAttemptAt.current = null
+      return
+    }
+    if (onAuthSurface) return
+    const now = Date.now()
+    if (lastAttemptAt.current != null && now - lastAttemptAt.current < SESSION_RENEWAL_RETRY_MS) return
+    lastAttemptAt.current = now
     renew()
-  }, [due, renew])
+  }, [profile, due, onAuthSurface, renew])
 
   return null
 }

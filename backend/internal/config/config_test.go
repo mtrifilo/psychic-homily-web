@@ -388,6 +388,20 @@ func TestLoad_SessionLifetimeBounds(t *testing.T) {
 	})
 }
 
+func TestSessionRenewalAfter(t *testing.T) {
+	cases := map[int64]time.Duration{
+		DefaultSessionLifetimeHours: 24 * time.Hour,                // 60 days: a day
+		72:                          24 * time.Hour,                // 3 days: still a day
+		37:                          18*time.Hour + 30*time.Minute, // half, shorter than a day
+		1:                           30 * time.Minute,
+	}
+	for hours, want := range cases {
+		if got := (JWTConfig{Expiry: hours}).SessionRenewalAfter(); got != want {
+			t.Errorf("Expiry %d: SessionRenewalAfter() = %v, want %v", hours, got, want)
+		}
+	}
+}
+
 func TestNewSessionCookie(t *testing.T) {
 	s := SessionConfig{
 		Path:     "/",

@@ -22,7 +22,7 @@ func (s *JWTMiddlewareIntegrationSuite) TestHumaJWT_CookieSession_PlantsSourceAn
 	var asCookie bool
 	var issuedAt time.Time
 	HumaJWTMiddleware(s.jwtService)(ctx, func(next huma.Context) {
-		asCookie = SessionPresentedAsCookieFromContext(next.Context())
+		asCookie = SessionCredentialSourceFromContext(next.Context()) == CredentialSourceCookie
 		issuedAt = GetSessionIssuedAtFromContext(next.Context())
 	})
 
@@ -42,7 +42,7 @@ func (s *JWTMiddlewareIntegrationSuite) TestHumaJWT_BearerSession_IsNotACookie()
 	asCookie := true
 	var issuedAt time.Time
 	HumaJWTMiddleware(s.jwtService)(ctx, func(next huma.Context) {
-		asCookie = SessionPresentedAsCookieFromContext(next.Context())
+		asCookie = SessionCredentialSourceFromContext(next.Context()) == CredentialSourceCookie
 		issuedAt = GetSessionIssuedAtFromContext(next.Context())
 	})
 
@@ -63,7 +63,7 @@ func (s *JWTMiddlewareIntegrationSuite) TestLenientJWT_CookieSession_PlantsSourc
 	var asCookie bool
 	var issuedAt time.Time
 	LenientHumaJWTMiddleware(s.jwtService, 7*24*time.Hour)(ctx, func(next huma.Context) {
-		asCookie = SessionPresentedAsCookieFromContext(next.Context())
+		asCookie = SessionCredentialSourceFromContext(next.Context()) == CredentialSourceCookie
 		issuedAt = GetSessionIssuedAtFromContext(next.Context())
 	})
 
