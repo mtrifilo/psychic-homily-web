@@ -176,7 +176,7 @@ func (h *AppleAuthHandler) AppleCallbackHandler(ctx context.Context, input *Appl
 	}
 
 	// Set cookie (for web clients)
-	resp.SetCookie = h.config.Session.NewAuthCookie(token, 24*time.Hour)
+	resp.SetCookie = h.config.NewSessionCookie(token)
 
 	logger.AuthInfo(ctx, "apple_auth_success",
 		"user_id", user.ID,

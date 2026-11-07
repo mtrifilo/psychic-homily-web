@@ -111,8 +111,8 @@ func TestJWTService_CreateToken(t *testing.T) {
 		assert.GreaterOrEqual(t, iat, beforeCreation.Unix())
 		assert.LessOrEqual(t, iat, afterCreation.Unix())
 
-		// Check that expiry is 24 hours from issued at time
-		expectedExp := iat + int64(24*3600) // 24 hours in seconds
+		// Check that expiry is the configured session lifetime from issued at
+		expectedExp := iat + int64(cfg.JWT.SessionLifetimeSeconds())
 		assert.Equal(t, expectedExp, exp)
 	})
 }
@@ -604,4 +604,18 @@ func TestJWTService_SessionUserID(t *testing.T) {
 		_, ok := jwtService.SessionUserID(forged)
 		assert.False(t, ok, "a token signed with the wrong secret must not yield a user id")
 	})
+}
+
+// The cookie and the token it carries expire together: both lifetimes are
+// JWT.SessionLifetime, so neither can outlive the other.
+func TestCreateToken_ExpiresWithTheSessionCookie(t *testing.T) {
+	svc := authTimeTestService(t, authTimeTestSecret, 36)
+
+	token, err := svc.CreateToken(authTimeTestUser())
+	require.NoError(t, err)
+	exp, ok := claimsOf(t, authTimeTestSecret, token)["exp"].(float64)
+	require.True(t, ok, "session token carries exp")
+
+	cookie := svc.config.NewSessionCookie(token)
+	assert.InDelta(t, exp, float64(cookie.Expires.Unix()), 2, "cookie Expires and token exp name the same instant")
 }

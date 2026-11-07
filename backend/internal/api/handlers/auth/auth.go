@@ -395,7 +395,7 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 	}
 
 	// Set HTTP-only cookie using Huma's built-in support
-	resp.SetCookie = append(resp.SetCookie, h.config.Session.NewAuthCookie(token, 24*time.Hour))
+	resp.SetCookie = append(resp.SetCookie, h.config.NewSessionCookie(token))
 
 	logger.AuthInfo(ctx, "login_success",
 		"user_id", user.ID,
@@ -961,7 +961,7 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 	}
 
 	// Set HTTP-only cookie for immediate authentication
-	resp.SetCookie = h.config.Session.NewAuthCookie(token, 24*time.Hour)
+	resp.SetCookie = h.config.NewSessionCookie(token)
 
 	logger.AuthInfo(ctx, "register_success",
 		"user_id", user.ID,
@@ -1420,7 +1420,7 @@ func (h *AuthHandler) VerifyMagicLinkHandler(ctx context.Context, input *VerifyM
 	}
 
 	// Set HTTP-only cookie
-	resp.SetCookie = h.config.Session.NewAuthCookie(token, 24*time.Hour)
+	resp.SetCookie = h.config.NewSessionCookie(token)
 
 	logger.AuthInfo(ctx, "magic_link_login_success",
 		"user_id", user.ID,
@@ -1463,7 +1463,7 @@ func (h *AuthHandler) verifyOAuthLink(ctx context.Context, resp *VerifyMagicLink
 		return resp, autherrors.ErrServiceUnavailable("verify_magic_link_oauth_link", err)
 	}
 
-	resp.SetCookie = h.config.Session.NewAuthCookie(completion.Token, 24*time.Hour)
+	resp.SetCookie = h.config.NewSessionCookie(completion.Token)
 	logger.AuthInfo(ctx, "magic_link_oauth_link_success", "user_id", completion.User.ID)
 	resp.Body.Success = true
 	resp.Body.Message = "Login successful"
@@ -1643,22 +1643,12 @@ func (h *AuthHandler) ChangePasswordHandler(ctx context.Context, input *ChangePa
 	// changed, so reporting failure would misdescribe what happened. The
 	// caller keeps its existing session and is asked to sign in again the next
 	// time a gate wants a recent factor, which refuses rather than grants.
-	//
-	// 24 hours is what every other cookie this package sets uses, and what the
-	// token's own expiry defaults to (JWT_EXPIRY_HOURS). Raising that env var
-	// moves the token and not the cookie, at every one of those sites alike. The OAuth callback sets a seven-day cookie instead, so an
-	// account holding both a password and a provider identity, signed in
-	// through the provider, has its cookie shortened by changing its password.
-	// The token inside that cookie expires in 24 hours either way; what the
-	// longer cookie buys is the seven-day lenient refresh window, and this
-	// trades it for one consistent lifetime rather than guessing which sign-in
-	// the caller used.
 	if token, err := h.jwtService.CreateToken(contextUser); err != nil {
 		logger.AuthError(ctx, "change_password_restamp_failed", err,
 			"user_id", contextUser.ID,
 		)
 	} else {
-		resp.SetCookie = h.config.Session.NewAuthCookie(token, 24*time.Hour)
+		resp.SetCookie = h.config.NewSessionCookie(token)
 	}
 
 	logger.AuthInfo(ctx, "change_password_success",
@@ -2107,7 +2097,7 @@ func (h *AuthHandler) RecoverAccountHandler(ctx context.Context, input *RecoverA
 		return resp, authErr
 	}
 
-	resp.SetCookie = h.config.Session.NewAuthCookie(token, 24*time.Hour)
+	resp.SetCookie = h.config.NewSessionCookie(token)
 
 	logger.AuthInfo(ctx, "recover_account_success",
 		"user_id", user.ID,
@@ -2335,7 +2325,7 @@ func (h *AuthHandler) ConfirmAccountRecoveryHandler(ctx context.Context, input *
 		return resp, authErr
 	}
 
-	resp.SetCookie = h.config.Session.NewAuthCookie(token, 24*time.Hour)
+	resp.SetCookie = h.config.NewSessionCookie(token)
 
 	logger.AuthInfo(ctx, "confirm_recovery_success",
 		"user_id", user.ID,
@@ -2354,7 +2344,7 @@ type GenerateCLITokenResponse struct {
 	Body struct {
 		Success   bool   `json:"success" example:"true" doc:"Success status"`
 		Token     string `json:"token,omitempty" doc:"CLI authentication token"`
-		ExpiresIn int    `json:"expires_in,omitempty" example:"86400" doc:"Token expiry in seconds"`
+		ExpiresIn int    `json:"expires_in,omitempty" example:"5184000" doc:"Token expiry in seconds: the configured session lifetime"`
 		Message   string `json:"message" example:"CLI token generated" doc:"Response message"`
 		ErrorCode string `json:"error_code,omitempty" example:"UNAUTHORIZED" doc:"Error code for programmatic handling"`
 		RequestID string `json:"request_id,omitempty" doc:"Request ID for debugging"`
@@ -2421,8 +2411,8 @@ func (h *AuthHandler) GenerateCLITokenHandler(ctx context.Context, input *struct
 
 	resp.Body.Success = true
 	resp.Body.Token = token
-	resp.Body.ExpiresIn = 86400 // 24 hours
-	resp.Body.Message = "CLI token generated successfully. This token expires in 24 hours."
+	resp.Body.ExpiresIn = h.config.JWT.SessionLifetimeSeconds()
+	resp.Body.Message = "CLI token generated successfully."
 
 	return resp, nil
 }

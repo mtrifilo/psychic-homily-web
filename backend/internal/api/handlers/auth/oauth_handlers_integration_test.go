@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -426,7 +427,8 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_Success_CLICallback_Redirect
 	location := w.Header().Get("Location")
 	s.True(strings.HasPrefix(location, "http://localhost:8888/cli-success?token="),
 		"expected redirect to CLI callback with token, got %s", location)
-	s.Contains(location, "expires_in=86400", "expected expires_in parameter")
+	s.Contains(location, "expires_in="+strconv.Itoa(s.cfg.JWT.SessionLifetimeSeconds()),
+		"expires_in reports the configured session lifetime")
 
 	// Should NOT set auth cookie for CLI flow
 	resp := w.Result()

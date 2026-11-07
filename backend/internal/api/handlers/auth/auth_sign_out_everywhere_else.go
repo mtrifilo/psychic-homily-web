@@ -3,7 +3,6 @@ package auth
 import (
 	"context"
 	"net/http"
-	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -68,10 +67,8 @@ func (h *AuthHandler) SignOutEverywhereElseHandler(ctx context.Context, _ *struc
 		return nil, autherrors.ErrServiceUnavailable(signOutEverywhereElseOperation, err)
 	}
 
-	// 24 hours, as ChangePasswordHandler's cookie and for the reason stated
-	// there.
 	resp := &SignOutEverywhereElseResponse{}
-	resp.SetCookie = h.config.Session.NewAuthCookie(token, 24*time.Hour)
+	resp.SetCookie = h.config.NewSessionCookie(token)
 	resp.Body.Success = true
 	resp.Body.RequestID = logger.GetRequestID(ctx)
 	logger.AuthInfo(ctx, "sign_out_everywhere_else_success", "user_id", contextUser.ID)

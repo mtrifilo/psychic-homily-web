@@ -35,7 +35,7 @@ var allowedCLICallbackHosts = map[string]struct{}{
 
 // validateCLICallback enforces that a cli_callback redirect target points only
 // at the local machine. It defends against open-redirect token exfiltration:
-// the OAuth flow appends a 24h JWT to this URL, so an attacker-controlled host
+// the OAuth flow appends a session JWT to this URL, so an attacker-controlled host
 // would receive the victim's credentials.
 //
 // On success it returns the parsed-and-re-serialized URL (canonical form) so

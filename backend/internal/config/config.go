@@ -242,17 +242,38 @@ type DatabaseConfig struct {
 	ConnMaxLifetime time.Duration
 }
 
+// DefaultSessionLifetimeHours is the session lifetime when JWT_EXPIRY_HOURS
+// is unset: 60 days.
+const DefaultSessionLifetimeHours = 60 * 24
+
 // JWTConfig holds JWT-related configuration
 type JWTConfig struct {
 	SecretKey string `env:"JWT_SECRET_KEY"`
-	Expiry    int64  `env:"JWT_EXPIRY_HOURS" envDefault:"24"`
+	// Expiry is the session lifetime in hours; Load defaults it to
+	// DefaultSessionLifetimeHours. The session JWT's exp and the auth cookie's
+	// Expires are both derived from it through SessionLifetime, so the two
+	// cannot disagree.
+	Expiry int64 `env:"JWT_EXPIRY_HOURS"`
+}
+
+// SessionLifetime is how long a session lasts, as a duration.
+func (j JWTConfig) SessionLifetime() time.Duration {
+	return time.Duration(j.Expiry) * time.Hour
+}
+
+// SessionLifetimeSeconds is SessionLifetime in whole seconds, the unit
+// expires_in is reported in.
+func (j JWTConfig) SessionLifetimeSeconds() int {
+	return int(j.SessionLifetime() / time.Second)
 }
 
 // SessionConfig holds session-related configuration
 type SessionConfig struct {
-	Path     string `env:"SESSION_PATH" envDefault:"/"`
-	Domain   string `env:"SESSION_DOMAIN" envDefault:""`
-	MaxAge   int    `env:"SESSION_MAX_AGE" envDefault:"86400"` // 24 hours
+	Path   string `env:"SESSION_PATH" envDefault:"/"`
+	Domain string `env:"SESSION_DOMAIN" envDefault:""`
+	// MaxAge bounds the OAuth handshake cookie store (internal/auth/goth.go),
+	// not the signed-in session; that is JWTConfig.Expiry.
+	MaxAge   int    `env:"SESSION_MAX_AGE" envDefault:"86400"`
 	HttpOnly bool   `env:"SESSION_HTTP_ONLY" envDefault:"true"`
 	Secure   bool   `env:"SESSION_SECURE" envDefault:"false"`
 	SameSite string `env:"SESSION_SAME_SITE" envDefault:"lax"`
@@ -273,17 +294,19 @@ func (s SessionConfig) GetSameSite() http.SameSite {
 // AuthCookieName is the name of the authentication cookie
 const AuthCookieName = "auth_token"
 
-// NewAuthCookie creates a new authentication cookie with the given token and expiry duration.
-func (s SessionConfig) NewAuthCookie(token string, expiry time.Duration) http.Cookie {
+// NewSessionCookie is the auth cookie carrying token. It expires when the
+// token does: both lifetimes are JWT.SessionLifetime, and no caller can pass
+// another.
+func (c *Config) NewSessionCookie(token string) http.Cookie {
 	return http.Cookie{
 		Name:     AuthCookieName,
 		Value:    token,
-		Path:     s.Path,
-		Domain:   s.Domain,
-		HttpOnly: s.HttpOnly,
-		Secure:   s.Secure,
-		SameSite: s.GetSameSite(),
-		Expires:  time.Now().Add(expiry),
+		Path:     c.Session.Path,
+		Domain:   c.Session.Domain,
+		HttpOnly: c.Session.HttpOnly,
+		Secure:   c.Session.Secure,
+		SameSite: c.Session.GetSameSite(),
+		Expires:  time.Now().Add(c.JWT.SessionLifetime()),
 	}
 }
 
@@ -337,7 +360,7 @@ func Load() (*Config, error) {
 		Database: databaseConfigFromEnv(),
 		JWT: JWTConfig{
 			SecretKey: GetEnv(EnvJWTSecretKey, "your-super-secret-jwt-key-32-chars-minimum"),
-			Expiry:    int64(getEnvAsInt(EnvJWTExpiryHours, 24)),
+			Expiry:    int64(getEnvAsInt(EnvJWTExpiryHours, DefaultSessionLifetimeHours)),
 		},
 		Session: SessionConfig{
 			Path:     GetEnv(EnvSessionPath, "/"),

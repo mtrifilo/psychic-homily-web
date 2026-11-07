@@ -3991,8 +3991,8 @@ func TestGenerateCLITokenHandler_Success(t *testing.T) {
 	if resp.Body.Token != "cli-token-123" {
 		t.Errorf("expected token=cli-token-123, got %s", resp.Body.Token)
 	}
-	if resp.Body.ExpiresIn != 86400 {
-		t.Errorf("expected expires_in=86400, got %d", resp.Body.ExpiresIn)
+	if want := h.config.JWT.SessionLifetimeSeconds(); resp.Body.ExpiresIn != want {
+		t.Errorf("expected expires_in=%d (the configured session lifetime), got %d", want, resp.Body.ExpiresIn)
 	}
 }
 

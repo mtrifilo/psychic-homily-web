@@ -286,8 +286,9 @@ func TestCompletePasswordResetHandler_SetsThePasswordAndSignsIn(t *testing.T) {
 	if resp.SetCookie.Name != config.AuthCookieName || resp.SetCookie.Value != "new-session" {
 		t.Errorf("cookie = %s=%q, want this browser's new session", resp.SetCookie.Name, resp.SetCookie.Value)
 	}
-	if lifetime := time.Until(resp.SetCookie.Expires); lifetime < 23*time.Hour || lifetime > 25*time.Hour {
-		t.Errorf("cookie lifetime = %v, want 24 hours", lifetime)
+	want := h.config.JWT.SessionLifetime()
+	if lifetime := time.Until(resp.SetCookie.Expires); lifetime < want-time.Minute || lifetime > want {
+		t.Errorf("cookie lifetime = %v, want the configured session lifetime %v", lifetime, want)
 	}
 }
 

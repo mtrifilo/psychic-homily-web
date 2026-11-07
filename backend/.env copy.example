@@ -26,7 +26,7 @@ JWT_SECRET_KEY=development-jwt-secret-key-32-chars-long
 SESSION_SECRET=development-oauth-secret-key-32-chars-long
 
 # JWT Configuration
-JWT_EXPIRY_HOURS=24
+JWT_EXPIRY_HOURS=1440
 
 # Session Configuration
 SESSION_PATH=/

@@ -286,9 +286,22 @@ func TestGetSameSite(t *testing.T) {
 	}
 }
 
-// --- NewAuthCookie tests ---
+// --- NewSessionCookie tests ---
 
-func TestNewAuthCookie(t *testing.T) {
+func TestSessionLifetime(t *testing.T) {
+	if got := (JWTConfig{Expiry: 36}).SessionLifetime(); got != 36*time.Hour {
+		t.Errorf("SessionLifetime() = %v, want 36h", got)
+	}
+	if got := (JWTConfig{Expiry: 36}).SessionLifetimeSeconds(); got != 36*3600 {
+		t.Errorf("SessionLifetimeSeconds() = %d, want %d", got, 36*3600)
+	}
+	// The default is the product decision: a session lasts 60 days.
+	if DefaultSessionLifetimeHours != 60*24 {
+		t.Errorf("DefaultSessionLifetimeHours = %d, want 60 days", DefaultSessionLifetimeHours)
+	}
+}
+
+func TestNewSessionCookie(t *testing.T) {
 	s := SessionConfig{
 		Path:     "/",
 		Domain:   "example.com",
@@ -296,9 +309,10 @@ func TestNewAuthCookie(t *testing.T) {
 		Secure:   true,
 		SameSite: "strict",
 	}
+	cfg := &Config{JWT: JWTConfig{Expiry: 48}, Session: s}
 
 	before := time.Now()
-	cookie := s.NewAuthCookie("test-token", 24*time.Hour)
+	cookie := cfg.NewSessionCookie("test-token")
 	after := time.Now()
 
 	if cookie.Name != AuthCookieName {
@@ -322,9 +336,10 @@ func TestNewAuthCookie(t *testing.T) {
 	if cookie.SameSite != http.SameSiteStrictMode {
 		t.Errorf("SameSite = %v, want StrictMode", cookie.SameSite)
 	}
-	// Expires should be approximately now + 24h
-	expectedMin := before.Add(24 * time.Hour)
-	expectedMax := after.Add(24 * time.Hour)
+	// Expires is now + the session lifetime, the one number the token's exp
+	// also comes from.
+	expectedMin := before.Add(cfg.JWT.SessionLifetime())
+	expectedMax := after.Add(cfg.JWT.SessionLifetime())
 	if cookie.Expires.Before(expectedMin) || cookie.Expires.After(expectedMax) {
 		t.Errorf("Expires = %v, expected between %v and %v", cookie.Expires, expectedMin, expectedMax)
 	}
@@ -698,8 +713,8 @@ func TestLoad(t *testing.T) {
 		if !cfg.Session.HttpOnly {
 			t.Error("Session.HttpOnly should be true by default")
 		}
-		if cfg.JWT.Expiry != 24 {
-			t.Errorf("JWT.Expiry = %d, want 24", cfg.JWT.Expiry)
+		if cfg.JWT.Expiry != DefaultSessionLifetimeHours {
+			t.Errorf("JWT.Expiry = %d, want %d", cfg.JWT.Expiry, DefaultSessionLifetimeHours)
 		}
 		if cfg.Email.FromEmail != "noreply@psychichomily.com" {
 			t.Errorf("Email.FromEmail = %q, want noreply@psychichomily.com", cfg.Email.FromEmail)

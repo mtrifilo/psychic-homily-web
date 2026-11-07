@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -275,8 +274,7 @@ func (h *AuthHandler) CompletePasswordResetHandler(ctx context.Context, input *C
 		return nil, autherrors.ErrServiceUnavailable(passwordResetCompleteOperation, err)
 	}
 
-	// 24 hours, as the magic link's and the recovery link's sessions.
-	resp.SetCookie = h.config.Session.NewAuthCookie(completion.Token, 24*time.Hour)
+	resp.SetCookie = h.config.NewSessionCookie(completion.Token)
 	logger.AuthInfo(ctx, "password_reset_complete_success", "user_id", completion.User.ID)
 	resp.Body.Success = true
 	resp.Body.Message = "Password reset"
