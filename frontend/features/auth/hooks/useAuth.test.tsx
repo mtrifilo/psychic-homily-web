@@ -3,7 +3,10 @@ import { renderHook, waitFor, act } from '@testing-library/react'
 import { createWrapper, createWrapperWithClient, createTestQueryClient } from '@/test/utils'
 import { AuthErrorCode, AuthError } from '@/lib/errors'
 import { queryKeys } from '@/lib/queryClient'
-import { refetchFailedProfileOnly } from './useAuth'
+import {
+  refetchFailedProfileOnly,
+  useCompletePasswordReset,
+} from './useAuth'
 
 // Create a mock for apiRequest that we can control
 const mockApiRequest = vi.fn()
@@ -797,6 +800,65 @@ describe('useAuth hooks', () => {
       expect(renew.current.isError).toBe(false)
       expect(renew.current.data).toEqual(expect.objectContaining({ success: false }))
     })
+
+    // Every mutation that changes which session the browser holds aborts a
+    // renewal in flight and sends its own request only after the renewal has
+    // settled, so the renewal's cookie can never land after the change's.
+    const sessionChanges: Array<[string, () => { mutate: (v: never) => void }, unknown]> = [
+      ['useLogout', useLogout, undefined],
+      ['useLogin', useLogin, { email: 'a@example.com', password: 'pw' }],
+      ['useRegister', () => useRegister(), { email: 'a@example.com', password: 'pw' }],
+      ['useConfirmVerification', useConfirmVerification, 'token'],
+      ['useChangePassword', useChangePassword, { current_password: 'old', new_password: 'new' }],
+      ['useSetPassword', useSetPassword, 'new-password'],
+      ['useSignOutEverywhereElse', useSignOutEverywhereElse, undefined],
+      ['useVerifyMagicLink', useVerifyMagicLink, 'token'],
+      ['useCompletePasswordReset', useCompletePasswordReset, { token: 't', newPassword: 'new' }],
+      ['useDeleteAccount', useDeleteAccount, { password: 'pw' }],
+      ['useRecoverAccount', useRecoverAccount, { email: 'a@example.com', token: 't' }],
+      ['useConfirmAccountRecovery', useConfirmAccountRecovery, 'token'],
+    ]
+    it.each(sessionChanges)(
+      '%s waits for a renewal in flight and aborts it before its own request',
+      async (_name, useHook, args) => {
+        const order: string[] = []
+        mockApiRequest.mockImplementation((url, init) => {
+          if (url === '/auth/refresh') {
+            return new Promise((_resolve, reject) => {
+              init?.signal?.addEventListener('abort', () => {
+                order.push('renewal aborted')
+                reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+              })
+            })
+          }
+          order.push(`request ${url}`)
+          return Promise.resolve({ success: true, message: 'ok', user: { id: 1 } })
+        })
+        const queryClient = createTestQueryClient()
+        const { result: renew } = renderHook(() => useRenewSession(), {
+          wrapper: createWrapperWithClient(queryClient),
+        })
+        const { result: change } = renderHook(() => useHook(), {
+          wrapper: createWrapperWithClient(queryClient),
+        })
+
+        act(() => {
+          renew.current.mutate()
+        })
+        await waitFor(() => expect(mockApiRequest).toHaveBeenCalledWith('/auth/refresh', expect.anything()))
+
+        await act(async () => {
+          change.current.mutate(args as never)
+        })
+
+        await waitFor(() => expect(order.length).toBeGreaterThanOrEqual(2))
+        expect(order[0]).toBe('renewal aborted')
+        expect(order[1]).toMatch(/^request /)
+        expect(order[1]).not.toBe('request /auth/refresh')
+        await waitFor(() => expect(renew.current.isPending).toBe(false))
+        expect(renew.current.isError).toBe(false)
+      }
+    )
 
     it('leaves the profile marked due on a 200 with success=false', async () => {
       // The backend can answer 200 with success=false; nothing was renewed,

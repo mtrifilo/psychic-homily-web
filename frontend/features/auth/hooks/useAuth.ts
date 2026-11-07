@@ -213,6 +213,7 @@ export const useLogin = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
+    mutationKey: sessionChangeKey('login'),
     mutationFn: async (
       credentials: LoginCredentials
     ): Promise<AuthResponse> => {
@@ -266,6 +267,7 @@ export const useRegister = (callbacks: RegisterCallbacks = {}) => {
   const queryClient = useQueryClient()
 
   return useMutation({
+    mutationKey: sessionChangeKey('register'),
     mutationFn: async ({
       signal,
       onRegistered,
@@ -340,6 +342,7 @@ export const useLogout = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
+    mutationKey: sessionChangeKey('logout'),
     mutationFn: async (): Promise<{ success: boolean; message: string }> => {
       await settlePendingSessionRenewal()
       authLogger.debug('Logout attempt')
@@ -527,8 +530,21 @@ export const useUpdateProfile = () => {
   })
 }
 
-/** The renewal mutation's key, so other flows can see one in flight. */
+/** The renewal mutation's key in the mutation cache (tests and devtools). */
 export const SESSION_RENEWAL_MUTATION_KEY = ['auth', 'session-renewal'] as const
+
+/**
+ * Prefix shared by every mutation that changes which session the browser
+ * holds. `SessionRenewal` reads it through `useIsMutating` and the renewal
+ * itself refuses to start while one is in flight, which is the other half of
+ * `settlePendingSessionRenewal`: that call orders a change after a renewal
+ * already running; this key keeps a renewal from starting under a change.
+ */
+export const SESSION_CHANGE_MUTATION_KEY = ['auth', 'session-change'] as const
+
+function sessionChangeKey(change: string) {
+  return [...SESSION_CHANGE_MUTATION_KEY, change] as const
+}
 
 // The renewal in flight, if any: the request's AbortController and a promise
 // that settles with the request. Module state rather than React state because
@@ -559,7 +575,9 @@ export async function settlePendingSessionRenewal(): Promise<void> {
  * longer due, which both stops `SessionRenewal` asking again before the next
  * page load and lets the component ask again when a later profile read says
  * due. A transient failure changes nothing visible: the session the viewer has
- * still works, and the component retries after a short backoff. A 401 refusal
+ * still works, and the component asks again on the next profile read that
+ * says due once SESSION_RENEWAL_RETRY_MS has passed (in a tab left open that
+ * read may be the six-hour poll). A 401 refusal
  * (revoked or closed session) is not handled here at all: the global mutation
  * cache handler (`recoverFromSessionExpiry` in lib/queryClient.ts, covered by
  * its "recovers from an expiry that surfaces through a mutation" test) takes
@@ -571,7 +589,14 @@ export const useRenewSession = () => {
   return useMutation({
     mutationKey: SESSION_RENEWAL_MUTATION_KEY,
     mutationFn: async (): Promise<RefreshTokenResponse> => {
+      // A session change already in flight wins: its cookie must land last.
+      if (queryClient.isMutating({ mutationKey: SESSION_CHANGE_MUTATION_KEY }) > 0) {
+        return { success: false, message: 'Session renewal abandoned for a session change' }
+      }
       authLogger.debug('Session renewal attempt')
+      // Only one renewal is tracked; an earlier one still hanging is cut off
+      // so that settlePendingSessionRenewal cannot miss it.
+      pendingSessionRenewal?.controller.abort()
       const controller = new AbortController()
       const request = apiRequest<RefreshTokenResponse>(API_ENDPOINTS.AUTH.REFRESH, {
         method: 'POST',
@@ -700,6 +725,7 @@ export const useConfirmVerification = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
+    mutationKey: sessionChangeKey('confirm-verification'),
     mutationFn: async (token: string): Promise<VerificationResponse> => {
       await settlePendingSessionRenewal()
       authLogger.debug('Confirming email verification')
@@ -742,6 +768,7 @@ export const useConfirmVerification = () => {
 // Change password mutation
 export const useChangePassword = () => {
   return useMutation({
+    mutationKey: sessionChangeKey('change-password'),
     mutationFn: async (
       credentials: ChangePasswordCredentials
     ): Promise<ChangePasswordResponse> => {
@@ -803,6 +830,7 @@ export const useSetPassword = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
+    mutationKey: sessionChangeKey('set-password'),
     mutationFn: async (newPassword: string): Promise<SetPasswordResponse> => {
       await settlePendingSessionRenewal()
       authLogger.debug('Set password attempt')
@@ -852,6 +880,7 @@ type SignOutEverywhereElseResponse =
  */
 export const useSignOutEverywhereElse = () => {
   return useMutation({
+    mutationKey: sessionChangeKey('sign-out-everywhere-else'),
     mutationFn: async (): Promise<SignOutEverywhereElseResponse> => {
       await settlePendingSessionRenewal()
       const response = await apiRequest<SignOutEverywhereElseResponse>(
@@ -911,6 +940,7 @@ export const useVerifyMagicLink = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
+    mutationKey: sessionChangeKey('verify-magic-link'),
     mutationFn: async (token: string): Promise<VerifyMagicLinkResponse> => {
       await settlePendingSessionRenewal()
       authLogger.debug('Verifying magic link')
@@ -1058,6 +1088,7 @@ export const useCompletePasswordReset = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
+    mutationKey: sessionChangeKey('complete-password-reset'),
     mutationFn: async ({
       token,
       newPassword,
@@ -1148,6 +1179,7 @@ export const useDeleteAccount = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
+    mutationKey: sessionChangeKey('delete-account'),
     mutationFn: async (
       request: DeleteAccountRequest
     ): Promise<DeleteAccountResponse> => {
@@ -1589,6 +1621,7 @@ export const useRecoverAccount = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
+    mutationKey: sessionChangeKey('recover-account'),
     mutationFn: async (
       request: RecoverAccountRequest
     ): Promise<RecoverAccountResponse> => {
@@ -1683,6 +1716,7 @@ export const useConfirmAccountRecovery = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
+    mutationKey: sessionChangeKey('confirm-account-recovery'),
     mutationFn: async (
       token: string
     ): Promise<ConfirmAccountRecoveryResponse> => {

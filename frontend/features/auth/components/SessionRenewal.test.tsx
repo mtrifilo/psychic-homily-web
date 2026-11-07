@@ -1,11 +1,16 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { waitFor } from '@testing-library/react'
 import { HydrationBoundary, dehydrate } from '@tanstack/react-query'
 import { createTestQueryClient, renderWithProviders } from '@/test/utils'
 import { queryKeys } from '@/lib/queryClient'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
-import type { UserProfile } from '@/features/auth/hooks/useAuth'
-import { SessionRenewal } from './SessionRenewal'
+import { SESSION_CHANGE_MUTATION_KEY, type UserProfile } from '@/features/auth/hooks/useAuth'
+import {
+  SESSION_RENEWAL_POLL_MS,
+  SESSION_RENEWAL_RETRY_MS,
+  SessionRenewal,
+  sessionRenewalPollInterval,
+} from './SessionRenewal'
 
 vi.mock('@/lib/api', async importOriginal => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),
@@ -19,10 +24,16 @@ vi.mock('next/navigation', () => ({
 
 const mockApiRequest = vi.mocked(apiRequest)
 
+// Every payload carries a distinct request_id, as the backend's do: TanStack
+// keeps the previous object for a deep-equal write, and the effect keys on
+// the object.
+let payloads = 0
 function signedInProfile(overrides: Partial<UserProfile> = {}): UserProfile {
+  payloads += 1
   return {
     success: true,
     message: 'Profile retrieved',
+    request_id: `req-${payloads}`,
     user: {
       id: 1,
       email: 'viewer@example.com',
@@ -42,10 +53,16 @@ function renderWithProfile(profile: UserProfile | undefined) {
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
 
+const renewalCalls = () =>
+  mockApiRequest.mock.calls.filter(([url]) => url === API_ENDPOINTS.AUTH.REFRESH).length
+
 describe('SessionRenewal', () => {
   beforeEach(() => {
     mockApiRequest.mockReset()
     pathname = '/'
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   it('posts to /auth/refresh once when the seeded profile says the session is due', async () => {
@@ -54,7 +71,7 @@ describe('SessionRenewal', () => {
       signedInProfile({ session_renewal_due: true })
     )
 
-    await waitFor(() => expect(mockApiRequest).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(renewalCalls()).toBe(1))
     expect(mockApiRequest).toHaveBeenCalledWith(
       API_ENDPOINTS.AUTH.REFRESH,
       expect.objectContaining({ method: 'POST', credentials: 'include' })
@@ -67,7 +84,7 @@ describe('SessionRenewal', () => {
       ).toBe(false)
     )
     rerender(<SessionRenewal />)
-    expect(mockApiRequest).toHaveBeenCalledTimes(1)
+    expect(renewalCalls()).toBe(1)
   })
 
   it('reads the flag from a server-dehydrated seed, the cold-load path', async () => {
@@ -83,7 +100,11 @@ describe('SessionRenewal', () => {
       { queryClient: createTestQueryClient() }
     )
 
-    await waitFor(() => expect(mockApiRequest).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(renewalCalls()).toBe(1))
+    expect(mockApiRequest).toHaveBeenCalledWith(
+      API_ENDPOINTS.AUTH.REFRESH,
+      expect.objectContaining({ method: 'POST' })
+    )
   })
 
   it('does nothing when the session is not due', async () => {
@@ -99,46 +120,86 @@ describe('SessionRenewal', () => {
     expect(mockApiRequest).not.toHaveBeenCalled()
   })
 
+  it('holds while a session change is in flight', async () => {
+    const queryClient = createTestQueryClient()
+    queryClient.setQueryData(queryKeys.auth.profile, signedInProfile({ session_renewal_due: true }))
+    let finishChange!: () => void
+    const change = queryClient
+      .getMutationCache()
+      .build(queryClient, {
+        mutationKey: [...SESSION_CHANGE_MUTATION_KEY, 'logout'],
+        mutationFn: () => new Promise<void>(resolve => (finishChange = resolve)),
+      })
+    void change.execute(undefined)
+    await waitFor(() =>
+      expect(queryClient.isMutating({ mutationKey: SESSION_CHANGE_MUTATION_KEY })).toBe(1)
+    )
+    mockApiRequest.mockResolvedValue({ success: true, message: 'Token refreshed' })
+
+    renderWithProviders(<SessionRenewal />, { queryClient })
+    await settle()
+    expect(renewalCalls()).toBe(0)
+
+    // Once the change settles, the next profile read may renew.
+    finishChange()
+    await waitFor(() =>
+      expect(queryClient.isMutating({ mutationKey: SESSION_CHANGE_MUTATION_KEY })).toBe(0)
+    )
+    queryClient.setQueryData(queryKeys.auth.profile, signedInProfile({ session_renewal_due: true }))
+    await waitFor(() => expect(renewalCalls()).toBe(1))
+  })
+
   it('leaves the signed-in profile untouched when the renewal fails', async () => {
     mockApiRequest.mockRejectedValue(new Error('network down'))
     const profile = signedInProfile({ session_renewal_due: true })
     const { queryClient } = renderWithProfile(profile)
 
-    await waitFor(() => expect(mockApiRequest).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(renewalCalls()).toBe(1))
     await settle()
     expect(queryClient.getQueryData<UserProfile>(queryKeys.auth.profile)).toEqual(profile)
   })
 
-  it('does not ask again inside the retry window while the flag stays set', async () => {
+  it('holds inside the retry window, then asks again on a later profile read', async () => {
+    const start = 1_700_000_000_000
+    const now = vi.spyOn(Date, 'now').mockReturnValue(start)
     mockApiRequest.mockRejectedValue(new Error('network down'))
-    const { queryClient, rerender } = renderWithProfile(
-      signedInProfile({ session_renewal_due: true })
-    )
-    await waitFor(() => expect(mockApiRequest).toHaveBeenCalledTimes(1))
+    const { queryClient } = renderWithProfile(signedInProfile({ session_renewal_due: true }))
+    await waitFor(() => expect(renewalCalls()).toBe(1))
 
-    // A refetch that still says due (a new object) re-runs the effect; the
-    // backoff holds it.
+    // A fresh profile object inside the window re-runs the effect; the backoff holds it.
+    now.mockReturnValue(start + SESSION_RENEWAL_RETRY_MS - 1000)
     queryClient.setQueryData(queryKeys.auth.profile, signedInProfile({ session_renewal_due: true }))
-    rerender(<SessionRenewal />)
     await settle()
-    expect(mockApiRequest).toHaveBeenCalledTimes(1)
+    expect(renewalCalls()).toBe(1)
+
+    // Past the window, the next profile read that still says due asks again.
+    now.mockReturnValue(start + SESSION_RENEWAL_RETRY_MS + 1000)
+    queryClient.setQueryData(queryKeys.auth.profile, signedInProfile({ session_renewal_due: true }))
+    await waitFor(() => expect(renewalCalls()).toBe(2))
   })
 
-  it('asks again when the flag clears and later comes back, as on the next day', async () => {
+  it('asks again when the flag clears and comes back a day later', async () => {
+    const start = 1_700_000_000_000
+    const now = vi.spyOn(Date, 'now').mockReturnValue(start)
     mockApiRequest.mockResolvedValue({ success: true, message: 'Token refreshed' })
-    const { queryClient, rerender } = renderWithProfile(
-      signedInProfile({ session_renewal_due: true })
-    )
-    await waitFor(() => expect(mockApiRequest).toHaveBeenCalledTimes(1))
+    const { queryClient } = renderWithProfile(signedInProfile({ session_renewal_due: true }))
+    await waitFor(() => expect(renewalCalls()).toBe(1))
     await waitFor(() =>
       expect(
         queryClient.getQueryData<UserProfile>(queryKeys.auth.profile)?.session_renewal_due
       ).toBe(false)
     )
 
-    // The next profile read (a day later) says due again.
+    now.mockReturnValue(start + 24 * 60 * 60 * 1000)
     queryClient.setQueryData(queryKeys.auth.profile, signedInProfile({ session_renewal_due: true }))
-    rerender(<SessionRenewal />)
-    await waitFor(() => expect(mockApiRequest).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(renewalCalls()).toBe(2))
+  })
+
+  it('polls the profile only for a signed-in viewer', () => {
+    expect(sessionRenewalPollInterval(signedInProfile())).toBe(SESSION_RENEWAL_POLL_MS)
+    expect(sessionRenewalPollInterval(undefined)).toBe(false)
+    expect(
+      sessionRenewalPollInterval({ success: false, message: 'Authentication required' })
+    ).toBe(false)
   })
 })
