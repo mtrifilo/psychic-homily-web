@@ -31,8 +31,11 @@ func testConfig() *config.Config {
 	return &config.Config{
 		JWT: config.JWTConfig{
 			SecretKey: "test-secret-key-at-least-32-characters-long",
-			// Matches no lifetime constant, so a mint site that hard-codes 24
-			// hours or seven days again fails the assertions derived from it.
+			// Matches no lifetime constant, so the cookie-lifetime assertions
+			// (password login, Google callback, sign-up step, set password, sign
+			// out everywhere else, password reset) fail if one of those paths
+			// hard-codes 24 hours or seven days again. The other mint sites are
+			// covered by TestSessionCookieMintedOnlyByConfig.
 			Expiry: 37,
 		},
 		Session: config.SessionConfig{
