@@ -529,7 +529,7 @@ describe('SettingsPanel', () => {
     expect(screen.getByText('CLI authentication')).toBeInTheDocument()
     expect(
       screen.getByText(
-        'Generate a short-lived token for the ph command-line tool.'
+        'Generate a token for the ph command-line tool.'
       )
     ).toBeInTheDocument()
     expect(
@@ -687,6 +687,7 @@ describe('SettingsPanel', () => {
     }
     mockGenerateCLITokenMutateAsync.mockResolvedValueOnce({
       token: 'cli-token-xyz-789',
+      expires_in: 5_184_000,
     })
 
     const user = userEvent.setup()
@@ -700,11 +701,35 @@ describe('SettingsPanel', () => {
       expect(screen.getByText('cli-token-xyz-789')).toBeInTheDocument()
     })
     expect(
-      screen.getByText(/This token expires in 24 hours/)
+      screen.getByText(/This token expires in 60 days\. Copy it now/)
     ).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: /Generate new token/ })
     ).toBeInTheDocument()
+  })
+
+  it('omits the lifetime sentence when the mint reports no expires_in', async () => {
+    mockUser = {
+      email: 'admin@example.com',
+      email_verified: true,
+      is_admin: true,
+    }
+    mockGenerateCLITokenMutateAsync.mockResolvedValueOnce({
+      token: 'cli-token-no-lifetime',
+    })
+
+    const user = userEvent.setup()
+    renderWithProviders(<SettingsPanel />)
+
+    await user.click(
+      screen.getByRole('button', { name: /Generate CLI token/ })
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('cli-token-no-lifetime')).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/This token expires in/)).not.toBeInTheDocument()
+    expect(screen.getByText(/Copy it now/)).toBeInTheDocument()
   })
 
   it('copies the issued CLI token to the clipboard when Copy is clicked', async () => {

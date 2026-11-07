@@ -11048,8 +11048,8 @@ export interface components {
             error_code?: string;
             /**
              * Format: int64
-             * @description Token expiry in seconds
-             * @example 86400
+             * @description Token expiry in seconds: the configured session lifetime
+             * @example 5184000
              */
             expires_in?: number;
             /**

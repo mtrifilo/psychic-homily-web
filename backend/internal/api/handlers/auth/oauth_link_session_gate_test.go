@@ -44,7 +44,7 @@ func (s *OAuthHandlerIntegrationSuite) createLinkUser(address string) *authm.Use
 func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_SessionThatDoesNotNameTheIntentAccountIsRefused() {
 	otherKey := auth.NewJWTService(s.deps.DB, &config.Config{JWT: config.JWTConfig{
 		SecretKey: "a-different-secret-key-of-32-chars!!",
-		Expiry:    24,
+		Expiry:    37, // matches no lifetime constant; see testConfig
 	}}, s.deps.UserService)
 
 	cases := []struct {

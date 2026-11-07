@@ -99,6 +99,10 @@ const (
 
 // Config holds all configuration for the application
 type Config struct {
+	// sessionLifetimeErr is why JWT_EXPIRY_HOURS was unusable, for Validate;
+	// nil when the variable is unset or valid.
+	sessionLifetimeErr error
+
 	Server         ServerConfig
 	CORS           CORSConfig
 	OAuth          OAuthConfig
@@ -242,17 +246,43 @@ type DatabaseConfig struct {
 	ConnMaxLifetime time.Duration
 }
 
+// DefaultSessionLifetimeHours is the session lifetime when JWT_EXPIRY_HOURS
+// is unset: 60 days.
+const DefaultSessionLifetimeHours = 60 * 24
+
+// MaxSessionLifetimeHours is the longest lifetime JWT_EXPIRY_HOURS may set:
+// 400 days, the most a browser keeps a cookie (RFC 6265bis, Chromium). Past it
+// the cookie would expire before the token it carries.
+const MaxSessionLifetimeHours = 400 * 24
+
 // JWTConfig holds JWT-related configuration
 type JWTConfig struct {
 	SecretKey string `env:"JWT_SECRET_KEY"`
-	Expiry    int64  `env:"JWT_EXPIRY_HOURS" envDefault:"24"`
+	// Expiry is the session lifetime in hours; Load defaults it to
+	// DefaultSessionLifetimeHours. The session JWT's exp and the auth cookie's
+	// Expires are both derived from it through SessionLifetime, so the two
+	// cannot disagree.
+	Expiry int64 `env:"JWT_EXPIRY_HOURS"`
+}
+
+// SessionLifetime is how long a session lasts, as a duration.
+func (j JWTConfig) SessionLifetime() time.Duration {
+	return time.Duration(j.Expiry) * time.Hour
+}
+
+// SessionLifetimeSeconds is SessionLifetime in whole seconds, the unit
+// expires_in is reported in.
+func (j JWTConfig) SessionLifetimeSeconds() int {
+	return int(j.SessionLifetime() / time.Second)
 }
 
 // SessionConfig holds session-related configuration
 type SessionConfig struct {
-	Path     string `env:"SESSION_PATH" envDefault:"/"`
-	Domain   string `env:"SESSION_DOMAIN" envDefault:""`
-	MaxAge   int    `env:"SESSION_MAX_AGE" envDefault:"86400"` // 24 hours
+	Path   string `env:"SESSION_PATH" envDefault:"/"`
+	Domain string `env:"SESSION_DOMAIN" envDefault:""`
+	// MaxAge bounds the OAuth handshake cookie store (internal/auth/goth.go),
+	// not the signed-in session; that is JWTConfig.Expiry.
+	MaxAge   int    `env:"SESSION_MAX_AGE" envDefault:"86400"`
 	HttpOnly bool   `env:"SESSION_HTTP_ONLY" envDefault:"true"`
 	Secure   bool   `env:"SESSION_SECURE" envDefault:"false"`
 	SameSite string `env:"SESSION_SAME_SITE" envDefault:"lax"`
@@ -273,21 +303,26 @@ func (s SessionConfig) GetSameSite() http.SameSite {
 // AuthCookieName is the name of the authentication cookie
 const AuthCookieName = "auth_token"
 
-// NewAuthCookie creates a new authentication cookie with the given token and expiry duration.
-func (s SessionConfig) NewAuthCookie(token string, expiry time.Duration) http.Cookie {
+// NewSessionCookie is the auth cookie carrying token. It expires when the
+// token does: both lifetimes are JWT.SessionLifetime, and no caller can pass
+// another. SessionConfig.ClearAuthCookie is its counterpart: a browser drops
+// the cookie only when the clearing cookie's Path and Domain match these.
+func (c *Config) NewSessionCookie(token string) http.Cookie {
 	return http.Cookie{
 		Name:     AuthCookieName,
 		Value:    token,
-		Path:     s.Path,
-		Domain:   s.Domain,
-		HttpOnly: s.HttpOnly,
-		Secure:   s.Secure,
-		SameSite: s.GetSameSite(),
-		Expires:  time.Now().Add(expiry),
+		Path:     c.Session.Path,
+		Domain:   c.Session.Domain,
+		HttpOnly: c.Session.HttpOnly,
+		Secure:   c.Session.Secure,
+		SameSite: c.Session.GetSameSite(),
+		Expires:  time.Now().Add(c.JWT.SessionLifetime()),
 	}
 }
 
-// ClearAuthCookie creates a cookie that clears the authentication token.
+// ClearAuthCookie creates a cookie that clears the authentication token set by
+// Config.NewSessionCookie; Path and Domain must stay identical to that cookie's
+// or the browser keeps the session.
 func (s SessionConfig) ClearAuthCookie() http.Cookie {
 	return http.Cookie{
 		Name:     AuthCookieName,
@@ -314,6 +349,8 @@ func Load() (*Config, error) {
 	frontendURL := getFrontendURL()
 	backendURL := ResolveBackendOrigin(frontendURL, backendPublicURL, serverAddr)
 
+	sessionHours, sessionHoursErr := sessionLifetimeHoursFromEnv()
+
 	cfg := &Config{
 		Server: ServerConfig{
 			Addr:             serverAddr,
@@ -337,7 +374,7 @@ func Load() (*Config, error) {
 		Database: databaseConfigFromEnv(),
 		JWT: JWTConfig{
 			SecretKey: GetEnv(EnvJWTSecretKey, "your-super-secret-jwt-key-32-chars-minimum"),
-			Expiry:    int64(getEnvAsInt(EnvJWTExpiryHours, 24)),
+			Expiry:    sessionHours,
 		},
 		Session: SessionConfig{
 			Path:     GetEnv(EnvSessionPath, "/"),
@@ -380,6 +417,7 @@ func Load() (*Config, error) {
 			Token: GetEnv(EnvDiscogsToken, ""),
 		},
 	}
+	cfg.sessionLifetimeErr = sessionHoursErr
 
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("configuration validation failed: %w", err)
@@ -559,6 +597,13 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("ENVIRONMENT is not set but DATABASE_URL points to a remote host; set ENVIRONMENT explicitly (production, stage, or development)")
 	}
 
+	// A deployed environment with an unusable session lifetime refuses to
+	// start rather than run on the default: the operator asked for a lifetime,
+	// and quietly getting 60 days fails open.
+	if (env == EnvProduction || env == EnvStage) && c.sessionLifetimeErr != nil {
+		return fmt.Errorf("%w; set it or unset it for %s", c.sessionLifetimeErr, env)
+	}
+
 	// For production/stage, ensure secrets are not placeholders
 	for _, placeholder := range placeholderSecrets {
 		if c.JWT.SecretKey == placeholder {
@@ -607,6 +652,27 @@ func getEnvAsInt(key string, defaultValue int) int {
 		log.Printf("Environment variable %s has invalid integer value, using default", key)
 	}
 	return defaultValue
+}
+
+// sessionLifetimeHoursFromEnv reads JWT_EXPIRY_HOURS. Unset means the
+// default. A set value that is not an integer, is below 1 (every session would
+// be expired as it is minted) or is above MaxSessionLifetimeHours also yields
+// the default, plus the reason: Validate refuses to boot a deployed
+// environment on it, as it does on a placeholder secret, so a typo cannot
+// quietly turn the lifetime an operator asked for into the default.
+func sessionLifetimeHoursFromEnv() (int64, error) {
+	raw := os.Getenv(EnvJWTExpiryHours)
+	if raw == "" {
+		return DefaultSessionLifetimeHours, nil
+	}
+	hours, err := strconv.Atoi(raw)
+	if err != nil || hours < 1 || hours > MaxSessionLifetimeHours {
+		log.Printf("Environment variable %s must be an integer between 1 and %d (hours), using default %d",
+			EnvJWTExpiryHours, MaxSessionLifetimeHours, DefaultSessionLifetimeHours)
+		return DefaultSessionLifetimeHours, fmt.Errorf("%s must be an integer between 1 and %d (hours), got %q",
+			EnvJWTExpiryHours, MaxSessionLifetimeHours, raw)
+	}
+	return int64(hours), nil
 }
 
 // databaseConfigFromEnv reads the connection string and the pool bounds.

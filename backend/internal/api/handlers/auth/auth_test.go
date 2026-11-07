@@ -31,7 +31,12 @@ func testConfig() *config.Config {
 	return &config.Config{
 		JWT: config.JWTConfig{
 			SecretKey: "test-secret-key-at-least-32-characters-long",
-			Expiry:    24,
+			// Matches no lifetime constant, so the cookie-lifetime assertions
+			// (password login, Google callback, sign-up step, set password, sign
+			// out everywhere else, password reset) fail if one of those paths
+			// hard-codes 24 hours or seven days again. The other mint sites are
+			// covered by TestSessionCookieMintedOnlyByConfig.
+			Expiry: 37,
 		},
 		Session: config.SessionConfig{
 			Path:     "/",
@@ -1036,6 +1041,10 @@ func TestLoginHandler_Success(t *testing.T) {
 	}
 	if len(resp.SetCookie) != 1 || resp.SetCookie[0].Name != config.AuthCookieName {
 		t.Errorf("expected one cookie named %s, got %+v", config.AuthCookieName, resp.SetCookie)
+	}
+	want := h.config.JWT.SessionLifetime()
+	if lifetime := time.Until(resp.SetCookie[0].Expires); lifetime < want-time.Minute || lifetime > want {
+		t.Errorf("cookie lifetime = %v, want the configured session lifetime %v", lifetime, want)
 	}
 }
 
@@ -3991,8 +4000,8 @@ func TestGenerateCLITokenHandler_Success(t *testing.T) {
 	if resp.Body.Token != "cli-token-123" {
 		t.Errorf("expected token=cli-token-123, got %s", resp.Body.Token)
 	}
-	if resp.Body.ExpiresIn != 86400 {
-		t.Errorf("expected expires_in=86400, got %d", resp.Body.ExpiresIn)
+	if want := h.config.JWT.SessionLifetimeSeconds(); resp.Body.ExpiresIn != want {
+		t.Errorf("expected expires_in=%d (the configured session lifetime), got %d", want, resp.Body.ExpiresIn)
 	}
 }
 

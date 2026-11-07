@@ -51,6 +51,20 @@ const formatSettingsResendStatus: ResendStatusFormat = (sent, secondsRemaining) 
     .join(' · ') || null
 
 /**
+ * The backend reports the CLI token's lifetime in seconds (expires_in): whole
+ * days when it has them, hours otherwise.
+ */
+function formatTokenLifetime(seconds: number): string {
+  const day = 86_400
+  if (seconds >= day && seconds % day === 0) {
+    const days = seconds / day
+    return `${days} ${days === 1 ? 'day' : 'days'}`
+  }
+  const hours = Math.round(seconds / 3_600)
+  return `${hours} ${hours === 1 ? 'hour' : 'hours'}`
+}
+
+/**
  * Settings tab, board J card order (PSY-1414 / PSY-1508), with Alerts +
  * Your area inserted by PSY-1905 and Home page by PSY-2104:
  * Account → Favorite cities → Home page → Alerts → Your area → Account emails
@@ -65,6 +79,7 @@ export function SettingsPanel() {
   const generateCLIToken = useGenerateCLIToken()
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [cliToken, setCLIToken] = useState<string | null>(null)
+  const [cliTokenLifetimeSeconds, setCLITokenLifetimeSeconds] = useState<number | null>(null)
   // Shared auto-dismiss primitive rather than a hand-rolled timer, which must
   // not outlive unmount. See useAutoDismissBanner / useDismissTimer (PSY-1664).
   const {
@@ -99,6 +114,7 @@ export function SettingsPanel() {
     try {
       const response = await generateCLIToken.mutateAsync()
       setCLIToken(response.token ?? null)
+      setCLITokenLifetimeSeconds(response.expires_in ?? null)
       clearTokenCopied()
     } catch (error) {
       Sentry.captureException(error, {
@@ -223,7 +239,7 @@ export function SettingsPanel() {
           <CardHeader>
             <CardTitle className="text-base">CLI authentication</CardTitle>
             <CardDescription>
-              Generate a short-lived token for the ph command-line tool.
+              Generate a token for the ph command-line tool.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -249,7 +265,9 @@ export function SettingsPanel() {
                   </div>
                   <p className="flex items-center gap-2 text-xs text-muted-foreground">
                     <AlertCircle className="h-3 w-3 shrink-0" />
-                    This token expires in 24 hours. Copy it now — it won&apos;t be shown again.
+                    {cliTokenLifetimeSeconds != null &&
+                      `This token expires in ${formatTokenLifetime(cliTokenLifetimeSeconds)}. `}
+                    Copy it now. It won&apos;t be shown again.
                   </p>
                   <Button
                     onClick={handleGenerateCLIToken}

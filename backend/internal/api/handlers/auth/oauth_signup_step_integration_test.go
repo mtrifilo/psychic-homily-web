@@ -223,8 +223,8 @@ func (s *OAuthHandlerIntegrationSuite) TestFinishSignup_CreatesTheAccountAndSign
 	cookies := setCookies(resp)
 	s.Require().Contains(cookies, "auth_token")
 	s.NotEmpty(cookies["auth_token"].Value)
-	s.WithinDuration(time.Now().Add(oauthSessionLifetime), cookies["auth_token"].Expires, time.Minute,
-		"the session lives as long as a callback sign-in's")
+	s.WithinDuration(time.Now().Add(s.cfg.JWT.SessionLifetime()), cookies["auth_token"].Expires, time.Minute,
+		"the session lives the configured lifetime, as every sign-in's does")
 	s.Require().Contains(cookies, oauthPendingSignupCookie.name)
 	s.Less(cookies[oauthPendingSignupCookie.name].MaxAge, 0, "the pending cookie is cleared")
 

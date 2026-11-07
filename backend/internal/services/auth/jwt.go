@@ -90,7 +90,7 @@ func (s *JWTService) RenewSessionToken(user *authm.User, authAt time.Time) (stri
 	claims := jwt.MapClaims{
 		"user_id": user.ID,
 		"email":   user.Email,
-		"exp":     time.Now().Add(time.Duration(s.config.JWT.Expiry) * time.Hour).Unix(),
+		"exp":     time.Now().Add(s.config.JWT.SessionLifetime()).Unix(),
 		"iat":     time.Now().Unix(),
 		"iss":     jwtIssuer,
 		"aud":     jwtAudience,

@@ -219,7 +219,7 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 	cliCallback := r.URL.Query().Get("cli_callback")
 	if cliCallback != "" {
 		// Reject any callback that is not a loopback URL. The OAuth callback
-		// appends a 24h JWT to this destination, so an attacker-controlled
+		// appends a session JWT to this destination, so an attacker-controlled
 		// host (e.g. ?cli_callback=https://evil.com/steal) would exfiltrate
 		// the victim's token. SameSite=Lax does NOT mitigate — the OAuth
 		// cookie is set on this same top-level navigation.
@@ -500,15 +500,15 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 
 	// Handle CLI callback - redirect with token instead of setting cookie
 	if cliCallback != "" {
-		// Token expires in 24 hours (86400 seconds)
-		redirectURL := cliCallback + "?token=" + url.QueryEscape(token) + "&expires_in=86400"
+		redirectURL := fmt.Sprintf("%s?token=%s&expires_in=%d",
+			cliCallback, url.QueryEscape(token), h.config.JWT.SessionLifetimeSeconds())
 		logger.AuthDebug(ctx, "oauth_cli_redirect", "callback", cliCallback)
 		http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
 		return
 	}
 
 	// Standard web flow - set HTTP-only auth cookie
-	cookie := h.config.Session.NewAuthCookie(token, oauthSessionLifetime)
+	cookie := h.config.NewSessionCookie(token)
 	http.SetCookie(w, &cookie)
 
 	http.Redirect(w, r, oauthSignInDestination(frontendURL, returnTo), http.StatusTemporaryRedirect)

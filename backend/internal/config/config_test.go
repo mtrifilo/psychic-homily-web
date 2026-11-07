@@ -3,6 +3,8 @@ package config
 import (
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -286,9 +288,107 @@ func TestGetSameSite(t *testing.T) {
 	}
 }
 
-// --- NewAuthCookie tests ---
+// --- NewSessionCookie tests ---
 
-func TestNewAuthCookie(t *testing.T) {
+func TestSessionLifetime(t *testing.T) {
+	if got := (JWTConfig{Expiry: 36}).SessionLifetime(); got != 36*time.Hour {
+		t.Errorf("SessionLifetime() = %v, want 36h", got)
+	}
+	if got := (JWTConfig{Expiry: 36}).SessionLifetimeSeconds(); got != 36*3600 {
+		t.Errorf("SessionLifetimeSeconds() = %d, want %d", got, 36*3600)
+	}
+	// The default is the product decision: a session lasts 60 days.
+	if DefaultSessionLifetimeHours != 60*24 {
+		t.Errorf("DefaultSessionLifetimeHours = %d, want 60 days", DefaultSessionLifetimeHours)
+	}
+}
+
+// An unusable lifetime (not an integer, below 1, above the browser cookie
+// cap) loads as the default in development and refuses to boot a deployed
+// environment, so a typo cannot quietly lengthen every session.
+func TestLoad_SessionLifetimeBounds(t *testing.T) {
+	cases := map[string]struct {
+		env    string
+		want   int64
+		usable bool
+	}{
+		"zero":            {"0", DefaultSessionLifetimeHours, false},
+		"negative":        {"-24", DefaultSessionLifetimeHours, false},
+		"not an integer":  {"1h", DefaultSessionLifetimeHours, false},
+		"above the cap":   {strconv.Itoa(MaxSessionLifetimeHours + 1), DefaultSessionLifetimeHours, false},
+		"largest allowed": {strconv.Itoa(MaxSessionLifetimeHours), MaxSessionLifetimeHours, true},
+		"one hour":        {"1", 1, true},
+	}
+	// Real secrets, so the only thing Validate can object to is the lifetime.
+	deployedEnv := func(t *testing.T) {
+		t.Setenv("JWT_SECRET_KEY", "a-real-jwt-secret-that-is-long-enough-for-prod")
+		t.Setenv("OAUTH_SECRET_KEY", "a-real-oauth-secret-that-is-long-enough")
+		t.Setenv("INTERNAL_API_SECRET", strings.Repeat("s", 64))
+		t.Setenv("DATABASE_URL", "postgres://user:pass@db.example.com:5432/db")
+	}
+	for name, tc := range cases {
+		t.Run(name+" in development", func(t *testing.T) {
+			t.Setenv("ENVIRONMENT", "development")
+			t.Setenv("JWT_EXPIRY_HOURS", tc.env)
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() returned error: %v", err)
+			}
+			if cfg.JWT.Expiry != tc.want {
+				t.Errorf("JWT.Expiry = %d, want %d", cfg.JWT.Expiry, tc.want)
+			}
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("development Validate() = %v, want nil", err)
+			}
+		})
+		// Load runs Validate, so in production an unusable value refuses the
+		// whole load: the server does not start.
+		t.Run(name+" in production", func(t *testing.T) {
+			t.Setenv("ENVIRONMENT", "production")
+			deployedEnv(t)
+			t.Setenv("JWT_EXPIRY_HOURS", tc.env)
+			cfg, err := Load()
+			if tc.usable {
+				if err != nil {
+					t.Fatalf("Load() = %v, want nil for a usable lifetime", err)
+				}
+				if cfg.JWT.Expiry != tc.want {
+					t.Errorf("JWT.Expiry = %d, want %d", cfg.JWT.Expiry, tc.want)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), "JWT_EXPIRY_HOURS") {
+				t.Errorf("Load() = %v, want a refusal naming JWT_EXPIRY_HOURS", err)
+			}
+		})
+	}
+	// Stage is a deployed environment too and refuses the same way.
+	t.Run("zero in stage refuses", func(t *testing.T) {
+		t.Setenv("ENVIRONMENT", "stage")
+		deployedEnv(t)
+		t.Setenv("JWT_EXPIRY_HOURS", "0")
+		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "JWT_EXPIRY_HOURS") {
+			t.Errorf("Load() = %v, want a refusal naming JWT_EXPIRY_HOURS", err)
+		}
+	})
+	t.Run("unset in production is the default and boots", func(t *testing.T) {
+		t.Setenv("ENVIRONMENT", "production")
+		deployedEnv(t)
+		t.Setenv("JWT_EXPIRY_HOURS", "")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() returned error: %v", err)
+		}
+		if cfg.JWT.Expiry != DefaultSessionLifetimeHours {
+			t.Errorf("JWT.Expiry = %d, want %d", cfg.JWT.Expiry, DefaultSessionLifetimeHours)
+		}
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate() = %v, want nil", err)
+		}
+	})
+}
+
+func TestNewSessionCookie(t *testing.T) {
 	s := SessionConfig{
 		Path:     "/",
 		Domain:   "example.com",
@@ -296,9 +396,10 @@ func TestNewAuthCookie(t *testing.T) {
 		Secure:   true,
 		SameSite: "strict",
 	}
+	cfg := &Config{JWT: JWTConfig{Expiry: 48}, Session: s}
 
 	before := time.Now()
-	cookie := s.NewAuthCookie("test-token", 24*time.Hour)
+	cookie := cfg.NewSessionCookie("test-token")
 	after := time.Now()
 
 	if cookie.Name != AuthCookieName {
@@ -322,9 +423,10 @@ func TestNewAuthCookie(t *testing.T) {
 	if cookie.SameSite != http.SameSiteStrictMode {
 		t.Errorf("SameSite = %v, want StrictMode", cookie.SameSite)
 	}
-	// Expires should be approximately now + 24h
-	expectedMin := before.Add(24 * time.Hour)
-	expectedMax := after.Add(24 * time.Hour)
+	// Expires is now + the session lifetime, the one number the token's exp
+	// also comes from.
+	expectedMin := before.Add(cfg.JWT.SessionLifetime())
+	expectedMax := after.Add(cfg.JWT.SessionLifetime())
 	if cookie.Expires.Before(expectedMin) || cookie.Expires.After(expectedMax) {
 		t.Errorf("Expires = %v, expected between %v and %v", cookie.Expires, expectedMin, expectedMax)
 	}
@@ -698,8 +800,8 @@ func TestLoad(t *testing.T) {
 		if !cfg.Session.HttpOnly {
 			t.Error("Session.HttpOnly should be true by default")
 		}
-		if cfg.JWT.Expiry != 24 {
-			t.Errorf("JWT.Expiry = %d, want 24", cfg.JWT.Expiry)
+		if cfg.JWT.Expiry != DefaultSessionLifetimeHours {
+			t.Errorf("JWT.Expiry = %d, want %d", cfg.JWT.Expiry, DefaultSessionLifetimeHours)
 		}
 		if cfg.Email.FromEmail != "noreply@psychichomily.com" {
 			t.Errorf("Email.FromEmail = %q, want noreply@psychichomily.com", cfg.Email.FromEmail)

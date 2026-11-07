@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -134,14 +133,10 @@ func (h *AuthHandler) SetPasswordHandler(ctx context.Context, input *SetPassword
 	// A renewal, not a re-stamp: setting a password proves no factor, so the
 	// session keeps the authentication time it arrived with. A mint failure is
 	// logged and not surfaced, because the password is already set.
-	//
-	// The cookie lasts 24 hours, as ChangePasswordHandler's does and for the
-	// reason stated there: a session that arrived on the seven-day cookie the
-	// OAuth callback sets comes away with the shorter one.
 	if token, err := h.jwtService.RenewSessionToken(contextUser, middleware.GetSessionAuthTimeFromContext(ctx)); err != nil {
 		logger.AuthError(ctx, "set_password_renew_failed", err, "user_id", contextUser.ID)
 	} else {
-		resp.SetCookie = h.config.Session.NewAuthCookie(token, 24*time.Hour)
+		resp.SetCookie = h.config.NewSessionCookie(token)
 	}
 
 	logger.AuthInfo(ctx, "set_password_success", "user_id", contextUser.ID)

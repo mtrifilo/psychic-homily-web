@@ -111,8 +111,9 @@ func TestSetPasswordHandler_FreshSessionSetsThePassword(t *testing.T) {
 	if resp.SetCookie.Name != config.AuthCookieName || resp.SetCookie.Value != "renewed-token" {
 		t.Errorf("cookie = %s=%q, want the renewed session", resp.SetCookie.Name, resp.SetCookie.Value)
 	}
-	if lifetime := time.Until(resp.SetCookie.Expires); lifetime < 23*time.Hour || lifetime > 25*time.Hour {
-		t.Errorf("cookie lifetime = %v, want 24 hours, as change-password sets", lifetime)
+	want := setPasswordConfig().JWT.SessionLifetime()
+	if lifetime := time.Until(resp.SetCookie.Expires); lifetime < want-time.Minute || lifetime > want {
+		t.Errorf("cookie lifetime = %v, want the configured session lifetime %v", lifetime, want)
 	}
 }
 

@@ -279,7 +279,7 @@ func (h *OAuthSignupHandler) FinishSignupHandler(ctx context.Context, input *Fin
 		return h.unavailable(ctx, resp, "oauth_finish_signup_create", err)
 	}
 
-	resp.SetCookie = append(resp.SetCookie, h.config.Session.NewAuthCookie(sessionToken, oauthSessionLifetime))
+	resp.SetCookie = append(resp.SetCookie, h.config.NewSessionCookie(sessionToken))
 	logger.AuthInfo(ctx, "oauth_finish_signup_success", "provider", identity.Provider, "user_id", user.ID)
 
 	resp.Body.Success = true
@@ -302,10 +302,6 @@ func isSignupExpired(err error) bool {
 	var authErr *autherrors.AuthError
 	return errors.As(err, &authErr) && authErr.Code == autherrors.CodeOAuthSignupExpired
 }
-
-// oauthSessionLifetime is how long the session cookie a provider sign-in sets
-// lives, on the callback and on the step that finishes one.
-const oauthSessionLifetime = 7 * 24 * time.Hour
 
 // startSignupStep answers a sign-in callback whose identity needs an account
 // created: it holds the identity as a pending sign-up and sends the browser

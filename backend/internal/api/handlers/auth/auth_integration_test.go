@@ -50,7 +50,7 @@ func (s *AuthHandlerIntegrationSuite) SetupSuite() {
 	s.cfg = &config.Config{
 		JWT: config.JWTConfig{
 			SecretKey: "test-secret-key-at-least-32-characters-long",
-			Expiry:    24,
+			Expiry:    37, // matches no lifetime constant; see testConfig
 		},
 		Session: config.SessionConfig{
 			Path:     "/",
