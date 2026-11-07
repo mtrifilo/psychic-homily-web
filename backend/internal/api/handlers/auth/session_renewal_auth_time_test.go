@@ -30,7 +30,7 @@ func TestRefreshTokenHandler_PassesTheSessionsAuthTimeThrough(t *testing.T) {
 		}
 	})
 
-	resp, err := h.RefreshTokenHandler(testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1}, authAt), &struct{}{})
+	resp, err := h.RefreshTokenHandler(testhelpers.CtxWithBearerSession(&authm.User{ID: 1}, authAt, time.Time{}), &struct{}{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestRefreshTokenHandler_LegacySessionRenewsWithNoAuthTime(t *testing.T) {
 		}
 	})
 
-	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1}, time.Time{})
+	ctx := testhelpers.CtxWithBearerSession(&authm.User{ID: 1}, time.Time{}, time.Time{})
 	if _, err := h.RefreshTokenHandler(ctx, &struct{}{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

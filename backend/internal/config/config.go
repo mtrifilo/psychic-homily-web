@@ -276,6 +276,23 @@ func (j JWTConfig) SessionLifetimeSeconds() int {
 	return int(j.SessionLifetime() / time.Second)
 }
 
+// sessionRenewalAfterCeiling is the most a session ages before the profile
+// asks the client to renew it.
+const sessionRenewalAfterCeiling = 24 * time.Hour
+
+// SessionRenewalAfter is how old a session is before the profile asks the
+// client to renew it: a day, or half the lifetime when that is shorter, so a
+// short lifetime on a test stack still renews before it expires. It bounds two
+// things against each other: a returning viewer costs at most one renewal
+// request a day, and the session's sliding clock lags their last visit by
+// less than that.
+func (j JWTConfig) SessionRenewalAfter() time.Duration {
+	if half := j.SessionLifetime() / 2; half < sessionRenewalAfterCeiling {
+		return half
+	}
+	return sessionRenewalAfterCeiling
+}
+
 // SessionConfig holds session-related configuration
 type SessionConfig struct {
 	Path   string `env:"SESSION_PATH" envDefault:"/"`

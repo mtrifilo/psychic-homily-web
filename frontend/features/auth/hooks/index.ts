@@ -4,7 +4,7 @@ export {
   useLogout,
   useProfile,
   useUpdateProfile,
-  useRefreshToken,
+  useRenewSession,
   useSendVerificationEmail,
   useConfirmVerification,
   useChangePassword,

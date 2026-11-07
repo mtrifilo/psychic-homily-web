@@ -14226,8 +14226,11 @@ export interface components {
             request_id?: string;
             /** @example true */
             success: boolean;
-            /** @example new.jwt.token */
-            token: string;
+            /**
+             * @description The renewed session, when the request presented it as a Bearer token; absent for a cookie credential, which gets Set-Cookie instead
+             * @example new.jwt.token
+             */
+            token?: string;
         };
         RegisterRequestBody: {
             /** @description Ignored. It no longer counts as an age attestation: send date_of_birth. */
@@ -16509,6 +16512,8 @@ export interface components {
              * @example 550e8400-e29b-41d4-a716-446655440000
              */
             request_id?: string;
+            /** @description True when the session is old enough that the client should POST /auth/refresh once to renew it. Absent otherwise. */
+            session_renewal_due?: boolean;
             /**
              * @description Success status
              * @example true
@@ -24259,6 +24264,7 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    "Set-Cookie"?: string;
                     [name: string]: unknown;
                 };
                 content: {

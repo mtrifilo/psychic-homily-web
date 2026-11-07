@@ -11,7 +11,7 @@ describe('auth hooks barrel', () => {
     expect(typeof hooks.useLogout).toBe('function')
     expect(typeof hooks.useProfile).toBe('function')
     expect(typeof hooks.useUpdateProfile).toBe('function')
-    expect(typeof hooks.useRefreshToken).toBe('function')
+    expect(typeof hooks.useRenewSession).toBe('function')
     expect(typeof hooks.useIsAuthenticated).toBe('function')
     expect(typeof hooks.useSendVerificationEmail).toBe('function')
     expect(typeof hooks.useConfirmVerification).toBe('function')

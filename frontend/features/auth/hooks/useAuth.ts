@@ -12,11 +12,11 @@ import {
   useQuery,
   useQueryClient,
   type QueryClient,
+  queryOptions,
 } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import {
   queryKeys,
-  createInvalidateQueries,
   refreshViewerTierQueries,
   refetchSignedInProfile,
   releaseExpiredSessionLatch,
@@ -159,15 +159,16 @@ export interface UserProfile {
    */
   has_password?: components['schemas']['UserProfileResponseBody']['has_password']
   passkey_count?: components['schemas']['UserProfileResponseBody']['passkey_count']
+  /**
+   * The session is old enough that the client should POST /auth/refresh once
+   * to restart its clock (SessionRenewal). Absent when not due.
+   */
+  session_renewal_due?: components['schemas']['UserProfileResponseBody']['session_renewal_due']
 }
 
-interface RefreshTokenResponse {
-  success: boolean
-  token?: string
-  message: string
-  error_code?: AuthErrorCodeType
-  request_id?: string
-}
+// The wire shape; the web client never receives `token` (a cookie credential
+// is renewed in Set-Cookie), so nothing here reads it.
+type RefreshTokenResponse = components['schemas']['RefreshTokenResponseBody']
 
 /**
  * Cache work shared by every transition INTO an authenticated session: login,
@@ -212,9 +213,11 @@ export const useLogin = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
+    mutationKey: sessionChangeKey('login'),
     mutationFn: async (
       credentials: LoginCredentials
     ): Promise<AuthResponse> => {
+      await settlePendingSessionRenewal()
       authLogger.loginAttempt(credentials.email)
 
       const response = await apiRequest<AuthResponse>(
@@ -264,11 +267,13 @@ export const useRegister = (callbacks: RegisterCallbacks = {}) => {
   const queryClient = useQueryClient()
 
   return useMutation({
+    mutationKey: sessionChangeKey('register'),
     mutationFn: async ({
       signal,
       onRegistered,
       ...credentials
     }: RegisterRequest): Promise<AuthResponse> => {
+      await settlePendingSessionRenewal()
       authLogger.debug('Registration attempt', {
         email: credentials.email.slice(0, 2) + '***',
       })
@@ -337,7 +342,9 @@ export const useLogout = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
+    mutationKey: sessionChangeKey('logout'),
     mutationFn: async (): Promise<{ success: boolean; message: string }> => {
+      await settlePendingSessionRenewal()
       authLogger.debug('Logout attempt')
 
       try {
@@ -380,10 +387,13 @@ export const refetchFailedProfileOnly = (query: {
   query.state.status === 'error' &&
   Date.now() - query.state.errorUpdatedAt > PROFILE_ERROR_REFETCH_FLOOR_MS
 
-export const useProfile = () => {
-  const queryClient = useQueryClient()
-
-  return useQuery({
+/**
+ * The profile query's options. Shared by `useProfile` and `SessionRenewal`,
+ * which adds a refetch interval on top so a tab kept open sees the renewal
+ * flag come back; everything else about the query lives here once.
+ */
+export function profileQueryOptions(queryClient: QueryClient) {
+  return queryOptions({
     queryKey: queryKeys.auth.profile,
     queryFn: async (): Promise<UserProfile> => {
       authLogger.debug('Fetching profile')
@@ -453,6 +463,11 @@ export const useProfile = () => {
   })
 }
 
+export const useProfile = () => {
+  const queryClient = useQueryClient()
+  return useQuery(profileQueryOptions(queryClient))
+}
+
 // Update profile identity fields (username, display name, location, bio;
 // first/last accepted for legacy callers)
 interface UpdateProfileInput {
@@ -515,32 +530,104 @@ export const useUpdateProfile = () => {
   })
 }
 
-// Refresh token mutation
-export const useRefreshToken = () => {
+/** The renewal mutation's key in the mutation cache (tests and devtools). */
+export const SESSION_RENEWAL_MUTATION_KEY = ['auth', 'session-renewal'] as const
+
+/**
+ * Prefix shared by every mutation that changes which session the browser
+ * holds. `SessionRenewal` reads it through `useIsMutating` and the renewal
+ * itself refuses to start while one is in flight, which is the other half of
+ * `settlePendingSessionRenewal`: that call orders a change after a renewal
+ * already running; this key keeps a renewal from starting under a change.
+ */
+export const SESSION_CHANGE_MUTATION_KEY = ['auth', 'session-change'] as const
+
+function sessionChangeKey(change: string) {
+  return [...SESSION_CHANGE_MUTATION_KEY, change] as const
+}
+
+// The renewal in flight, if any: the request's AbortController and a promise
+// that settles with the request. Module state rather than React state because
+// the flows that must wait for it run in other components.
+let pendingSessionRenewal: { controller: AbortController; settled: Promise<void> } | null = null
+
+/**
+ * Aborts a session renewal in flight and waits for it to settle. Every
+ * mutation that changes which session the browser holds (sign-in, sign-out,
+ * magic link, recovery, reset, set or change password, sign out everywhere
+ * else, account deletion) calls this before its own request: the renewal's
+ * Set-Cookie would otherwise land after theirs and put the previous session
+ * back (a sign-out that does not stick on a shared machine; account A's cookie
+ * under account B's magic-link sign-in). Resolves at once when nothing is in
+ * flight. Only this tab is covered; another tab's renewal is not.
+ */
+export async function settlePendingSessionRenewal(): Promise<void> {
+  const pending = pendingSessionRenewal
+  if (!pending) return
+  pending.controller.abort()
+  await pending.settled
+}
+
+/**
+ * Renew the session the browser holds (`SessionRenewal` is the caller). The
+ * backend answers a cookie credential with Set-Cookie only (no token in the
+ * body), so success leaves nothing to store: it marks the cached profile as no
+ * longer due, so `SessionRenewal` stops asking until a later profile read (a
+ * page load or the six-hour poll) says due again. A transient failure changes
+ * nothing visible: the session the viewer has
+ * still works, and the component asks again on the next profile read that
+ * says due once SESSION_RENEWAL_RETRY_MS has passed (in a tab left open that
+ * read may be the six-hour poll). A 401 refusal
+ * (revoked or closed session) is not handled here at all: the global mutation
+ * cache handler (`recoverFromSessionExpiry` in lib/queryClient.ts, covered by
+ * its "recovers from an expiry that surfaces through a mutation" test) takes
+ * the viewer out of the dead session, which is why this hook clears nothing.
+ */
+export const useRenewSession = () => {
   const queryClient = useQueryClient()
-  const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
+    mutationKey: SESSION_RENEWAL_MUTATION_KEY,
     mutationFn: async (): Promise<RefreshTokenResponse> => {
-      authLogger.debug('Token refresh attempt')
-
-      return apiRequest<RefreshTokenResponse>(API_ENDPOINTS.AUTH.REFRESH, {
+      // A session change already in flight wins: its cookie must land last.
+      if (queryClient.isMutating({ mutationKey: SESSION_CHANGE_MUTATION_KEY }) > 0) {
+        return { success: false, message: 'Session renewal abandoned for a session change' }
+      }
+      authLogger.debug('Session renewal attempt')
+      // Only one renewal is tracked; an earlier one still hanging is cut off
+      // so that settlePendingSessionRenewal cannot miss it.
+      pendingSessionRenewal?.controller.abort()
+      const controller = new AbortController()
+      const request = apiRequest<RefreshTokenResponse>(API_ENDPOINTS.AUTH.REFRESH, {
         method: 'POST',
         credentials: 'include',
+        signal: controller.signal,
       })
+      const pending = { controller, settled: request.then(() => undefined, () => undefined) }
+      pendingSessionRenewal = pending
+      try {
+        return await request
+      } catch (error) {
+        // Abandoned for a session change (settlePendingSessionRenewal): not a
+        // failure, and nothing to recover from.
+        if (controller.signal.aborted) {
+          return { success: false, message: 'Session renewal abandoned for a session change' }
+        }
+        throw error
+      } finally {
+        if (pendingSessionRenewal === pending) pendingSessionRenewal = null
+      }
     },
     onSuccess: data => {
       authLogger.tokenRefresh(data.success, data.request_id)
-
       if (data.success) {
-        // Invalidate auth queries to refetch with new token
-        invalidateQueries.auth()
+        queryClient.setQueryData<UserProfile>(queryKeys.auth.profile, previous =>
+          previous ? { ...previous, session_renewal_due: false } : previous
+        )
       }
     },
     onError: error => {
-      authLogger.error('Token refresh failed', error)
-      // Clear all cached data on refresh failure
-      queryClient.clear()
+      authLogger.error('Session renewal failed', error)
     },
   })
 }
@@ -638,7 +725,9 @@ export const useConfirmVerification = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
+    mutationKey: sessionChangeKey('confirm-verification'),
     mutationFn: async (token: string): Promise<VerificationResponse> => {
+      await settlePendingSessionRenewal()
       authLogger.debug('Confirming email verification')
 
       const response = await apiRequest<VerificationResponse>(
@@ -679,9 +768,11 @@ export const useConfirmVerification = () => {
 // Change password mutation
 export const useChangePassword = () => {
   return useMutation({
+    mutationKey: sessionChangeKey('change-password'),
     mutationFn: async (
       credentials: ChangePasswordCredentials
     ): Promise<ChangePasswordResponse> => {
+      await settlePendingSessionRenewal()
       authLogger.debug('Password change attempt')
 
       const response = await apiRequest<ChangePasswordResponse>(
@@ -739,7 +830,9 @@ export const useSetPassword = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
+    mutationKey: sessionChangeKey('set-password'),
     mutationFn: async (newPassword: string): Promise<SetPasswordResponse> => {
+      await settlePendingSessionRenewal()
       authLogger.debug('Set password attempt')
 
       const response = await apiRequest<SetPasswordResponse>(
@@ -787,7 +880,9 @@ type SignOutEverywhereElseResponse =
  */
 export const useSignOutEverywhereElse = () => {
   return useMutation({
+    mutationKey: sessionChangeKey('sign-out-everywhere-else'),
     mutationFn: async (): Promise<SignOutEverywhereElseResponse> => {
+      await settlePendingSessionRenewal()
       const response = await apiRequest<SignOutEverywhereElseResponse>(
         API_ENDPOINTS.AUTH.SIGN_OUT_EVERYWHERE_ELSE,
         { method: 'POST', credentials: 'include' }
@@ -845,7 +940,9 @@ export const useVerifyMagicLink = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
+    mutationKey: sessionChangeKey('verify-magic-link'),
     mutationFn: async (token: string): Promise<VerifyMagicLinkResponse> => {
+      await settlePendingSessionRenewal()
       authLogger.debug('Verifying magic link')
 
       const response = await apiRequest<VerifyMagicLinkResponse>(
@@ -991,6 +1088,7 @@ export const useCompletePasswordReset = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
+    mutationKey: sessionChangeKey('complete-password-reset'),
     mutationFn: async ({
       token,
       newPassword,
@@ -998,6 +1096,7 @@ export const useCompletePasswordReset = () => {
       token: string
       newPassword: string
     }): Promise<CompletePasswordResetResponse> => {
+      await settlePendingSessionRenewal()
       const response = await apiRequest<CompletePasswordResetResponse>(
         API_ENDPOINTS.AUTH.PASSWORD_RESET_COMPLETE,
         {
@@ -1080,9 +1179,11 @@ export const useDeleteAccount = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
+    mutationKey: sessionChangeKey('delete-account'),
     mutationFn: async (
       request: DeleteAccountRequest
     ): Promise<DeleteAccountResponse> => {
+      await settlePendingSessionRenewal()
       authLogger.debug('Delete account attempt')
 
       const response = await apiRequest<DeleteAccountResponse>(
@@ -1520,9 +1621,11 @@ export const useRecoverAccount = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
+    mutationKey: sessionChangeKey('recover-account'),
     mutationFn: async (
       request: RecoverAccountRequest
     ): Promise<RecoverAccountResponse> => {
+      await settlePendingSessionRenewal()
       authLogger.debug('Account recovery attempt', {
         email: request.email.slice(0, 2) + '***',
       })
@@ -1613,9 +1716,11 @@ export const useConfirmAccountRecovery = () => {
   const queryClient = useQueryClient()
 
   return useMutation({
+    mutationKey: sessionChangeKey('confirm-account-recovery'),
     mutationFn: async (
       token: string
     ): Promise<ConfirmAccountRecoveryResponse> => {
+      await settlePendingSessionRenewal()
       authLogger.debug('Confirming account recovery')
 
       const response = await apiRequest<ConfirmAccountRecoveryResponse>(
