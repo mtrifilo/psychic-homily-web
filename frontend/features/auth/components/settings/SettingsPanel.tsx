@@ -51,16 +51,9 @@ const formatSettingsResendStatus: ResendStatusFormat = (sent, secondsRemaining) 
     .join(' · ') || null
 
 /**
- * Settings tab, board J card order (PSY-1414 / PSY-1508), with Alerts +
- * Your area inserted by PSY-1905 and Home page by PSY-2104:
- * Account → Favorite cities → Home page → Alerts → Your area → Account emails
- * → Calendar feed (PSY-1430) → Follows activity feed (PSY-1505) → Default
- * reply permission → Connected accounts → Passkeys → Password (Set a password
- * or Change password) → Sessions → API tokens → CLI authentication → Export →
- * Danger zone.
+ * The backend reports the CLI token's lifetime in seconds (expires_in): whole
+ * days when it has them, hours otherwise.
  */
-// The backend reports the CLI token's lifetime in seconds (expires_in): whole
-// days when it has them, hours otherwise.
 function formatTokenLifetime(seconds: number): string {
   const day = 86_400
   if (seconds >= day && seconds % day === 0) {
@@ -71,6 +64,15 @@ function formatTokenLifetime(seconds: number): string {
   return `${hours} ${hours === 1 ? 'hour' : 'hours'}`
 }
 
+/**
+ * Settings tab, board J card order (PSY-1414 / PSY-1508), with Alerts +
+ * Your area inserted by PSY-1905 and Home page by PSY-2104:
+ * Account → Favorite cities → Home page → Alerts → Your area → Account emails
+ * → Calendar feed (PSY-1430) → Follows activity feed (PSY-1505) → Default
+ * reply permission → Connected accounts → Passkeys → Password (Set a password
+ * or Change password) → Sessions → API tokens → CLI authentication → Export →
+ * Danger zone.
+ */
 export function SettingsPanel() {
   const { user } = useAuthContext()
   const exportData = useExportData()
@@ -265,7 +267,7 @@ export function SettingsPanel() {
                     <AlertCircle className="h-3 w-3 shrink-0" />
                     {cliTokenLifetimeSeconds != null &&
                       `This token expires in ${formatTokenLifetime(cliTokenLifetimeSeconds)}. `}
-                    Copy it now — it won&apos;t be shown again.
+                    Copy it now. It won&apos;t be shown again.
                   </p>
                   <Button
                     onClick={handleGenerateCLIToken}

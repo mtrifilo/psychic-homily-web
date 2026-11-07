@@ -2372,8 +2372,10 @@ func (h *AuthHandler) GenerateCLITokenHandler(ctx context.Context, input *struct
 	}
 
 	// The minted token is a session credential that leaves the browser for a
-	// terminal, where nothing revokes it early. A session that cannot be shown
-	// to be recently authenticated does not get to make one.
+	// terminal, where it lasts the whole session lifetime unless the account's
+	// sessions are revoked (sign out everywhere else, a password reset). A
+	// session that cannot be shown to be recently authenticated does not get
+	// to make one.
 	if err := middleware.RequireRecentSessionAuth(ctx, "generate_cli_token"); err != nil {
 		return nil, err
 	}

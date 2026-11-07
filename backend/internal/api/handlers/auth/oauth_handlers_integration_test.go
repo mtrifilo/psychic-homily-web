@@ -53,7 +53,8 @@ func (s *OAuthHandlerIntegrationSuite) SetupSuite() {
 	s.cfg = &config.Config{
 		JWT: config.JWTConfig{
 			SecretKey: "test-secret-key-at-least-32-characters-long",
-			Expiry:    24,
+			// Matches no lifetime constant; see testConfig.
+			Expiry: 37,
 		},
 		Session: config.SessionConfig{
 			Path:     "/",
@@ -398,6 +399,8 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_Success_SetsCookieAndRedirec
 	s.Require().NotNil(authCookie, "expected auth_token cookie to be set")
 	s.NotEmpty(authCookie.Value, "expected non-empty token in cookie")
 	s.True(authCookie.HttpOnly, "expected HttpOnly cookie")
+	s.WithinDuration(time.Now().Add(s.cfg.JWT.SessionLifetime()), authCookie.Expires, time.Minute,
+		"the callback session lives the configured lifetime, as a password sign-in does")
 }
 
 func (s *OAuthHandlerIntegrationSuite) TestCallback_Success_CLICallback_RedirectsWithToken() {

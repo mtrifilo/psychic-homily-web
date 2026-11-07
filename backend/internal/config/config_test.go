@@ -1,8 +1,10 @@
 package config
 
 import (
+	"math"
 	"net/http"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -298,6 +300,35 @@ func TestSessionLifetime(t *testing.T) {
 	// The default is the product decision: a session lasts 60 days.
 	if DefaultSessionLifetimeHours != 60*24 {
 		t.Errorf("DefaultSessionLifetimeHours = %d, want 60 days", DefaultSessionLifetimeHours)
+	}
+}
+
+// A lifetime that would mint already-expired sessions, or overflow the
+// duration, falls back to the default rather than taking the site down.
+func TestLoad_SessionLifetimeOutOfRangeFallsBack(t *testing.T) {
+	maxHours := int64(math.MaxInt64 / int64(time.Hour))
+	cases := map[string]struct {
+		env  string
+		want int64
+	}{
+		"zero":            {"0", DefaultSessionLifetimeHours},
+		"negative":        {"-24", DefaultSessionLifetimeHours},
+		"overflow":        {strconv.FormatInt(maxHours+1, 10), DefaultSessionLifetimeHours},
+		"largest allowed": {strconv.FormatInt(maxHours, 10), maxHours},
+		"one hour":        {"1", 1},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("ENVIRONMENT", "development")
+			t.Setenv("JWT_EXPIRY_HOURS", tc.env)
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() returned error: %v", err)
+			}
+			if cfg.JWT.Expiry != tc.want {
+				t.Errorf("JWT.Expiry = %d, want %d", cfg.JWT.Expiry, tc.want)
+			}
+		})
 	}
 }
 

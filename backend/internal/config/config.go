@@ -296,7 +296,8 @@ const AuthCookieName = "auth_token"
 
 // NewSessionCookie is the auth cookie carrying token. It expires when the
 // token does: both lifetimes are JWT.SessionLifetime, and no caller can pass
-// another.
+// another. SessionConfig.ClearAuthCookie is its counterpart: a browser drops
+// the cookie only when the clearing cookie's Path and Domain match these.
 func (c *Config) NewSessionCookie(token string) http.Cookie {
 	return http.Cookie{
 		Name:     AuthCookieName,
@@ -310,7 +311,9 @@ func (c *Config) NewSessionCookie(token string) http.Cookie {
 	}
 }
 
-// ClearAuthCookie creates a cookie that clears the authentication token.
+// ClearAuthCookie creates a cookie that clears the authentication token set by
+// Config.NewSessionCookie; Path and Domain must stay identical to that cookie's
+// or the browser keeps the session.
 func (s SessionConfig) ClearAuthCookie() http.Cookie {
 	return http.Cookie{
 		Name:     AuthCookieName,
@@ -360,7 +363,7 @@ func Load() (*Config, error) {
 		Database: databaseConfigFromEnv(),
 		JWT: JWTConfig{
 			SecretKey: GetEnv(EnvJWTSecretKey, "your-super-secret-jwt-key-32-chars-minimum"),
-			Expiry:    int64(getEnvAsInt(EnvJWTExpiryHours, DefaultSessionLifetimeHours)),
+			Expiry:    sessionLifetimeHoursFromEnv(),
 		},
 		Session: SessionConfig{
 			Path:     GetEnv(EnvSessionPath, "/"),
@@ -647,6 +650,20 @@ func getEnvAsInt(key string, defaultValue int) int {
 // is a legitimate ask, and idle above open is reduced because database/sql
 // reduces it silently, which would leave the logged pool shape describing a
 // different pool from the one in effect.
+// sessionLifetimeHoursFromEnv reads JWT_EXPIRY_HOURS. Below 1 every session
+// would be expired as it is minted; above maxHours the duration overflows.
+// Both fall back to the default, as the pool settings do.
+func sessionLifetimeHoursFromEnv() int64 {
+	hours := getEnvAsInt(EnvJWTExpiryHours, DefaultSessionLifetimeHours)
+	maxHours := int(math.MaxInt64 / int64(time.Hour))
+	if hours < 1 || hours > maxHours {
+		log.Printf("Environment variable %s must be between 1 and %d (outside that range sessions would be expired at mint or the lifetime would overflow), using default %d",
+			EnvJWTExpiryHours, maxHours, DefaultSessionLifetimeHours)
+		hours = DefaultSessionLifetimeHours
+	}
+	return int64(hours)
+}
+
 func databaseConfigFromEnv() DatabaseConfig {
 	maxOpen := getEnvAsInt(EnvDBMaxOpenConns, DefaultDBMaxOpenConns)
 	if maxOpen < 1 {

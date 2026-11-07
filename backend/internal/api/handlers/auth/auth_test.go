@@ -31,7 +31,9 @@ func testConfig() *config.Config {
 	return &config.Config{
 		JWT: config.JWTConfig{
 			SecretKey: "test-secret-key-at-least-32-characters-long",
-			Expiry:    24,
+			// Matches no lifetime constant, so a mint site that hard-codes 24
+			// hours or seven days again fails the assertions derived from it.
+			Expiry: 37,
 		},
 		Session: config.SessionConfig{
 			Path:     "/",
@@ -1036,6 +1038,10 @@ func TestLoginHandler_Success(t *testing.T) {
 	}
 	if len(resp.SetCookie) != 1 || resp.SetCookie[0].Name != config.AuthCookieName {
 		t.Errorf("expected one cookie named %s, got %+v", config.AuthCookieName, resp.SetCookie)
+	}
+	want := h.config.JWT.SessionLifetime()
+	if lifetime := time.Until(resp.SetCookie[0].Expires); lifetime < want-time.Minute || lifetime > want {
+		t.Errorf("cookie lifetime = %v, want the configured session lifetime %v", lifetime, want)
 	}
 }
 
