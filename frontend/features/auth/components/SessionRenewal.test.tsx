@@ -122,7 +122,11 @@ describe('SessionRenewal', () => {
 
   it('holds while a session change is in flight', async () => {
     const queryClient = createTestQueryClient()
-    queryClient.setQueryData(queryKeys.auth.profile, signedInProfile({ session_renewal_due: true }))
+    // The test client collects unobserved queries at once; keep the seed
+    // until the component observes it.
+    queryClient.setQueryDefaults(queryKeys.auth.profile, { gcTime: Infinity })
+    const seed = signedInProfile({ session_renewal_due: true })
+    queryClient.setQueryData(queryKeys.auth.profile, seed)
     let finishChange!: () => void
     const change = queryClient
       .getMutationCache()
@@ -138,6 +142,7 @@ describe('SessionRenewal', () => {
 
     renderWithProviders(<SessionRenewal />, { queryClient })
     await settle()
+    expect(queryClient.getQueryData<UserProfile>(queryKeys.auth.profile)).toBe(seed)
     expect(renewalCalls()).toBe(0)
 
     // Once the change settles, the next profile read may renew.

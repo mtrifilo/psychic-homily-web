@@ -3,6 +3,7 @@ import { renderHook, waitFor, act } from '@testing-library/react'
 import { createWrapper, createWrapperWithClient, createTestQueryClient } from '@/test/utils'
 import { AuthErrorCode, AuthError } from '@/lib/errors'
 import { queryKeys } from '@/lib/queryClient'
+import { SESSION_CHANGE_MUTATION_KEY } from './useAuth'
 import {
   refetchFailedProfileOnly,
   useCompletePasswordReset,
@@ -827,7 +828,12 @@ describe('useAuth hooks', () => {
             return new Promise((_resolve, reject) => {
               init?.signal?.addEventListener('abort', () => {
                 order.push('renewal aborted')
-                reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+                // A real abort settles the request a tick later, as the body
+                // read fails; the change must wait for that, not for the abort.
+                setTimeout(() => {
+                  order.push('renewal settled')
+                  reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+                }, 0)
               })
             })
           }
@@ -851,14 +857,70 @@ describe('useAuth hooks', () => {
           change.current.mutate(args as never)
         })
 
-        await waitFor(() => expect(order.length).toBeGreaterThanOrEqual(2))
-        expect(order[0]).toBe('renewal aborted')
-        expect(order[1]).toMatch(/^request /)
-        expect(order[1]).not.toBe('request /auth/refresh')
+        await waitFor(() => expect(order.length).toBeGreaterThanOrEqual(3))
+        expect(order.slice(0, 2)).toEqual(['renewal aborted', 'renewal settled'])
+        expect(order[2]).toMatch(/^request /)
+        expect(order[2]).not.toBe('request /auth/refresh')
         await waitFor(() => expect(renew.current.isPending).toBe(false))
         expect(renew.current.isError).toBe(false)
       }
     )
+
+    it('does not start a renewal while a session change is in flight', async () => {
+      const queryClient = createTestQueryClient()
+      let finishChange!: () => void
+      const change = queryClient.getMutationCache().build(queryClient, {
+        mutationKey: [...SESSION_CHANGE_MUTATION_KEY, 'logout'],
+        mutationFn: () => new Promise<void>(resolve => (finishChange = resolve)),
+      })
+      void change.execute(undefined)
+      await waitFor(() =>
+        expect(queryClient.isMutating({ mutationKey: SESSION_CHANGE_MUTATION_KEY })).toBe(1)
+      )
+      const { result } = renderHook(() => useRenewSession(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      await act(async () => {
+        result.current.mutate()
+      })
+
+      await waitFor(() => expect(result.current.isPending).toBe(false))
+      expect(result.current.data).toEqual(expect.objectContaining({ success: false }))
+      expect(mockApiRequest).not.toHaveBeenCalled()
+      finishChange()
+    })
+
+    it('a second renewal aborts one still hanging, so none is left untracked', async () => {
+      const aborted: boolean[] = []
+      mockApiRequest.mockImplementation(
+        (_url, init) =>
+          new Promise((resolve, reject) => {
+            const index = aborted.push(false) - 1
+            init?.signal?.addEventListener('abort', () => {
+              aborted[index] = true
+              reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+            })
+            if (index === 1) resolve({ success: true, message: 'Token refreshed' })
+          })
+      )
+      const queryClient = createTestQueryClient()
+      const first = renderHook(() => useRenewSession(), { wrapper: createWrapperWithClient(queryClient) })
+      const second = renderHook(() => useRenewSession(), { wrapper: createWrapperWithClient(queryClient) })
+
+      act(() => {
+        first.result.current.mutate()
+      })
+      await waitFor(() => expect(mockApiRequest).toHaveBeenCalledTimes(1))
+      act(() => {
+        second.result.current.mutate()
+      })
+
+      await waitFor(() => expect(second.result.current.isSuccess).toBe(true))
+      expect(aborted[0]).toBe(true)
+      await waitFor(() => expect(first.result.current.isPending).toBe(false))
+      expect(first.result.current.data).toEqual(expect.objectContaining({ success: false }))
+    })
 
     it('leaves the profile marked due on a 200 with success=false', async () => {
       // The backend can answer 200 with success=false; nothing was renewed,

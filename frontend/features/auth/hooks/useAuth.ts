@@ -572,9 +572,9 @@ export async function settlePendingSessionRenewal(): Promise<void> {
  * Renew the session the browser holds (`SessionRenewal` is the caller). The
  * backend answers a cookie credential with Set-Cookie only (no token in the
  * body), so success leaves nothing to store: it marks the cached profile as no
- * longer due, which both stops `SessionRenewal` asking again before the next
- * page load and lets the component ask again when a later profile read says
- * due. A transient failure changes nothing visible: the session the viewer has
+ * longer due, so `SessionRenewal` stops asking until a later profile read (a
+ * page load or the six-hour poll) says due again. A transient failure changes
+ * nothing visible: the session the viewer has
  * still works, and the component asks again on the next profile read that
  * says due once SESSION_RENEWAL_RETRY_MS has passed (in a tab left open that
  * read may be the six-hour poll). A 401 refusal
