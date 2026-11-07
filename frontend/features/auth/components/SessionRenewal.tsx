@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react'
 import { usePathname } from 'next/navigation'
 import { useIsMutating, useQuery, useQueryClient } from '@tanstack/react-query'
+import { isAuthPath } from '@/lib/auth-href'
 import {
   SESSION_CHANGE_MUTATION_KEY,
   profileQueryOptions,
@@ -66,7 +67,7 @@ export function SessionRenewal() {
   const sessionChanging = useIsMutating({ mutationKey: SESSION_CHANGE_MUTATION_KEY }) > 0
   const lastAttemptAt = useRef<number | null>(null)
 
-  const onAuthSurface = pathname?.startsWith('/auth') === true
+  const onAuthSurface = pathname != null && isAuthPath(pathname)
   const due = profile?.session_renewal_due === true
 
   useEffect(() => {
