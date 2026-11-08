@@ -321,7 +321,7 @@ type showCalendarRevision struct {
 //     polling client to get a 304 instead of a fresh copy every time.
 //   - SEQUENCE must increase whenever the event changes, or clients ignore the
 //     update. It matters MORE here than in isolation: every calendar surface
-//     emits the same UID per show, and RFC 5546 3.2 resolves a UID collision in
+//     emits the same UID per show, and RFC 5546 2.1.5 resolves a UID collision in
 //     favour of the higher SEQUENCE. A scene feed that emitted 0 while the venue
 //     feed emitted a real revision would always lose, and a subscriber to both
 //     would never see this feed's copy of a shared show.

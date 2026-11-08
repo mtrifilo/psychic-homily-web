@@ -33,9 +33,12 @@ const icalLocalTimeFormat = "20060102T150405"
 // events (the source data has no end time).
 const defaultShowDuration = 3 * time.Hour
 
-// icsFeedCacheTTL is a short per-user cache for ICS payloads. Calendar clients
-// poll coarsely; this cuts DB load without serving stale feeds after regenerate
-// (cache is keyed by user and cleared on CreateToken/DeleteToken).
+// icsFeedCacheTTL bounds the per-user cache of rendered ICS payloads. Calendar
+// clients poll coarsely, so the cache cuts DB load. CreateToken and DeleteToken
+// clear a user's entry; a save or unsave does not, so the subscription feed can
+// be up to this long behind a save. The cache is a process-local map, so a
+// deploy's restart empties it and no pre-deploy bytes survive; the handler's
+// Cache-Control max-age of 120 seconds is what bounds a client's own copy.
 const icsFeedCacheTTL = 2 * time.Minute
 
 const (
@@ -75,7 +78,7 @@ const (
 //
 // Each of the two caches holds up to this many entries, so the process ceiling
 // is twice this count times a feed payload. A payload is itself bounded: the ICS
-// feed carries at most 500 shows and the Atom feed at most
+// feed carries at most savedShowsCalendarLimit shows and the Atom feed at most
 // followsActivityMaxItems entries.
 const personalFeedCacheMaxEntries = 128
 
@@ -388,16 +391,9 @@ func (s *CalendarService) ValidateCalendarToken(plainToken string) (*authm.User,
 	return &token.User, nil
 }
 
-// GenerateICSFeed creates an ICS calendar feed for a user's saved upcoming shows.
-//
-// The venue addresses that reach the feed's LOCATION are already gated: the
-// shows come from SavedShowService.GetUserSavedShows, whose venue builder
-// applies Venue.PublicAddress, so an unverified venue arrives with a nil
-// Address. That is load-bearing rather than incidental. The feed URL carries a
-// bearer token instead of a session, so anyone holding the link reads it, and
-// an ICS LOCATION is copied onto the subscriber's device where a later
-// redaction can never reach it. See formatEventLocation for the rule that binds
-// every calendar caller.
+// GenerateICSFeed serves the ICS subscription feed of a user's saved upcoming
+// shows: the per-user cache when it holds an entry, otherwise a fresh render
+// through RenderSavedShowsCalendar that is then cached for icsFeedCacheTTL.
 func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]byte, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -407,12 +403,67 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 		return cached, nil
 	}
 
-	// Upcoming only — venue-local date ≥ today (PSY-1430).
-	shows, _, err := s.savedShowSvc.GetUserSavedShows(userID, 500, 0, "upcoming")
+	data, err := s.RenderSavedShowsCalendar(userID, frontendURL)
+	if err != nil {
+		return nil, err
+	}
+	s.feedCache.store(userID, data, icsFeedCacheTTL)
+	return data, nil
+}
+
+// RenderSavedShowsCalendar renders the user's saved upcoming shows as calendar
+// wire bytes with no cache in front of it, so the result reflects a save made
+// a moment ago. It is the one exported render of saved shows, and it only ever
+// renders the gated selection from upcomingSavedShows; a caller that needs
+// read-your-write freshness (a one-shot download, for instance) can use it
+// directly, while the subscription feed wraps it with the per-user cache. It
+// joins the service interface together with its first caller outside this
+// package, which regenerates the handler mocks in the same change.
+func (s *CalendarService) RenderSavedShowsCalendar(userID uint, frontendURL string) ([]byte, error) {
+	if s.db == nil || s.savedShowSvc == nil {
+		return nil, fmt.Errorf("calendar service not initialized")
+	}
+
+	shows, err := s.upcomingSavedShows(userID)
+	if err != nil {
+		return nil, err
+	}
+	return buildSavedShowsCalendar(shows, frontendURL), nil
+}
+
+// savedShowsCalendarLimit bounds a saved-shows calendar render. A payload is
+// copied into the per-user cache and onto subscribers' devices, so it stays
+// bounded regardless of how many shows a user has saved.
+const savedShowsCalendarLimit = 500
+
+// upcomingSavedShows is the gated source every saved-shows calendar render
+// reads: the user's saved shows whose venue-local date is today or later, from
+// SavedShowService.GetUserSavedShows. That service's venue builder applies
+// Venue.PublicAddress, so an unverified venue arrives with a nil Address, which
+// is what keeps a private address out of the calendar's LOCATION (see
+// formatEventLocation). Approved-only and not-cancelled filtering lives in
+// buildSavedShowsCalendar, so a caller cannot render a draft or cancelled show
+// by skipping a step here.
+func (s *CalendarService) upcomingSavedShows(userID uint) ([]*contracts.SavedShowResponse, error) {
+	shows, _, err := s.savedShowSvc.GetUserSavedShows(userID, savedShowsCalendarLimit, 0, "upcoming")
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch saved shows: %w", err)
 	}
+	return shows, nil
+}
 
+// buildSavedShowsCalendar renders shows as the wire bytes of a saved-shows
+// calendar. It reads no cache and writes none.
+//
+// Precondition: shows come from upcomingSavedShows. The venue addresses that
+// reach LOCATION are gated upstream of this function (an unverified venue has a
+// nil Address by the time it gets here), and an ICS LOCATION is copied onto the
+// subscriber's device where a later redaction can never reach it. Do not hand
+// this function a slice built any other way.
+//
+// Only approved, not-cancelled shows become events; the rest of each event is
+// assembled by the helpers the public calendar surfaces share.
+func buildSavedShowsCalendar(shows []*contracts.SavedShowResponse, frontendURL string) []byte {
 	cal := ics.NewCalendar()
 	cal.SetMethod(ics.MethodPublish)
 	cal.SetProductId("-//Psychic Homily//Calendar Feed//EN")
@@ -433,8 +484,17 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 		// the UID format lives in one place rather than being spelled out per
 		// surface and drifting.
 		event := cal.AddEvent(showEventUID(show.ID))
+		// DTSTAMP is required on every VEVENT (RFC 5545 3.6.1) and golang-ical
+		// does not add one. It comes from UpdatedAt, never time.Now(), so every
+		// surface sharing this show's UID stamps it identically and identical
+		// DB state serializes to identical bytes.
+		event.SetDtStampTime(show.UpdatedAt.UTC())
 		event.SetCreatedTime(show.CreatedAt)
 		event.SetModifiedAt(show.UpdatedAt)
+		// SEQUENCE from the helper every surface uses: RFC 5546 2.1.5 orders
+		// copies of one UID by SEQUENCE, then DTSTAMP, so this copy and a
+		// public one for the same show must rank as equals.
+		event.SetSequence(showSequence(show.CreatedAt, show.UpdatedAt))
 
 		// Times, naming, location, description and link are assembled by the
 		// helper the per-show download also uses, rather than by a local copy of
@@ -449,26 +509,9 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 		applyShowEventContent(event, &show.ShowResponse, frontendURL)
 	}
 
-	// REMAINING DIVERGENCE from the two sibling feeds, recorded so the next
-	// reader does not mistake any of it for an oversight. The safety gap is
-	// closed above: every community-editable value now passes through
-	// sanitizeICSText, which golang-ical's TEXT escaper does not do for CR.
-	// What is still different:
-	//
-	//   - No DTSTAMP per VEVENT, though RFC 5545 requires one under
-	//     METHOD:PUBLISH.
-	//   - Bare LF line endings, though RFC 5545 3.1 mandates CRLF and strict
-	//     clients reject an LF-delimited calendar.
-	//   - No SEQUENCE. This one is not merely cosmetic: the surfaces share a
-	//     UID per show, and RFC 5546 3.2 resolves a UID collision in favour of
-	//     the higher SEQUENCE, so a subscriber to both this feed and a public
-	//     one always sees the public copy win.
-	//
-	// Each is a wire-format change wanting its own test, so they are tracked as
-	// their own work rather than folded into a security fix.
-	data := []byte(cal.Serialize())
-	s.feedCache.store(userID, data, icsFeedCacheTTL)
-	return data, nil
+	// RFC 5545 3.1 mandates CRLF line endings, and golang-ical defaults to bare
+	// LF; strict clients reject an LF-delimited calendar outright.
+	return []byte(cal.Serialize(ics.WithNewLine("\r\n")))
 }
 
 // setVenueLocalEventTimes writes DTSTART/DTEND anchored to the venue's local
