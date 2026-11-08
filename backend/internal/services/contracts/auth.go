@@ -417,10 +417,11 @@ type AuthServiceInterface interface {
 // ──────────────────────────────────────────────
 
 // SessionFacts are what a validated session token establishes beyond the
-// principal. AuthAt is when an authentication factor last completed, zero when
-// the token names none. IssuedAt is when this token was minted: a renewal mints
-// a new token, so it is the age of the session for renewal, zero when the
-// token carries no believable iat.
+// principal. AuthAt is when an authentication factor last completed. IssuedAt
+// is when this token was minted: a renewal mints a new token, so it is the age
+// of the session for renewal. Each is zero when its claim (auth_at, iat) is
+// absent, not positive, or later than the allowed clock skew; JWTService is
+// the only producer.
 type SessionFacts struct {
 	AuthAt   time.Time
 	IssuedAt time.Time
