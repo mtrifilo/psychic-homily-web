@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
 )
 
@@ -43,11 +42,17 @@ const (
 	CalendarProviderDownloaded      = "downloaded"
 )
 
-// CalendarSyncMaxDecline bounds how far past decided_at a not_now may run.
+// CalendarSyncMaxDeclineSpan bounds how far past decided_at a not_now may run.
 // The client sends decided_at + 30 days; the extra day absorbs a client that
 // adds 30 calendar days across a daylight-saving change. A longer decline is
 // "never" in disguise, and that has its own state.
-const CalendarSyncMaxDecline = 31 * 24 * time.Hour
+const CalendarSyncMaxDeclineSpan = 31 * 24 * time.Hour
+
+// CalendarSyncMaxDeclineCount is the highest declines count. The product asks
+// at most twice before it stops, so a higher count means a client still asking
+// after the point the product promised to stop. The maximum tag on
+// CalendarSync.Declines spells the same number; the model test joins them.
+const CalendarSyncMaxDeclineCount = 2
 
 // knownCalendarSyncStates and knownCalendarProviders are the whitelists. The
 // enum tags on CalendarSync must spell them literally (struct tags must be
@@ -74,12 +79,6 @@ var (
 // "the write failed" (500). The wrapped text says which rule was broken.
 var ErrInvalidCalendarSync = errors.New("invalid calendar sync choice")
 
-// calendarSyncVocabularyCSV renders a whitelist in the CSV form an enum tag
-// spells. Test-only; see knownCalendarSyncStates.
-func calendarSyncVocabularyCSV(values []string) string {
-	return strings.Join(values, ",")
-}
-
 // CalendarSync is the whole stored document. Replace semantics: a write
 // carries the complete choice, including every provider the user has
 // connected, and the stored value is exactly what the next read returns.
@@ -99,12 +98,6 @@ type CalendarSync struct {
 	DeclinedUntil *time.Time `json:"declined_until,omitempty" doc:"When a not_now lapses; required with not_now, absent otherwise. Later than decided_at by at most 31 days"`
 	Declines      *int       `json:"declines,omitempty" minimum:"0" maximum:"2" doc:"How many times the user has said not now, counted by the client; required with not_now (0 to 2), absent otherwise"`
 }
-
-// CalendarSyncMaxDeclines is the highest declines count. The product asks at
-// most twice before it stops, so a count above this means the client is still
-// asking after the point the product promised to stop. The maximum tag on
-// CalendarSync.Declines spells the same number; the model test joins them.
-const CalendarSyncMaxDeclines = 2
 
 // Validate reports whether the document may be stored. Every rejection wraps
 // ErrInvalidCalendarSync.
@@ -158,8 +151,8 @@ func (c *CalendarSync) Validate() error {
 }
 
 // validateNotNow enforces the fields a not_now requires: a declined_until
-// after decided_at by at most CalendarSyncMaxDecline, and a declines count
-// from 0 to CalendarSyncMaxDeclines.
+// after decided_at by at most CalendarSyncMaxDeclineSpan, and a declines count
+// from 0 to CalendarSyncMaxDeclineCount.
 func (c *CalendarSync) validateNotNow() error {
 	if c.DeclinedUntil == nil {
 		return fmt.Errorf("%w: declined_until is required with %s",
@@ -168,17 +161,17 @@ func (c *CalendarSync) validateNotNow() error {
 	if !c.DeclinedUntil.After(c.DecidedAt) {
 		return fmt.Errorf("%w: declined_until must be after decided_at", ErrInvalidCalendarSync)
 	}
-	if c.DeclinedUntil.Sub(c.DecidedAt) > CalendarSyncMaxDecline {
-		return fmt.Errorf("%w: declined_until must be at most 31 days after decided_at",
-			ErrInvalidCalendarSync)
+	if c.DeclinedUntil.Sub(c.DecidedAt) > CalendarSyncMaxDeclineSpan {
+		return fmt.Errorf("%w: declined_until must be at most %d days after decided_at",
+			ErrInvalidCalendarSync, int(CalendarSyncMaxDeclineSpan/(24*time.Hour)))
 	}
 	if c.Declines == nil {
 		return fmt.Errorf("%w: declines is required with %s",
 			ErrInvalidCalendarSync, CalendarSyncNotNow)
 	}
-	if *c.Declines < 0 || *c.Declines > CalendarSyncMaxDeclines {
+	if *c.Declines < 0 || *c.Declines > CalendarSyncMaxDeclineCount {
 		return fmt.Errorf("%w: declines must be from 0 to %d, got %d",
-			ErrInvalidCalendarSync, CalendarSyncMaxDeclines, *c.Declines)
+			ErrInvalidCalendarSync, CalendarSyncMaxDeclineCount, *c.Declines)
 	}
 	return nil
 }

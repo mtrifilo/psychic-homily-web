@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -58,10 +59,10 @@ func TestCalendarSyncValidate_AcceptsEachState(t *testing.T) {
 			CalendarProviderGoogleSubscribe, CalendarProviderAppleSubscribe)},
 		{"connected with every provider", connectedCalendarSync(knownCalendarProviders...)},
 		{"not_now for 30 days", notNowCalendarSync(30 * 24 * time.Hour)},
-		{"not_now at the 31-day cap", notNowCalendarSync(CalendarSyncMaxDecline)},
+		{"not_now at the 31-day cap", notNowCalendarSync(CalendarSyncMaxDeclineSpan)},
 		{"not_now for one second", notNowCalendarSync(time.Second)},
 		{"not_now with zero declines", notNowWithDeclines(intPtr(0))},
-		{"not_now with the second decline", notNowWithDeclines(intPtr(CalendarSyncMaxDeclines))},
+		{"not_now with the second decline", notNowWithDeclines(intPtr(CalendarSyncMaxDeclineCount))},
 		{"never", neverCalendarSync()},
 	}
 	for _, tc := range cases {
@@ -129,14 +130,14 @@ func TestCalendarSyncValidate_Rejects(t *testing.T) {
 		{"not_now without declined_until", notNowWithoutUntil},
 		{"not_now with declined_until equal to decided_at", notNowCalendarSync(0)},
 		{"not_now with declined_until before decided_at", notNowCalendarSync(-time.Hour)},
-		{"not_now past the 31-day cap", notNowCalendarSync(CalendarSyncMaxDecline + time.Second)},
+		{"not_now past the 31-day cap", notNowCalendarSync(CalendarSyncMaxDeclineSpan + time.Second)},
 		{"not_now with providers", notNowWithProviders},
 		{"not_now with an empty provider list", notNowWithEmptyProviders},
 		{"never with providers", neverWithProviders},
 		{"never with declined_until", neverWithUntil},
 		{"not_now without declines", notNowWithDeclines(nil)},
 		{"not_now with negative declines", notNowWithDeclines(intPtr(-1))},
-		{"not_now past the declines cap", notNowWithDeclines(intPtr(CalendarSyncMaxDeclines + 1))},
+		{"not_now past the declines cap", notNowWithDeclines(intPtr(CalendarSyncMaxDeclineCount + 1))},
 		{"connected with declines", connectedWithDeclines},
 		{"never with declines", neverWithDeclines},
 	}
@@ -203,9 +204,9 @@ func TestCalendarSyncEnumTagsMatchVocabulary(t *testing.T) {
 		if !ok {
 			t.Fatalf("CalendarSync.%s must exist", tc.field)
 		}
-		if got := field.Tag.Get("enum"); got != calendarSyncVocabularyCSV(tc.want) {
+		if got := field.Tag.Get("enum"); got != strings.Join(tc.want, ",") {
 			t.Errorf("%s enum tag must list exactly the whitelist, in order\n got: %s\nwant: %s",
-				tc.field, got, calendarSyncVocabularyCSV(tc.want))
+				tc.field, got, strings.Join(tc.want, ","))
 		}
 	}
 
@@ -216,8 +217,8 @@ func TestCalendarSyncEnumTagsMatchVocabulary(t *testing.T) {
 	}
 
 	declines, _ := reflect.TypeOf(CalendarSync{}).FieldByName("Declines")
-	if got := declines.Tag.Get("maximum"); got != strconv.Itoa(CalendarSyncMaxDeclines) {
-		t.Errorf("schema maximum is %q but CalendarSyncMaxDeclines is %d",
-			got, CalendarSyncMaxDeclines)
+	if got := declines.Tag.Get("maximum"); got != strconv.Itoa(CalendarSyncMaxDeclineCount) {
+		t.Errorf("schema maximum is %q but CalendarSyncMaxDeclineCount is %d",
+			got, CalendarSyncMaxDeclineCount)
 	}
 }

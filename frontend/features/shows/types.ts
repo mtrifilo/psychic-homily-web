@@ -459,43 +459,36 @@ export interface CalendarTokenStatusResponse {
   sync_choice: CalendarSyncChoice | null
 }
 
-/** Every way a viewer can put saved shows on a calendar. */
-export type CalendarSyncProvider =
-  | 'apple_subscribe'
-  | 'google_subscribe'
-  | 'google_per_show'
-  | 'apple_per_show'
-  | 'copied'
-  | 'shared'
-  | 'downloaded'
+type GeneratedCalendarSync = NonNullable<components['schemas']['CalendarSync']>
+
+/** Every way a viewer can put saved shows on a calendar, as the backend accepts it. */
+export type CalendarSyncProvider = NonNullable<GeneratedCalendarSync['providers']>[number]
+
+interface CalendarSyncBase {
+  version: 1
+  decided_at: string // ISO date string
+}
 
 /**
- * The stored calendar decision (`user_preferences.calendar_sync`). PUT
- * replaces it whole, so a write carries the merged provider list. An expired
- * `not_now` is returned as stored: compare `declined_until` with the clock.
+ * The stored calendar decision (`user_preferences.calendar_sync`), narrowed
+ * per state from the flat generated schema. PUT replaces it whole, so a write
+ * carries the merged provider list. An expired `not_now` is returned as
+ * stored: compare `declined_until` with the clock.
  */
 export type CalendarSyncChoice =
-  | {
-      version: 1
+  | (CalendarSyncBase & {
       state: 'connected'
       /** Non-empty, no repeats. */
       providers: CalendarSyncProvider[]
-      decided_at: string // ISO date string
-    }
-  | {
-      version: 1
+    })
+  | (CalendarSyncBase & {
       state: 'not_now'
-      decided_at: string // ISO date string
       /** After decided_at, by at most 31 days. */
       declined_until: string // ISO date string
       /** How many times the viewer has said not now: 0, 1 or 2. */
       declines: number
-    }
-  | {
-      version: 1
-      state: 'never'
-      decided_at: string // ISO date string
-    }
+    })
+  | (CalendarSyncBase & { state: 'never' })
 
 export interface CalendarTokenCreateResponse {
   token: string

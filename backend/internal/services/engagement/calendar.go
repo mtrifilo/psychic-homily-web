@@ -368,7 +368,7 @@ func (s *CalendarService) DeleteToken(userID uint) error {
 }
 
 // errNoCalendarToken is DeleteToken's report that there was nothing to turn
-// off. Its text is what callers and tests have always matched.
+// off. Callers match its text, so it is not reworded.
 var errNoCalendarToken = errors.New("no calendar token found")
 
 // DeleteCalendarTokensTx revokes userID's calendar-feed token through tx,
