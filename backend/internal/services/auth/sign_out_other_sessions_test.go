@@ -5,9 +5,13 @@ import (
 	"sync"
 	"time"
 
+	"gorm.io/gorm"
+
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	engagementsvc "psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/shared"
+	"psychic-homily-backend/internal/testutil"
 )
 
 // principal validates session as the JWT middleware does and returns what it
@@ -17,6 +21,64 @@ func (s *JWTIntegrationSuite) principal(session string) (*authm.User, time.Time)
 	user, authAt, err := s.svc.ValidateSession(session)
 	s.Require().NoError(err)
 	return user, authAt
+}
+
+// The feed URL is a bearer credential a session can carry away, so signing
+// the other sessions out deletes it too.
+func (s *JWTIntegrationSuite) TestSignOutOtherSessions_RevokesTheCalendarFeedToken() {
+	user := s.createActiveUser("sign-out-others-feed@test.com")
+	caller, err := s.svc.CreateToken(user)
+	s.Require().NoError(err)
+	feed := s.feedToken(user.ID)
+	s.requireFeedTokenHonored(user.ID, feed)
+
+	principal, authAt := s.principal(caller)
+	renewed, err := s.authSvc.SignOutOtherSessions(principal, authAt)
+	s.Require().NoError(err)
+
+	s.requireFeedTokenRevoked(user.ID, feed)
+	// The renewal names the stamp the revocation wrote, so it can mint the
+	// owner a new feed URL.
+	renewedPrincipal, _ := s.principal(renewed)
+	created, err := s.calendar().CreateToken(user.ID, renewedPrincipal.SessionsValidAfter, "http://localhost:8080")
+	s.Require().NoError(err)
+	s.requireFeedTokenHonored(user.ID, created.Token)
+}
+
+// A feed-token mint that reaches the account row after the sign-out has
+// committed is refused: the session that asked for it is one the sign-out
+// revoked.
+func (s *JWTIntegrationSuite) TestSignOutOtherSessions_RefusesAMintThatReadsTheAccountAfterIt() {
+	user := s.createActiveUser("sign-out-others-feed-after@test.com")
+	caller, err := s.svc.CreateToken(user)
+	s.Require().NoError(err)
+	principal, authAt := s.principal(caller)
+
+	hooked, ran := testutil.WithWriteBeforeItsFirst(s.T(), s.db, func(*gorm.DB) {
+		_, err := s.authSvc.SignOutOtherSessions(principal, authAt)
+		s.Require().NoError(err)
+	}, testutil.BeforeQuery)
+	minted, err := engagementsvc.NewCalendarService(hooked, nil).CreateToken(user.ID, principal.SessionsValidAfter, "http://localhost:8080")
+
+	s.Require().True(*ran, "the sign-out must commit inside the mint's window")
+	s.Nil(minted)
+	s.ErrorIs(err, shared.ErrSessionRevoked)
+	s.Zero(s.feedTokenRows(user.ID), "a refused mint writes no token")
+}
+
+// A feed-token mint that holds the account row when the sign-out starts
+// commits first; the sign-out waits for it and then deletes the token it
+// wrote, so no feed URL a revoked session minted outlives the call.
+func (s *JWTIntegrationSuite) TestSignOutOtherSessions_DeletesTheTokenOfAMintItWaitedFor() {
+	user := s.createActiveUser("sign-out-others-feed-race@test.com")
+	caller, err := s.svc.CreateToken(user)
+	s.Require().NoError(err)
+	principal, authAt := s.principal(caller)
+
+	s.requireRevocationDeletesTheTokenOfAMintItWaitedFor(principal, func() error {
+		_, err := s.authSvc.SignOutOtherSessions(principal, authAt)
+		return err
+	})
 }
 
 func (s *JWTIntegrationSuite) TestSignOutOtherSessions_RefusesEveryEarlierSessionAndRenewsTheCaller() {
@@ -110,6 +172,7 @@ func (s *JWTIntegrationSuite) TestSignOutOtherSessions_MintFailureRevokesNothing
 	s.Require().NoError(err)
 	otherBrowser, err := s.svc.CreateToken(user)
 	s.Require().NoError(err)
+	feed := s.feedToken(user.ID)
 	principal, authAt := s.principal(caller)
 
 	mintFailed := errors.New("mint failed")
@@ -124,6 +187,7 @@ func (s *JWTIntegrationSuite) TestSignOutOtherSessions_MintFailureRevokesNothing
 		_, _, err := s.svc.ValidateSession(session)
 		s.NoError(err)
 	}
+	s.requireFeedTokenHonored(user.ID, feed)
 }
 
 // Two sessions pressing the control at once, both validated against the same

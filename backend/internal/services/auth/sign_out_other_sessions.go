@@ -11,11 +11,12 @@ import (
 	"psychic-homily-backend/internal/services/shared"
 )
 
-// SignOutOtherSessions revokes every session user's account holds
-// (shared.RevokeAllSessions) and returns the session the caller goes on with:
-// a renewal for the account as the revocation left it, carrying authAt
-// through unchanged. user is the principal the caller's session validation
-// loaded; its SessionsValidAfter is that session's revocation stamp.
+// SignOutOtherSessions revokes every session user's account holds and its
+// calendar-feed token (revokeSessionsAndFeedToken) and returns the session
+// the caller goes on with: a renewal for the account as the revocation left
+// it, carrying authAt through unchanged. user is the principal the caller's
+// session validation loaded; its SessionsValidAfter is that session's
+// revocation stamp.
 //
 // The account is read FOR UPDATE and judged with shared.CheckSessionAccount
 // before anything is written, so a session revoked, or an account closed,
@@ -25,7 +26,7 @@ import (
 // stamp commits only once the session that replaces the caller's exists; a
 // mint failure rolls the revocation back.
 //
-// API tokens and calendar-feed tokens are not sessions and are left in place.
+// API tokens are not sessions and are left in place.
 func (s *AuthService) SignOutOtherSessions(user *authm.User, authAt time.Time) (string, error) {
 	return signOutOtherSessions(s.db, user, authAt, time.Now(), s.jwtService.RenewSessionToken)
 }
@@ -51,10 +52,10 @@ func signOutOtherSessions(db *gorm.DB, user *authm.User, authAt, now time.Time, 
 		if err := shared.CheckSessionAccount(&account, user.SessionsValidAfter); err != nil {
 			return err
 		}
-		if err := shared.RevokeAllSessions(tx, &account, now); err != nil {
+		if err := revokeSessionsAndFeedToken(tx, &account, now); err != nil {
 			return err
 		}
-		// RevokeAllSessions set account.SessionsValidAfter to the stamp it
+		// The revocation set account.SessionsValidAfter to the stamp it
 		// wrote, so the renewal names the stamp this transaction commits.
 		minted, err := mint(&account, authAt)
 		if err != nil {
