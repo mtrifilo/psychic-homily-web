@@ -121,7 +121,7 @@ export function CalendarFeedSection({
 
   const mintErrorNotice = <FeedMintErrorNotice error={createToken.error} />
 
-  // Just created / regenerated — show the feed URL (only moment plaintext is available)
+  // Just created or regenerated: show the feed URL from the mint response.
   if (createdToken) {
     const googleCalUrl = googleCalendarSubscribeUrl(createdToken.feed_url)
     const appleCalUrl = webcalUrl(createdToken.feed_url)
@@ -241,7 +241,8 @@ export function CalendarFeedSection({
     )
   }
 
-  // Token exists (from a previous session) — plaintext URL is not recoverable
+  // Token exists from an earlier visit. This card does not yet read feed_url
+  // from the status response, so it offers only Regenerate and Disable.
   if (tokenStatus?.has_token) {
     if (isSettings) {
       return (

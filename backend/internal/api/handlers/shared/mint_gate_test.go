@@ -16,7 +16,8 @@ import (
 // a compile error. This test is what catches that: it parses every non-test .go
 // file under the handler tree, finds every function that names a
 // credential-issuing service method, and fails when that function does not also
-// name RequireRecentSessionAuth.
+// name RequireRecentSessionAuth, or, for a site in sessionCredentialMints, when
+// it does not name RequireSessionCredential.
 //
 // What it checks is that the NAME appears in the same function. It does not
 // check that the gate is called, that its error is returned, or that it runs

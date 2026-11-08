@@ -826,22 +826,6 @@ func (suite *CalendarIntegrationTestSuite) TestGetTokenStatus_HasToken() {
 	suite.Equal(minted.FollowsFeedURL, status.FollowsFeedURL)
 }
 
-// An empty base is how a caller that may not receive the URLs asks: the
-// token's existence is reported, its URLs are not built.
-func (suite *CalendarIntegrationTestSuite) TestGetTokenStatus_EmptyBaseBuildsNoURLs() {
-	user := suite.createTestUser(true)
-	_, err := suite.svc.CreateToken(user.ID, user.SessionsValidAfter, "http://localhost:8080")
-	suite.Require().NoError(err)
-
-	status, err := suite.svc.GetTokenStatus(user.ID, "")
-	suite.Require().NoError(err)
-	suite.True(status.HasToken)
-	suite.NotNil(status.CreatedAt)
-	suite.False(status.URLRecoverable)
-	suite.Empty(status.FeedURL)
-	suite.Empty(status.FollowsFeedURL)
-}
-
 // The plaintext is stored beside the hash, and the hash is still what a feed
 // request is looked up by.
 func (suite *CalendarIntegrationTestSuite) TestCreateToken_StoresPlaintextBesideHash() {

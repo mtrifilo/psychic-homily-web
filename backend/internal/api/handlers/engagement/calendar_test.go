@@ -240,16 +240,16 @@ func TestGetCalendarTokenStatusHandler_NoToken(t *testing.T) {
 }
 
 // recoverableTokenStatus answers GetTokenStatus for a stored plaintext the way
-// the real service does: URLs built on the base passed, none for an empty one.
+// the real service does: both URLs, built on the base passed, whoever asks.
 func recoverableTokenStatus(_ uint, apiBaseURL string) (*contracts.CalendarTokenStatusResponse, error) {
 	now := time.Now()
-	status := &contracts.CalendarTokenStatusResponse{HasToken: true, CreatedAt: &now}
-	if apiBaseURL != "" {
-		status.FeedURL = apiBaseURL + "/feeds/phcal_abc/saved-shows.ics"
-		status.FollowsFeedURL = apiBaseURL + "/feeds/phcal_abc/follows.atom"
-		status.URLRecoverable = true
-	}
-	return status, nil
+	return &contracts.CalendarTokenStatusResponse{
+		HasToken:       true,
+		CreatedAt:      &now,
+		FeedURL:        apiBaseURL + "/feeds/phcal_abc/saved-shows.ics",
+		FollowsFeedURL: apiBaseURL + "/feeds/phcal_abc/follows.atom",
+		URLRecoverable: true,
+	}, nil
 }
 
 // recordingStatusService is recoverableTokenStatus, recording the base the

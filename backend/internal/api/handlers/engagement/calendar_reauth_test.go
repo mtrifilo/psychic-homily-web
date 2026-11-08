@@ -105,17 +105,14 @@ func TestCalendarTokenReadAndDelete_UngatedByFreshness(t *testing.T) {
 		t.Errorf("deleting a token from a stale session: %v", err)
 	}
 
+	// The service answers with both URLs whoever asks, so a response without
+	// them is the handler withholding them.
 	t.Run("API-token principal gets no URLs from status", func(t *testing.T) {
-		var gotBaseURL string
-		h := NewCalendarHandler(recordingStatusService(&gotBaseURL), testCalendarConfig())
 		apiTokenCtx := testhelpers.CtxWithSessionAuthTime(calendarUser(), time.Time{})
 
 		status, err := h.GetCalendarTokenStatusHandler(apiTokenCtx, &GetCalendarTokenStatusRequest{})
 		if err != nil {
 			t.Fatalf("reading token status as an API-token principal: %v", err)
-		}
-		if gotBaseURL != "" {
-			t.Errorf("apiBaseURL = %q, want empty so the service builds no URLs", gotBaseURL)
 		}
 		if !status.Body.HasToken || status.Body.CreatedAt == nil {
 			t.Errorf("an API-token principal still learns that a token exists and when, got %+v", status.Body)

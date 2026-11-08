@@ -23,6 +23,12 @@ import (
 // change a stolen session must not be able to make on its own. The caller has
 // to have proven the account recently.
 //
+// The exception is a credential any session can already read back, the
+// personal feed token: rotating it grants a session nothing it could not
+// already read, so it asks only RequireSessionCredential (below). The sites
+// that take this exception are listed in sessionCredentialMints
+// (api/handlers/shared/mint_gate_test.go).
+//
 // ADDING is the whole of what this covers. Removing a credential (a passkey, a
 // provider identity, a feed token, an API token) is not gated: revocation has
 // to stay available to someone who has just realised a credential leaked, and

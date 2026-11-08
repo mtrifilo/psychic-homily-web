@@ -25,11 +25,6 @@ vi.mock('@/features/auth', () => ({
 }))
 
 import { FollowsActivityFeedSection } from './FollowsActivityFeedSection'
-import {
-  AuthError,
-  AuthErrorCode,
-  REAUTH_REQUIRED_MESSAGE,
-} from '@/lib/errors'
 
 describe('FollowsActivityFeedSection', () => {
   beforeEach(() => {
@@ -44,21 +39,18 @@ describe('FollowsActivityFeedSection', () => {
     })
   })
 
-  // This card rotates the same personal feed token as the calendar card, so the
-  // refusal has to reach it too. Without this the Enable button is a dead click.
-  it('renders the sign-in-again copy when the feed mint refuses a stale session', () => {
-    mockCreateError = new AuthError('refused', AuthErrorCode.REAUTH_REQUIRED, {
-      status: 403,
-    })
+  // This card rotates the same personal feed token as the calendar card, so a
+  // failed mint has to reach it too. Without this the Enable button is a dead
+  // click. The mint is not gated on a recent sign-in, so the failure is one to
+  // try again, with no sign-in link.
+  it('renders the try-again copy when the feed mint fails', () => {
+    mockCreateError = new Error('Too many requests')
     renderWithProviders(<FollowsActivityFeedSection />)
 
     expect(screen.getByRole('alert').textContent).toContain(
-      REAUTH_REQUIRED_MESSAGE
+      'Could not update the feed. Please try again.'
     )
-    expect(screen.getByRole('link', { name: 'Sign in again' })).toHaveAttribute(
-      'href',
-      expect.stringContaining('reason=REAUTH_REQUIRED')
-    )
+    expect(screen.queryByRole('link', { name: 'Sign in again' })).toBeNull()
   })
 
   it('enables and shows the Atom URL with leakage copy', async () => {

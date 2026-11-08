@@ -252,11 +252,12 @@ export function isAuthError(error: unknown): error is AuthError {
 
 /**
  * Copy for the re-authentication refusal, in one place because every surface
- * that adds a credential renders it: the API-token dialog, the CLI-token card,
- * the passkey card, and both feed cards.
+ * whose credential operation is gated on a recent sign-in renders it: the
+ * API-token dialog, the CLI-token card, the passkey card, and the set-password
+ * card.
  *
  * It names the remedy rather than the rule, names no particular operation so
- * that Regenerate and Add a passkey read as truly as Create token, and it is
+ * that Set password and Add a passkey read as truly as Create token, and it is
  * authored here rather than taken from the response so the words are the
  * frontend's own.
  */

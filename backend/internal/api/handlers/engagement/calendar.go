@@ -196,13 +196,7 @@ func (h *CalendarHandler) GetCalendarTokenStatusHandler(ctx context.Context, req
 		return nil, huma.Error401Unauthorized("Authentication required")
 	}
 
-	// An empty base tells the service to build no URLs.
-	var apiBaseURL string
-	if middleware.IsSessionCredentialFromContext(ctx) {
-		apiBaseURL = h.config.BackendOrigin()
-	}
-
-	status, err := h.calendarService.GetTokenStatus(user.ID, apiBaseURL)
+	status, err := h.calendarService.GetTokenStatus(user.ID, h.config.BackendOrigin())
 	if err != nil {
 		logger.FromContext(ctx).Error("get_calendar_token_status_failed",
 			"user_id", user.ID,
@@ -214,7 +208,12 @@ func (h *CalendarHandler) GetCalendarTokenStatusHandler(ctx context.Context, req
 		)
 	}
 
-	return &GetCalendarTokenStatusResponse{CacheControl: "no-store", Body: *status}, nil
+	body := *status
+	if !middleware.IsSessionCredentialFromContext(ctx) {
+		body = body.WithoutFeedURLs()
+	}
+
+	return &GetCalendarTokenStatusResponse{CacheControl: "no-store", Body: body}, nil
 }
 
 // DeleteCalendarTokenRequest is empty — user is derived from JWT context

@@ -81,6 +81,17 @@ type CalendarTokenStatusResponse struct {
 	URLRecoverable bool       `json:"url_recoverable" doc:"Whether this response carries the feed URLs. False while has_token is true means the URLs cannot be shown to this caller: the token was minted before its URL was stored (regenerating replaces it with one that is), or the caller is not a signed-in session."`
 }
 
+// WithoutFeedURLs is s as a caller that may not receive the feed URLs sees
+// it: whether a token exists and when it was minted, nothing that grants
+// access to the feeds. A field added to the status that carries the token
+// in any form is cleared here.
+func (s CalendarTokenStatusResponse) WithoutFeedURLs() CalendarTokenStatusResponse {
+	s.FeedURL = ""
+	s.FollowsFeedURL = ""
+	s.URLRecoverable = false
+	return s
+}
+
 // ──────────────────────────────────────────────
 // Follow types
 // ──────────────────────────────────────────────
@@ -372,8 +383,8 @@ type CalendarServiceInterface interface {
 	CreateToken(userID uint, sessionsValidAfter *time.Time, apiBaseURL string) (*CalendarTokenCreateResponse, error)
 	// GetTokenStatus reports whether userID holds a feed token and, when its
 	// plaintext is stored, the subscribe URLs built on apiBaseURL. The URLs
-	// are a bearer credential: a caller that may not receive them passes an
-	// empty apiBaseURL, and the response then carries none.
+	// are a bearer credential: a caller answering someone who may not receive
+	// them returns CalendarTokenStatusResponse.WithoutFeedURLs.
 	GetTokenStatus(userID uint, apiBaseURL string) (*CalendarTokenStatusResponse, error)
 	DeleteToken(userID uint) error
 	ValidateCalendarToken(plainToken string) (*authm.User, error)
