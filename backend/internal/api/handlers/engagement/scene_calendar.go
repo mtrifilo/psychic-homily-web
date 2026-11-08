@@ -69,7 +69,7 @@ func (h *SceneCalendarHandler) GetSceneCalendarFeedHandler(w http.ResponseWriter
 
 	// An unchanged feed costs the poller nothing beyond the request itself —
 	// writeCalendarResponse answers a matching If-None-Match with a bodyless 304.
-	writeCalendarResponse(w, r, "inline", sceneFeedFilename(feed.SceneSlug), feed.ETag, feed.ICS)
+	writeCalendarResponse(w, r, publicCalendarCacheControl, "inline", sceneFeedFilename(feed.SceneSlug), feed.ETag, feed.ICS)
 }
 
 // sceneFeedFilename derives the download filename from the scene's canonical

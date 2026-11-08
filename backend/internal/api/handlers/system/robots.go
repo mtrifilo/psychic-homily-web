@@ -29,6 +29,10 @@ const RobotsTxtRoute = "/robots.txt"
 //	/venues/*/calendar.ics   public venue feed
 //	/scenes/*/calendar.ics   public scene feed
 //
+// /saved-shows/calendar.ics has no Allow line although it ends in .ics: it is a
+// one-shot download that needs a session, not a feed, so a crawler would get
+// only a 401 from it.
+//
 // The personal feed lines are plain prefixes, so a parser without `*` support
 // still allows them; the public feed lines rely on `*`.
 //

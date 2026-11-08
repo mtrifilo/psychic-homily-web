@@ -126,8 +126,8 @@ func servedRobotsRules(t *testing.T, router http.Handler) []robotsRule {
 // Under the standard's matching, the served file lets a crawler fetch the
 // calendar and Atom feed URLs subscribers hand to their calendar or reader, and
 // nothing else: the JSON the site's pages read, the session-authenticated
-// token endpoint beside the legacy feed alias, and the unsubscribe pages stay
-// disallowed.
+// token endpoint beside the legacy feed alias, the session-authenticated
+// saved-shows download, and the unsubscribe pages stay disallowed.
 func TestRobotsTxtAllowsOnlyTheFeeds(t *testing.T) {
 	rules := servedRobotsRules(t, newTestRouter(t))
 
@@ -148,6 +148,7 @@ func TestRobotsTxtAllowsOnlyTheFeeds(t *testing.T) {
 		"/entities/artist/42/tags",
 		"/charts/rank?entity=artist",
 		"/calendar/token",
+		"/saved-shows/calendar.ics",
 		"/unsubscribe/scene-digest?token=abc",
 		"/openapi.json",
 	}
@@ -210,7 +211,12 @@ func TestRobotsTxtAllowsExactlyTheServedFeedRoutes(t *testing.T) {
 		})
 		return strings.ReplaceAll(path, "*", "x")
 	}
+	// The saved-shows download ends in .ics but is not a feed: it needs a
+	// session, so a crawler gets a 401 from it and robots.txt keeps it out.
 	isFeed := func(pattern string) bool {
+		if pattern == savedShowsCalendarDownloadRoute {
+			return false
+		}
 		return strings.HasSuffix(pattern, ".ics") || strings.HasSuffix(pattern, ".atom") ||
 			pattern == legacyCalendarFeedRoute
 	}

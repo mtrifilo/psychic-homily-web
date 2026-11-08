@@ -386,6 +386,10 @@ type CalendarServiceInterface interface {
 	DeleteToken(userID uint) error
 	ValidateCalendarToken(plainToken string) (*authm.User, error)
 	GenerateICSFeed(userID uint, frontendURL string) ([]byte, error)
+	// RenderSavedShowsCalendar renders the same saved-shows calendar as
+	// GenerateICSFeed with no cache in front of it, so a save made a moment
+	// before the call is in the result.
+	RenderSavedShowsCalendar(userID uint, frontendURL string) ([]byte, error)
 	// GenerateFollowsActivityFeed builds an Atom 1.0 feed of recent shows +
 	// releases involving artists the user follows (PSY-1505).
 	GenerateFollowsActivityFeed(userID uint, frontendURL string) ([]byte, error)

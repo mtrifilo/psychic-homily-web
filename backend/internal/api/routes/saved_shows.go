@@ -7,6 +7,14 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 )
 
+// savedShowsCalendarDownloadRoute is the session-authenticated one-shot calendar
+// file of the caller's upcoming saved shows. Its static last segment outranks
+// the {show_id} sibling in chi, so it never reaches the Huma saved-show
+// operations. It is not a feed: it needs a session, so robots.txt has no Allow
+// line for it and the public-read limiter's personal-feed exemption leaves it
+// on the per-user budget.
+const savedShowsCalendarDownloadRoute = "/saved-shows/calendar.ics"
+
 // setupSavedShowRoutes configures saved show endpoints.
 //
 // A user's saved list is private (the protected endpoints below). A show's save
@@ -33,4 +41,11 @@ func setupSavedShowRoutes(rc RouteContext) {
 	// (ios/PsychicHomily/Networking/APIEndpoints.swift). Do not remove it as
 	// "dead code" without updating that client.
 	huma.Get(rc.Protected, "/saved-shows/{show_id}/check", savedShowHandler.CheckSavedHandler)
+
+	// A raw chi route rather than a Huma operation: the response is a
+	// text/calendar file, not a JSON body. JWTMiddleware makes it session-only;
+	// an API token is refused.
+	calendarHandler := engagementh.NewCalendarHandler(rc.SC.Calendar, rc.Cfg)
+	rc.Router.With(middleware.JWTMiddleware(rc.SC.JWT)).
+		Get(savedShowsCalendarDownloadRoute, calendarHandler.GetSavedShowsCalendarDownloadHandler)
 }

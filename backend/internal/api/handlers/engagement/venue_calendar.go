@@ -80,7 +80,7 @@ func (h *VenueCalendarHandler) GetVenueCalendarFeedHandler(w http.ResponseWriter
 
 	// An unchanged feed costs the poller nothing beyond the request itself —
 	// writeCalendarResponse answers a matching If-None-Match with a bodyless 304.
-	writeCalendarResponse(w, r, "inline", venueFeedFilename(feed.VenueSlug), feed.ETag, feed.ICS)
+	writeCalendarResponse(w, r, publicCalendarCacheControl, "inline", venueFeedFilename(feed.VenueSlug), feed.ETag, feed.ICS)
 }
 
 // calendarFrontendURL resolves the origin used for links back into the app.
@@ -93,12 +93,15 @@ func calendarFrontendURL(cfg *config.Config) string {
 
 // writeCalendarResponse sets the shared calendar-serving headers and answers
 // conditional requests. disposition is "inline" (a feed rendered in place) or
-// "attachment" (a download handed to the OS calendar client).
-func writeCalendarResponse(w http.ResponseWriter, r *http.Request, disposition, filename, etag string, body []byte) {
+// "attachment" (a download handed to the OS calendar client). An empty etag
+// sends no validator, and then no request is answered with a 304.
+func writeCalendarResponse(w http.ResponseWriter, r *http.Request, cacheControl, disposition, filename, etag string, body []byte) {
 	w.Header().Set("Content-Type", "text/calendar; charset=utf-8")
 	w.Header().Set("Content-Disposition", disposition+"; filename=\""+filename+"\"")
-	w.Header().Set("Cache-Control", publicCalendarCacheControl)
-	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", cacheControl)
+	if etag != "" {
+		w.Header().Set("ETag", etag)
+	}
 
 	if shared.IfNoneMatchCovers(r.Header.Get("If-None-Match"), etag) {
 		w.WriteHeader(http.StatusNotModified)
