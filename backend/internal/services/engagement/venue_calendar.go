@@ -41,7 +41,7 @@ const (
 	// venueFeedShowLimit bounds a single feed. A public endpoint must not let a
 	// venue with a huge history turn one poll into an unbounded query; 500
 	// upcoming shows is far beyond any real room's booking horizon and matches
-	// the personal feed's cap.
+	// the personal feed's savedShowsCalendarLimit.
 	venueFeedShowLimit = 500
 
 	// venueFeedCacheTTL is the in-process cache window. Calendar clients poll on

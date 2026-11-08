@@ -464,6 +464,49 @@ func icsEventLines(t *testing.T, feed string) []string {
 // countICSProperty counts content lines that OPEN the named property. A value
 // that merely mentions "SUMMARY:" mid-line is inert text and is not counted;
 // only a line that starts one is a property.
+// icsPropertyNames counts the content lines of a component by property name,
+// the text before the first ':' or ';'. Two renders of the same show must agree
+// on it exactly; a forged property shows up as a name with no twin.
+func icsPropertyNames(lines []string) map[string]int {
+	names := map[string]int{}
+	for _, line := range lines {
+		end := strings.IndexAny(line, ":;")
+		if end < 0 {
+			continue
+		}
+		names[line[:end]]++
+	}
+	return names
+}
+
+// benignTwinOf returns shows with every community-editable string replaced by
+// a harmless one, so a render of it is the reference a hostile render must
+// match property for property.
+func benignTwinOf(shows []*contracts.SavedShowResponse) []*contracts.SavedShowResponse {
+	out := make([]*contracts.SavedShowResponse, 0, len(shows))
+	for _, show := range shows {
+		copied := *show
+		copied.Slug = "benign-show"
+		copied.Title = "Gig"
+		copied.Venues = append([]contracts.VenueResponse(nil), show.Venues...)
+		for i := range copied.Venues {
+			copied.Venues[i].Name = "Room"
+			if copied.Venues[i].Address != nil {
+				copied.Venues[i].Address = ptrString("1 Main St")
+			}
+		}
+		copied.Artists = append([]contracts.ArtistResponse(nil), show.Artists...)
+		for i := range copied.Artists {
+			copied.Artists[i].Name = "Band"
+		}
+		if copied.AgeRequirement != nil {
+			copied.AgeRequirement = ptrString("21+")
+		}
+		out = append(out, &copied)
+	}
+	return out
+}
+
 func countICSProperty(lines []string, name string) int {
 	count := 0
 	for _, line := range lines {
@@ -531,13 +574,25 @@ func TestGenerateICSFeed_RejectsPropertyInjectionFromCommunityText(t *testing.T)
 	all := icsContentLines(out)
 	eventLines := icsEventLines(t, out)
 
-	// No CR may survive INSIDE a content line. Asserted per line because the
-	// feed is CRLF-delimited: a whole-payload check would have to strip "\r\n"
-	// first, and that strip would also swallow an injected CR that happened to
-	// be followed by a LF.
+	// No bare CR may survive inside a content line. icsContentLines has already
+	// turned every CRLF into LF, so this loop can only see a CR that stood on
+	// its own; an injected CRLF pair reads as a line break here and is caught by
+	// the property-name comparison below instead.
 	for _, line := range all {
 		assert.NotContains(t, line, "\r", "no raw carriage return may survive inside a content line")
 	}
+
+	// The hostile render and a benign twin must emit the same property names
+	// inside the VEVENT. An injected line, whatever name it forges, surfaces as
+	// a name the benign render never emits, so this guard holds no matter how
+	// the line endings are normalized above.
+	benignSvc := &CalendarService{db: &gorm.DB{}, savedShowSvc: &mockSavedShowSvc{shows: benignTwinOf(mockShows), total: 1}}
+	benignData, err := benignSvc.GenerateICSFeed(1, "https://psychichomily.com")
+	require.NoError(t, err)
+	assert.Equal(t,
+		icsPropertyNames(icsEventLines(t, string(benignData))),
+		icsPropertyNames(eventLines),
+		"hostile text must add no property and remove none")
 
 	assert.Equal(t, 1, countICSProperty(eventLines, "SUMMARY"), "injected text must not add a second SUMMARY")
 	assert.Equal(t, 1, countICSProperty(eventLines, "DTSTART"), "injected text must not add a second DTSTART")

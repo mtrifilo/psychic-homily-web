@@ -33,9 +33,12 @@ const icalLocalTimeFormat = "20060102T150405"
 // events (the source data has no end time).
 const defaultShowDuration = 3 * time.Hour
 
-// icsFeedCacheTTL is a short per-user cache for ICS payloads. Calendar clients
-// poll coarsely; this cuts DB load without serving stale feeds after regenerate
-// (cache is keyed by user and cleared on CreateToken/DeleteToken).
+// icsFeedCacheTTL bounds the per-user cache of rendered ICS payloads. Calendar
+// clients poll coarsely, so the cache cuts DB load. CreateToken and DeleteToken
+// clear a user's entry; a save or unsave does not, so the subscription feed can
+// be up to this long behind a save. The cache is a process-local map, so a
+// deploy's restart empties it and no pre-deploy bytes survive; the handler's
+// Cache-Control max-age of 120 seconds is what bounds a client's own copy.
 const icsFeedCacheTTL = 2 * time.Minute
 
 const (
@@ -75,7 +78,7 @@ const (
 //
 // Each of the two caches holds up to this many entries, so the process ceiling
 // is twice this count times a feed payload. A payload is itself bounded: the ICS
-// feed carries at most 500 shows and the Atom feed at most
+// feed carries at most savedShowsCalendarLimit shows and the Atom feed at most
 // followsActivityMaxItems entries.
 const personalFeedCacheMaxEntries = 128
 
@@ -388,18 +391,9 @@ func (s *CalendarService) ValidateCalendarToken(plainToken string) (*authm.User,
 	return &token.User, nil
 }
 
-// GenerateICSFeed serves the ICS calendar feed of a user's saved upcoming
-// shows: the per-user cache when it holds one, otherwise a fresh render through
-// buildSavedShowsCalendar that is then cached.
-//
-// The venue addresses that reach the feed's LOCATION are already gated: the
-// shows come from SavedShowService.GetUserSavedShows, whose venue builder
-// applies Venue.PublicAddress, so an unverified venue arrives with a nil
-// Address. That is load-bearing rather than incidental. The feed URL carries a
-// bearer token instead of a session, so anyone holding the link reads it, and
-// an ICS LOCATION is copied onto the subscriber's device where a later
-// redaction can never reach it. See formatEventLocation for the rule that binds
-// every calendar caller.
+// GenerateICSFeed serves the ICS subscription feed of a user's saved upcoming
+// shows: the per-user cache when it holds an entry, otherwise a fresh render
+// through RenderSavedShowsCalendar that is then cached for icsFeedCacheTTL.
 func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]byte, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -409,25 +403,45 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 		return cached, nil
 	}
 
-	shows, err := s.upcomingSavedShows(userID)
+	data, err := s.RenderSavedShowsCalendar(userID, frontendURL)
 	if err != nil {
 		return nil, err
 	}
-
-	data := buildSavedShowsCalendar(shows, frontendURL)
 	s.feedCache.store(userID, data, icsFeedCacheTTL)
 	return data, nil
 }
 
-// savedShowsCalendarLimit bounds every saved-shows calendar render. A payload
-// is copied into the per-user cache and onto subscribers' devices, so it stays
+// RenderSavedShowsCalendar renders the user's saved upcoming shows as calendar
+// wire bytes with no cache in front of it, so the result reflects a save made
+// a moment ago. It is the one exported render of saved shows, and it only ever
+// renders the gated selection from upcomingSavedShows; a caller that needs
+// read-your-write freshness (a one-shot download, for instance) can use it
+// directly, while the subscription feed wraps it with the per-user cache.
+func (s *CalendarService) RenderSavedShowsCalendar(userID uint, frontendURL string) ([]byte, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	shows, err := s.upcomingSavedShows(userID)
+	if err != nil {
+		return nil, err
+	}
+	return buildSavedShowsCalendar(shows, frontendURL), nil
+}
+
+// savedShowsCalendarLimit bounds a saved-shows calendar render. A payload is
+// copied into the per-user cache and onto subscribers' devices, so it stays
 // bounded regardless of how many shows a user has saved.
 const savedShowsCalendarLimit = 500
 
-// upcomingSavedShows is the selection every saved-shows calendar surface
-// renders: the user's saved shows whose venue-local date is today or later.
-// Approved-only and not-cancelled filtering lives in buildSavedShowsCalendar,
-// so no caller can render a draft or cancelled show by skipping a step here.
+// upcomingSavedShows is the gated source every saved-shows calendar render
+// reads: the user's saved shows whose venue-local date is today or later, from
+// SavedShowService.GetUserSavedShows. That service's venue builder applies
+// Venue.PublicAddress, so an unverified venue arrives with a nil Address, which
+// is what keeps a private address out of the calendar's LOCATION (see
+// formatEventLocation). Approved-only and not-cancelled filtering lives in
+// buildSavedShowsCalendar, so a caller cannot render a draft or cancelled show
+// by skipping a step here.
 func (s *CalendarService) upcomingSavedShows(userID uint) ([]*contracts.SavedShowResponse, error) {
 	shows, _, err := s.savedShowSvc.GetUserSavedShows(userID, savedShowsCalendarLimit, 0, "upcoming")
 	if err != nil {
@@ -437,10 +451,13 @@ func (s *CalendarService) upcomingSavedShows(userID uint) ([]*contracts.SavedSho
 }
 
 // buildSavedShowsCalendar renders shows as the wire bytes of a saved-shows
-// calendar, with no cache in front of it or behind it. The subscription feed
-// wraps it with the per-user cache; a one-shot download calls it directly,
-// because that cache is cleared only by a token event and would otherwise hide
-// a save made moments before the download.
+// calendar. It reads no cache and writes none.
+//
+// Precondition: shows come from upcomingSavedShows. The venue addresses that
+// reach LOCATION are gated upstream of this function (an unverified venue has a
+// nil Address by the time it gets here), and an ICS LOCATION is copied onto the
+// subscriber's device where a later redaction can never reach it. Do not hand
+// this function a slice built any other way.
 //
 // Only approved, not-cancelled shows become events; the rest of each event is
 // assembled by the helpers the public calendar surfaces share.

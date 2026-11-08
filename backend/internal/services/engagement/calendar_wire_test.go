@@ -29,33 +29,39 @@ var icsUTCDateTime = regexp.MustCompile(`^\d{8}T\d{6}Z$`)
 // icsSequence is RFC 5545 3.8.7.4's SEQUENCE: a non-negative INTEGER.
 var icsSequence = regexp.MustCompile(`^SEQUENCE:\d+$`)
 
-// assertRFC5545Wire fails unless feed is a wire-valid calendar carrying
-// wantEvents VEVENTs: every line ends in CRLF with no bare CR or LF anywhere,
-// every VEVENT has exactly one DTSTAMP in UTC form and exactly one
-// non-negative SEQUENCE, and golang-ical's own parser reads the bytes back.
+// rfc5545WireProblems reads feed as the exact bytes a calendar client receives
+// and lists every way it falls short of the wire contract: a line that does
+// not end in CRLF, a bare CR inside a line, a VEVENT without exactly one UTC
+// DTSTAMP and exactly one non-negative SEQUENCE, or the wrong VEVENT count.
+// Nothing here normalizes line endings before checking them, because a check
+// that does cannot see an LF-delimited feed.
 //
 // SEQUENCE is optional in RFC 5545 but required here: every surface shares one
 // UID per show, and a copy without it ranks below an edited copy that has it
 // (RFC 5546 2.1.5).
-func assertRFC5545Wire(t *testing.T, feed []byte, wantEvents int) {
-	t.Helper()
+func rfc5545WireProblems(feed []byte, wantEvents int) []string {
+	var problems []string
 
-	require.True(t, bytes.HasSuffix(feed, []byte("\r\n")),
-		"RFC 5545 3.1: the last content line must end in CRLF")
+	if !bytes.HasSuffix(feed, []byte("\r\n")) {
+		problems = append(problems, "the last content line does not end in CRLF (RFC 5545 3.1)")
+	}
 
 	// Splitting on LF and requiring each piece to end in exactly one CR is what
 	// catches both defects: a piece without the CR is a bare LF, and a CR
 	// anywhere else is a bare CR.
 	physical := bytes.Split(bytes.TrimSuffix(feed, []byte("\n")), []byte("\n"))
 	for i, line := range physical {
-		require.Truef(t, bytes.HasSuffix(line, []byte("\r")),
-			"line %d must end in CRLF, got %q", i+1, line)
-		require.Equalf(t, 1, bytes.Count(line, []byte("\r")),
-			"line %d carries a bare CR: %q", i+1, line)
+		if !bytes.HasSuffix(line, []byte("\r")) {
+			problems = append(problems, fmt.Sprintf("line %d ends in a bare LF: %q", i+1, line))
+			continue
+		}
+		if bytes.Count(line, []byte("\r")) != 1 {
+			problems = append(problems, fmt.Sprintf("line %d carries a bare CR: %q", i+1, line))
+		}
 	}
 
-	// icsContentLines normalizes line endings, which is safe only now that every
-	// one is known to be CRLF.
+	// icsContentLines normalizes line endings, which is safe for the property
+	// checks because the line-ending defects were recorded above.
 	events := 0
 	var event []string
 	for _, line := range icsContentLines(string(feed)) {
@@ -64,18 +70,21 @@ func assertRFC5545Wire(t *testing.T, feed []byte, wantEvents int) {
 			events++
 			event = []string{}
 		case "END:VEVENT":
-			assert.Equalf(t, 1, countICSProperty(event, "DTSTAMP"),
-				"VEVENT %d must carry exactly one DTSTAMP", events)
-			assert.Equalf(t, 1, countICSProperty(event, "SEQUENCE"),
-				"VEVENT %d must carry exactly one SEQUENCE", events)
+			if n := countICSProperty(event, "DTSTAMP"); n != 1 {
+				problems = append(problems, fmt.Sprintf("VEVENT %d carries %d DTSTAMP properties, want exactly one", events, n))
+			}
+			if n := countICSProperty(event, "SEQUENCE"); n != 1 {
+				problems = append(problems, fmt.Sprintf("VEVENT %d carries %d SEQUENCE properties, want exactly one", events, n))
+			}
 			for _, prop := range event {
-				if strings.HasPrefix(prop, "DTSTAMP:") || strings.HasPrefix(prop, "DTSTAMP;") {
-					assert.Regexpf(t, icsUTCDateTime, strings.TrimPrefix(prop, "DTSTAMP:"),
-						"VEVENT %d: DTSTAMP must be a bare UTC DATE-TIME, got %q", events, prop)
+				if strings.HasPrefix(prop, "DTSTAMP;") {
+					problems = append(problems, fmt.Sprintf("VEVENT %d: DTSTAMP carries a parameter, want a bare UTC DATE-TIME: %q", events, prop))
 				}
-				if strings.HasPrefix(prop, "SEQUENCE:") || strings.HasPrefix(prop, "SEQUENCE;") {
-					assert.Regexpf(t, icsSequence, prop,
-						"VEVENT %d: SEQUENCE must be a non-negative integer", events)
+				if strings.HasPrefix(prop, "DTSTAMP:") && !icsUTCDateTime.MatchString(strings.TrimPrefix(prop, "DTSTAMP:")) {
+					problems = append(problems, fmt.Sprintf("VEVENT %d: DTSTAMP is not a UTC DATE-TIME: %q", events, prop))
+				}
+				if (strings.HasPrefix(prop, "SEQUENCE:") || strings.HasPrefix(prop, "SEQUENCE;")) && !icsSequence.MatchString(prop) {
+					problems = append(problems, fmt.Sprintf("VEVENT %d: SEQUENCE is not a non-negative integer: %q", events, prop))
 				}
 			}
 			event = nil
@@ -85,11 +94,48 @@ func assertRFC5545Wire(t *testing.T, feed []byte, wantEvents int) {
 			}
 		}
 	}
-	require.Equal(t, wantEvents, events, "VEVENT count on the wire")
+	if events != wantEvents {
+		problems = append(problems, fmt.Sprintf("%d VEVENTs on the wire, want %d", events, wantEvents))
+	}
+	return problems
+}
+
+// assertRFC5545Wire fails unless feed has no wire problems and golang-ical
+// reads its own bytes back with wantEvents events. The parse is a round-trip
+// sanity check, not a strictness claim: golang-ical's parser accepts a bare LF
+// and a missing DTSTAMP, which TestRFC5545Wire_RejectsTheLegacySerialization
+// pins, so the byte-level checks above it are the ones that carry the contract.
+func assertRFC5545Wire(t *testing.T, feed []byte, wantEvents int) {
+	t.Helper()
+
+	require.Empty(t, rfc5545WireProblems(feed, wantEvents), "RFC 5545 wire problems")
 
 	parsed, err := ics.ParseCalendar(bytes.NewReader(feed))
 	require.NoError(t, err, "golang-ical must parse its own serialized bytes")
 	assert.Len(t, parsed.Events(), wantEvents, "VEVENT count after parsing")
+}
+
+// The shape the saved-shows feed had before it joined the sibling feeds: golang-
+// ical's default serialization, bare LF, no DTSTAMP, no SEQUENCE. The wire
+// checks must reject it, and the lenient parser must still accept it, or a
+// later reader could drop the byte checks because "the parse covers it".
+func TestRFC5545Wire_RejectsTheLegacySerialization(t *testing.T) {
+	cal := ics.NewCalendar()
+	cal.SetMethod(ics.MethodPublish)
+	event := cal.AddEvent("legacy@psychichomily.com")
+	start := time.Date(2026, 6, 1, 20, 0, 0, 0, time.UTC)
+	event.SetStartAt(start)
+	event.SetEndAt(start.Add(3 * time.Hour))
+	event.SetSummary("Desert Doom Night")
+	legacy := []byte(cal.Serialize())
+
+	problems := strings.Join(rfc5545WireProblems(legacy, 1), "\n")
+	assert.Contains(t, problems, "bare LF", "an LF-delimited feed must be reported")
+	assert.Contains(t, problems, "0 DTSTAMP properties", "a VEVENT without DTSTAMP must be reported")
+	assert.Contains(t, problems, "0 SEQUENCE properties", "a VEVENT without SEQUENCE must be reported")
+
+	_, err := ics.ParseCalendar(bytes.NewReader(legacy))
+	require.NoError(t, err, "golang-ical's parser is lenient about exactly these defects, which is why the byte checks exist")
 }
 
 func TestICSWire_SavedShowsFeed(t *testing.T) {
@@ -149,27 +195,54 @@ func TestICSWire_SceneFeed(t *testing.T) {
 	assertRFC5545Wire(t, []byte(out), 2)
 }
 
-func TestBuildSavedShowsCalendar_UncachedAndWireValid(t *testing.T) {
+func TestBuildSavedShowsCalendar_RendersGivenShows(t *testing.T) {
 	created := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
-	show := func(id uint, title string) *contracts.SavedShowResponse {
-		return &contracts.SavedShowResponse{ShowResponse: *testShowResponse(func(s *contracts.ShowResponse) {
-			s.ID = id
-			s.Slug = ""
-			s.Title = title
-			s.CreatedAt = created
-			s.UpdatedAt = created
-		})}
+	shows := []*contracts.SavedShowResponse{
+		savedShowFixture(1, "Desert Doom Night", created),
+		savedShowFixture(2, "Last Call", created),
 	}
-	before := []*contracts.SavedShowResponse{show(1, "Desert Doom Night")}
-	after := append(append([]*contracts.SavedShowResponse{}, before...), show(2, "Last Call"))
 
-	first := buildSavedShowsCalendar(before, "https://psychichomily.com")
-	assertRFC5545Wire(t, first, len(before))
+	out := buildSavedShowsCalendar(shows, "https://psychichomily.com")
+	assertRFC5545Wire(t, out, len(shows))
+	assert.Contains(t, string(out), "SUMMARY:Desert Doom Night\r\n")
+	assert.Contains(t, string(out), "SUMMARY:Last Call\r\n")
+}
 
-	// A second render with one more show must carry it: the builder reads no
-	// cache, so a download taken right after a save includes that save.
-	second := buildSavedShowsCalendar(after, "https://psychichomily.com")
-	assertRFC5545Wire(t, second, len(after))
-	assert.NotEqual(t, first, second, "the builder renders exactly what it is given")
-	assert.Contains(t, string(second), "SUMMARY:Last Call\r\n")
+// A save made after the subscription feed cached its bytes is absent from the
+// feed until the cache turns over, and present in an uncached render at once.
+// That difference is the reason RenderSavedShowsCalendar exists.
+func TestRenderSavedShowsCalendar_FreshWhileFeedIsCached(t *testing.T) {
+	created := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	first := savedShowFixture(1, "Desert Doom Night", created)
+	saved := &mockSavedShowSvc{shows: []*contracts.SavedShowResponse{first}, total: 1}
+	svc := &CalendarService{db: &gorm.DB{}, savedShowSvc: saved}
+
+	feed, err := svc.GenerateICSFeed(1, "https://psychichomily.com")
+	require.NoError(t, err)
+	assertRFC5545Wire(t, feed, 1)
+
+	// The user saves another show. Nothing clears the feed cache.
+	saved.shows = append(saved.shows, savedShowFixture(2, "Last Call", created))
+	saved.total = 2
+
+	stillCached, err := svc.GenerateICSFeed(1, "https://psychichomily.com")
+	require.NoError(t, err)
+	assert.Equal(t, feed, stillCached, "the subscription feed serves the cached bytes until the TTL turns over")
+
+	fresh, err := svc.RenderSavedShowsCalendar(1, "https://psychichomily.com")
+	require.NoError(t, err)
+	assertRFC5545Wire(t, fresh, 2)
+	assert.Contains(t, string(fresh), "SUMMARY:Last Call\r\n", "an uncached render includes the save made a moment ago")
+}
+
+// savedShowFixture is a saved show whose only distinguishing fields are the
+// ones these wire tests read back.
+func savedShowFixture(id uint, title string, stamp time.Time) *contracts.SavedShowResponse {
+	return &contracts.SavedShowResponse{ShowResponse: *testShowResponse(func(s *contracts.ShowResponse) {
+		s.ID = id
+		s.Slug = ""
+		s.Title = title
+		s.CreatedAt = stamp
+		s.UpdatedAt = stamp
+	})}
 }
