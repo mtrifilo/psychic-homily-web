@@ -284,6 +284,22 @@ func (s *JWTIntegrationSuite) TestCompletePasswordReset_RevokesTheCalendarFeedTo
 	s.requireFeedTokenRevoked(user.ID, feed)
 }
 
+// A feed-token mint that holds the account row when the reset starts commits
+// first; the reset waits for it and then deletes the token it wrote.
+func (s *JWTIntegrationSuite) TestCompletePasswordReset_DeletesTheTokenOfAMintItWaitedFor() {
+	user := s.createActiveUser("reset-feed-race@test.com")
+	s.setPasswordHash(user.ID, "planted-password-1!")
+	squatter, err := s.svc.CreateToken(user)
+	s.Require().NoError(err)
+	principal, _ := s.principal(squatter)
+	claims := s.resetClaimsFor(user.ID)
+
+	s.requireRevocationDeletesTheTokenOfAMintItWaitedFor(principal, func() error {
+		_, err := s.authSvc.CompletePasswordReset(claims, "owners-new-password-1!")
+		return err
+	})
+}
+
 // Another password change after the link was sent spends the link.
 func (s *JWTIntegrationSuite) TestCompletePasswordReset_RefusesALinkMintedBeforeAPasswordChange() {
 	user := s.createActiveUser("reset-changed@test.com")

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
@@ -13,6 +14,7 @@ import (
 	engagementsvc "psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/shared"
 	usersvc "psychic-homily-backend/internal/services/user"
+	"psychic-homily-backend/internal/testutil"
 )
 
 func TestSessionMintedBeforeRevocation(t *testing.T) {
@@ -84,6 +86,35 @@ func (s *JWTIntegrationSuite) requireFeedTokenRevoked(userID uint, token string)
 	s.Zero(s.feedTokenRows(userID), "the account holds no feed token")
 	_, err := s.calendar().ValidateCalendarToken(token)
 	s.Error(err, "the old feed URL is refused")
+}
+
+// requireRevocationDeletesTheTokenOfAMintItWaitedFor starts revoke while a
+// feed-token mint for principal's session holds the account row, and checks
+// that revoke waits for the mint and then deletes the token it wrote.
+func (s *JWTIntegrationSuite) requireRevocationDeletesTheTokenOfAMintItWaitedFor(principal *authm.User, revoke func() error) {
+	s.T().Helper()
+	var revocation <-chan error
+	waitedForMint := false
+	hooked, ran := testutil.WithWriteBeforeItsFirst(s.T(), s.db, func(*gorm.DB) {
+		revocation = testutil.StartOnAnotherConnection(s.T(), s.db, revoke)
+		waitedForMint = len(revocation) == 0
+	}, testutil.BeforeCreate)
+	// The mint's read-back of its row runs after its commit, racing the
+	// revocation's delete, so it may report the row gone; no other failure is
+	// allowed, so the token the revocation deletes is one the mint committed.
+	minted, err := engagementsvc.NewCalendarService(hooked, nil).CreateToken(principal.ID, principal.SessionsValidAfter, "http://localhost:8080")
+	if err != nil {
+		s.Require().ErrorIs(err, gorm.ErrRecordNotFound, "only the mint's post-commit read-back may fail")
+	}
+
+	s.Require().True(*ran, "the revocation must start before the mint's insert")
+	s.Require().NoError(testutil.AwaitConcurrentWrite(s.T(), revocation))
+	s.True(waitedForMint, "the revocation must wait for the mint holding the account row")
+	s.Zero(s.feedTokenRows(principal.ID), "the revocation deletes the token the mint wrote")
+	if minted != nil {
+		_, err := s.calendar().ValidateCalendarToken(minted.Token)
+		s.Error(err, "the minted feed URL is refused")
+	}
 }
 
 // requireFeedTokenHonored checks that the feed validator still serves token
