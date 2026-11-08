@@ -128,6 +128,10 @@ export const API_ENDPOINTS = {
   // Calendar feed endpoints
   CALENDAR: {
     TOKEN: `${API_BASE_URL}/calendar/token`,
+    // One-shot .ics of the signed-in user's upcoming saved shows. It needs the
+    // session, unlike the token feed URLs, so a calendar app cannot subscribe
+    // to it.
+    SAVED_SHOWS_DOWNLOAD: `${API_BASE_URL}/saved-shows/calendar.ics`,
   },
 
   // Saved shows endpoints

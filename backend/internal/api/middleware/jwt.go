@@ -80,8 +80,21 @@ type JWTErrorResponse struct {
 	RequestID string `json:"request_id,omitempty"`
 }
 
-// JWTMiddleware validates JWT tokens (standard http.Handler version)
-func JWTMiddleware(jwtService *auth.JWTService) func(http.Handler) http.Handler {
+// JWTMiddleware validates JWT tokens (standard http.Handler version). It
+// accepts a session credential only; an API token fails session validation.
+//
+// With a session config, a session cookie that can never validate (invalid,
+// expired, revoked, its account closed, or its account deleted) is cleared, so
+// a browser that navigated here with it does not keep presenting it. Nothing is
+// cleared when the rejected credential was the Authorization header, since the
+// cookie was never examined, or when the user read failed for another reason
+// (a database error), since the session may still be good.
+func JWTMiddleware(jwtService *auth.JWTService, sessionConfig ...config.SessionConfig) func(http.Handler) http.Handler {
+	var sessConfig *config.SessionConfig
+	if len(sessionConfig) > 0 {
+		sessConfig = &sessionConfig[0]
+	}
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
@@ -112,7 +125,8 @@ func JWTMiddleware(jwtService *auth.JWTService) func(http.Handler) http.Handler 
 				message := invalidTokenMessage
 
 				var authErr *autherrors.AuthError
-				if errors.As(err, &authErr) && authErr.Code == autherrors.CodeTokenExpired {
+				credentialRejected := errors.As(err, &authErr) || errors.Is(err, gorm.ErrRecordNotFound)
+				if authErr != nil && authErr.Code == autherrors.CodeTokenExpired {
 					errorCode = autherrors.CodeTokenExpired
 					message = authErr.UserMessage()
 				}
@@ -121,6 +135,12 @@ func JWTMiddleware(jwtService *auth.JWTService) func(http.Handler) http.Handler 
 					"error", err.Error(),
 					"error_code", errorCode,
 				)
+				// Set before writeJWTError calls WriteHeader, or it never
+				// reaches the client.
+				if sessConfig != nil && credentialRejected && tokenSource == CredentialSourceCookie {
+					clearCookie := sessConfig.ClearAuthCookie()
+					http.SetCookie(w, &clearCookie)
+				}
 				writeJWTError(ctx, w, requestID, errorCode, message, http.StatusUnauthorized)
 				return
 			}

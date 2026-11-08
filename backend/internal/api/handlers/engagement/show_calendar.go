@@ -62,7 +62,7 @@ func (h *ShowCalendarHandler) GetShowCalendarHandler(w http.ResponseWriter, r *h
 
 	// attachment, not inline: this IS the download path, and macOS/Windows hand
 	// a downloaded .ics straight to the default calendar client.
-	writeCalendarResponse(w, r, "attachment", showEventFilename(event.ShowSlug), event.ETag, event.ICS)
+	writeCalendarResponse(w, r, publicCalendarCacheControl, "attachment", showEventFilename(event.ShowSlug), event.ETag, event.ICS)
 }
 
 // showEventFilename derives the download filename from the show slug.
