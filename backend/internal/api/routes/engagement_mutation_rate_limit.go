@@ -10,10 +10,9 @@ import (
 )
 
 // PSY-1482: dedicated rate limit for authenticated one-row mutations
-// (save/unsave show+release, follow/unfollow entity+scene, venue confirm, and
+// (save/unsave show+release, follow/unfollow entity+scene, venue confirm,
 // PSY-1991's single entity-request file+withdraw, and the calendar feed-token
-// mint), mounted globally in
-// cmd/server/main.go. Public-read limiting (PSY-1362/1373) explicitly exempts
+// mint), mounted globally in cmd/server/main.go. Public-read limiting (PSY-1362/1373) explicitly exempts
 // writes, so these mutations had no ceiling on rc.Protected (JWT only).
 //
 // A single global mount keeps the SHARED per-user budget honest: one limiter

@@ -450,7 +450,9 @@ export interface CalendarTokenStatusResponse {
   follows_feed_url?: string
   /**
    * Whether this response carries the feed URLs. False while has_token is true
-   * means the token predates stored URLs and only a regenerate can show one.
+   * means the URLs cannot be shown to this caller: the token was minted before
+   * its URL was stored (regenerating replaces it with one that is), or the
+   * caller is not a signed-in session.
    */
   url_recoverable?: boolean
 }

@@ -309,9 +309,10 @@ func (s *CalendarService) CreateToken(userID uint, sessionsValidAfter *time.Time
 }
 
 // GetTokenStatus reports whether userID holds a feed token and, when the
-// token's plaintext is stored, the subscribe URLs it builds on apiBaseURL
-// (contracts.CalendarServiceInterface). A row minted before the plaintext was
-// stored reports HasToken with URLRecoverable false and no URLs.
+// token's plaintext is stored and apiBaseURL is not empty, the subscribe URLs
+// built on apiBaseURL (contracts.CalendarServiceInterface). A row minted
+// before the plaintext was stored reports HasToken with URLRecoverable false
+// and no URLs.
 func (s *CalendarService) GetTokenStatus(userID uint, apiBaseURL string) (*contracts.CalendarTokenStatusResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -330,7 +331,7 @@ func (s *CalendarService) GetTokenStatus(userID uint, apiBaseURL string) (*contr
 		HasToken:  true,
 		CreatedAt: &token.CreatedAt,
 	}
-	if token.Token != nil && *token.Token != "" {
+	if token.Token != nil && apiBaseURL != "" {
 		status.FeedURL = calendarFeedURL(apiBaseURL, *token.Token)
 		status.FollowsFeedURL = followsActivityFeedURL(apiBaseURL, *token.Token)
 		status.URLRecoverable = true

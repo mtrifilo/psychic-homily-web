@@ -17,7 +17,7 @@ import (
 // however long ago it authenticated: the status endpoint already shows the
 // current URL to any session, so a freshness gate on rotation would protect
 // nothing. An API-token principal is refused the mint and shown no URLs.
-// Reading and deleting the token stay open to every caller.
+// Reading and deleting the token are open to every session.
 
 func calendarHandlerRecordingMints(minted *bool) *CalendarHandler {
 	return NewCalendarHandler(&testhelpers.MockCalendarService{
@@ -25,17 +25,8 @@ func calendarHandlerRecordingMints(minted *bool) *CalendarHandler {
 			*minted = true
 			return &contracts.CalendarTokenCreateResponse{Token: "phcal_test"}, nil
 		},
-		GetTokenStatusFn: func(_ uint, apiBaseURL string) (*contracts.CalendarTokenStatusResponse, error) {
-			createdAt := time.Now()
-			return &contracts.CalendarTokenStatusResponse{
-				HasToken:       true,
-				CreatedAt:      &createdAt,
-				FeedURL:        apiBaseURL + "/feeds/phcal_test/saved-shows.ics",
-				FollowsFeedURL: apiBaseURL + "/feeds/phcal_test/follows.atom",
-				URLRecoverable: true,
-			}, nil
-		},
-		DeleteTokenFn: func(uint) error { return nil },
+		GetTokenStatusFn: recoverableTokenStatus,
+		DeleteTokenFn:    func(uint) error { return nil },
 	}, testCalendarConfig())
 }
 
@@ -44,31 +35,12 @@ func calendarUser() *authm.User {
 	return &authm.User{ID: 1, IsActive: true, PasswordHash: &hash}
 }
 
-func TestCreateCalendarTokenHandler_FreshSessionMints(t *testing.T) {
-	var minted bool
-	h := calendarHandlerRecordingMints(&minted)
-
-	if _, err := h.CreateCalendarTokenHandler(
-		testhelpers.CtxWithSession(calendarUser(), time.Now().Add(-1*time.Minute)),
-		&CreateCalendarTokenRequest{},
-	); err != nil {
-		t.Fatalf("a fresh session must mint: %v", err)
-	}
-	if !minted {
-		t.Error("expected the calendar service to be reached")
-	}
-}
-
-func TestCreateCalendarTokenHandler_StaleAndRefreshedSessionsMint(t *testing.T) {
-	user := calendarUser()
-	stale := time.Now().Add(-middleware.RecentSessionWindow - time.Hour).Truncate(time.Second)
-
-	// A refreshed session arrives carrying the same authentication time it had,
-	// so it reaches this handler as the stale value below; that the renewal
-	// carries rather than moves it is established by
-	// TestRequireRecentSessionAuth_RenewalBuysNoFreshness in api/middleware.
+// A refreshed session carries the authentication time it had, so it reaches
+// this handler as the stale value below.
+func TestCreateCalendarTokenHandler_AnySessionMintsWhateverItsAuthenticationTime(t *testing.T) {
 	for name, authAt := range map[string]time.Time{
-		"stale session":                 stale,
+		"fresh session":                 time.Now().Add(-1 * time.Minute),
+		"stale or refreshed session":    time.Now().Add(-middleware.RecentSessionWindow - time.Hour).Truncate(time.Second),
 		"no authentication time at all": {},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -76,10 +48,10 @@ func TestCreateCalendarTokenHandler_StaleAndRefreshedSessionsMint(t *testing.T) 
 			h := calendarHandlerRecordingMints(&minted)
 
 			if _, err := h.CreateCalendarTokenHandler(
-				testhelpers.CtxWithSession(user, authAt),
+				testhelpers.CtxWithSession(calendarUser(), authAt),
 				&CreateCalendarTokenRequest{},
 			); err != nil {
-				t.Fatalf("a session must mint however long ago it authenticated: %v", err)
+				t.Fatalf("a session must mint: %v", err)
 			}
 			if !minted {
 				t.Error("expected the calendar service to be reached")
@@ -109,16 +81,14 @@ func TestCreateCalendarTokenHandler_APITokenPrincipalRefused(t *testing.T) {
 	if refusal.ErrorCode != autherrors.CodeSessionCredentialRequired {
 		t.Errorf("error_code = %q, want %q", refusal.ErrorCode, autherrors.CodeSessionCredentialRequired)
 	}
-	if refusal.ErrorCode == autherrors.CodeReauthRequired {
-		t.Error("an API token must not be told to sign in again")
-	}
 	if minted {
 		t.Error("a refused request must not reach the calendar service")
 	}
 }
 
-// Reading the token's status and deleting it are not issuance: a stale session
-// still has to be able to see that a feed exists and to turn it off.
+// Reading the token's status and deleting it are not gated on a recent
+// authentication: a stale session still sees the feed URLs and can turn the
+// feed off.
 func TestCalendarTokenReadAndDelete_UngatedByFreshness(t *testing.T) {
 	var minted bool
 	h := calendarHandlerRecordingMints(&minted)
@@ -136,10 +106,16 @@ func TestCalendarTokenReadAndDelete_UngatedByFreshness(t *testing.T) {
 	}
 
 	t.Run("API-token principal gets no URLs from status", func(t *testing.T) {
+		var gotBaseURL string
+		h := NewCalendarHandler(recordingStatusService(&gotBaseURL), testCalendarConfig())
 		apiTokenCtx := testhelpers.CtxWithSessionAuthTime(calendarUser(), time.Time{})
+
 		status, err := h.GetCalendarTokenStatusHandler(apiTokenCtx, &GetCalendarTokenStatusRequest{})
 		if err != nil {
 			t.Fatalf("reading token status as an API-token principal: %v", err)
+		}
+		if gotBaseURL != "" {
+			t.Errorf("apiBaseURL = %q, want empty so the service builds no URLs", gotBaseURL)
 		}
 		if !status.Body.HasToken || status.Body.CreatedAt == nil {
 			t.Errorf("an API-token principal still learns that a token exists and when, got %+v", status.Body)

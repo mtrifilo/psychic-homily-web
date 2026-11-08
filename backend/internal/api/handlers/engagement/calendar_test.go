@@ -239,20 +239,26 @@ func TestGetCalendarTokenStatusHandler_NoToken(t *testing.T) {
 	}
 }
 
-// recoverableStatusService answers status with feed URLs built on the base the
-// handler passes, the way the real service does for a stored plaintext.
-func recoverableStatusService(gotBaseURL *string) *testhelpers.MockCalendarService {
+// recoverableTokenStatus answers GetTokenStatus for a stored plaintext the way
+// the real service does: URLs built on the base passed, none for an empty one.
+func recoverableTokenStatus(_ uint, apiBaseURL string) (*contracts.CalendarTokenStatusResponse, error) {
+	now := time.Now()
+	status := &contracts.CalendarTokenStatusResponse{HasToken: true, CreatedAt: &now}
+	if apiBaseURL != "" {
+		status.FeedURL = apiBaseURL + "/feeds/phcal_abc/saved-shows.ics"
+		status.FollowsFeedURL = apiBaseURL + "/feeds/phcal_abc/follows.atom"
+		status.URLRecoverable = true
+	}
+	return status, nil
+}
+
+// recordingStatusService is recoverableTokenStatus, recording the base the
+// handler passed.
+func recordingStatusService(gotBaseURL *string) *testhelpers.MockCalendarService {
 	return &testhelpers.MockCalendarService{
-		GetTokenStatusFn: func(_ uint, apiBaseURL string) (*contracts.CalendarTokenStatusResponse, error) {
+		GetTokenStatusFn: func(userID uint, apiBaseURL string) (*contracts.CalendarTokenStatusResponse, error) {
 			*gotBaseURL = apiBaseURL
-			now := time.Now()
-			return &contracts.CalendarTokenStatusResponse{
-				HasToken:       true,
-				CreatedAt:      &now,
-				FeedURL:        apiBaseURL + "/feeds/phcal_abc/saved-shows.ics",
-				FollowsFeedURL: apiBaseURL + "/feeds/phcal_abc/follows.atom",
-				URLRecoverable: true,
-			}, nil
+			return recoverableTokenStatus(userID, apiBaseURL)
 		},
 	}
 }
@@ -265,7 +271,7 @@ func TestGetCalendarTokenStatusHandler_SessionGetsURLsUncached(t *testing.T) {
 		Server: config.ServerConfig{Addr: "0.0.0.0:8080"},
 		Email:  config.EmailConfig{FrontendURL: "https://www.psychichomily.com"},
 	}
-	h := NewCalendarHandler(recoverableStatusService(&gotBaseURL), cfg)
+	h := NewCalendarHandler(recordingStatusService(&gotBaseURL), cfg)
 	ctx := testhelpers.CtxWithSession(&authm.User{ID: 1}, time.Now().Add(-2*time.Hour))
 
 	resp, err := h.GetCalendarTokenStatusHandler(ctx, &GetCalendarTokenStatusRequest{})

@@ -153,25 +153,25 @@ func TestCredentialMintsNameTheReauthGate(t *testing.T) {
 				continue
 			}
 
-			issues, method, gated := inspectFunc(fn)
-			if !issues {
+			found := inspectFunc(fn)
+			if !found.issues {
 				continue
 			}
 
 			site := rel + ":" + funcName(fn)
 			if _, sessionOnly := sessionCredentialMints[site]; sessionOnly {
-				if !namesSelector(fn, sessionCheckFunc) {
+				if !found.sessionChecked {
 					t.Errorf("%s is in sessionCredentialMints but does not call middleware.%s.\n"+
 						"It would issue a credential to an API-token principal.", site, sessionCheckFunc)
 				}
 				gatedOrExempt++
 				continue
 			}
-			if _, exempt := mintGateExemptions[site]; exempt || gated {
+			if _, exempt := mintGateExemptions[site]; exempt || found.gated {
 				gatedOrExempt++
 				continue
 			}
-			ungated[site] = method
+			ungated[site] = found.method
 		}
 		return nil
 	})
@@ -199,55 +199,60 @@ func TestCredentialMintsNameTheReauthGate(t *testing.T) {
 			site, ungated[site], gateFunc)
 	}
 
-	for site := range mintGateExemptions {
-		if !siteExists(t, handlersRoot, site) {
-			t.Errorf("mintGateExemptions names %s, which no longer issues a credential. Remove the entry.", site)
-		}
-	}
-	for site := range sessionCredentialMints {
-		if !siteExists(t, handlersRoot, site) {
-			t.Errorf("sessionCredentialMints names %s, which no longer issues a credential. Remove the entry.", site)
+	assertSitesStillIssue(t, handlersRoot, "mintGateExemptions", mintGateExemptions)
+	assertSitesStillIssue(t, handlersRoot, "sessionCredentialMints", sessionCredentialMints)
+}
+
+// assertSitesStillIssue reports every site listed in the named map that no
+// longer issues a credential, so a stale entry is removed rather than left
+// excusing nothing.
+func assertSitesStillIssue(t *testing.T, root, listName string, sites map[string]string) {
+	t.Helper()
+	for site := range sites {
+		if !siteExists(t, root, site) {
+			t.Errorf("%s names %s, which no longer issues a credential. Remove the entry.", listName, site)
 		}
 	}
 }
 
-// namesSelector reports whether fn names a selector called name, the way
-// inspectFunc spots the gate: as a name, not as proof that it runs.
-func namesSelector(fn *ast.FuncDecl, name string) bool {
-	found := false
-	ast.Inspect(fn, func(n ast.Node) bool {
-		if sel, ok := n.(*ast.SelectorExpr); ok && sel.Sel.Name == name {
-			found = true
-		}
-		return !found
-	})
-	return found
+// mintSite is what inspectFunc found in one function: whether it names a
+// credential-issuing method or function and which, and whether it names the
+// freshness gate and the session-credential check.
+type mintSite struct {
+	issues         bool
+	method         string
+	gated          bool
+	sessionChecked bool
 }
 
-// inspectFunc reports whether fn names a credential-issuing method or function,
-// which one, and whether it also names the gate.
+// inspectFunc reports what fn names: a credential-issuing method or function,
+// the gate, the session-credential check.
 //
-// The gate is always reached as middleware.RequireRecentSessionAuth, so the
-// selector arm sees it; the identifier arm is what catches
+// The gate and the check are always reached as middleware.<name>, so the
+// selector arm sees them; the identifier arm is what catches
 // a package-level issuer such as mintOAuthLinkToken.
-func inspectFunc(fn *ast.FuncDecl) (issues bool, method string, gated bool) {
+func inspectFunc(fn *ast.FuncDecl) mintSite {
+	var found mintSite
 	ast.Inspect(fn, func(n ast.Node) bool {
 		switch node := n.(type) {
 		case *ast.SelectorExpr:
 			if credentialIssuingMethods[node.Sel.Name] {
-				issues, method = true, node.Sel.Name
+				found.issues, found.method = true, node.Sel.Name
 			}
-			if node.Sel.Name == gateFunc {
-				gated = true
+			switch node.Sel.Name {
+			case gateFunc:
+				found.gated = true
+			case sessionCheckFunc:
+				found.sessionChecked = true
 			}
 		case *ast.Ident:
 			if credentialIssuingFuncs[node.Name] {
-				issues, method = true, node.Name
+				found.issues, found.method = true, node.Name
 			}
 		}
 		return true
 	})
-	return issues, method, gated
+	return found
 }
 
 // funcName is "Receiver.Name" for a method and "Name" for a plain function, so
@@ -288,8 +293,7 @@ func siteExists(t *testing.T, root, site string) bool {
 		if !ok || funcName(fn) != name {
 			continue
 		}
-		issues, _, _ := inspectFunc(fn)
-		return issues
+		return inspectFunc(fn).issues
 	}
 	return false
 }

@@ -372,7 +372,8 @@ type CalendarServiceInterface interface {
 	CreateToken(userID uint, sessionsValidAfter *time.Time, apiBaseURL string) (*CalendarTokenCreateResponse, error)
 	// GetTokenStatus reports whether userID holds a feed token and, when its
 	// plaintext is stored, the subscribe URLs built on apiBaseURL. The URLs
-	// are a bearer credential: the caller decides who may receive them.
+	// are a bearer credential: a caller that may not receive them passes an
+	// empty apiBaseURL, and the response then carries none.
 	GetTokenStatus(userID uint, apiBaseURL string) (*CalendarTokenStatusResponse, error)
 	DeleteToken(userID uint) error
 	ValidateCalendarToken(plainToken string) (*authm.User, error)
