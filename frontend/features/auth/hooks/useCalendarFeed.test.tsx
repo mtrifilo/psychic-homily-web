@@ -5,6 +5,7 @@ import { createWrapper, createWrapperWithClient, createTestQueryClient } from '@
 // Create mocks
 const mockApiRequest = vi.fn()
 const mockInvalidateCalendar = vi.fn()
+const mockRefetchSignedInProfile = vi.fn()
 
 // Mock the api module
 vi.mock('@/lib/api', () => ({
@@ -28,6 +29,7 @@ vi.mock('@/lib/queryClient', () => ({
   createInvalidateQueries: () => ({
     calendar: mockInvalidateCalendar,
   }),
+  refetchSignedInProfile: (...args: unknown[]) => mockRefetchSignedInProfile(...args),
 }))
 
 // Import hooks after mocks are set up
@@ -320,6 +322,7 @@ describe('useDeleteCalendarToken', () => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
     mockInvalidateCalendar.mockReset()
+    mockRefetchSignedInProfile.mockReset()
   })
 
   it('deletes the calendar token and invalidates queries', async () => {
@@ -341,6 +344,8 @@ describe('useDeleteCalendarToken', () => {
       method: 'DELETE',
     })
     expect(mockInvalidateCalendar).toHaveBeenCalled()
+    // The delete also resets the calendar sync choice the profile carries.
+    expect(mockRefetchSignedInProfile).toHaveBeenCalled()
   })
 
   it('surfaces errors to the caller and skips invalidation on failure', async () => {
@@ -369,6 +374,7 @@ describe('useDeleteCalendarToken', () => {
     expect(result.current.error).toBeTruthy()
     expect((result.current.error as { status?: number }).status).toBe(404)
     expect(mockInvalidateCalendar).not.toHaveBeenCalled()
+    expect(mockRefetchSignedInProfile).not.toHaveBeenCalled()
   })
 
   it('does not invalidate on 500 server errors', async () => {

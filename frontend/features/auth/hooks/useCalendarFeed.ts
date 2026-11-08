@@ -2,7 +2,11 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
-import { queryKeys, createInvalidateQueries } from '@/lib/queryClient'
+import {
+  queryKeys,
+  createInvalidateQueries,
+  refetchSignedInProfile,
+} from '@/lib/queryClient'
 import type {
   CalendarTokenStatusResponse,
   CalendarTokenCreateResponse,
@@ -47,7 +51,10 @@ export const useCreateCalendarToken = () => {
 }
 
 /**
- * Hook to delete (disable) a calendar feed token
+ * Hook to delete (disable) a calendar feed token. The delete also resets the
+ * viewer's calendar sync choice, which two reads carry (`sync_choice` on the
+ * token status and `preferences.calendar_sync` on the profile), so both are
+ * refetched.
  */
 export const useDeleteCalendarToken = () => {
   const queryClient = useQueryClient()
@@ -62,6 +69,7 @@ export const useDeleteCalendarToken = () => {
     },
     onSuccess: () => {
       invalidateQueries.calendar()
+      void refetchSignedInProfile(queryClient)
     },
   })
 }

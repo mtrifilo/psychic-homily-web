@@ -79,9 +79,6 @@ type CalendarTokenStatusResponse struct {
 	FeedURL        string     `json:"feed_url,omitempty" doc:"Saved-shows iCal subscribe URL, present when url_recoverable is true"`
 	FollowsFeedURL string     `json:"follows_feed_url,omitempty" doc:"Followed-artist Atom subscribe URL, present when url_recoverable is true"`
 	URLRecoverable bool       `json:"url_recoverable" doc:"Whether this response carries the feed URLs. False while has_token is true means the URLs cannot be shown to this caller: the token was minted before its URL was stored (regenerating replaces it with one that is), or the caller is not a signed-in session."`
-	// SyncChoice is not set by CalendarServiceInterface: the user's
-	// preferences own it, and the status handler fills it in.
-	SyncChoice *authm.CalendarSync `json:"sync_choice" doc:"The user's calendar sync choice; null when they have not decided"`
 }
 
 // WithoutFeedURLs is s as a caller that may not receive the feed URLs sees
@@ -387,8 +384,8 @@ type CalendarServiceInterface interface {
 	// them returns CalendarTokenStatusResponse.WithoutFeedURLs.
 	GetTokenStatus(userID uint, apiBaseURL string) (*CalendarTokenStatusResponse, error)
 	// DeleteToken removes userID's feed token and, in the same transaction,
-	// resets their calendar sync choice to "not decided". CreateToken leaves
-	// the choice alone.
+	// resets their calendar sync choice to "not decided"; with no token it
+	// changes nothing. CreateToken leaves the choice alone.
 	DeleteToken(userID uint) error
 	ValidateCalendarToken(plainToken string) (*authm.User, error)
 	GenerateICSFeed(userID uint, frontendURL string) ([]byte, error)

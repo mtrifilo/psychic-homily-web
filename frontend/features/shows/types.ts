@@ -471,9 +471,12 @@ interface CalendarSyncBase {
 
 /**
  * The stored calendar decision (`user_preferences.calendar_sync`), narrowed
- * per state from the flat generated schema. PUT replaces it whole, so a write
- * carries the merged provider list. An expired `not_now` is returned as
- * stored: compare `declined_until` with the clock.
+ * per state from the flat generated schema (calendarSyncChoice.test.ts keeps
+ * the states in step). PUT replaces it whole, so a write carries the merged
+ * provider list. An expired `not_now` is returned as stored: compare
+ * `declined_until` with the clock. `connected` does not imply a feed token: a
+ * credential revocation deletes the token and leaves the choice, so check
+ * `has_token` too.
  */
 export type CalendarSyncChoice =
   | (CalendarSyncBase & {

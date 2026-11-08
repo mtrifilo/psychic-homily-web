@@ -11,6 +11,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/logger"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/respond"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
@@ -185,7 +186,21 @@ type GetCalendarTokenStatusRequest struct{}
 // the feed URLs, which are bearer credentials, so no cache may keep it.
 type GetCalendarTokenStatusResponse struct {
 	CacheControl string `header:"Cache-Control"`
-	Body         contracts.CalendarTokenStatusResponse
+	Body         CalendarStatusBody
+}
+
+// CalendarStatusBody is the token status plus the user's calendar sync
+// choice, so a calendar surface reads both in one request. The choice is
+// composed here rather than on contracts.CalendarTokenStatusResponse because
+// the user's preferences own it, not the calendar service; a status from the
+// service alone therefore cannot claim the user is undecided.
+//
+// The choice is a preference, not a credential, so it is never withheld by
+// the feed-URL redaction. "connected" does not imply has_token: a credential
+// revocation deletes the token and leaves the choice as it was.
+type CalendarStatusBody struct {
+	contracts.CalendarTokenStatusResponse
+	SyncChoice *authm.CalendarSync `json:"sync_choice" doc:"The user's calendar sync choice; null when they have not decided. connected does not imply has_token: a credential revocation deletes the token and leaves the choice."`
 }
 
 // GetCalendarTokenStatusHandler reports whether the caller holds a feed token
@@ -226,15 +241,15 @@ func (h *CalendarHandler) GetCalendarTokenStatusHandler(ctx context.Context, req
 		)
 	}
 
-	body := *status
+	token := *status
 	if !middleware.IsSessionCredentialFromContext(ctx) {
-		body = body.WithoutFeedURLs()
+		token = token.WithoutFeedURLs()
 	}
-	// Set after the redaction on purpose: the choice is a preference, not a
-	// credential, and the profile payload already carries it to every caller.
-	body.SyncChoice = syncChoice
 
-	return &GetCalendarTokenStatusResponse{CacheControl: "no-store", Body: body}, nil
+	return &GetCalendarTokenStatusResponse{
+		CacheControl: "no-store",
+		Body:         CalendarStatusBody{CalendarTokenStatusResponse: token, SyncChoice: syncChoice},
+	}, nil
 }
 
 // DeleteCalendarTokenRequest is empty — user is derived from JWT context

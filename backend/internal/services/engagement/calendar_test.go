@@ -948,8 +948,9 @@ func (suite *CalendarIntegrationTestSuite) TestCreateToken_LeavesTheSyncChoice()
 	suite.Equal(before, suite.calendarSyncColumn(user.ID))
 }
 
-// The other token deleter, used when a credential is revoked rather than the
-// calendar turned off, leaves the choice alone.
+// The deleter a credential revocation uses removes the token and keeps the
+// choice, which is why a stored "connected" does not imply a token exists.
+// If revocation is made to clear the choice, this test changes with it.
 func (suite *CalendarIntegrationTestSuite) TestDeleteCalendarTokensTx_LeavesTheSyncChoice() {
 	user := suite.createTestUser(true)
 	suite.storeCalendarSyncChoice(user.ID)

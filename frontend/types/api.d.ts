@@ -9035,6 +9035,19 @@ export interface components {
             /** Format: int64 */
             venue_id: number;
         };
+        CalendarStatusBody: {
+            /** Format: date-time */
+            created_at?: string;
+            /** @description Saved-shows iCal subscribe URL, present when url_recoverable is true */
+            feed_url?: string;
+            /** @description Followed-artist Atom subscribe URL, present when url_recoverable is true */
+            follows_feed_url?: string;
+            has_token: boolean;
+            /** @description The user's calendar sync choice; null when they have not decided. connected does not imply has_token: a credential revocation deletes the token and leaves the choice. */
+            sync_choice: components["schemas"]["CalendarSync"];
+            /** @description Whether this response carries the feed URLs. False while has_token is true means the URLs cannot be shown to this caller: the token was minted before its URL was stored (regenerating replaces it with one that is), or the caller is not a signed-in session. */
+            url_recoverable: boolean;
+        };
         CalendarSync: {
             /**
              * Format: date-time
@@ -9075,19 +9088,6 @@ export interface components {
             feed_url: string;
             follows_feed_url: string;
             token: string;
-        };
-        CalendarTokenStatusResponse: {
-            /** Format: date-time */
-            created_at?: string;
-            /** @description Saved-shows iCal subscribe URL, present when url_recoverable is true */
-            feed_url?: string;
-            /** @description Followed-artist Atom subscribe URL, present when url_recoverable is true */
-            follows_feed_url?: string;
-            has_token: boolean;
-            /** @description The user's calendar sync choice; null when they have not decided */
-            sync_choice: components["schemas"]["CalendarSync"];
-            /** @description Whether this response carries the feed URLs. False while has_token is true means the URLs cannot be shown to this caller: the token was minted before its URL was stored (regenerating replaces it with one that is), or the caller is not a signed-in session. */
-            url_recoverable: boolean;
         };
         CancelMyPendingEntityEditResponseBody: {
             success: boolean;
@@ -24543,7 +24543,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CalendarTokenStatusResponse"];
+                    "application/json": components["schemas"]["CalendarStatusBody"];
                 };
             };
             /** @description Error */

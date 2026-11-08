@@ -340,11 +340,12 @@ func (s *CalendarService) GetTokenStatus(userID uint, apiBaseURL string) (*contr
 
 // DeleteToken turns the user's calendar off: it removes their feed token and
 // resets their calendar sync choice to "not decided", in one transaction, so
-// no reader sees a choice of connected that outlives the feed it named. With
-// no token to delete it changes nothing and reports an error.
+// a turned-off calendar never reads as still connected. With no token to
+// delete it changes nothing, the choice included, and reports an error.
 //
-// The other token deleters (DeleteCalendarTokensTx's callers) leave the
-// choice alone: they revoke a credential, they do not record a decision.
+// This is the only token deleter that touches the choice. A credential
+// revocation deletes the token through DeleteCalendarTokensTx and leaves the
+// choice as it was, so a stored "connected" does not imply a token exists.
 func (s *CalendarService) DeleteToken(userID uint) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
@@ -368,7 +369,7 @@ func (s *CalendarService) DeleteToken(userID uint) error {
 }
 
 // errNoCalendarToken is DeleteToken's report that there was nothing to turn
-// off. Callers match its text, so it is not reworded.
+// off. TestDeleteToken_NotFound pins its text.
 var errNoCalendarToken = errors.New("no calendar token found")
 
 // DeleteCalendarTokensTx revokes userID's calendar-feed token through tx,
