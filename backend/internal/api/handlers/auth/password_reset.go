@@ -230,7 +230,8 @@ func (r *CompletePasswordResetResponse) setRefusal(code, message string) {
 
 // CompletePasswordResetHandler sets a new password with an emailed reset
 // link, replacing whatever password the account holds, signs every other
-// session out and signs this browser in. Passkeys stay.
+// session out, revokes the calendar-feed token and signs this browser in.
+// Passkeys stay.
 func (h *AuthHandler) CompletePasswordResetHandler(ctx context.Context, input *CompletePasswordResetRequest) (*CompletePasswordResetResponse, error) {
 	resp := &CompletePasswordResetResponse{}
 	resp.Body.RequestID = logger.GetRequestID(ctx)

@@ -26,7 +26,7 @@ import (
 // The emailed password reset driven through the ROUTER: the request queues a
 // row, the outbox sends the real email through a recording provider, and the
 // link in that email opens, sets the password once, signs this browser in
-// and signs the earlier session out.
+// and signs the earlier session out, and the calendar-feed URL stops working.
 
 // sentEmails records every email the provider is asked to send.
 type sentEmails struct {
@@ -178,6 +178,13 @@ func TestPasswordResetRoutesThroughRouter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	squatterFeed, err := f.sc.Calendar.CreateToken(owner.ID, nil, "http://localhost:8080")
+	if err != nil {
+		t.Fatalf("create calendar token: %v", err)
+	}
+	if code := feedStatus(t, f.router, squatterFeed.Token); code != http.StatusOK {
+		t.Fatalf("before the reset, the calendar feed answered %d, want 200", code)
+	}
 
 	unknown := f.post(t, "/auth/password-reset/request", `{"email":"nobody@test.com"}`, "")
 	closed := f.post(t, "/auth/password-reset/request", `{"email":"reset-closed@test.com"}`, "")
@@ -234,6 +241,9 @@ func TestPasswordResetRoutesThroughRouter(t *testing.T) {
 	}
 	if code := f.profileStatus(t, squatterSession); code != http.StatusUnauthorized {
 		t.Errorf("the earlier session reads the profile with %d, want 401", code)
+	}
+	if code := feedStatus(t, f.router, squatterFeed.Token); code != http.StatusUnauthorized {
+		t.Errorf("after the reset, the calendar feed answered %d, want 401", code)
 	}
 
 	login := f.post(t, "/auth/login", `{"email":"reset-owner@test.com","password":"owners-new-password-1!"}`, "")

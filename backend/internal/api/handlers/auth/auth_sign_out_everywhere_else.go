@@ -39,9 +39,9 @@ type SignOutEverywhereElseResponse struct {
 
 // SignOutEverywhereElseHandler signs out every session the account holds
 // except the caller's, which it renews in the same step keeping its
-// authentication time. Only a session caller is served, so the renewal
-// replaces a session the caller already held and adds no way in; it is
-// therefore not gated on a recent authentication
+// authentication time, and revokes the calendar-feed token. Only a session
+// caller is served, so the renewal replaces a session the caller already held
+// and adds no way in; it is therefore not gated on a recent authentication
 // (middleware.RequireRecentSessionAuth covers adding only).
 func (h *AuthHandler) SignOutEverywhereElseHandler(ctx context.Context, _ *struct{}) (*SignOutEverywhereElseResponse, error) {
 	contextUser := middleware.GetUserFromContext(ctx)
