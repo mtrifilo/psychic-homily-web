@@ -211,8 +211,7 @@ func TestRobotsTxtAllowsExactlyTheServedFeedRoutes(t *testing.T) {
 		})
 		return strings.ReplaceAll(path, "*", "x")
 	}
-	// The saved-shows download ends in .ics but is not a feed: it needs a
-	// session, so a crawler gets a 401 from it and robots.txt keeps it out.
+	// See robotsTxtBody for why the saved-shows download is not a feed.
 	isFeed := func(pattern string) bool {
 		if pattern == savedShowsCalendarDownloadRoute {
 			return false

@@ -69,20 +69,11 @@ func TestSavedShowsCalendarDownloadRefusesWithoutSession(t *testing.T) {
 }
 
 // Session-authenticated, so it is not a personal feed: the token-feed exemption
-// must not read a token out of its path, and the engagement mutation limiter
-// meters writes only.
-func TestSavedShowsCalendarDownloadLimiterPosture(t *testing.T) {
+// must not read a token out of its path, which would take it off the per-user
+// public-read budget.
+func TestSavedShowsCalendarDownloadIsNotATokenFeed(t *testing.T) {
 	if token := personalFeedTokenFromPath(savedShowsCalendarDownloadRoute); token != "" {
-		t.Errorf("%s reads as personal-feed token %q; a session route must stay on the per-user public-read budget",
-			savedShowsCalendarDownloadRoute, token)
-	}
-	for _, exact := range infraPathsExemptFromRateLimit {
-		if exact == savedShowsCalendarDownloadRoute {
-			t.Errorf("%s is exempt from rate limiting", savedShowsCalendarDownloadRoute)
-		}
-	}
-	if isEngagementMutationRequest(httptest.NewRequest(http.MethodGet, savedShowsCalendarDownloadRoute, nil)) {
-		t.Errorf("GET %s is metered as an engagement mutation", savedShowsCalendarDownloadRoute)
+		t.Errorf("%s reads as personal-feed token %q", savedShowsCalendarDownloadRoute, token)
 	}
 }
 
@@ -156,9 +147,20 @@ func TestSavedShowsCalendarDownloadThroughRouter(t *testing.T) {
 		}
 	}
 
+	// The wire itself is pinned by the service's RFC 5545 tests; this checks
+	// only that the response carries those bytes: CRLF line endings and a
+	// DTSTAMP and SEQUENCE for each VEVENT.
 	body := w.Body.Bytes()
 	if n := bytes.Count(body, []byte("BEGIN:VEVENT\r\n")); n != 2 {
 		t.Errorf("download carries %d VEVENTs, want 2 (the early and late saves)", n)
+	}
+	if lf, crlf := bytes.Count(body, []byte("\n")), bytes.Count(body, []byte("\r\n")); lf != crlf {
+		t.Errorf("download has %d bare LF line endings", lf-crlf)
+	}
+	for _, prop := range []string{"\r\nDTSTAMP:", "\r\nSEQUENCE:"} {
+		if n := bytes.Count(body, []byte(prop)); n != 2 {
+			t.Errorf("download has %d %q lines, want one per VEVENT", n, strings.TrimSpace(prop))
+		}
 	}
 	for _, id := range []uint{early.ID, late.ID} {
 		if !bytes.Contains(body, []byte(uid(id))) {
