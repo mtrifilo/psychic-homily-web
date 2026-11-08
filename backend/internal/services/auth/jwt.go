@@ -212,21 +212,11 @@ func believableTimeClaim(claims jwt.MapClaims, name string, now time.Time) time.
 	return time.Unix(int64(value), 0).UTC()
 }
 
-// SessionFacts are what a validated session token establishes beyond the
-// principal. AuthAt is when an authentication factor last completed, zero when
-// the token names none. IssuedAt is when this token was minted: a renewal mints
-// a new token, so it is the age of the session for renewal, zero when the
-// token carries no believable iat.
-type SessionFacts struct {
-	AuthAt   time.Time
-	IssuedAt time.Time
-}
-
 // sessionFactsFromClaims reads auth_at and iat against one instant, so the two
 // bounds cannot disagree within a parse.
-func sessionFactsFromClaims(claims jwt.MapClaims) SessionFacts {
+func sessionFactsFromClaims(claims jwt.MapClaims) contracts.SessionFacts {
 	now := time.Now()
-	return SessionFacts{
+	return contracts.SessionFacts{
 		AuthAt:   believableTimeClaim(claims, jwtAuthTimeClaim, now),
 		IssuedAt: believableTimeClaim(claims, "iat", now),
 	}
@@ -285,14 +275,14 @@ func sessionMintedBeforeRevocation(claims jwt.MapClaims, user *authm.User) bool 
 // Callers that gate on freshness or on age take the times from here rather
 // than re-reading the token, so one parse serves all of them and there is one
 // notion of what a valid session is.
-func (s *JWTService) ValidateSessionFacts(tokenString string) (*authm.User, SessionFacts, error) {
+func (s *JWTService) ValidateSessionFacts(tokenString string) (*authm.User, contracts.SessionFacts, error) {
 	claims, err := s.parseSessionToken(tokenString)
 	if err != nil {
-		return nil, SessionFacts{}, err
+		return nil, contracts.SessionFacts{}, err
 	}
 	user, err := s.userFromSessionClaims(claims)
 	if err != nil {
-		return nil, SessionFacts{}, err
+		return nil, contracts.SessionFacts{}, err
 	}
 	return user, sessionFactsFromClaims(claims), nil
 }
@@ -311,10 +301,10 @@ func (s *JWTService) ValidateToken(tokenString string) (*authm.User, error) {
 	return user, err
 }
 
-// ValidateSessionLenientFacts is ValidateSessionFacts for the refresh path: it
-// also accepts a token whose expiry is at most gracePeriod in the past, so a
-// client whose session lapsed recently can renew rather than sign in again.
-func (s *JWTService) ValidateSessionLenientFacts(tokenString string, gracePeriod time.Duration) (*authm.User, SessionFacts, error) {
+// ValidateSessionLenient is ValidateSessionFacts for the refresh path: it also
+// accepts a token whose expiry is at most gracePeriod in the past, so a client
+// whose session lapsed recently can renew rather than sign in again.
+func (s *JWTService) ValidateSessionLenient(tokenString string, gracePeriod time.Duration) (*authm.User, contracts.SessionFacts, error) {
 	// The unexpired case is the common one and needs no second parse.
 	if user, facts, err := s.ValidateSessionFacts(tokenString); err == nil {
 		return user, facts, nil
@@ -322,20 +312,13 @@ func (s *JWTService) ValidateSessionLenientFacts(tokenString string, gracePeriod
 
 	claims, err := s.parseSessionTokenLenient(tokenString, gracePeriod)
 	if err != nil {
-		return nil, SessionFacts{}, err
+		return nil, contracts.SessionFacts{}, err
 	}
 	user, err := s.userFromSessionClaims(claims)
 	if err != nil {
-		return nil, SessionFacts{}, err
+		return nil, contracts.SessionFacts{}, err
 	}
 	return user, sessionFactsFromClaims(claims), nil
-}
-
-// ValidateSessionLenient is ValidateSessionLenientFacts for callers that need
-// only the authentication time.
-func (s *JWTService) ValidateSessionLenient(tokenString string, gracePeriod time.Duration) (*authm.User, time.Time, error) {
-	user, facts, err := s.ValidateSessionLenientFacts(tokenString, gracePeriod)
-	return user, facts.AuthAt, err
 }
 
 // parseSessionTokenLenient verifies a session JWT's signature and claims the way

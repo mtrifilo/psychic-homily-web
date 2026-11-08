@@ -56,7 +56,7 @@ func TestValidateSessionFacts_IssuedAtAbsentOrUnbelievableIsZero(t *testing.T) {
 }
 
 // A token inside the refresh grace still reports how old it is.
-func TestValidateSessionLenientFacts_ReadsIssuedAtAcrossExpiry(t *testing.T) {
+func TestValidateSessionLenient_ReadsIssuedAtAcrossExpiry(t *testing.T) {
 	svc := authTimeTestService(t, authTimeTestSecret, 24)
 	issued := time.Now().Add(-26 * time.Hour).Truncate(time.Second)
 	token := signSessionClaims(t, authTimeTestSecret, jwt.MapClaims{
@@ -66,7 +66,7 @@ func TestValidateSessionLenientFacts_ReadsIssuedAtAcrossExpiry(t *testing.T) {
 
 	_, _, err := svc.ValidateSessionFacts(token)
 	require.Error(t, err, "the strict reader refuses an expired token")
-	_, facts, err := svc.ValidateSessionLenientFacts(token, 7*24*time.Hour)
+	_, facts, err := svc.ValidateSessionLenient(token, 7*24*time.Hour)
 	require.NoError(t, err)
 	assert.True(t, facts.IssuedAt.Equal(issued))
 }

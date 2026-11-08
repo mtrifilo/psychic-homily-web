@@ -267,10 +267,10 @@ func TestValidateSessionLenient_ReadsAuthTimeAcrossExpiry(t *testing.T) {
 	_, _, err = svc.ValidateSession(token)
 	require.Error(t, err, "the strict reader refuses an expired token")
 
-	user, authAt, err := svc.ValidateSessionLenient(token, time.Hour)
+	user, facts, err := svc.ValidateSessionLenient(token, time.Hour)
 	require.NoError(t, err)
 	require.NotNil(t, user)
-	assert.WithinDuration(t, time.Now(), authAt, 10*time.Second)
+	assert.WithinDuration(t, time.Now(), facts.AuthAt, 10*time.Second)
 
 	_, _, err = svc.ValidateSessionLenient(token, time.Nanosecond)
 	assert.Error(t, err, "past the grace period it is refused like any other expired token")

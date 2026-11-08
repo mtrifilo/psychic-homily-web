@@ -416,6 +416,16 @@ type AuthServiceInterface interface {
 // JWT Service Interface
 // ──────────────────────────────────────────────
 
+// SessionFacts are what a validated session token establishes beyond the
+// principal. AuthAt is when an authentication factor last completed, zero when
+// the token names none. IssuedAt is when this token was minted: a renewal mints
+// a new token, so it is the age of the session for renewal, zero when the
+// token carries no believable iat.
+type SessionFacts struct {
+	AuthAt   time.Time
+	IssuedAt time.Time
+}
+
 // JWTServiceInterface defines the contract for JWT token operations.
 type JWTServiceInterface interface {
 	// CreateToken mints a session for a caller that has just completed an
@@ -427,7 +437,9 @@ type JWTServiceInterface interface {
 	// ValidateSession is the reader that also yields the session's
 	// authentication time; ValidateToken discards it.
 	ValidateSession(tokenString string) (*authm.User, time.Time, error)
-	ValidateSessionLenient(tokenString string, gracePeriod time.Duration) (*authm.User, time.Time, error)
+	// ValidateSessionLenient is the refresh-path reader: it also accepts a
+	// session whose expiry is at most gracePeriod in the past.
+	ValidateSessionLenient(tokenString string, gracePeriod time.Duration) (*authm.User, SessionFacts, error)
 	ValidateToken(tokenString string) (*authm.User, error)
 	CreateVerificationToken(userID uint, email string) (string, error)
 	ValidateVerificationToken(tokenString string) (*VerificationTokenClaims, error)

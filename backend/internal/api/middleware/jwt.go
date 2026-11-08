@@ -57,7 +57,7 @@ const (
 // request: the principal, the session facts, whether the credential was a
 // session, and, for a session, where it was read from. One writer, so a new
 // fact cannot be added to three middlewares and forgotten in the fourth.
-func withPrincipal(ctx context.Context, user *authm.User, facts auth.SessionFacts, isSession bool, source string) context.Context {
+func withPrincipal(ctx context.Context, user *authm.User, facts contracts.SessionFacts, isSession bool, source string) context.Context {
 	ctx = context.WithValue(ctx, UserContextKey, user)
 	ctx = context.WithValue(ctx, SessionAuthTimeContextKey, facts.AuthAt)
 	ctx = context.WithValue(ctx, SessionIssuedAtContextKey, facts.IssuedAt)
@@ -241,7 +241,7 @@ func HumaJWTMiddleware(jwtService *auth.JWTService, sessionConfig ...config.Sess
 		var user *authm.User
 		// Zero unless the JWT branch below establishes them: an API-token
 		// principal is never recently authenticated and has no session age.
-		var facts auth.SessionFacts
+		var facts contracts.SessionFacts
 		// False unless the JWT branch below establishes the principal.
 		var isSession bool
 
@@ -325,7 +325,7 @@ func LenientHumaJWTMiddleware(jwtService *auth.JWTService, gracePeriod time.Dura
 		)
 
 		// Validate with grace period for expired tokens
-		user, facts, err := jwtService.ValidateSessionLenientFacts(token, gracePeriod)
+		user, facts, err := jwtService.ValidateSessionLenient(token, gracePeriod)
 		if err != nil {
 			errorCode := autherrors.CodeTokenInvalid
 			message := invalidTokenMessage
@@ -368,7 +368,7 @@ func OptionalHumaJWTMiddleware(jwtService *auth.JWTService) func(ctx huma.Contex
 		}
 
 		var user *authm.User
-		var facts auth.SessionFacts
+		var facts contracts.SessionFacts
 		var isSession bool
 
 		if strings.HasPrefix(token, APITokenPrefix) {
