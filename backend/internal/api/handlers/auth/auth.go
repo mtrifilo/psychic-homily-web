@@ -204,7 +204,7 @@ type LoginRequest struct {
 
 // LoginResponse represents login response
 type LoginResponse struct {
-	SetCookie []http.Cookie `header:"Set-Cookie" doc:"Authentication cookie, and the cleared pending-link cookie when the request carried one"`
+	SetCookie setCookieLines `header:"Set-Cookie" doc:"Authentication cookie, and the cleared pending-link cookie when the request carried one"`
 	Body      struct {
 		Success   bool        `json:"success" example:"true" doc:"Success status"`
 		Message   string      `json:"message" example:"Login successful" doc:"Response message"`
@@ -345,7 +345,7 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 		linked := false
 		var linkErr error
 		if pendingLink != "" {
-			resp.SetCookie = append(resp.SetCookie, clearedPendingLinkCookie(secure))
+			resp.SetCookie.add(clearedPendingLinkCookie(secure))
 			linked, linkErr = h.authService.LinkOAuthWithPassword(pendingLink, user)
 		}
 		refusal, refused := refusalWithOwnCopy(linkErr)
@@ -395,7 +395,7 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 	}
 
 	// Set HTTP-only cookie using Huma's built-in support
-	resp.SetCookie = append(resp.SetCookie, h.config.NewSessionCookie(token))
+	resp.SetCookie.add(h.config.NewSessionCookie(token))
 
 	logger.AuthInfo(ctx, "login_success",
 		"user_id", user.ID,
@@ -533,8 +533,8 @@ type UserProfileResponse struct {
 // The header is the serialized cookie as a string, not an http.Cookie, because
 // a Bearer caller must get no header at all: Huma writes a zero http.Cookie
 // through String() as an empty "Set-Cookie:" line (ChangePasswordResponse
-// tolerates that), writes a []http.Cookie's struct fields as headers of their
-// own (the login defect), and omits only an empty string.
+// tolerates that), writes the struct fields of a slice of http.Cookie as
+// headers of their own (see setCookieLines), and omits only an empty string.
 type RefreshTokenResponse struct {
 	SetCookie string `header:"Set-Cookie" doc:"The renewed session as a Set-Cookie value, when the request presented the session as the auth cookie; absent for a Bearer credential, which gets the token in the body instead"`
 	Body      struct {

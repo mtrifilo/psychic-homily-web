@@ -1039,11 +1039,12 @@ func TestLoginHandler_Success(t *testing.T) {
 	if resp.Body.User == nil || resp.Body.User.ID != 1 {
 		t.Error("expected user in response")
 	}
-	if len(resp.SetCookie) != 1 || resp.SetCookie[0].Name != config.AuthCookieName {
-		t.Errorf("expected one cookie named %s, got %+v", config.AuthCookieName, resp.SetCookie)
+	cookies := parsedSetCookies(t, resp.SetCookie)
+	if len(cookies) != 1 || cookies[0].Name != config.AuthCookieName {
+		t.Fatalf("expected one cookie named %s, got %q", config.AuthCookieName, resp.SetCookie)
 	}
 	want := h.config.JWT.SessionLifetime()
-	if lifetime := time.Until(resp.SetCookie[0].Expires); lifetime < want-time.Minute || lifetime > want {
+	if lifetime := time.Until(cookies[0].Expires); lifetime < want-time.Minute || lifetime > want {
 		t.Errorf("cookie lifetime = %v, want the configured session lifetime %v", lifetime, want)
 	}
 }
