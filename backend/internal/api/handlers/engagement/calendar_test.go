@@ -202,7 +202,7 @@ func TestGetCalendarTokenStatusHandler_NoAuth(t *testing.T) {
 func TestGetCalendarTokenStatusHandler_HasToken(t *testing.T) {
 	now := time.Now()
 	mock := &testhelpers.MockCalendarService{
-		GetTokenStatusFn: func(userID uint) (*contracts.CalendarTokenStatusResponse, error) {
+		GetTokenStatusFn: func(userID uint, _ string) (*contracts.CalendarTokenStatusResponse, error) {
 			return &contracts.CalendarTokenStatusResponse{
 				HasToken:  true,
 				CreatedAt: &now,
@@ -223,7 +223,7 @@ func TestGetCalendarTokenStatusHandler_HasToken(t *testing.T) {
 
 func TestGetCalendarTokenStatusHandler_NoToken(t *testing.T) {
 	mock := &testhelpers.MockCalendarService{
-		GetTokenStatusFn: func(userID uint) (*contracts.CalendarTokenStatusResponse, error) {
+		GetTokenStatusFn: func(userID uint, _ string) (*contracts.CalendarTokenStatusResponse, error) {
 			return &contracts.CalendarTokenStatusResponse{HasToken: false}, nil
 		},
 	}
@@ -239,9 +239,75 @@ func TestGetCalendarTokenStatusHandler_NoToken(t *testing.T) {
 	}
 }
 
+// recoverableStatusService answers status with feed URLs built on the base the
+// handler passes, the way the real service does for a stored plaintext.
+func recoverableStatusService(gotBaseURL *string) *testhelpers.MockCalendarService {
+	return &testhelpers.MockCalendarService{
+		GetTokenStatusFn: func(_ uint, apiBaseURL string) (*contracts.CalendarTokenStatusResponse, error) {
+			*gotBaseURL = apiBaseURL
+			now := time.Now()
+			return &contracts.CalendarTokenStatusResponse{
+				HasToken:       true,
+				CreatedAt:      &now,
+				FeedURL:        apiBaseURL + "/feeds/phcal_abc/saved-shows.ics",
+				FollowsFeedURL: apiBaseURL + "/feeds/phcal_abc/follows.atom",
+				URLRecoverable: true,
+			}, nil
+		},
+	}
+}
+
+// A session caller is shown the URLs, built on the same API origin the mint
+// uses, and no cache may keep the response.
+func TestGetCalendarTokenStatusHandler_SessionGetsURLsUncached(t *testing.T) {
+	var gotBaseURL string
+	cfg := &config.Config{
+		Server: config.ServerConfig{Addr: "0.0.0.0:8080"},
+		Email:  config.EmailConfig{FrontendURL: "https://www.psychichomily.com"},
+	}
+	h := NewCalendarHandler(recoverableStatusService(&gotBaseURL), cfg)
+	ctx := testhelpers.CtxWithSession(&authm.User{ID: 1}, time.Now().Add(-2*time.Hour))
+
+	resp, err := h.GetCalendarTokenStatusHandler(ctx, &GetCalendarTokenStatusRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotBaseURL != "https://api.psychichomily.com" {
+		t.Errorf("apiBaseURL = %q, want the API origin", gotBaseURL)
+	}
+	if !resp.Body.URLRecoverable || resp.Body.FeedURL == "" || resp.Body.FollowsFeedURL == "" {
+		t.Errorf("a session caller must get both URLs, got %+v", resp.Body)
+	}
+	if resp.CacheControl != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", resp.CacheControl)
+	}
+}
+
+// An API-token principal learns that a token exists and when it was minted,
+// never the URLs.
+func TestGetCalendarTokenStatusHandler_APITokenPrincipalGetsNoURLs(t *testing.T) {
+	var gotBaseURL string
+	h := NewCalendarHandler(recoverableStatusService(&gotBaseURL), testCalendarConfig())
+	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1}, time.Time{})
+
+	resp, err := h.GetCalendarTokenStatusHandler(ctx, &GetCalendarTokenStatusRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.HasToken || resp.Body.CreatedAt == nil {
+		t.Errorf("an API-token principal still sees has_token and created_at, got %+v", resp.Body)
+	}
+	if resp.Body.FeedURL != "" || resp.Body.FollowsFeedURL != "" || resp.Body.URLRecoverable {
+		t.Errorf("an API-token principal must get no URLs, got %+v", resp.Body)
+	}
+	if resp.CacheControl != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", resp.CacheControl)
+	}
+}
+
 func TestGetCalendarTokenStatusHandler_ServiceError(t *testing.T) {
 	mock := &testhelpers.MockCalendarService{
-		GetTokenStatusFn: func(_ uint) (*contracts.CalendarTokenStatusResponse, error) {
+		GetTokenStatusFn: func(_ uint, _ string) (*contracts.CalendarTokenStatusResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}

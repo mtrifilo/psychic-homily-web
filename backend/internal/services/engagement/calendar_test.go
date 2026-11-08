@@ -18,6 +18,7 @@ import (
 
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -800,21 +801,64 @@ func (suite *CalendarIntegrationTestSuite) TestCreateToken_ReplacesExisting() {
 
 func (suite *CalendarIntegrationTestSuite) TestGetTokenStatus_NoToken() {
 	user := suite.createTestUser(true)
-	status, err := suite.svc.GetTokenStatus(user.ID)
+	status, err := suite.svc.GetTokenStatus(user.ID, "http://localhost:8080")
 	suite.Require().NoError(err)
 	suite.False(status.HasToken)
 	suite.Nil(status.CreatedAt)
+	suite.False(status.URLRecoverable)
+	suite.Empty(status.FeedURL)
+	suite.Empty(status.FollowsFeedURL)
 }
 
+// A freshly minted token's URLs are readable again from status, identical to
+// the ones the mint returned, on the base the status call names.
 func (suite *CalendarIntegrationTestSuite) TestGetTokenStatus_HasToken() {
 	user := suite.createTestUser(true)
-	_, err := suite.svc.CreateToken(user.ID, user.SessionsValidAfter, "http://localhost:8080")
+	minted, err := suite.svc.CreateToken(user.ID, user.SessionsValidAfter, "https://api.example.test")
 	suite.Require().NoError(err)
 
-	status, err := suite.svc.GetTokenStatus(user.ID)
+	status, err := suite.svc.GetTokenStatus(user.ID, "https://api.example.test")
 	suite.Require().NoError(err)
 	suite.True(status.HasToken)
 	suite.NotNil(status.CreatedAt)
+	suite.True(status.URLRecoverable)
+	suite.Equal(minted.FeedURL, status.FeedURL)
+	suite.Equal(minted.FollowsFeedURL, status.FollowsFeedURL)
+}
+
+// The plaintext is stored beside the hash, and the hash is still what a feed
+// request is looked up by.
+func (suite *CalendarIntegrationTestSuite) TestCreateToken_StoresPlaintextBesideHash() {
+	user := suite.createTestUser(true)
+	minted, err := suite.svc.CreateToken(user.ID, user.SessionsValidAfter, "http://localhost:8080")
+	suite.Require().NoError(err)
+
+	var row engagementm.CalendarToken
+	suite.Require().NoError(suite.db.Where("user_id = ?", user.ID).First(&row).Error)
+	suite.Require().NotNil(row.Token)
+	suite.Equal(minted.Token, *row.Token)
+	suite.Equal(hashCalendarToken(minted.Token), row.TokenHash)
+}
+
+// A row minted before the plaintext was stored still reports that a token
+// exists, and reports it unrecoverable with no URLs; the token keeps working.
+func (suite *CalendarIntegrationTestSuite) TestGetTokenStatus_HashOnlyRowIsUnrecoverable() {
+	user := suite.createTestUser(true)
+	minted, err := suite.svc.CreateToken(user.ID, user.SessionsValidAfter, "http://localhost:8080")
+	suite.Require().NoError(err)
+	suite.Require().NoError(suite.db.Exec("UPDATE calendar_tokens SET token = NULL WHERE user_id = ?", user.ID).Error)
+
+	status, err := suite.svc.GetTokenStatus(user.ID, "http://localhost:8080")
+	suite.Require().NoError(err)
+	suite.True(status.HasToken)
+	suite.NotNil(status.CreatedAt)
+	suite.False(status.URLRecoverable)
+	suite.Empty(status.FeedURL)
+	suite.Empty(status.FollowsFeedURL)
+
+	validated, err := suite.svc.ValidateCalendarToken(minted.Token)
+	suite.Require().NoError(err)
+	suite.Equal(user.ID, validated.ID)
 }
 
 // =============================================================================
@@ -834,7 +878,7 @@ func (suite *CalendarIntegrationTestSuite) TestDeleteToken_Success() {
 	suite.Error(err)
 
 	// Status should show no token
-	status, err := suite.svc.GetTokenStatus(user.ID)
+	status, err := suite.svc.GetTokenStatus(user.ID, "http://localhost:8080")
 	suite.Require().NoError(err)
 	suite.False(status.HasToken)
 }

@@ -70,10 +70,15 @@ type CalendarTokenCreateResponse struct {
 	CreatedAt      time.Time `json:"created_at"`
 }
 
-// CalendarTokenStatusResponse is returned for token status checks
+// CalendarTokenStatusResponse is returned for token status checks. The raw
+// token is never part of it. FeedURL and FollowsFeedURL are set exactly when
+// URLRecoverable is true.
 type CalendarTokenStatusResponse struct {
-	HasToken  bool       `json:"has_token"`
-	CreatedAt *time.Time `json:"created_at,omitempty"`
+	HasToken       bool       `json:"has_token"`
+	CreatedAt      *time.Time `json:"created_at,omitempty"`
+	FeedURL        string     `json:"feed_url,omitempty" doc:"Saved-shows iCal subscribe URL, present when url_recoverable is true"`
+	FollowsFeedURL string     `json:"follows_feed_url,omitempty" doc:"Followed-artist Atom subscribe URL, present when url_recoverable is true"`
+	URLRecoverable bool       `json:"url_recoverable" doc:"Whether this response carries the feed URLs. False while has_token is true means the URLs cannot be shown to this caller: the token was minted before its URL was stored (regenerating replaces it with one that is), or the caller is not a signed-in session."`
 }
 
 // ──────────────────────────────────────────────
@@ -365,7 +370,10 @@ type CalendarServiceInterface interface {
 	// shared.LockSessionAccount's refusals, and mints nothing, when the
 	// account may not sign in or that session has been revoked since.
 	CreateToken(userID uint, sessionsValidAfter *time.Time, apiBaseURL string) (*CalendarTokenCreateResponse, error)
-	GetTokenStatus(userID uint) (*CalendarTokenStatusResponse, error)
+	// GetTokenStatus reports whether userID holds a feed token and, when its
+	// plaintext is stored, the subscribe URLs built on apiBaseURL. The URLs
+	// are a bearer credential: the caller decides who may receive them.
+	GetTokenStatus(userID uint, apiBaseURL string) (*CalendarTokenStatusResponse, error)
 	DeleteToken(userID uint) error
 	ValidateCalendarToken(plainToken string) (*authm.User, error)
 	GenerateICSFeed(userID uint, frontendURL string) ([]byte, error)

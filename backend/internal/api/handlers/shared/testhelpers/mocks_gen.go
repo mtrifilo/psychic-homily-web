@@ -688,7 +688,7 @@ func (m *MockBandcampProfileFiller) FillProfileResolvedEmbedFromBandcamp(artistI
 
 type MockCalendarService struct {
 	CreateTokenFn                 func(uint, *time.Time, string) (*contracts.CalendarTokenCreateResponse, error)
-	GetTokenStatusFn              func(uint) (*contracts.CalendarTokenStatusResponse, error)
+	GetTokenStatusFn              func(uint, string) (*contracts.CalendarTokenStatusResponse, error)
 	DeleteTokenFn                 func(uint) error
 	ValidateCalendarTokenFn       func(string) (*authm.User, error)
 	GenerateICSFeedFn             func(uint, string) ([]byte, error)
@@ -701,9 +701,9 @@ func (m *MockCalendarService) CreateToken(userID uint, sessionsValidAfter *time.
 	}
 	return nil, nil
 }
-func (m *MockCalendarService) GetTokenStatus(userID uint) (*contracts.CalendarTokenStatusResponse, error) {
+func (m *MockCalendarService) GetTokenStatus(userID uint, apiBaseURL string) (*contracts.CalendarTokenStatusResponse, error) {
 	if m.GetTokenStatusFn != nil {
-		return m.GetTokenStatusFn(userID)
+		return m.GetTokenStatusFn(userID, apiBaseURL)
 	}
 	return nil, nil
 }

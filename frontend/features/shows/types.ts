@@ -444,6 +444,15 @@ export interface ResolveReportRequest extends AdminReportActionRequest {
 export interface CalendarTokenStatusResponse {
   has_token: boolean
   created_at?: string // ISO date string
+  /** Saved-shows iCal subscribe URL; present only when url_recoverable is true. */
+  feed_url?: string
+  /** Followed-artist Atom subscribe URL; present only when url_recoverable is true. */
+  follows_feed_url?: string
+  /**
+   * Whether this response carries the feed URLs. False while has_token is true
+   * means the token predates stored URLs and only a regenerate can show one.
+   */
+  url_recoverable?: boolean
 }
 
 export interface CalendarTokenCreateResponse {

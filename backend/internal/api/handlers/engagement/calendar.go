@@ -172,12 +172,18 @@ func (h *CalendarHandler) CreateCalendarTokenHandler(ctx context.Context, req *C
 // GetCalendarTokenStatusRequest is empty — user is derived from JWT context
 type GetCalendarTokenStatusRequest struct{}
 
-// GetCalendarTokenStatusResponse wraps the service response
+// GetCalendarTokenStatusResponse wraps the service response. It can carry
+// the feed URLs, which are bearer credentials, so no cache may keep it.
 type GetCalendarTokenStatusResponse struct {
-	Body contracts.CalendarTokenStatusResponse
+	CacheControl string `header:"Cache-Control"`
+	Body         contracts.CalendarTokenStatusResponse
 }
 
-// GetCalendarTokenStatusHandler checks if a user has a calendar token
+// GetCalendarTokenStatusHandler reports whether the caller holds a feed token
+// and, to a session caller, the feed URLs when they are recoverable. An
+// API-token principal is told only whether a token exists and when it was
+// minted: the protected group admits API tokens, and a token held by a script
+// must not be exchangeable for a credential to the account's feeds.
 func (h *CalendarHandler) GetCalendarTokenStatusHandler(ctx context.Context, req *GetCalendarTokenStatusRequest) (*GetCalendarTokenStatusResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
@@ -186,7 +192,7 @@ func (h *CalendarHandler) GetCalendarTokenStatusHandler(ctx context.Context, req
 		return nil, huma.Error401Unauthorized("Authentication required")
 	}
 
-	status, err := h.calendarService.GetTokenStatus(user.ID)
+	status, err := h.calendarService.GetTokenStatus(user.ID, h.config.BackendOrigin())
 	if err != nil {
 		logger.FromContext(ctx).Error("get_calendar_token_status_failed",
 			"user_id", user.ID,
@@ -198,7 +204,14 @@ func (h *CalendarHandler) GetCalendarTokenStatusHandler(ctx context.Context, req
 		)
 	}
 
-	return &GetCalendarTokenStatusResponse{Body: *status}, nil
+	body := *status
+	if !middleware.IsSessionCredentialFromContext(ctx) {
+		body.FeedURL = ""
+		body.FollowsFeedURL = ""
+		body.URLRecoverable = false
+	}
+
+	return &GetCalendarTokenStatusResponse{CacheControl: "no-store", Body: body}, nil
 }
 
 // DeleteCalendarTokenRequest is empty — user is derived from JWT context

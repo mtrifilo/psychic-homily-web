@@ -21,7 +21,7 @@ func calendarHandlerRecordingMints(minted *bool) *CalendarHandler {
 			*minted = true
 			return &contracts.CalendarTokenCreateResponse{Token: "phcal_test"}, nil
 		},
-		GetTokenStatusFn: func(uint) (*contracts.CalendarTokenStatusResponse, error) {
+		GetTokenStatusFn: func(uint, string) (*contracts.CalendarTokenStatusResponse, error) {
 			return &contracts.CalendarTokenStatusResponse{HasToken: true}, nil
 		},
 		DeleteTokenFn: func(uint) error { return nil },

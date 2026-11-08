@@ -280,6 +280,7 @@ func (s *CalendarService) CreateToken(userID uint, sessionsValidAfter *time.Time
 		token := &engagementm.CalendarToken{
 			UserID:    userID,
 			TokenHash: tokenHash,
+			Token:     &plainToken,
 		}
 		if err := tx.Create(token).Error; err != nil {
 			return fmt.Errorf("failed to create token: %w", err)
@@ -307,8 +308,11 @@ func (s *CalendarService) CreateToken(userID uint, sessionsValidAfter *time.Time
 	}, nil
 }
 
-// GetTokenStatus checks whether a user has a calendar token
-func (s *CalendarService) GetTokenStatus(userID uint) (*contracts.CalendarTokenStatusResponse, error) {
+// GetTokenStatus reports whether userID holds a feed token and, when the
+// token's plaintext is stored, the subscribe URLs it builds on apiBaseURL
+// (contracts.CalendarServiceInterface). A row minted before the plaintext was
+// stored reports HasToken with URLRecoverable false and no URLs.
+func (s *CalendarService) GetTokenStatus(userID uint, apiBaseURL string) (*contracts.CalendarTokenStatusResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -322,10 +326,16 @@ func (s *CalendarService) GetTokenStatus(userID uint) (*contracts.CalendarTokenS
 		return nil, fmt.Errorf("failed to check token status: %w", err)
 	}
 
-	return &contracts.CalendarTokenStatusResponse{
+	status := &contracts.CalendarTokenStatusResponse{
 		HasToken:  true,
 		CreatedAt: &token.CreatedAt,
-	}, nil
+	}
+	if token.Token != nil && *token.Token != "" {
+		status.FeedURL = calendarFeedURL(apiBaseURL, *token.Token)
+		status.FollowsFeedURL = followsActivityFeedURL(apiBaseURL, *token.Token)
+		status.URLRecoverable = true
+	}
+	return status, nil
 }
 
 // DeleteToken removes a user's calendar token
