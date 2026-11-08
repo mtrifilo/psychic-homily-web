@@ -83,10 +83,12 @@ type JWTErrorResponse struct {
 // JWTMiddleware validates JWT tokens (standard http.Handler version). It
 // accepts a session credential only; an API token fails session validation.
 //
-// With a session config, a credential that fails validation also gets the auth
-// cookie cleared, as HumaJWTMiddleware does, so a browser that navigated here
-// with a revoked or expired session does not keep presenting it. A request with
-// no credential has no cookie to clear.
+// With a session config, a session cookie the token checks reject (invalid,
+// expired, revoked, or its account closed) is cleared, so a browser that
+// navigated here with it does not keep presenting it. Nothing is cleared when
+// the rejected credential was the Authorization header, since the cookie was
+// never examined, or when validation failed for a reason other than the
+// credential (a failed user lookup), since the session may still be good.
 func JWTMiddleware(jwtService *auth.JWTService, sessionConfig ...config.SessionConfig) func(http.Handler) http.Handler {
 	var sessConfig *config.SessionConfig
 	if len(sessionConfig) > 0 {
@@ -123,7 +125,8 @@ func JWTMiddleware(jwtService *auth.JWTService, sessionConfig ...config.SessionC
 				message := invalidTokenMessage
 
 				var authErr *autherrors.AuthError
-				if errors.As(err, &authErr) && authErr.Code == autherrors.CodeTokenExpired {
+				credentialRejected := errors.As(err, &authErr)
+				if credentialRejected && authErr.Code == autherrors.CodeTokenExpired {
 					errorCode = autherrors.CodeTokenExpired
 					message = authErr.UserMessage()
 				}
@@ -132,7 +135,9 @@ func JWTMiddleware(jwtService *auth.JWTService, sessionConfig ...config.SessionC
 					"error", err.Error(),
 					"error_code", errorCode,
 				)
-				if sessConfig != nil {
+				// Set before writeJWTError calls WriteHeader, or it never
+				// reaches the client.
+				if sessConfig != nil && credentialRejected && tokenSource == CredentialSourceCookie {
 					clearCookie := sessConfig.ClearAuthCookie()
 					http.SetCookie(w, &clearCookie)
 				}

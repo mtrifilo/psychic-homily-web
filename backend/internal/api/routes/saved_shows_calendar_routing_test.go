@@ -45,7 +45,8 @@ func TestSavedShowsCalendarDownloadRouteResolution(t *testing.T) {
 
 // The download needs a session. A request with none, or with a credential that
 // is not a valid session JWT, is refused by JWTMiddleware itself (its error
-// code, not the handler's plain-text floor), and a rejected cookie is cleared.
+// code, not the handler's plain-text floor). A rejected cookie is cleared; a
+// rejected header leaves the cookie alone.
 func TestSavedShowsCalendarDownloadRefusesWithoutSession(t *testing.T) {
 	router := newTestRouter(t)
 
@@ -56,7 +57,11 @@ func TestSavedShowsCalendarDownloadRefusesWithoutSession(t *testing.T) {
 		wantCleared bool
 	}{
 		{"no credential", func(*http.Request) {}, "TOKEN_MISSING", false},
-		{"garbage bearer", func(r *http.Request) { r.Header.Set("Authorization", "Bearer not-a-jwt") }, "TOKEN_INVALID", true},
+		{"garbage bearer", func(r *http.Request) { r.Header.Set("Authorization", "Bearer not-a-jwt") }, "TOKEN_INVALID", false},
+		{"garbage bearer beside a cookie", func(r *http.Request) {
+			r.Header.Set("Authorization", "Bearer not-a-jwt")
+			r.AddCookie(&http.Cookie{Name: config.AuthCookieName, Value: "unexamined"})
+		}, "TOKEN_INVALID", false},
 		{"garbage cookie", func(r *http.Request) {
 			r.AddCookie(&http.Cookie{Name: config.AuthCookieName, Value: "not-a-jwt"})
 		}, "TOKEN_INVALID", true},
@@ -210,10 +215,16 @@ func TestSavedShowsCalendarDownloadThroughRouter(t *testing.T) {
 		t.Errorf("cookie session: GET %s = %d, want 200 with the same file", savedShowsCalendarDownloadRoute, viaCookie.Code)
 	}
 
-	// A real, valid API token is not a session.
-	apiToken, err := sc.APIToken.CreateToken(user.ID, nil, 1)
+	// A real, valid API token is not a session. API tokens are admin-scoped and
+	// validate only for an admin owner, so the token is minted for one and
+	// proven valid before the route is asked to refuse it.
+	admin := testhelpers.CreateAdminUser(td.DB)
+	apiToken, err := sc.APIToken.CreateToken(admin.ID, nil, 1)
 	if err != nil {
 		t.Fatalf("mint API token: %v", err)
+	}
+	if _, _, err := sc.APIToken.ValidateToken(apiToken.Token); err != nil {
+		t.Fatalf("the API token fixture is not valid, so its refusal proves nothing: %v", err)
 	}
 	if w := sendWith(http.MethodGet, savedShowsCalendarDownloadRoute, bearer(apiToken.Token)); w.Code != http.StatusUnauthorized ||
 		strings.Contains(w.Body.String(), "BEGIN:VCALENDAR") {
