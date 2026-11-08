@@ -531,11 +531,10 @@ func TestGenerateICSFeed_RejectsPropertyInjectionFromCommunityText(t *testing.T)
 	all := icsContentLines(out)
 	eventLines := icsEventLines(t, out)
 
-	// No CR may survive INSIDE a content line. Asserted per line rather than
-	// over the whole payload so it stays strict if the serializer is ever
-	// switched to the RFC's CRLF line endings: a whole-payload check would have
-	// to strip "\r\n" first, and that strip would also swallow an injected CR
-	// that happened to be followed by a LF.
+	// No CR may survive INSIDE a content line. Asserted per line because the
+	// feed is CRLF-delimited: a whole-payload check would have to strip "\r\n"
+	// first, and that strip would also swallow an injected CR that happened to
+	// be followed by a LF.
 	for _, line := range all {
 		assert.NotContains(t, line, "\r", "no raw carriage return may survive inside a content line")
 	}
