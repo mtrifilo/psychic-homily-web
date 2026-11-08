@@ -21,10 +21,9 @@ func RevokeAllSessions(db *gorm.DB, user *authm.User, now time.Time) error {
 
 // revokeSessionsAndFeedToken refuses every session account holds
 // (RevokeAllSessions) and deletes its calendar-feed token, both through tx,
-// for a revocation meant to shut out whoever else holds the account. A
-// session can carry the feed URL away, and the URL is a bearer credential
-// that no session revocation reaches, so such a revocation deletes it too.
-// API tokens, passkeys and provider identities are left in place.
+// for a revocation meant to shut out whoever else holds the account: the
+// feed URL is a bearer credential a session can carry away and no session
+// revocation reaches. API tokens, passkeys and provider identities stay.
 //
 // tx holds account's users row FOR UPDATE. A feed-token mint judges its
 // session under a lock on that row before it writes (engagement

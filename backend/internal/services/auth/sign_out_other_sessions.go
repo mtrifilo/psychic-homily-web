@@ -14,8 +14,9 @@ import (
 // SignOutOtherSessions revokes every session user's account holds and its
 // calendar-feed token (revokeSessionsAndFeedToken) and returns the session
 // the caller goes on with: a renewal for the account as the revocation left
-// it, carrying authAt through unchanged. user is the principal the caller's session validation
-// loaded; its SessionsValidAfter is that session's revocation stamp.
+// it, carrying authAt through unchanged. user is the principal the caller's
+// session validation loaded; its SessionsValidAfter is that session's
+// revocation stamp.
 //
 // The account is read FOR UPDATE and judged with shared.CheckSessionAccount
 // before anything is written, so a session revoked, or an account closed,

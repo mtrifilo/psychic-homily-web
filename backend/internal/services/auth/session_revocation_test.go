@@ -9,6 +9,8 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	engagementm "psychic-homily-backend/internal/models/engagement"
+	engagementsvc "psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/shared"
 	usersvc "psychic-homily-backend/internal/services/user"
 )
@@ -51,6 +53,40 @@ func (s *JWTIntegrationSuite) reloadUser(id uint) *authm.User {
 	user, err := usersvc.NewUserService(s.db).GetUserByID(id)
 	s.Require().NoError(err)
 	return user
+}
+
+// calendar is the feed-token service over the suite's database.
+func (s *JWTIntegrationSuite) calendar() *engagementsvc.CalendarService {
+	return engagementsvc.NewCalendarService(s.db, nil)
+}
+
+// feedToken mints a calendar-feed token for userID's account as it stands,
+// as Settings does, and returns the plaintext the feed URL carries.
+func (s *JWTIntegrationSuite) feedToken(userID uint) string {
+	s.T().Helper()
+	created, err := s.calendar().CreateToken(userID, s.reloadUser(userID).SessionsValidAfter, "http://localhost:8080")
+	s.Require().NoError(err)
+	return created.Token
+}
+
+// requireFeedTokenRevoked checks that userID holds no feed token and that the
+// feed validator refuses token.
+func (s *JWTIntegrationSuite) requireFeedTokenRevoked(userID uint, token string) {
+	s.T().Helper()
+	var rows int64
+	s.Require().NoError(s.db.Model(&engagementm.CalendarToken{}).Where("user_id = ?", userID).Count(&rows).Error)
+	s.Zero(rows, "the account holds no feed token")
+	_, err := s.calendar().ValidateCalendarToken(token)
+	s.Error(err, "the old feed URL is refused")
+}
+
+// requireFeedTokenHonored checks that the feed validator still serves token
+// to userID.
+func (s *JWTIntegrationSuite) requireFeedTokenHonored(userID uint, token string) {
+	s.T().Helper()
+	got, err := s.calendar().ValidateCalendarToken(token)
+	s.Require().NoError(err, "the feed URL still works")
+	s.Equal(userID, got.ID)
 }
 
 func (s *JWTIntegrationSuite) TestRevokeAllSessions_RefusesEarlierSessionsAndHonorsLaterOnes() {

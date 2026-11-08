@@ -105,11 +105,7 @@ func profileStatus(t *testing.T, router *chi.Mux, credential string) int {
 // calendar client does, with no session.
 func feedStatus(t *testing.T, router *chi.Mux, token string) int {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, strings.Replace(savedShowsFeedRoute, "{token}", token, 1), nil)
-	req.RemoteAddr = "203.0.113.198:1234"
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-	return w.Code
+	return sendAuthed(t, router, http.MethodGet, strings.Replace(savedShowsFeedRoute, "{token}", token, 1), "", "203.0.113.198:1234", "").Code
 }
 
 func TestSignOutEverywhereElseRouteThroughRouter(t *testing.T) {

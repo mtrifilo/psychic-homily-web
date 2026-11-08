@@ -7,8 +7,6 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
-	engagementm "psychic-homily-backend/internal/models/engagement"
-	engagementsvc "psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/shared"
 )
 
@@ -19,41 +17,6 @@ func (s *JWTIntegrationSuite) principal(session string) (*authm.User, time.Time)
 	user, authAt, err := s.svc.ValidateSession(session)
 	s.Require().NoError(err)
 	return user, authAt
-}
-
-// feedToken mints a calendar-feed token for user's account as it stands, as
-// Settings does, and returns the plaintext the feed URL carries.
-func (s *JWTIntegrationSuite) feedToken(userID uint) string {
-	s.T().Helper()
-	created, err := engagementsvc.NewCalendarService(s.db, nil).CreateToken(userID, s.reloadUser(userID).SessionsValidAfter, "http://localhost:8080")
-	s.Require().NoError(err)
-	return created.Token
-}
-
-// feedTokenRows counts the calendar-feed tokens userID holds.
-func (s *JWTIntegrationSuite) feedTokenRows(userID uint) int64 {
-	s.T().Helper()
-	var rows int64
-	s.Require().NoError(s.db.Model(&engagementm.CalendarToken{}).Where("user_id = ?", userID).Count(&rows).Error)
-	return rows
-}
-
-// requireFeedTokenRevoked checks that userID holds no feed token and that the
-// feed validator refuses token.
-func (s *JWTIntegrationSuite) requireFeedTokenRevoked(userID uint, token string) {
-	s.T().Helper()
-	s.Zero(s.feedTokenRows(userID), "the account holds no feed token")
-	_, err := engagementsvc.NewCalendarService(s.db, nil).ValidateCalendarToken(token)
-	s.Error(err, "the old feed URL is refused")
-}
-
-// requireFeedTokenHonored checks that the feed validator still serves token
-// to userID.
-func (s *JWTIntegrationSuite) requireFeedTokenHonored(userID uint, token string) {
-	s.T().Helper()
-	got, err := engagementsvc.NewCalendarService(s.db, nil).ValidateCalendarToken(token)
-	s.Require().NoError(err, "the feed URL still works")
-	s.Equal(userID, got.ID)
 }
 
 // The feed URL is a bearer credential a session can carry away, so signing
@@ -73,7 +36,7 @@ func (s *JWTIntegrationSuite) TestSignOutOtherSessions_RevokesTheCalendarFeedTok
 	// The renewal names the stamp the revocation wrote, so it can mint the
 	// owner a new feed URL.
 	renewedPrincipal, _ := s.principal(renewed)
-	created, err := engagementsvc.NewCalendarService(s.db, nil).CreateToken(user.ID, renewedPrincipal.SessionsValidAfter, "http://localhost:8080")
+	created, err := s.calendar().CreateToken(user.ID, renewedPrincipal.SessionsValidAfter, "http://localhost:8080")
 	s.Require().NoError(err)
 	s.requireFeedTokenHonored(user.ID, created.Token)
 }
