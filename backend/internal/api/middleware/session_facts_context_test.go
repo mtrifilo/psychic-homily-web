@@ -6,7 +6,7 @@ import (
 	"time"
 
 	authm "psychic-homily-backend/internal/models/auth"
-	"psychic-homily-backend/internal/services/auth"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // An anonymous context reports neither fact, so a handler on a route without
@@ -26,7 +26,7 @@ func TestSessionFactsAccessors_ZeroWhenAbsent(t *testing.T) {
 // never hands a cookie to an API-token caller.
 func TestWithPrincipal_APITokenRecordsNoSource(t *testing.T) {
 	user := &authm.User{ID: 1}
-	ctx := withPrincipal(context.Background(), user, auth.SessionFacts{}, false, CredentialSourceCookie)
+	ctx := withPrincipal(context.Background(), user, contracts.SessionFacts{}, false, CredentialSourceCookie)
 	if SessionCredentialSourceFromContext(ctx) != "" {
 		t.Error("an API token in the cookie must record no source")
 	}
@@ -40,7 +40,7 @@ func TestWithPrincipal_APITokenRecordsNoSource(t *testing.T) {
 
 func TestWithPrincipal_SessionRecordsSourceAndFacts(t *testing.T) {
 	issued := time.Now().Add(-time.Hour).Truncate(time.Second)
-	facts := auth.SessionFacts{AuthAt: issued, IssuedAt: issued}
+	facts := contracts.SessionFacts{AuthAt: issued, IssuedAt: issued}
 	ctx := withPrincipal(context.Background(), &authm.User{ID: 1}, facts, true, CredentialSourceCookie)
 	if SessionCredentialSourceFromContext(ctx) != CredentialSourceCookie {
 		t.Error("a cookie session reads as one")

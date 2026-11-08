@@ -27,7 +27,7 @@ func TestValidateSessionLenient(t *testing.T) {
 		// A non-expired token should pass through strict validation
 		token := createTestToken(t, secretKey, 123, "test@example.com", time.Now().Add(1*time.Hour))
 
-		// ValidateSessionLenient calls ValidateToken first, which needs DB access.
+		// ValidateSessionLenient tries ValidateSessionFacts first, which needs DB access.
 		// Since we have no DB, it will fail on the user lookup even if the token parses.
 		// This tests that the lenient path handles the fallback correctly.
 		_, _, err := jwtService.ValidateSessionLenient(token, gracePeriod)

@@ -2293,7 +2293,7 @@ type MockJWTService struct {
 	CreateTokenFn                  func(*authm.User) (string, error)
 	RenewSessionTokenFn            func(*authm.User, time.Time) (string, error)
 	ValidateSessionFn              func(string) (*authm.User, time.Time, error)
-	ValidateSessionLenientFn       func(string, time.Duration) (*authm.User, time.Time, error)
+	ValidateSessionLenientFn       func(string, time.Duration) (*authm.User, contracts.SessionFacts, error)
 	ValidateTokenFn                func(string) (*authm.User, error)
 	CreateVerificationTokenFn      func(uint, string) (string, error)
 	ValidateVerificationTokenFn    func(string) (*contracts.VerificationTokenClaims, error)
@@ -2324,11 +2324,11 @@ func (m *MockJWTService) ValidateSession(tokenString string) (*authm.User, time.
 	}
 	return nil, time.Time{}, nil
 }
-func (m *MockJWTService) ValidateSessionLenient(tokenString string, gracePeriod time.Duration) (*authm.User, time.Time, error) {
+func (m *MockJWTService) ValidateSessionLenient(tokenString string, gracePeriod time.Duration) (*authm.User, contracts.SessionFacts, error) {
 	if m.ValidateSessionLenientFn != nil {
 		return m.ValidateSessionLenientFn(tokenString, gracePeriod)
 	}
-	return nil, time.Time{}, nil
+	return nil, contracts.SessionFacts{}, nil
 }
 func (m *MockJWTService) ValidateToken(tokenString string) (*authm.User, error) {
 	if m.ValidateTokenFn != nil {

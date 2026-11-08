@@ -360,7 +360,7 @@ func (s *JWTIntegrationSuite) TestValidateToken_UserDeletedAfterTokenCreation() 
 // way the handler does, then renews from the validated user.
 func (s *JWTIntegrationSuite) renewLikeTheRefreshEndpoint(token string) (string, error) {
 	s.T().Helper()
-	validated, authAt, err := s.svc.ValidateSessionLenient(token, refreshGracePeriod)
+	validated, facts, err := s.svc.ValidateSessionLenient(token, refreshGracePeriod)
 	if err != nil {
 		return "", err
 	}
@@ -371,7 +371,7 @@ func (s *JWTIntegrationSuite) renewLikeTheRefreshEndpoint(token string) (string,
 	if err := shared.CheckSessionAccount(current, validated.SessionsValidAfter); err != nil {
 		return "", err
 	}
-	return s.authSvc.RefreshUserToken(validated, authAt)
+	return s.authSvc.RefreshUserToken(validated, facts.AuthAt)
 }
 
 func (s *JWTIntegrationSuite) TestRefreshFlow_IssuesAUsableTokenWithALaterExpiry() {
@@ -453,16 +453,16 @@ func (s *JWTIntegrationSuite) TestRefreshFlow_ExpiredWithinGraceKeepsItsAuthTime
 	_, _, err = s.svc.ValidateSession(token)
 	s.Require().Error(err, "the token is expired for strict validation")
 
-	_, presentedAuthAt, err := s.svc.ValidateSessionLenient(token, refreshGracePeriod)
+	_, presented, err := s.svc.ValidateSessionLenient(token, refreshGracePeriod)
 	s.Require().NoError(err)
-	s.Require().False(presentedAuthAt.IsZero())
+	s.Require().False(presented.AuthAt.IsZero())
 
 	refreshed, err := s.renewLikeTheRefreshEndpoint(token)
 	s.Require().NoError(err)
 
 	_, refreshedAuthAt, err := s.svc.ValidateSession(refreshed)
 	s.Require().NoError(err)
-	s.True(refreshedAuthAt.Equal(presentedAuthAt),
+	s.True(refreshedAuthAt.Equal(presented.AuthAt),
 		"renewing after expiry must neither stamp nor drop the authentication time")
 }
 
