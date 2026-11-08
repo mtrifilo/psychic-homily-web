@@ -148,3 +148,28 @@ func TestICSWire_SceneFeed(t *testing.T) {
 	out := renderSceneFeed([]contracts.SceneShowSummary{testSceneShow(1, nil), testSceneShow(2, nil)})
 	assertRFC5545Wire(t, []byte(out), 2)
 }
+
+func TestBuildSavedShowsCalendar_UncachedAndWireValid(t *testing.T) {
+	created := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	show := func(id uint, title string) *contracts.SavedShowResponse {
+		return &contracts.SavedShowResponse{ShowResponse: *testShowResponse(func(s *contracts.ShowResponse) {
+			s.ID = id
+			s.Slug = ""
+			s.Title = title
+			s.CreatedAt = created
+			s.UpdatedAt = created
+		})}
+	}
+	before := []*contracts.SavedShowResponse{show(1, "Desert Doom Night")}
+	after := append(append([]*contracts.SavedShowResponse{}, before...), show(2, "Last Call"))
+
+	first := buildSavedShowsCalendar(before, "https://psychichomily.com")
+	assertRFC5545Wire(t, first, len(before))
+
+	// A second render with one more show must carry it: the builder reads no
+	// cache, so a download taken right after a save includes that save.
+	second := buildSavedShowsCalendar(after, "https://psychichomily.com")
+	assertRFC5545Wire(t, second, len(after))
+	assert.NotEqual(t, first, second, "the builder renders exactly what it is given")
+	assert.Contains(t, string(second), "SUMMARY:Last Call\r\n")
+}

@@ -388,7 +388,9 @@ func (s *CalendarService) ValidateCalendarToken(plainToken string) (*authm.User,
 	return &token.User, nil
 }
 
-// GenerateICSFeed creates an ICS calendar feed for a user's saved upcoming shows.
+// GenerateICSFeed serves the ICS calendar feed of a user's saved upcoming
+// shows: the per-user cache when it holds one, otherwise a fresh render through
+// buildSavedShowsCalendar that is then cached.
 //
 // The venue addresses that reach the feed's LOCATION are already gated: the
 // shows come from SavedShowService.GetUserSavedShows, whose venue builder
@@ -407,12 +409,42 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 		return cached, nil
 	}
 
-	// Upcoming only — venue-local date ≥ today (PSY-1430).
-	shows, _, err := s.savedShowSvc.GetUserSavedShows(userID, 500, 0, "upcoming")
+	shows, err := s.upcomingSavedShows(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	data := buildSavedShowsCalendar(shows, frontendURL)
+	s.feedCache.store(userID, data, icsFeedCacheTTL)
+	return data, nil
+}
+
+// savedShowsCalendarLimit bounds every saved-shows calendar render. A payload
+// is copied into the per-user cache and onto subscribers' devices, so it stays
+// bounded regardless of how many shows a user has saved.
+const savedShowsCalendarLimit = 500
+
+// upcomingSavedShows is the selection every saved-shows calendar surface
+// renders: the user's saved shows whose venue-local date is today or later.
+// Approved-only and not-cancelled filtering lives in buildSavedShowsCalendar,
+// so no caller can render a draft or cancelled show by skipping a step here.
+func (s *CalendarService) upcomingSavedShows(userID uint) ([]*contracts.SavedShowResponse, error) {
+	shows, _, err := s.savedShowSvc.GetUserSavedShows(userID, savedShowsCalendarLimit, 0, "upcoming")
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch saved shows: %w", err)
 	}
+	return shows, nil
+}
 
+// buildSavedShowsCalendar renders shows as the wire bytes of a saved-shows
+// calendar, with no cache in front of it or behind it. The subscription feed
+// wraps it with the per-user cache; a one-shot download calls it directly,
+// because that cache is cleared only by a token event and would otherwise hide
+// a save made moments before the download.
+//
+// Only approved, not-cancelled shows become events; the rest of each event is
+// assembled by the helpers the public calendar surfaces share.
+func buildSavedShowsCalendar(shows []*contracts.SavedShowResponse, frontendURL string) []byte {
 	cal := ics.NewCalendar()
 	cal.SetMethod(ics.MethodPublish)
 	cal.SetProductId("-//Psychic Homily//Calendar Feed//EN")
@@ -460,9 +492,7 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 
 	// RFC 5545 3.1 mandates CRLF line endings, and golang-ical defaults to bare
 	// LF; strict clients reject an LF-delimited calendar outright.
-	data := []byte(cal.Serialize(ics.WithNewLine("\r\n")))
-	s.feedCache.store(userID, data, icsFeedCacheTTL)
-	return data, nil
+	return []byte(cal.Serialize(ics.WithNewLine("\r\n")))
 }
 
 // setVenueLocalEventTimes writes DTSTART/DTEND anchored to the venue's local
