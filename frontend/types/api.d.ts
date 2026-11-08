@@ -9027,7 +9027,13 @@ export interface components {
         CalendarTokenStatusResponse: {
             /** Format: date-time */
             created_at?: string;
+            /** @description Saved-shows iCal subscribe URL, present when url_recoverable is true */
+            feed_url?: string;
+            /** @description Followed-artist Atom subscribe URL, present when url_recoverable is true */
+            follows_feed_url?: string;
             has_token: boolean;
+            /** @description Whether this response carries the feed URLs. False while has_token is true means the URLs cannot be shown to this caller: the token was minted before its URL was stored (regenerating replaces it with one that is), or the caller is not a signed-in session. */
+            url_recoverable: boolean;
         };
         CancelMyPendingEntityEditResponseBody: {
             success: boolean;
@@ -24416,6 +24422,7 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    "Cache-Control"?: string;
                     [name: string]: unknown;
                 };
                 content: {

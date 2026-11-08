@@ -103,6 +103,11 @@ const (
 	// and the session IS valid, so a surface that reads this must offer a fresh
 	// sign-in rather than report a permission failure or clear the session.
 	CodeReauthRequired = "REAUTH_REQUIRED"
+	// CodeSessionCredentialRequired indicates an operation refused because the
+	// request authenticated with an API token rather than a signed-in session.
+	// Distinct from CodeReauthRequired: signing in again does not help the
+	// caller, which has to use the website instead of the token.
+	CodeSessionCredentialRequired = "SESSION_CREDENTIAL_REQUIRED"
 	// CodeEmailVerificationRequired indicates that connecting a provider
 	// identity to the signed-in account was refused because the account has
 	// an address it has not verified (authm.User.MayConnectProvider). The
@@ -179,6 +184,7 @@ var authCodeHTTPStatus = map[string]int{
 	CodeOAuthSignupExpired:         http.StatusBadRequest,
 	CodeOAuthLinkPendingExpired:    http.StatusBadRequest,
 	CodeReauthRequired:             http.StatusForbidden,
+	CodeSessionCredentialRequired:  http.StatusForbidden,
 	CodeEmailVerificationRequired:  http.StatusForbidden,
 	CodeUnknownHomeMetro:           http.StatusUnprocessableEntity,
 }
@@ -305,14 +311,17 @@ const (
 	oauthSignupExpiredMessage         = "This step stays open for 10 minutes and works once. Nothing was saved, so continue with Google to pick up where you left off."
 	// The refusal is about the age of the sign-in, not about permission, and
 	// the remedy is the one challenge every account shape holds. Names no
-	// particular operation: the same refusal answers a token mint, a feed-token
-	// rotation and a passkey registration.
+	// particular operation: the same refusal answers a token mint, setting a
+	// password and a passkey registration.
 	//
 	// The browser surfaces render REAUTH_REQUIRED_MESSAGE
 	// (frontend/lib/errors/authErrors.ts) rather than this string, so a copy
 	// edit here changes only what a CLI or a curl reader sees. Keep the two
 	// saying the same thing.
 	reauthRequiredMessage = "For security, sign in again before making this change."
+	// Only an API-token caller is refused this way, so no browser surface
+	// renders it; this string is what a script or a curl reader sees.
+	sessionCredentialRequiredMessage = "This change can only be made from a signed-in session, not with an API token."
 	// The browser auth pages render their own copy for ACCOUNT_RECOVERABLE
 	// with a link to account recovery
 	// (frontend/app/auth/_components/account-recoverable-message.tsx), so this
@@ -591,6 +600,8 @@ func ToExternalMessage(code string) string {
 		return oauthLinkRefusedMessage
 	case CodeReauthRequired:
 		return reauthRequiredMessage
+	case CodeSessionCredentialRequired:
+		return sessionCredentialRequiredMessage
 	case CodeEmailVerificationRequired:
 		return emailVerificationRequiredMessage
 	case CodeValidationFailed:

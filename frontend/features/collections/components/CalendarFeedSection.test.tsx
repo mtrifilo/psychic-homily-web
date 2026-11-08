@@ -25,11 +25,6 @@ vi.mock('@/features/auth', () => ({
 }))
 
 import { CalendarFeedSection } from './CalendarFeedSection'
-import {
-  AuthError,
-  AuthErrorCode,
-  REAUTH_REQUIRED_MESSAGE,
-} from '@/lib/errors'
 
 describe('CalendarFeedSection', () => {
   beforeEach(() => {
@@ -45,18 +40,17 @@ describe('CalendarFeedSection', () => {
   })
 
   // Without this the Enable button is a dead click: the mutation fails and the
-  // card renders exactly what it rendered before.
-  it('renders the sign-in-again copy when the feed mint refuses a stale session', () => {
-    mockCreateError = new AuthError(
-      'refused',
-      AuthErrorCode.REAUTH_REQUIRED,
-      { status: 403 }
-    )
+  // card renders exactly what it rendered before. The mint is not gated on a
+  // recent sign-in, so a failure (a rate-limit refusal, a server error) is one
+  // to try again, with no sign-in link.
+  it('renders the try-again copy when the feed mint fails', () => {
+    mockCreateError = new Error('Too many requests')
     renderWithProviders(<CalendarFeedSection variant="settings" />)
 
     expect(screen.getByRole('alert').textContent).toContain(
-      REAUTH_REQUIRED_MESSAGE
+      'Could not update the feed. Please try again.'
     )
+    expect(screen.queryByRole('link', { name: 'Sign in again' })).toBeNull()
   })
 
   it('renders the compact library setup card and keeps Enable functional', async () => {

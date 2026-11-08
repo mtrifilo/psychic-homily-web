@@ -22,10 +22,10 @@ export const AuthErrorCode = {
   UNAUTHORIZED: 'UNAUTHORIZED',
   UNKNOWN: 'UNKNOWN',
   /**
-   * A credential mint (API token, CLI token, calendar feed) refused because the
-   * session did not authenticate recently enough. The session is still valid
-   * and the caller is still the owner, so the remedy is a fresh sign-in, never
-   * a sign-out or a permission message.
+   * A credential mint (API token, CLI token, passkey, password) refused because
+   * the session did not authenticate recently enough. The session is still
+   * valid and the caller is still the owner, so the remedy is a fresh sign-in,
+   * never a sign-out or a permission message.
    */
   REAUTH_REQUIRED: 'REAUTH_REQUIRED',
   /**
@@ -252,11 +252,12 @@ export function isAuthError(error: unknown): error is AuthError {
 
 /**
  * Copy for the re-authentication refusal, in one place because every surface
- * that adds a credential renders it: the API-token dialog, the CLI-token card,
- * the passkey card, and both feed cards.
+ * whose credential operation is gated on a recent sign-in renders it: the
+ * API-token dialog, the CLI-token card, the passkey card, and the set-password
+ * card.
  *
  * It names the remedy rather than the rule, names no particular operation so
- * that Regenerate and Add a passkey read as truly as Create token, and it is
+ * that Set password and Add a passkey read as truly as Create token, and it is
  * authored here rather than taken from the response so the words are the
  * frontend's own.
  */

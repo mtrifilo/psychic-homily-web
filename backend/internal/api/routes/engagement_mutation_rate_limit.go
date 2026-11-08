@@ -10,9 +10,9 @@ import (
 )
 
 // PSY-1482: dedicated rate limit for authenticated one-row mutations
-// (save/unsave show+release, follow/unfollow entity+scene, venue confirm, and
-// PSY-1991's single entity-request file+withdraw), mounted globally in
-// cmd/server/main.go. Public-read limiting (PSY-1362/1373) explicitly exempts
+// (save/unsave show+release, follow/unfollow entity+scene, venue confirm,
+// PSY-1991's single entity-request file+withdraw, and the calendar feed-token
+// mint), mounted globally in cmd/server/main.go. Public-read limiting (PSY-1362/1373) explicitly exempts
 // writes, so these mutations had no ceiling on rc.Protected (JWT only).
 //
 // A single global mount keeps the SHARED per-user budget honest: one limiter
@@ -80,9 +80,22 @@ var engagementMutationExactPaths = map[string]bool{
 	"/entity-requests": true,
 }
 
+// engagementMutationPostOnlyPaths are in scope for POST and not for DELETE.
+//
+// POST /calendar/token mints or rotates the personal feed token, and rotation
+// is gated on nothing else: any session may do it, however long ago it
+// authenticated. Each call is a token write and a feed-cache eviction, so it
+// joins the shared budget. DELETE on the same path revokes the token and stays
+// unmetered: revocation has to remain available to someone who has just
+// realised the feed URL leaked, whatever else they spent the budget on.
+var engagementMutationPostOnlyPaths = map[string]bool{
+	"/calendar/token": true,
+}
+
 // isEngagementMutationRequest reports whether a request is an in-scope mutation
-// (POST/DELETE on one of the paths above). GETs (e.g. /saved-shows list,
-// /saved-shows/{id}/check, follower counts) are reads and never matched.
+// (POST/DELETE on one of the paths above, POST only on the POST-only ones).
+// GETs (e.g. /saved-shows list, /saved-shows/{id}/check, follower counts) are
+// reads and never matched.
 func isEngagementMutationRequest(r *http.Request) bool {
 	if r.Method != http.MethodPost && r.Method != http.MethodDelete {
 		return false
@@ -92,6 +105,9 @@ func isEngagementMutationRequest(r *http.Request) bool {
 	// segments here, so a route the server serves would not be metered.
 	path := r.URL.EscapedPath()
 	if engagementMutationExactPaths[path] {
+		return true
+	}
+	if r.Method == http.MethodPost && engagementMutationPostOnlyPaths[path] {
 		return true
 	}
 	for _, re := range engagementMutationPathPatterns {

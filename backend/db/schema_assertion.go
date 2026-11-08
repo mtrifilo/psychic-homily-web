@@ -110,6 +110,10 @@ var requiredSchemaColumns = []requiredColumn{
 	// Same reason for every auth email INSERT, which the request handlers
 	// swallow: absent DDL stops every sign-in and recovery email silently.
 	{Table: "auth_email_outbox", Column: "oauth_link_ref"},
+	// GORM's Create enumerates every model column, so this appears in every
+	// feed-token INSERT: absent DDL fails every calendar feed mint and
+	// regeneration at request time.
+	{Table: "calendar_tokens", Column: "token"},
 	// Typed entries: exactly the columns whose type a timestamp-named
 	// migration changed. golang-migrate skips a timestamp-named migration
 	// whose version is below the recorded pointer, which happens when branches

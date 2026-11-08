@@ -1478,7 +1478,7 @@ describe('AuthPage', () => {
       ).toBeInTheDocument()
     })
 
-    // A refused credential mint (API token, CLI token, passkey, feed) names
+    // A refused credential mint (API token, CLI token, passkey, password) names
     // the change, never a provider.
     it('names a credential change, not a provider, for reason=REAUTH_REQUIRED', async () => {
       mockAuthState = { setUser: vi.fn(), authStatus: 'authenticated' }

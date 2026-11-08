@@ -23,6 +23,12 @@ import (
 // change a stolen session must not be able to make on its own. The caller has
 // to have proven the account recently.
 //
+// The exception is a credential any session can already read back, the
+// personal feed token: rotating it grants a session nothing it could not
+// already read, so it asks only RequireSessionCredential (below). The sites
+// that take this exception are listed in sessionCredentialMints
+// (api/handlers/shared/mint_gate_test.go).
+//
 // ADDING is the whole of what this covers. Removing a credential (a passkey, a
 // provider identity, a feed token, an API token) is not gated: revocation has
 // to stay available to someone who has just realised a credential leaked, and
@@ -154,6 +160,48 @@ func RequireRecentSessionAuth(ctx context.Context, operation string) error {
 	return &ReauthRequiredError{JWTErrorResponse: JWTErrorResponse{
 		Message:   autherrors.ToExternalMessage(autherrors.CodeReauthRequired),
 		ErrorCode: autherrors.CodeReauthRequired,
+		RequestID: logger.GetRequestID(ctx),
+	}}
+}
+
+// SessionCredentialRequiredError is the refusal an operation answers with
+// when the request's principal was established by an API token: 403
+// SESSION_CREDENTIAL_REQUIRED in the JWTErrorResponse envelope. Not
+// ReauthRequiredError, whose remedy (sign in again) does nothing for a
+// token.
+type SessionCredentialRequiredError struct {
+	JWTErrorResponse
+}
+
+func (e *SessionCredentialRequiredError) Error() string { return e.Message }
+
+// GetStatus satisfies huma.StatusError, so huma writes this value as the body.
+func (e *SessionCredentialRequiredError) GetStatus() int { return http.StatusForbidden }
+
+// RequireSessionCredential returns nil when the request's principal was
+// established by a session JWT (a CLI token is one), and a
+// *SessionCredentialRequiredError when it was established by an API token
+// (phk_). The protected group admits both, so an
+// operation a token must not perform asks this. It says nothing about how
+// recently the session authenticated (RequireRecentSessionAuth). operation
+// names the one that was refused, in the log.
+func RequireSessionCredential(ctx context.Context, operation string) error {
+	if IsSessionCredentialFromContext(ctx) {
+		return nil
+	}
+
+	var userID uint
+	if user := GetUserFromContext(ctx); user != nil {
+		userID = user.ID
+	}
+	logger.AuthWarn(ctx, "operation_refused_not_a_session",
+		"operation", operation,
+		"user_id", userID,
+	)
+
+	return &SessionCredentialRequiredError{JWTErrorResponse: JWTErrorResponse{
+		Message:   autherrors.ToExternalMessage(autherrors.CodeSessionCredentialRequired),
+		ErrorCode: autherrors.CodeSessionCredentialRequired,
 		RequestID: logger.GetRequestID(ctx),
 	}}
 }

@@ -96,7 +96,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_SessionMintedAfterARevoc
 // service.
 func (s *OAuthHandlerIntegrationSuite) calendarMint(principal *authm.User) (*engagementh.CreateCalendarTokenResponse, error) {
 	h := engagementh.NewCalendarHandler(engagementsvc.NewCalendarService(s.deps.DB, nil), s.cfg)
-	return h.CreateCalendarTokenHandler(testhelpers.CtxWithSessionAuthTime(principal, time.Now()), &engagementh.CreateCalendarTokenRequest{})
+	return h.CreateCalendarTokenHandler(testhelpers.CtxWithSession(principal, time.Now()), &engagementh.CreateCalendarTokenRequest{})
 }
 
 // The attacker's calendar mint passed the session check (the middleware
