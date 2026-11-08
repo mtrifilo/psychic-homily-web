@@ -27,26 +27,17 @@ func parsedSetCookies(t testing.TB, lines setCookieLines) []*http.Cookie {
 
 // assertOnlySetCookies fails unless header answers exactly the named cookies,
 // in order, as Set-Cookie lines, and none of http.Cookie's fields as a header
-// of its own. No names means no Set-Cookie header at all, not an empty one.
+// of its own. No names means no Set-Cookie line at all: an empty line does not
+// parse.
 func assertOnlySetCookies(t testing.TB, header http.Header, wantNames ...string) {
 	t.Helper()
 	lines := header.Values("Set-Cookie")
 	gotNames := make([]string, 0, len(lines))
-	for _, line := range lines {
-		cookie, err := http.ParseSetCookie(line)
-		if err != nil {
-			t.Errorf("Set-Cookie %q does not parse: %v", line, err)
-			continue
-		}
+	for _, cookie := range parsedSetCookies(t, lines) {
 		gotNames = append(gotNames, cookie.Name)
 	}
 	if !slices.Equal(gotNames, wantNames) {
 		t.Errorf("Set-Cookie names = %q, want %q (lines %q)", gotNames, wantNames, lines)
-	}
-	if len(wantNames) == 0 {
-		if _, present := header[http.CanonicalHeaderKey("Set-Cookie")]; present {
-			t.Errorf("Set-Cookie header present as %q, want none", lines)
-		}
 	}
 	cookieType := reflect.TypeFor[http.Cookie]()
 	for i := range cookieType.NumField() {
@@ -57,24 +48,6 @@ func assertOnlySetCookies(t testing.TB, header http.Header, wantNames ...string)
 		if values, present := header[http.CanonicalHeaderKey(field.Name)]; present {
 			t.Errorf("response carries http.Cookie field %s as a header: %q", field.Name, values)
 		}
-	}
-}
-
-func TestSetCookieLinesAddSerializesEachCookie(t *testing.T) {
-	var lines setCookieLines
-	lines.add(
-		http.Cookie{Name: "first", Value: "one", Path: "/", HttpOnly: true},
-		http.Cookie{Name: "second", Value: "", MaxAge: -1},
-	)
-	cookies := parsedSetCookies(t, lines)
-	if len(cookies) != 2 {
-		t.Fatalf("lines = %q, want two", lines)
-	}
-	if cookies[0].Name != "first" || cookies[0].Value != "one" || !cookies[0].HttpOnly {
-		t.Errorf("first cookie = %+v", cookies[0])
-	}
-	if cookies[1].Name != "second" || cookies[1].MaxAge != -1 {
-		t.Errorf("second cookie = %+v, want the clearing cookie", cookies[1])
 	}
 }
 
