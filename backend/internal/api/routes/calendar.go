@@ -22,7 +22,7 @@ const (
 // Public feed paths are token-authenticated (not JWT); the token management CRUD
 // beneath /calendar/token is session-authenticated and ordinary.
 func setupCalendarRoutes(rc RouteContext) {
-	calendarHandler := engagementh.NewCalendarHandler(rc.SC.Calendar, rc.Cfg)
+	calendarHandler := engagementh.NewCalendarHandler(rc.SC.Calendar, rc.SC.User, rc.Cfg)
 
 	rc.Router.Get(savedShowsFeedRoute, calendarHandler.GetCalendarFeedHandler)
 	rc.Router.Get(followsActivityFeedRoute, calendarHandler.GetFollowsActivityFeedHandler)

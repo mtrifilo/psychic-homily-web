@@ -162,6 +162,21 @@ func (n *nilDBUserService) ClearHomeLayout(userID uint) error {
 	return fmt.Errorf("database not initialized")
 }
 
+func (n *nilDBUserService) SetCalendarSync(
+	userID uint,
+	choice *authm.CalendarSync,
+) (*authm.CalendarSync, error) {
+	return nil, fmt.Errorf("database not initialized")
+}
+
+func (n *nilDBUserService) GetCalendarSync(userID uint) (*authm.CalendarSync, error) {
+	return nil, fmt.Errorf("database not initialized")
+}
+
+func (n *nilDBUserService) ClearCalendarSync(userID uint) error {
+	return fmt.Errorf("database not initialized")
+}
+
 func (n *nilDBUserService) DismissFirstSaveHint(userID uint) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("database not initialized")
 }

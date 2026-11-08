@@ -46,7 +46,7 @@ func testCalendarConfig() *config.Config {
 // =============================================================================
 
 func TestCreateCalendarTokenHandler_NoAuth(t *testing.T) {
-	h := NewCalendarHandler(&testhelpers.MockCalendarService{}, testCalendarConfig())
+	h := NewCalendarHandler(&testhelpers.MockCalendarService{}, &testhelpers.MockUserService{}, testCalendarConfig())
 	_, err := h.CreateCalendarTokenHandler(context.Background(), &CreateCalendarTokenRequest{})
 	testhelpers.AssertHumaError(t, err, 401)
 }
@@ -65,7 +65,7 @@ func TestCreateCalendarTokenHandler_Success(t *testing.T) {
 			}, nil
 		},
 	}
-	h := NewCalendarHandler(mock, testCalendarConfig())
+	h := NewCalendarHandler(mock, &testhelpers.MockUserService{}, testCalendarConfig())
 	ctx := testhelpers.CtxWithSession(&authm.User{ID: 1}, time.Now())
 
 	resp, err := h.CreateCalendarTokenHandler(ctx, &CreateCalendarTokenRequest{})
@@ -103,7 +103,7 @@ func TestCreateCalendarTokenHandler_FeedURLBase(t *testing.T) {
 				},
 			}
 			cfg := &config.Config{Server: tt.server, Email: config.EmailConfig{FrontendURL: tt.front}}
-			h := NewCalendarHandler(mock, cfg)
+			h := NewCalendarHandler(mock, &testhelpers.MockUserService{}, cfg)
 			ctx := testhelpers.CtxWithSession(&authm.User{ID: 1}, time.Now())
 
 			if _, err := h.CreateCalendarTokenHandler(ctx, &CreateCalendarTokenRequest{}); err != nil {
@@ -122,7 +122,7 @@ func TestCreateCalendarTokenHandler_ServiceError(t *testing.T) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
-	h := NewCalendarHandler(mock, testCalendarConfig())
+	h := NewCalendarHandler(mock, &testhelpers.MockUserService{}, testCalendarConfig())
 	ctx := testhelpers.CtxWithSession(&authm.User{ID: 1}, time.Now())
 
 	_, err := h.CreateCalendarTokenHandler(ctx, &CreateCalendarTokenRequest{})
@@ -140,7 +140,7 @@ func TestCreateCalendarTokenHandler_PassesTheSessionsRevocationStamp(t *testing.
 			return &contracts.CalendarTokenCreateResponse{Token: "phcal_abc123"}, nil
 		},
 	}
-	h := NewCalendarHandler(mock, testCalendarConfig())
+	h := NewCalendarHandler(mock, &testhelpers.MockUserService{}, testCalendarConfig())
 	ctx := testhelpers.CtxWithSession(&authm.User{ID: 1, SessionsValidAfter: &stamp}, time.Now())
 
 	if _, err := h.CreateCalendarTokenHandler(ctx, &CreateCalendarTokenRequest{}); err != nil {
@@ -165,7 +165,7 @@ func TestCreateCalendarTokenHandler_SessionNoLongerValidAnswers401(t *testing.T)
 					return nil, refusal
 				},
 			}
-			h := NewCalendarHandler(mock, testCalendarConfig())
+			h := NewCalendarHandler(mock, &testhelpers.MockUserService{}, testCalendarConfig())
 			ctx := testhelpers.CtxWithSession(&authm.User{ID: 1}, time.Now())
 
 			_, err := h.CreateCalendarTokenHandler(ctx, &CreateCalendarTokenRequest{})
@@ -194,7 +194,7 @@ func TestCreateCalendarTokenHandler_SessionNoLongerValidAnswers401(t *testing.T)
 // =============================================================================
 
 func TestGetCalendarTokenStatusHandler_NoAuth(t *testing.T) {
-	h := NewCalendarHandler(&testhelpers.MockCalendarService{}, testCalendarConfig())
+	h := NewCalendarHandler(&testhelpers.MockCalendarService{}, &testhelpers.MockUserService{}, testCalendarConfig())
 	_, err := h.GetCalendarTokenStatusHandler(context.Background(), &GetCalendarTokenStatusRequest{})
 	testhelpers.AssertHumaError(t, err, 401)
 }
@@ -209,7 +209,7 @@ func TestGetCalendarTokenStatusHandler_HasToken(t *testing.T) {
 			}, nil
 		},
 	}
-	h := NewCalendarHandler(mock, testCalendarConfig())
+	h := NewCalendarHandler(mock, &testhelpers.MockUserService{}, testCalendarConfig())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.GetCalendarTokenStatusHandler(ctx, &GetCalendarTokenStatusRequest{})
@@ -227,7 +227,7 @@ func TestGetCalendarTokenStatusHandler_NoToken(t *testing.T) {
 			return &contracts.CalendarTokenStatusResponse{HasToken: false}, nil
 		},
 	}
-	h := NewCalendarHandler(mock, testCalendarConfig())
+	h := NewCalendarHandler(mock, &testhelpers.MockUserService{}, testCalendarConfig())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.GetCalendarTokenStatusHandler(ctx, &GetCalendarTokenStatusRequest{})
@@ -271,7 +271,7 @@ func TestGetCalendarTokenStatusHandler_SessionGetsURLsUncached(t *testing.T) {
 		Server: config.ServerConfig{Addr: "0.0.0.0:8080"},
 		Email:  config.EmailConfig{FrontendURL: "https://www.psychichomily.com"},
 	}
-	h := NewCalendarHandler(recordingStatusService(&gotBaseURL), cfg)
+	h := NewCalendarHandler(recordingStatusService(&gotBaseURL), &testhelpers.MockUserService{}, cfg)
 	ctx := testhelpers.CtxWithSession(&authm.User{ID: 1}, time.Now().Add(-2*time.Hour))
 
 	resp, err := h.GetCalendarTokenStatusHandler(ctx, &GetCalendarTokenStatusRequest{})
@@ -295,7 +295,7 @@ func TestGetCalendarTokenStatusHandler_ServiceError(t *testing.T) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
-	h := NewCalendarHandler(mock, testCalendarConfig())
+	h := NewCalendarHandler(mock, &testhelpers.MockUserService{}, testCalendarConfig())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.GetCalendarTokenStatusHandler(ctx, &GetCalendarTokenStatusRequest{})
@@ -307,7 +307,7 @@ func TestGetCalendarTokenStatusHandler_ServiceError(t *testing.T) {
 // =============================================================================
 
 func TestDeleteCalendarTokenHandler_NoAuth(t *testing.T) {
-	h := NewCalendarHandler(&testhelpers.MockCalendarService{}, testCalendarConfig())
+	h := NewCalendarHandler(&testhelpers.MockCalendarService{}, &testhelpers.MockUserService{}, testCalendarConfig())
 	_, err := h.DeleteCalendarTokenHandler(context.Background(), &DeleteCalendarTokenRequest{})
 	testhelpers.AssertHumaError(t, err, 401)
 }
@@ -321,7 +321,7 @@ func TestDeleteCalendarTokenHandler_Success(t *testing.T) {
 			return nil
 		},
 	}
-	h := NewCalendarHandler(mock, testCalendarConfig())
+	h := NewCalendarHandler(mock, &testhelpers.MockUserService{}, testCalendarConfig())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.DeleteCalendarTokenHandler(ctx, &DeleteCalendarTokenRequest{})
@@ -339,7 +339,7 @@ func TestDeleteCalendarTokenHandler_ServiceError(t *testing.T) {
 			return fmt.Errorf("no calendar token found")
 		},
 	}
-	h := NewCalendarHandler(mock, testCalendarConfig())
+	h := NewCalendarHandler(mock, &testhelpers.MockUserService{}, testCalendarConfig())
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.DeleteCalendarTokenHandler(ctx, &DeleteCalendarTokenRequest{})
@@ -351,7 +351,7 @@ func TestDeleteCalendarTokenHandler_ServiceError(t *testing.T) {
 // =============================================================================
 
 func TestGetCalendarFeedHandler_MissingToken(t *testing.T) {
-	h := NewCalendarHandler(&testhelpers.MockCalendarService{}, testCalendarConfig())
+	h := NewCalendarHandler(&testhelpers.MockCalendarService{}, &testhelpers.MockUserService{}, testCalendarConfig())
 	w := httptest.NewRecorder()
 
 	h.GetCalendarFeedHandler(w, feedRequestWithToken(""))
@@ -367,7 +367,7 @@ func TestGetCalendarFeedHandler_InvalidToken(t *testing.T) {
 			return nil, fmt.Errorf("token not found")
 		},
 	}
-	h := NewCalendarHandler(mock, testCalendarConfig())
+	h := NewCalendarHandler(mock, &testhelpers.MockUserService{}, testCalendarConfig())
 	w := httptest.NewRecorder()
 
 	h.GetCalendarFeedHandler(w, feedRequestWithToken("phcal_bad"))
@@ -386,7 +386,7 @@ func TestGetCalendarFeedHandler_GenerationError(t *testing.T) {
 			return nil, fmt.Errorf("ics build failed")
 		},
 	}
-	h := NewCalendarHandler(mock, testCalendarConfig())
+	h := NewCalendarHandler(mock, &testhelpers.MockUserService{}, testCalendarConfig())
 	w := httptest.NewRecorder()
 
 	h.GetCalendarFeedHandler(w, feedRequestWithToken("phcal_ok"))
@@ -412,7 +412,7 @@ func TestGetCalendarFeedHandler_Success(t *testing.T) {
 			return ics, nil
 		},
 	}
-	h := NewCalendarHandler(mock, testCalendarConfig())
+	h := NewCalendarHandler(mock, &testhelpers.MockUserService{}, testCalendarConfig())
 	w := httptest.NewRecorder()
 
 	h.GetCalendarFeedHandler(w, feedRequestWithToken("phcal_ok"))
@@ -429,7 +429,7 @@ func TestGetCalendarFeedHandler_Success(t *testing.T) {
 }
 
 func TestGetFollowsActivityFeedHandler_MissingToken(t *testing.T) {
-	h := NewCalendarHandler(&testhelpers.MockCalendarService{}, testCalendarConfig())
+	h := NewCalendarHandler(&testhelpers.MockCalendarService{}, &testhelpers.MockUserService{}, testCalendarConfig())
 	w := httptest.NewRecorder()
 
 	h.GetFollowsActivityFeedHandler(w, feedRequestWithToken(""))
@@ -445,7 +445,7 @@ func TestGetFollowsActivityFeedHandler_InvalidToken(t *testing.T) {
 			return nil, fmt.Errorf("token not found")
 		},
 	}
-	h := NewCalendarHandler(mock, testCalendarConfig())
+	h := NewCalendarHandler(mock, &testhelpers.MockUserService{}, testCalendarConfig())
 	w := httptest.NewRecorder()
 
 	h.GetFollowsActivityFeedHandler(w, feedRequestWithToken("phcal_bad"))
@@ -464,7 +464,7 @@ func TestGetFollowsActivityFeedHandler_GenerationError(t *testing.T) {
 			return nil, fmt.Errorf("atom build failed")
 		},
 	}
-	h := NewCalendarHandler(mock, testCalendarConfig())
+	h := NewCalendarHandler(mock, &testhelpers.MockUserService{}, testCalendarConfig())
 	w := httptest.NewRecorder()
 
 	h.GetFollowsActivityFeedHandler(w, feedRequestWithToken("phcal_ok"))
@@ -490,7 +490,7 @@ func TestGetFollowsActivityFeedHandler_Success(t *testing.T) {
 			return atom, nil
 		},
 	}
-	h := NewCalendarHandler(mock, testCalendarConfig())
+	h := NewCalendarHandler(mock, &testhelpers.MockUserService{}, testCalendarConfig())
 	w := httptest.NewRecorder()
 
 	h.GetFollowsActivityFeedHandler(w, feedRequestWithToken("phcal_ok"))

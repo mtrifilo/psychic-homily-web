@@ -95,7 +95,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_SessionMintedAfterARevoc
 // loaded from session, recently authenticated, through the real handler and
 // service.
 func (s *OAuthHandlerIntegrationSuite) calendarMint(principal *authm.User) (*engagementh.CreateCalendarTokenResponse, error) {
-	h := engagementh.NewCalendarHandler(engagementsvc.NewCalendarService(s.deps.DB, nil), s.cfg)
+	h := engagementh.NewCalendarHandler(engagementsvc.NewCalendarService(s.deps.DB, nil), &testhelpers.MockUserService{}, s.cfg)
 	return h.CreateCalendarTokenHandler(testhelpers.CtxWithSession(principal, time.Now()), &engagementh.CreateCalendarTokenRequest{})
 }
 

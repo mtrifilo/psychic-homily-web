@@ -1,6 +1,7 @@
 package engagement
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -727,7 +728,7 @@ func (suite *CalendarIntegrationTestSuite) TearDownTest() {
 	for _, table := range []string{
 		"show_artists", "show_venues", "artist_releases",
 		"shows", "releases", "artists", "venues",
-		"user_bookmarks", "calendar_tokens", "users",
+		"user_bookmarks", "calendar_tokens", "user_preferences", "users",
 	} {
 		_, _ = sqlDB.Exec("DELETE FROM " + table)
 	}
@@ -888,6 +889,78 @@ func (suite *CalendarIntegrationTestSuite) TestDeleteToken_NotFound() {
 	err := suite.svc.DeleteToken(user.ID)
 	suite.Error(err)
 	suite.Contains(err.Error(), "no calendar token found")
+}
+
+// storeCalendarSyncChoice writes a connected choice straight to the column,
+// the state a provider tap leaves behind, without going through the user
+// service this package cannot import.
+func (suite *CalendarIntegrationTestSuite) storeCalendarSyncChoice(userID uint) {
+	raw := json.RawMessage(`{"version":1,"state":"connected","providers":["google_subscribe"],"decided_at":"2026-11-08T18:30:00Z"}`)
+	suite.Require().NoError(suite.db.Create(&authm.UserPreferences{UserID: userID, CalendarSync: &raw}).Error)
+}
+
+// calendarSyncColumn reads the column verbatim; empty means NULL.
+func (suite *CalendarIntegrationTestSuite) calendarSyncColumn(userID uint) string {
+	var got string
+	suite.Require().NoError(suite.db.Model(&authm.UserPreferences{}).
+		Select("COALESCE(calendar_sync::text, '')").
+		Where("user_id = ?", userID).
+		Scan(&got).Error)
+	return got
+}
+
+// Turning the calendar off clears the choice with the token, so the client
+// asks again rather than reporting a connection whose feed no longer exists.
+func (suite *CalendarIntegrationTestSuite) TestDeleteToken_ClearsTheSyncChoice() {
+	user := suite.createTestUser(true)
+	suite.storeCalendarSyncChoice(user.ID)
+	_, err := suite.svc.CreateToken(user.ID, user.SessionsValidAfter, "http://localhost:8080")
+	suite.Require().NoError(err)
+
+	suite.Require().NoError(suite.svc.DeleteToken(user.ID))
+
+	suite.Empty(suite.calendarSyncColumn(user.ID), "turning off must reset the choice to not decided")
+}
+
+// With no token there is nothing to turn off, and the transaction rolls back
+// with the choice as it was.
+func (suite *CalendarIntegrationTestSuite) TestDeleteToken_NotFoundLeavesTheSyncChoice() {
+	user := suite.createTestUser(true)
+	suite.storeCalendarSyncChoice(user.ID)
+
+	suite.Require().Error(suite.svc.DeleteToken(user.ID))
+
+	suite.Contains(suite.calendarSyncColumn(user.ID), `"connected"`)
+}
+
+// "New link" rotates the credential; it is not a decision, so the choice
+// survives both a first mint and a replacement.
+func (suite *CalendarIntegrationTestSuite) TestCreateToken_LeavesTheSyncChoice() {
+	user := suite.createTestUser(true)
+	suite.storeCalendarSyncChoice(user.ID)
+	before := suite.calendarSyncColumn(user.ID)
+
+	_, err := suite.svc.CreateToken(user.ID, user.SessionsValidAfter, "http://localhost:8080")
+	suite.Require().NoError(err)
+	_, err = suite.svc.CreateToken(user.ID, user.SessionsValidAfter, "http://localhost:8080")
+	suite.Require().NoError(err)
+
+	suite.Equal(before, suite.calendarSyncColumn(user.ID))
+}
+
+// The other token deleter, used when a credential is revoked rather than the
+// calendar turned off, leaves the choice alone.
+func (suite *CalendarIntegrationTestSuite) TestDeleteCalendarTokensTx_LeavesTheSyncChoice() {
+	user := suite.createTestUser(true)
+	suite.storeCalendarSyncChoice(user.ID)
+	_, err := suite.svc.CreateToken(user.ID, user.SessionsValidAfter, "http://localhost:8080")
+	suite.Require().NoError(err)
+
+	deleted, err := DeleteCalendarTokensTx(suite.db, user.ID)
+	suite.Require().NoError(err)
+	suite.EqualValues(1, deleted)
+
+	suite.Contains(suite.calendarSyncColumn(user.ID), `"connected"`)
 }
 
 // =============================================================================

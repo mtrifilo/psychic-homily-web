@@ -4281,6 +4281,9 @@ type MockUserService struct {
 	SetChartDefaultsFn                    func(uint, *authm.ChartDefaults) error
 	SetHomeLayoutFn                       func(uint, *authm.HomeLayout) (*authm.HomeLayout, error)
 	ClearHomeLayoutFn                     func(uint) error
+	SetCalendarSyncFn                     func(uint, *authm.CalendarSync) (*authm.CalendarSync, error)
+	GetCalendarSyncFn                     func(uint) (*authm.CalendarSync, error)
+	ClearCalendarSyncFn                   func(uint) error
 	DismissFirstSaveHintFn                func(uint) (time.Time, error)
 	SetShowRemindersFn                    func(uint, bool) error
 	SetDefaultReplyPermissionFn           func(uint, string) error
@@ -4522,6 +4525,24 @@ func (m *MockUserService) SetHomeLayout(userID uint, layout *authm.HomeLayout) (
 func (m *MockUserService) ClearHomeLayout(userID uint) error {
 	if m.ClearHomeLayoutFn != nil {
 		return m.ClearHomeLayoutFn(userID)
+	}
+	return nil
+}
+func (m *MockUserService) SetCalendarSync(userID uint, choice *authm.CalendarSync) (*authm.CalendarSync, error) {
+	if m.SetCalendarSyncFn != nil {
+		return m.SetCalendarSyncFn(userID, choice)
+	}
+	return nil, nil
+}
+func (m *MockUserService) GetCalendarSync(userID uint) (*authm.CalendarSync, error) {
+	if m.GetCalendarSyncFn != nil {
+		return m.GetCalendarSyncFn(userID)
+	}
+	return nil, nil
+}
+func (m *MockUserService) ClearCalendarSync(userID uint) error {
+	if m.ClearCalendarSyncFn != nil {
+		return m.ClearCalendarSyncFn(userID)
 	}
 	return nil
 }

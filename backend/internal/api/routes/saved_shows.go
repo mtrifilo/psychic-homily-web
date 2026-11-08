@@ -44,7 +44,7 @@ func setupSavedShowRoutes(rc RouteContext) {
 	// A raw chi route because the response is a text/calendar file, not JSON.
 	// JWTMiddleware accepts a session only; an API token is refused. The session
 	// config lets it clear a session cookie the token checks reject.
-	calendarHandler := engagementh.NewCalendarHandler(rc.SC.Calendar, rc.Cfg)
+	calendarHandler := engagementh.NewCalendarHandler(rc.SC.Calendar, rc.SC.User, rc.Cfg)
 	rc.Router.With(middleware.JWTMiddleware(rc.SC.JWT, rc.Cfg.Session)).
 		Get(savedShowsCalendarDownloadRoute, calendarHandler.GetSavedShowsCalendarDownloadHandler)
 }

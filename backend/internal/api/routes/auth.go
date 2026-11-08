@@ -324,6 +324,10 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	// rides in the /auth/profile preferences payload the client already loads.
 	huma.Put(rc.Protected, "/auth/preferences/home-layout", userPrefsHandler.SetHomeLayoutHandler)
 	huma.Delete(rc.Protected, "/auth/preferences/home-layout", userPrefsHandler.ClearHomeLayoutHandler)
+	// The calendar sync choice. No GET: the document rides in the
+	// /auth/profile preferences payload and in GET /calendar/token.
+	huma.Put(rc.Protected, "/auth/preferences/calendar-sync", userPrefsHandler.SetCalendarSyncHandler)
+	huma.Delete(rc.Protected, "/auth/preferences/calendar-sync", userPrefsHandler.ClearCalendarSyncHandler)
 	// One-way stamp for the one-time first-save hint; the value rides in the
 	// /auth/profile preferences payload.
 	huma.Put(rc.Protected, "/auth/preferences/first-save-hint", userPrefsHandler.DismissFirstSaveHintHandler)

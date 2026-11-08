@@ -50,8 +50,9 @@ var requiredSchemaColumns = []requiredColumn{
 	// absent home_layout DDL fails EVERY preferences write at request time,
 	// not just the home-layout one.
 	{Table: "user_preferences", Column: "home_layout"},
-	// Same table, same reason as home_layout.
+	// Same table, same reason as home_layout, for both.
 	{Table: "user_preferences", Column: "first_save_hint_dismissed_at"},
+	{Table: "user_preferences", Column: "calendar_sync"},
 	// GORM's Create builds an explicit column list from the model, so these
 	// three appear in every show INSERT. Absent DDL breaks show submission at
 	// request time rather than at boot, which is exactly what this list is for.

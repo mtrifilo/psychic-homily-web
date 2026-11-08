@@ -149,6 +149,12 @@ type UserPreferences struct {
 	// rules live in home_layout.go.
 	HomeLayout *json.RawMessage `json:"home_layout" gorm:"column:home_layout;type:jsonb"`
 
+	// CalendarSync is the user's calendar decision: connected (and how),
+	// declined for now, or never. NULL means not decided, the only state in
+	// which the client asks. Raw for the same reason as HomeLayout; the typed
+	// shape and its rules live in calendar_sync.go.
+	CalendarSync *json.RawMessage `json:"calendar_sync" gorm:"column:calendar_sync;type:jsonb"`
+
 	// FirstSaveHintDismissedAt is set when the one-time hint that follows the
 	// viewer's first saved show is first shown; closing the hint writes it
 	// again. NULL means never shown, the only state in which the hint may

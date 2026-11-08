@@ -31,6 +31,7 @@ import {
   type AuthErrorCodeType,
 } from '@/lib/errors'
 import type { NavMode } from '@/lib/nav-mode'
+import type { CalendarSyncChoice } from '@/features/shows/types'
 import { forgetAccountCreatedThisSession } from '../accountCreatedMarker'
 import type { AuthApiUser } from '../authUser'
 import type { APIToken } from '../types'
@@ -121,6 +122,9 @@ interface UserPreferencesData {
   // Signed-in home section order + visibility, as the generated contract
   // types it. Absent/null = the shipped default layout.
   home_layout?: components['schemas']['HomeLayout'] | null
+  // The calendar decision, as features/shows types it. Absent/null = not
+  // decided yet.
+  calendar_sync?: CalendarSyncChoice | null
   // Set when the one-time first-save hint is first shown (the first time is
   // kept). Absent/null = never shown, the only state in which it may render.
   first_save_hint_dismissed_at?: string | null

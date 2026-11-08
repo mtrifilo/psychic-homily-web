@@ -338,22 +338,38 @@ func (s *CalendarService) GetTokenStatus(userID uint, apiBaseURL string) (*contr
 	return status, nil
 }
 
-// DeleteToken removes a user's calendar token
+// DeleteToken turns the user's calendar off: it removes their feed token and
+// resets their calendar sync choice to "not decided", in one transaction, so
+// no reader sees a choice of connected that outlives the feed it named. With
+// no token to delete it changes nothing and reports an error.
+//
+// The other token deleters (DeleteCalendarTokensTx's callers) leave the
+// choice alone: they revoke a credential, they do not record a decision.
 func (s *CalendarService) DeleteToken(userID uint) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
 
-	deleted, err := DeleteCalendarTokensTx(s.db, userID)
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		deleted, err := DeleteCalendarTokensTx(tx, userID)
+		if err != nil {
+			return err
+		}
+		if deleted == 0 {
+			return errNoCalendarToken
+		}
+		return shared.ClearCalendarSyncTx(tx, userID)
+	})
 	if err != nil {
 		return err
-	}
-	if deleted == 0 {
-		return fmt.Errorf("no calendar token found")
 	}
 	s.invalidateFeedCache(userID)
 	return nil
 }
+
+// errNoCalendarToken is DeleteToken's report that there was nothing to turn
+// off. Its text is what callers and tests have always matched.
+var errNoCalendarToken = errors.New("no calendar token found")
 
 // DeleteCalendarTokensTx revokes userID's calendar-feed token through tx,
 // which the caller commits, and reports how many it deleted. A revoked token

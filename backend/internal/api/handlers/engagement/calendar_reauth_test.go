@@ -27,7 +27,7 @@ func calendarHandlerRecordingMints(minted *bool) *CalendarHandler {
 		},
 		GetTokenStatusFn: recoverableTokenStatus,
 		DeleteTokenFn:    func(uint) error { return nil },
-	}, testCalendarConfig())
+	}, &testhelpers.MockUserService{}, testCalendarConfig())
 }
 
 func calendarUser() *authm.User {

@@ -267,6 +267,112 @@ func newHomeLayoutResponse(message string, layout *authm.HomeLayout) *HomeLayout
 }
 
 // ===========================================================================
+// Calendar sync choice
+// ===========================================================================
+
+// SetCalendarSyncRequest carries the WHOLE choice document; the write replaces
+// whatever is stored. The body is the document itself so the request, the
+// response field, the profile payload and the calendar status all describe
+// the same shape.
+type SetCalendarSyncRequest struct {
+	Body authm.CalendarSync
+}
+
+// ClearCalendarSyncRequest takes nothing: the endpoint resets the session
+// user's own choice.
+type ClearCalendarSyncRequest struct{}
+
+// CalendarSyncResponse reports the resulting choice. An ABSENT calendar_sync
+// means "not decided", the state DELETE restores. omitempty for the reason
+// HomeLayoutResponse gives.
+type CalendarSyncResponse struct {
+	Body struct {
+		Success bool                `json:"success"`
+		Message string              `json:"message"`
+		Choice  *authm.CalendarSync `json:"calendar_sync,omitempty"`
+	}
+}
+
+// SetCalendarSyncHandler handles PUT /auth/preferences/calendar-sync.
+func (h *UserPreferencesHandler) SetCalendarSyncHandler(ctx context.Context, req *SetCalendarSyncRequest) (*CalendarSyncResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	choice := req.Body
+	stored, err := h.userService.SetCalendarSync(user.ID, &choice)
+	// A nil document with a nil error is a broken implementation: an absent
+	// calendar_sync is the "not decided" signal, so rendering it here would
+	// tell a user who just decided that nothing was stored.
+	if err == nil && stored == nil {
+		err = fmt.Errorf("calendar sync choice resolved to nothing")
+	}
+	if err != nil {
+		// A rejected document is the client's mistake and its text names the
+		// broken rule, so it is safe to echo. Any other failure is ours.
+		if errors.Is(err, authm.ErrInvalidCalendarSync) {
+			logger.FromContext(ctx).Warn("set_calendar_sync_rejected",
+				"error", err.Error(),
+				"user_id", user.ID,
+				"request_id", requestID,
+			)
+			return nil, huma.Error422UnprocessableEntity(err.Error())
+		}
+		logger.FromContext(ctx).Error("set_calendar_sync_failed",
+			"error", err.Error(),
+			"user_id", user.ID,
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError("Failed to save calendar choice")
+	}
+
+	logger.FromContext(ctx).Info("set_calendar_sync_success",
+		"user_id", user.ID,
+		"state", stored.State,
+	)
+
+	return newCalendarSyncResponse("Calendar choice saved", stored), nil
+}
+
+// ClearCalendarSyncHandler handles DELETE /auth/preferences/calendar-sync.
+func (h *UserPreferencesHandler) ClearCalendarSyncHandler(ctx context.Context, _ *ClearCalendarSyncRequest) (*CalendarSyncResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	if err := h.userService.ClearCalendarSync(user.ID); err != nil {
+		logger.FromContext(ctx).Error("clear_calendar_sync_failed",
+			"error", err.Error(),
+			"user_id", user.ID,
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError("Failed to reset calendar choice")
+	}
+
+	logger.FromContext(ctx).Info("clear_calendar_sync_success",
+		"user_id", user.ID,
+	)
+
+	return newCalendarSyncResponse("Calendar choice reset", nil), nil
+}
+
+// newCalendarSyncResponse builds the shared body so PUT and DELETE cannot
+// drift in what they report.
+func newCalendarSyncResponse(message string, choice *authm.CalendarSync) *CalendarSyncResponse {
+	resp := &CalendarSyncResponse{}
+	resp.Body.Success = true
+	resp.Body.Message = message
+	resp.Body.Choice = choice
+	return resp
+}
+
+// ===========================================================================
 // One-time first-save hint
 // ===========================================================================
 

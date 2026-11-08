@@ -16,16 +16,20 @@ import (
 	"psychic-homily-backend/internal/services/shared"
 )
 
-// CalendarHandler handles calendar feed and token management
+// CalendarHandler handles calendar feed and token management. The user
+// service reads the calendar sync choice, which lives in the user's
+// preferences rather than with the token.
 type CalendarHandler struct {
 	calendarService contracts.CalendarServiceInterface
+	userService     contracts.UserServiceInterface
 	config          *config.Config
 }
 
 // NewCalendarHandler creates a new calendar handler
-func NewCalendarHandler(calendarService contracts.CalendarServiceInterface, cfg *config.Config) *CalendarHandler {
+func NewCalendarHandler(calendarService contracts.CalendarServiceInterface, userService contracts.UserServiceInterface, cfg *config.Config) *CalendarHandler {
 	return &CalendarHandler{
 		calendarService: calendarService,
+		userService:     userService,
 		config:          cfg,
 	}
 }
@@ -210,10 +214,25 @@ func (h *CalendarHandler) GetCalendarTokenStatusHandler(ctx context.Context, req
 		)
 	}
 
+	syncChoice, err := h.userService.GetCalendarSync(user.ID)
+	if err != nil {
+		logger.FromContext(ctx).Error("get_calendar_sync_choice_failed",
+			"user_id", user.ID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to get calendar token status (request_id: %s)", requestID),
+		)
+	}
+
 	body := *status
 	if !middleware.IsSessionCredentialFromContext(ctx) {
 		body = body.WithoutFeedURLs()
 	}
+	// Set after the redaction on purpose: the choice is a preference, not a
+	// credential, and the profile payload already carries it to every caller.
+	body.SyncChoice = syncChoice
 
 	return &GetCalendarTokenStatusResponse{CacheControl: "no-store", Body: body}, nil
 }

@@ -402,6 +402,14 @@ type UserServiceInterface interface {
 	// authm.ErrInvalidHomeLayout.
 	SetHomeLayout(userID uint, layout *authm.HomeLayout) (*authm.HomeLayout, error)
 	ClearHomeLayout(userID uint) error
+	// Calendar sync choice. SetCalendarSync REPLACES the stored document and
+	// returns it; a rejection wraps authm.ErrInvalidCalendarSync.
+	// GetCalendarSync returns nil when the user has not decided, and the
+	// stored document unchanged otherwise (an expired not_now is not
+	// rewritten). ClearCalendarSync resets to "not decided".
+	SetCalendarSync(userID uint, choice *authm.CalendarSync) (*authm.CalendarSync, error)
+	GetCalendarSync(userID uint) (*authm.CalendarSync, error)
+	ClearCalendarSync(userID uint) error
 	// DismissFirstSaveHint stamps the one-time first-save hint as done (it is
 	// called when the hint is first shown, and when it is closed) and returns
 	// the stored time. A repeat call keeps the first time.

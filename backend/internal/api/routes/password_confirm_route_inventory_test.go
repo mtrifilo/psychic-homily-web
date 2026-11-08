@@ -142,6 +142,7 @@ var authRouteRateLimitScope = map[string]string{
 	"PATCH /auth/preferences/show-reminders":           scopeProtectedNoLimit,
 	"PATCH /auth/preferences/tier-edit-notifications":  scopeProtectedNoLimit,
 
+	"PUT /auth/preferences/calendar-sync":   scopeProtectedNoLimit,
 	"PUT /auth/preferences/chart-defaults":  scopeProtectedNoLimit,
 	"PUT /auth/preferences/first-save-hint": scopeProtectedNoLimit,
 	"PUT /auth/preferences/favorite-cities": scopeProtectedNoLimit,
@@ -150,6 +151,7 @@ var authRouteRateLimitScope = map[string]string{
 
 	"PUT /auth/profile/sections/{section_id}":          scopeProtectedNoLimit,
 	"DELETE /auth/preferences/home-layout":             scopeProtectedNoLimit,
+	"DELETE /auth/preferences/calendar-sync":           scopeProtectedNoLimit,
 	"DELETE /auth/profile/sections/{section_id}":       scopeProtectedNoLimit,
 	"DELETE /auth/oauth/accounts/{provider}":           scopeProtectedNoLimit,
 	"DELETE /auth/passkey/credentials/{credential_id}": scopeProtectedNoLimit,

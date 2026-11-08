@@ -100,6 +100,9 @@ export const API_ENDPOINTS = {
     // PSY-386 / PSY-2104: signed-in home section order + visibility. PUT takes
     // the whole document; DELETE restores the shipped default.
     HOME_LAYOUT: `${API_BASE_URL}/auth/preferences/home-layout`,
+    // The calendar sync choice. PUT takes the whole document; DELETE resets it
+    // to "not decided". Read from the profile payload or GET CALENDAR.TOKEN.
+    CALENDAR_SYNC: `${API_BASE_URL}/auth/preferences/calendar-sync`,
     // One-way stamp: the viewer dismissed the one-time first-save hint.
     FIRST_SAVE_HINT: `${API_BASE_URL}/auth/preferences/first-save-hint`,
     SHOW_REMINDERS: `${API_BASE_URL}/auth/preferences/show-reminders`,

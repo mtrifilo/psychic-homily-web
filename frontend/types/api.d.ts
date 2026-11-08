@@ -2934,6 +2934,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/preferences/calendar-sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put auth preferences calendar sync */
+        put: operations["put-auth-preferences-calendar-sync"];
+        post?: never;
+        /** Delete auth preferences calendar sync */
+        delete: operations["delete-auth-preferences-calendar-sync"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/preferences/chart-defaults": {
         parameters: {
             query?: never;
@@ -9017,6 +9035,40 @@ export interface components {
             /** Format: int64 */
             venue_id: number;
         };
+        CalendarSync: {
+            /**
+             * Format: date-time
+             * @description When the user made this choice (RFC 3339)
+             */
+            decided_at: string;
+            /**
+             * Format: date-time
+             * @description When a not_now lapses; required with not_now, absent otherwise. Later than decided_at by at most 31 days
+             */
+            declined_until?: string;
+            /**
+             * Format: int64
+             * @description How many times the user has said not now, counted by the client; required with not_now (0 to 2), absent otherwise
+             */
+            declines?: number;
+            /** @description Every way the user connected a calendar; required, non-empty and distinct with connected, absent otherwise */
+            providers?: ("apple_subscribe" | "google_subscribe" | "google_per_show" | "apple_per_show" | "copied" | "shared" | "downloaded")[] | null;
+            /**
+             * @description connected, not_now (declined until declined_until) or never
+             * @enum {string}
+             */
+            state: "connected" | "not_now" | "never";
+            /**
+             * Format: int64
+             * @description Document version; must be 1
+             */
+            version: number;
+        } | null;
+        CalendarSyncResponseBody: {
+            calendar_sync?: components["schemas"]["CalendarSync"];
+            message: string;
+            success: boolean;
+        };
         CalendarTokenCreateResponse: {
             /** Format: date-time */
             created_at: string;
@@ -9032,6 +9084,8 @@ export interface components {
             /** @description Followed-artist Atom subscribe URL, present when url_recoverable is true */
             follows_feed_url?: string;
             has_token: boolean;
+            /** @description The user's calendar sync choice; null when they have not decided */
+            sync_choice: components["schemas"]["CalendarSync"];
             /** @description Whether this response carries the feed URLs. False while has_token is true means the URLs cannot be shown to this caller: the token was minted before its URL was stored (regenerating replaces it with one that is), or the caller is not a signed-in session. */
             url_recoverable: boolean;
         };
@@ -16472,6 +16526,7 @@ export interface components {
         };
         UserPreferences: {
             alert_defaults: unknown;
+            calendar_sync: unknown;
             chart_defaults: unknown;
             /** Format: date-time */
             created_at: string;
@@ -23362,6 +23417,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AlertPreferencesResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "put-auth-preferences-calendar-sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CalendarSync"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarSyncResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-auth-preferences-calendar-sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarSyncResponseBody"];
                 };
             };
             /** @description Error */

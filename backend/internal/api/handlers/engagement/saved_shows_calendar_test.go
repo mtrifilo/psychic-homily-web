@@ -27,7 +27,7 @@ func TestGetSavedShowsCalendarDownload_NoUserIsUnauthorized(t *testing.T) {
 			return nil, nil
 		},
 	}
-	h := NewCalendarHandler(mock, testCalendarConfig())
+	h := NewCalendarHandler(mock, &testhelpers.MockUserService{}, testCalendarConfig())
 
 	w := httptest.NewRecorder()
 	h.GetSavedShowsCalendarDownloadHandler(w, savedShowsDownloadRequest(nil))
@@ -56,7 +56,7 @@ func TestGetSavedShowsCalendarDownload_RendersUncachedForSessionUser(t *testing.
 			return nil, nil
 		},
 	}
-	h := NewCalendarHandler(mock, testCalendarConfig())
+	h := NewCalendarHandler(mock, &testhelpers.MockUserService{}, testCalendarConfig())
 
 	w := httptest.NewRecorder()
 	h.GetSavedShowsCalendarDownloadHandler(w, savedShowsDownloadRequest(&authm.User{ID: 7}))
@@ -86,7 +86,7 @@ func TestGetSavedShowsCalendarDownload_SendsNoValidator(t *testing.T) {
 			return []byte("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"), nil
 		},
 	}
-	h := NewCalendarHandler(mock, testCalendarConfig())
+	h := NewCalendarHandler(mock, &testhelpers.MockUserService{}, testCalendarConfig())
 
 	for _, inm := range []string{"*", `"anything"`} {
 		req := savedShowsDownloadRequest(&authm.User{ID: 7})
@@ -109,7 +109,7 @@ func TestGetSavedShowsCalendarDownload_RenderFailureIs500(t *testing.T) {
 			return nil, errors.New("db down")
 		},
 	}
-	h := NewCalendarHandler(mock, testCalendarConfig())
+	h := NewCalendarHandler(mock, &testhelpers.MockUserService{}, testCalendarConfig())
 
 	w := httptest.NewRecorder()
 	h.GetSavedShowsCalendarDownloadHandler(w, savedShowsDownloadRequest(&authm.User{ID: 7}))
