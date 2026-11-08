@@ -83,12 +83,12 @@ type JWTErrorResponse struct {
 // JWTMiddleware validates JWT tokens (standard http.Handler version). It
 // accepts a session credential only; an API token fails session validation.
 //
-// With a session config, a session cookie the token checks reject (invalid,
-// expired, revoked, or its account closed) is cleared, so a browser that
-// navigated here with it does not keep presenting it. Nothing is cleared when
-// the rejected credential was the Authorization header, since the cookie was
-// never examined, or when validation failed for a reason other than the
-// credential (a failed user lookup), since the session may still be good.
+// With a session config, a session cookie that can never validate (invalid,
+// expired, revoked, its account closed, or its account deleted) is cleared, so
+// a browser that navigated here with it does not keep presenting it. Nothing is
+// cleared when the rejected credential was the Authorization header, since the
+// cookie was never examined, or when the user read failed for another reason
+// (a database error), since the session may still be good.
 func JWTMiddleware(jwtService *auth.JWTService, sessionConfig ...config.SessionConfig) func(http.Handler) http.Handler {
 	var sessConfig *config.SessionConfig
 	if len(sessionConfig) > 0 {
@@ -125,8 +125,8 @@ func JWTMiddleware(jwtService *auth.JWTService, sessionConfig ...config.SessionC
 				message := invalidTokenMessage
 
 				var authErr *autherrors.AuthError
-				credentialRejected := errors.As(err, &authErr)
-				if credentialRejected && authErr.Code == autherrors.CodeTokenExpired {
+				credentialRejected := errors.As(err, &authErr) || errors.Is(err, gorm.ErrRecordNotFound)
+				if authErr != nil && authErr.Code == autherrors.CodeTokenExpired {
 					errorCode = autherrors.CodeTokenExpired
 					message = authErr.UserMessage()
 				}

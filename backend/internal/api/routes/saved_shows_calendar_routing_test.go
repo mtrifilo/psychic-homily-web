@@ -231,6 +231,23 @@ func TestSavedShowsCalendarDownloadThroughRouter(t *testing.T) {
 		t.Errorf("API token: GET %s = %d, want 401 with no calendar", savedShowsCalendarDownloadRoute, w.Code)
 	}
 
+	// A session whose account row is gone can never validate again, so its
+	// cookie is cleared.
+	gone := testhelpers.CreateTestUser(td.DB)
+	goneToken, err := sc.JWT.CreateToken(gone)
+	if err != nil {
+		t.Fatalf("mint token: %v", err)
+	}
+	if err := td.DB.Unscoped().Delete(gone).Error; err != nil {
+		t.Fatalf("delete user: %v", err)
+	}
+	if w := sendWith(http.MethodGet, savedShowsCalendarDownloadRoute, func(r *http.Request) {
+		r.AddCookie(&http.Cookie{Name: config.AuthCookieName, Value: goneToken})
+	}); w.Code != http.StatusUnauthorized || !clearsAuthCookie(w) {
+		t.Errorf("deleted account: GET %s = %d, cookie cleared = %v; want 401 with the cookie cleared",
+			savedShowsCalendarDownloadRoute, w.Code, clearsAuthCookie(w))
+	}
+
 	// The {show_id} sibling still reaches its own handler for a real show id.
 	if w := send(http.MethodGet, fmt.Sprintf("/saved-shows/%d/check", late.ID)); w.Code != http.StatusOK ||
 		!strings.Contains(w.Body.String(), `"is_saved":true`) {

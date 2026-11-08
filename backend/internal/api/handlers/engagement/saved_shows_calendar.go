@@ -13,10 +13,10 @@ import (
 // replay a list the user has since changed.
 const savedShowsDownloadCacheControl = "private, no-store"
 
-// savedShowsDownloadDisposition is "attachment" so a desktop or Android browser
-// hands the file to the calendar app, the same as the per-show download.
-// "inline" is the alternative for a browser that offers an import sheet for an
-// inline calendar.
+// savedShowsDownloadDisposition is "attachment", so the browser treats the
+// response as a file download, the same as the per-show download. "inline" is
+// the alternative for a browser that offers an import sheet for an inline
+// calendar.
 const savedShowsDownloadDisposition = "attachment"
 
 // savedShowsDownloadFilename is the name the downloaded file is saved under.
