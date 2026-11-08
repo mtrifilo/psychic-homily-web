@@ -455,15 +455,14 @@ func (s *JWTIntegrationSuite) TestRefreshFlow_ExpiredWithinGraceKeepsItsAuthTime
 
 	_, presented, err := s.svc.ValidateSessionLenient(token, refreshGracePeriod)
 	s.Require().NoError(err)
-	presentedAuthAt := presented.AuthAt
-	s.Require().False(presentedAuthAt.IsZero())
+	s.Require().False(presented.AuthAt.IsZero())
 
 	refreshed, err := s.renewLikeTheRefreshEndpoint(token)
 	s.Require().NoError(err)
 
 	_, refreshedAuthAt, err := s.svc.ValidateSession(refreshed)
 	s.Require().NoError(err)
-	s.True(refreshedAuthAt.Equal(presentedAuthAt),
+	s.True(refreshedAuthAt.Equal(presented.AuthAt),
 		"renewing after expiry must neither stamp nor drop the authentication time")
 }
 
