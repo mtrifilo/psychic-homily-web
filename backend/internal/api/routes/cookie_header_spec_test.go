@@ -12,8 +12,8 @@ import (
 // http.Cookie field as a header beside Set-Cookie. Huma documents (and writes)
 // the element struct's exported fields as headers of their own for a
 // slice-of-http.Cookie header field, which put the session token in a Value
-// header on POST /auth/login; a multi-cookie response must serialize its
-// cookies instead.
+// header on POST /auth/login; a multi-cookie response serializes its cookies
+// instead (setCookieLines in handlers/auth).
 func TestNoSetCookieResponseDeclaresACookieField(t *testing.T) {
 	rr := httptest.NewRecorder()
 	newTestRouter(t).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/openapi.json", nil))
@@ -39,24 +39,35 @@ func TestNoSetCookieResponseDeclaresACookieField(t *testing.T) {
 		}
 	}
 
-	setCookieOperations := 0
+	// The multi-cookie routes must be among those walked, or the walk proves
+	// nothing about them.
+	unseen := map[string]bool{
+		"post /auth/login":               true,
+		"post /auth/oauth/link-by-email": true,
+		"post /auth/oauth/finish-signup": true,
+	}
 	for path, operations := range spec.Paths {
 		for method, operation := range operations {
 			for status, response := range operation.Responses {
-				if _, setsCookie := response.Headers["Set-Cookie"]; !setsCookie {
+				setsCookie := false
+				for header := range response.Headers {
+					if http.CanonicalHeaderKey(header) == "Set-Cookie" {
+						setsCookie = true
+					}
+				}
+				if !setsCookie {
 					continue
 				}
-				setCookieOperations++
+				delete(unseen, method+" "+path)
 				for header := range response.Headers {
 					if cookieFields[http.CanonicalHeaderKey(header)] {
-						t.Errorf("%s %s %s declares http.Cookie field %s as a header beside Set-Cookie", method, path, status, header)
+						t.Errorf("%s %s %s declares http.Cookie field %s as a header beside Set-Cookie; serialize the cookies into a []string header field instead", method, path, status, header)
 					}
 				}
 			}
 		}
 	}
-	// The walk must reach the auth routes, or it proves nothing.
-	if setCookieOperations == 0 {
-		t.Fatal("served spec declares no Set-Cookie response header; the walk missed the auth routes")
+	for operation := range unseen {
+		t.Errorf("served spec has no Set-Cookie response for %s", operation)
 	}
 }

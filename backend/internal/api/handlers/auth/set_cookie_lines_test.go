@@ -26,9 +26,9 @@ func parsedSetCookies(t testing.TB, lines setCookieLines) []*http.Cookie {
 }
 
 // assertOnlySetCookies fails unless header answers exactly the named cookies,
-// in order, as Set-Cookie lines, and none of http.Cookie's fields as a header
-// of its own. No names means no Set-Cookie line at all: an empty line does not
-// parse.
+// each once and in any order, as Set-Cookie lines, and none of http.Cookie's
+// fields as a header of its own. No names means no Set-Cookie line at all: an
+// empty line does not parse.
 func assertOnlySetCookies(t testing.TB, header http.Header, wantNames ...string) {
 	t.Helper()
 	lines := header.Values("Set-Cookie")
@@ -36,6 +36,8 @@ func assertOnlySetCookies(t testing.TB, header http.Header, wantNames ...string)
 	for _, cookie := range parsedSetCookies(t, lines) {
 		gotNames = append(gotNames, cookie.Name)
 	}
+	slices.Sort(gotNames)
+	wantNames = slices.Sorted(slices.Values(wantNames))
 	if !slices.Equal(gotNames, wantNames) {
 		t.Errorf("Set-Cookie names = %q, want %q (lines %q)", gotNames, wantNames, lines)
 	}
@@ -52,7 +54,7 @@ func assertOnlySetCookies(t testing.TB, header http.Header, wantNames ...string)
 }
 
 // The login response's Set-Cookie is exactly its cookies over the wire: the
-// session alone, the cleared pending link before it when the request carried
+// session alone, the cleared pending link beside it when the request carried
 // one, the cleared link alone when the connecting sign-in is refused, and no
 // header at all when nothing is set.
 func TestLoginSetCookieHeadersOverTheWire(t *testing.T) {

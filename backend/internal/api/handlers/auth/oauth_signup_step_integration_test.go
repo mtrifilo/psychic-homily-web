@@ -359,9 +359,10 @@ func (s *OAuthHandlerIntegrationSuite) TestFinishSignup_UnderSixteenIsRefusedAnd
 	s.Zero(s.accountsFor(identity.Email))
 
 	// A different date from the same browser is refused without a form.
-	s.requireRefusal(api.Post(OAuthFinishSignupRoute,
-		pendingCookieHeader(token)+"; "+signupAgeRefusalCookieName+"=1", validStepBody("1990-01-01")),
-		autherrors.CodeAgeConfirmationRequired)
+	marked := api.Post(OAuthFinishSignupRoute,
+		pendingCookieHeader(token)+"; "+signupAgeRefusalCookieName+"=1", validStepBody("1990-01-01"))
+	s.requireRefusal(marked, autherrors.CodeAgeConfirmationRequired)
+	assertOnlySetCookies(s.T(), marked.Header(), oauthPendingSignupCookie.name, signupAgeRefusalCookieName)
 	s.Zero(s.accountsFor(identity.Email))
 }
 
@@ -432,8 +433,10 @@ func (s *OAuthHandlerIntegrationSuite) TestFinishSignup_AddressTakenMeanwhileIsR
 	token := s.startStep(identity)
 	s.Require().NoError(s.deps.DB.Create(&authm.User{Email: strPtr(identity.Email), IsActive: true, EmailVerified: true}).Error)
 
-	s.requireRefusal(s.stepAPI().Post(OAuthFinishSignupRoute, pendingCookieHeader(token), validStepBody("1990-01-01")),
-		autherrors.CodeOAuthLinkRefused)
+	resp := s.stepAPI().Post(OAuthFinishSignupRoute, pendingCookieHeader(token), validStepBody("1990-01-01"))
+	s.requireRefusal(resp, autherrors.CodeOAuthLinkRefused)
+	// The step was consumed before the refusal, so its cookie is cleared.
+	assertOnlySetCookies(s.T(), resp.Header(), oauthPendingSignupCookie.name)
 	var links int64
 	s.Require().NoError(s.deps.DB.Model(&authm.OAuthAccount{}).Where("provider_user_id = ?", identity.UserID).Count(&links).Error)
 	s.Zero(links)

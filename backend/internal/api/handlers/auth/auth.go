@@ -394,7 +394,6 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 		return resp, authErr // Return actual error for 5xx HTTP status
 	}
 
-	// Set HTTP-only cookie using Huma's built-in support
 	resp.SetCookie.add(h.config.NewSessionCookie(token))
 
 	logger.AuthInfo(ctx, "login_success",
