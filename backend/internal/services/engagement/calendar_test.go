@@ -461,17 +461,19 @@ func icsEventLines(t *testing.T, feed string) []string {
 	return event
 }
 
-// countICSProperty counts content lines that OPEN the named property. A value
-// that merely mentions "SUMMARY:" mid-line is inert text and is not counted;
-// only a line that starts one is a property.
 // icsPropertyNames counts the content lines of a component by property name,
 // the text before the first ':' or ';'. Two renders of the same show must agree
-// on it exactly; a forged property shows up as a name with no twin.
+// on it exactly; a forged property shows up as a name with no twin, and a
+// forged line with no name shows up under the sentinel.
 func icsPropertyNames(lines []string) map[string]int {
 	names := map[string]int{}
 	for _, line := range lines {
 		end := strings.IndexAny(line, ":;")
 		if end < 0 {
+			// A content line with no property name is not a property at all;
+			// counted under a sentinel so an injected bare line still breaks the
+			// comparison instead of vanishing from it.
+			names["<no property name>"]++
 			continue
 		}
 		names[line[:end]]++
@@ -507,6 +509,9 @@ func benignTwinOf(shows []*contracts.SavedShowResponse) []*contracts.SavedShowRe
 	return out
 }
 
+// countICSProperty counts content lines that OPEN the named property. A value
+// that merely mentions "SUMMARY:" mid-line is inert text and is not counted;
+// only a line that starts one is a property.
 func countICSProperty(lines []string, name string) int {
 	count := 0
 	for _, line := range lines {

@@ -416,10 +416,12 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 // a moment ago. It is the one exported render of saved shows, and it only ever
 // renders the gated selection from upcomingSavedShows; a caller that needs
 // read-your-write freshness (a one-shot download, for instance) can use it
-// directly, while the subscription feed wraps it with the per-user cache.
+// directly, while the subscription feed wraps it with the per-user cache. It
+// joins the service interface together with its first caller outside this
+// package, which regenerates the handler mocks in the same change.
 func (s *CalendarService) RenderSavedShowsCalendar(userID uint, frontendURL string) ([]byte, error) {
-	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+	if s.db == nil || s.savedShowSvc == nil {
+		return nil, fmt.Errorf("calendar service not initialized")
 	}
 
 	shows, err := s.upcomingSavedShows(userID)

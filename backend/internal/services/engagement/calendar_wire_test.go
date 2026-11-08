@@ -61,15 +61,30 @@ func rfc5545WireProblems(feed []byte, wantEvents int) []string {
 	}
 
 	// icsContentLines normalizes line endings, which is safe for the property
-	// checks because the line-ending defects were recorded above.
+	// checks because the line-ending defects were recorded above. Property names
+	// are case-insensitive (RFC 5545 2), so every content line is compared in
+	// upper case; a VEVENT that opens inside another, or never closes, is a
+	// defect of its own rather than a reason to skip its checks.
 	events := 0
 	var event []string
-	for _, line := range icsContentLines(string(feed)) {
-		switch line {
+	for i, line := range icsContentLines(string(feed)) {
+		if line == "" {
+			problems = append(problems, fmt.Sprintf("content line %d is empty", i+1))
+			continue
+		}
+		upper := strings.ToUpper(line)
+		switch upper {
 		case "BEGIN:VEVENT":
+			if event != nil {
+				problems = append(problems, fmt.Sprintf("VEVENT %d opens before VEVENT %d closes", events+1, events))
+			}
 			events++
 			event = []string{}
 		case "END:VEVENT":
+			if event == nil {
+				problems = append(problems, fmt.Sprintf("content line %d: END:VEVENT without an open VEVENT", i+1))
+				continue
+			}
 			if n := countICSProperty(event, "DTSTAMP"); n != 1 {
 				problems = append(problems, fmt.Sprintf("VEVENT %d carries %d DTSTAMP properties, want exactly one", events, n))
 			}
@@ -90,9 +105,12 @@ func rfc5545WireProblems(feed []byte, wantEvents int) []string {
 			event = nil
 		default:
 			if event != nil {
-				event = append(event, line)
+				event = append(event, upper)
 			}
 		}
+	}
+	if event != nil {
+		problems = append(problems, fmt.Sprintf("VEVENT %d is never closed", events))
 	}
 	if events != wantEvents {
 		problems = append(problems, fmt.Sprintf("%d VEVENTs on the wire, want %d", events, wantEvents))
@@ -245,4 +263,37 @@ func savedShowFixture(id uint, title string, stamp time.Time) *contracts.SavedSh
 		s.CreatedAt = stamp
 		s.UpdatedAt = stamp
 	})}
+}
+
+// Structural defects the parser is lenient about must still surface as wire
+// problems: a VEVENT that never closes, one that opens inside another, an
+// empty content line, and a second DTSTAMP spelled in lower case.
+func TestRFC5545Wire_ReportsStructuralDefects(t *testing.T) {
+	cases := map[string]struct {
+		feed string
+		want string
+	}{
+		"unterminated VEVENT": {
+			feed: "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:a\r\nEND:VCALENDAR\r\n",
+			want: "is never closed",
+		},
+		"nested VEVENT": {
+			feed: "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:a\r\nBEGIN:VEVENT\r\nUID:b\r\nDTSTAMP:20260601T120000Z\r\nSEQUENCE:0\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
+			want: "opens before VEVENT 1 closes",
+		},
+		"empty content line": {
+			feed: "BEGIN:VCALENDAR\r\n\r\nEND:VCALENDAR\r\n",
+			want: "is empty",
+		},
+		"lower-case duplicate DTSTAMP": {
+			feed: "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:a\r\nDTSTAMP:20260601T120000Z\r\ndtstamp:19700101T000000Z\r\nSEQUENCE:0\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
+			want: "2 DTSTAMP properties",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			problems := strings.Join(rfc5545WireProblems([]byte(tc.feed), 1), "\n")
+			assert.Contains(t, problems, tc.want)
+		})
+	}
 }
