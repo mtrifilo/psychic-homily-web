@@ -22,8 +22,8 @@ func (s *AuthService) PasswordResetAccount(claims *contracts.PasswordResetTokenC
 }
 
 // CompletePasswordReset sets newPassword on the account claims name, revokes
-// every session it holds and issues one for this browser
-// (contracts.AuthServiceInterface).
+// every session it holds and its calendar-feed token, and issues a session
+// for this browser (contracts.AuthServiceInterface).
 func (s *AuthService) CompletePasswordReset(claims *contracts.PasswordResetTokenClaims, newPassword string) (*contracts.PasswordResetCompletion, error) {
 	return completePasswordReset(s.db, s.jwtService, claims, newPassword, s.userService.HashPassword, s.jwtService.CreateToken)
 }
@@ -80,10 +80,10 @@ func completePasswordReset(
 		account.FailedLoginAttempts = 0
 		account.LockedUntil = nil
 
-		if err := shared.RevokeAllSessions(tx, account, time.Now()); err != nil {
+		if err := revokeSessionsAndFeedToken(tx, account, time.Now()); err != nil {
 			return err
 		}
-		// RevokeAllSessions set account.SessionsValidAfter to the stamp it
+		// The revocation set account.SessionsValidAfter to the stamp it
 		// wrote, so this session names the stamp the transaction commits and
 		// the revocation does not reach it. Minted inside the transaction, so
 		// a mint failure rolls the reset back and the link stays usable.

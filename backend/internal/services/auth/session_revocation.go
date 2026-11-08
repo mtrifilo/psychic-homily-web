@@ -6,6 +6,7 @@ import (
 	"gorm.io/gorm"
 
 	authm "psychic-homily-backend/internal/models/auth"
+	engagementsvc "psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/shared"
 )
 
@@ -16,4 +17,23 @@ import (
 // uses, behaves the same; behavior belongs in shared.RevokeAllSessions.
 func RevokeAllSessions(db *gorm.DB, user *authm.User, now time.Time) error {
 	return shared.RevokeAllSessions(db, user, now)
+}
+
+// revokeSessionsAndFeedToken refuses every session account holds
+// (RevokeAllSessions) and deletes its calendar-feed token, both through tx,
+// for a revocation meant to shut out whoever else holds the account. A
+// session can carry the feed URL away, and the URL is a bearer credential
+// that no session revocation reaches, so such a revocation deletes it too.
+// API tokens, passkeys and provider identities are left in place.
+//
+// tx holds account's users row FOR UPDATE. A feed-token mint judges its
+// session under a lock on that row before it writes (engagement
+// CalendarService.CreateToken), so a mint from a session this revokes either
+// commits first, and its token is deleted here, or waits and is refused.
+func revokeSessionsAndFeedToken(tx *gorm.DB, account *authm.User, now time.Time) error {
+	if err := RevokeAllSessions(tx, account, now); err != nil {
+		return err
+	}
+	_, err := engagementsvc.DeleteCalendarTokensTx(tx, account.ID)
+	return err
 }

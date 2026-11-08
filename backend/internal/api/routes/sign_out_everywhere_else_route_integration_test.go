@@ -21,8 +21,8 @@ import (
 
 // POST /auth/sessions/sign-out-everywhere-else driven through the ROUTER by a
 // browser holding a real session cookie: every other session is refused
-// afterwards, the caller goes on with the renewal it was handed, and the
-// credentials that are not sessions keep working.
+// afterwards, the caller goes on with the renewal it was handed, the
+// calendar-feed URL is refused, and the API token keeps working.
 
 type signOutEverywhereElseFixture struct {
 	router *chi.Mux
@@ -101,6 +101,17 @@ func profileStatus(t *testing.T, router *chi.Mux, credential string) int {
 	return sendAuthed(t, router, http.MethodGet, "/auth/profile", "", "203.0.113.199:1234", credential).Code
 }
 
+// feedStatus fetches the saved-shows iCal feed whose URL carries token, as a
+// calendar client does, with no session.
+func feedStatus(t *testing.T, router *chi.Mux, token string) int {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, strings.Replace(savedShowsFeedRoute, "{token}", token, 1), nil)
+	req.RemoteAddr = "203.0.113.198:1234"
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	return w.Code
+}
+
 func TestSignOutEverywhereElseRouteThroughRouter(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -150,6 +161,9 @@ func TestSignOutEverywhereElseRouteThroughRouter(t *testing.T) {
 			t.Fatalf("before the call, %s answered %d, want 200", name, code)
 		}
 	}
+	if code := feedStatus(t, f.router, calendarToken.Token); code != http.StatusOK {
+		t.Fatalf("before the call, the calendar feed answered %d, want 200", code)
+	}
 
 	w := signOutEverywhereElse(t, f.router, "203.0.113.191:1234", thisDevice)
 	if w.Code != http.StatusOK {
@@ -183,8 +197,8 @@ func TestSignOutEverywhereElseRouteThroughRouter(t *testing.T) {
 	if code := profileStatus(t, f.router, apiToken.Token); code != http.StatusOK {
 		t.Errorf("the API token answered %d after the call, want 200", code)
 	}
-	if _, err := f.sc.Calendar.ValidateCalendarToken(calendarToken.Token); err != nil {
-		t.Errorf("the calendar-feed token was refused after the call: %v", err)
+	if code := feedStatus(t, f.router, calendarToken.Token); code != http.StatusUnauthorized {
+		t.Errorf("after the call, the calendar feed answered %d, want 401", code)
 	}
 
 	t.Run("a revoked session cannot use it to mint itself a current one", func(t *testing.T) {

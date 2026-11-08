@@ -23,7 +23,9 @@ import (
 //
 // It revokes session JWTs only, which is every credential minted from a
 // sign-in: browser sessions, OAuth sign-ins and CLI tokens. API tokens and
-// calendar-feed tokens are separate stored credentials and are not touched.
+// calendar-feed tokens are separate stored credentials and are not touched
+// here; a caller that must also end one deletes it itself, in the same
+// transaction.
 func RevokeAllSessions(db *gorm.DB, user *authm.User, now time.Time) error {
 	var validAfter []time.Time
 	res := db.Raw(

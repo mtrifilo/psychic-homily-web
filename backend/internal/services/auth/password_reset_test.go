@@ -269,6 +269,21 @@ func (s *JWTIntegrationSuite) TestCompletePasswordReset_RevokesEarlierSessionsAn
 	s.True(authAt.After(before), "auth_at %v is the reset's", authAt)
 }
 
+// A reset is a reclaim, and a squatter's session can have carried the feed
+// URL away, so the reset deletes the calendar-feed token.
+func (s *JWTIntegrationSuite) TestCompletePasswordReset_RevokesTheCalendarFeedToken() {
+	user := s.createActiveUser("reset-feed@test.com")
+	s.setPasswordHash(user.ID, "planted-password-1!")
+	feed := s.feedToken(user.ID)
+	s.requireFeedTokenHonored(user.ID, feed)
+	claims := s.resetClaimsFor(user.ID)
+
+	_, err := s.authSvc.CompletePasswordReset(claims, "owners-new-password-1!")
+	s.Require().NoError(err)
+
+	s.requireFeedTokenRevoked(user.ID, feed)
+}
+
 // Another password change after the link was sent spends the link.
 func (s *JWTIntegrationSuite) TestCompletePasswordReset_RefusesALinkMintedBeforeAPasswordChange() {
 	user := s.createActiveUser("reset-changed@test.com")
@@ -335,12 +350,14 @@ func (s *JWTIntegrationSuite) TestCompletePasswordReset_RefusesAPasswordBcryptCa
 }
 
 // The password, the revocation and the session commit together: a mint that
-// fails leaves the password, the sessions and the link as they were.
+// fails leaves the password, the sessions, the feed token and the link as
+// they were.
 func (s *JWTIntegrationSuite) TestCompletePasswordReset_MintFailureChangesNothing() {
 	user := s.createActiveUser("reset-mint-fails@test.com")
 	s.setPasswordHash(user.ID, "planted-password-1!")
 	session, err := s.svc.CreateToken(user)
 	s.Require().NoError(err)
+	feed := s.feedToken(user.ID)
 	claims := s.resetClaimsFor(user.ID)
 
 	mintFailed := errors.New("mint failed")
@@ -351,6 +368,7 @@ func (s *JWTIntegrationSuite) TestCompletePasswordReset_MintFailureChangesNothin
 	s.True(s.passwordIs(user.ID, "planted-password-1!"))
 	_, _, err = s.svc.ValidateSession(session)
 	s.NoError(err, "a failed reset revokes nothing")
+	s.requireFeedTokenHonored(user.ID, feed)
 	_, err = s.authSvc.CompletePasswordReset(claims, "owners-new-password-1!")
 	s.NoError(err, "the link is still usable after a failure that was not the reader's")
 }
