@@ -124,7 +124,15 @@ type CreateCalendarTokenResponse struct {
 	Body contracts.CalendarTokenCreateResponse
 }
 
-// CreateCalendarTokenHandler creates or regenerates a calendar token
+// CreateCalendarTokenHandler creates or regenerates a calendar token.
+//
+// The feed URL is a bearer credential, but unlike the other credential mints
+// this one is not gated on a recent authentication
+// (middleware.RequireRecentSessionAuth): any session can already read the
+// current URL from the status endpoint, so gating its rotation protects
+// nothing more. It does require a session credential, because the protected
+// group also admits API-token principals and a token held by a script must
+// not mint, rotate or read the account's feed URLs.
 func (h *CalendarHandler) CreateCalendarTokenHandler(ctx context.Context, req *CreateCalendarTokenRequest) (*CreateCalendarTokenResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
@@ -133,11 +141,7 @@ func (h *CalendarHandler) CreateCalendarTokenHandler(ctx context.Context, req *C
 		return nil, huma.Error401Unauthorized("Authentication required")
 	}
 
-	// The feed URL carries a bearer token in its query string, readable by
-	// anything the user pastes it into, and this endpoint also rotates an
-	// existing one. Both are credential issuance, so both need the account
-	// proven recently.
-	if err := middleware.RequireRecentSessionAuth(ctx, "create_calendar_token"); err != nil {
+	if err := middleware.RequireSessionCredential(ctx, "create_calendar_token"); err != nil {
 		return nil, err
 	}
 

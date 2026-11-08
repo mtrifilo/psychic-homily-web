@@ -45,6 +45,7 @@ var wantAuthStatus = map[string]int{
 	CodeOAuthSignupExpired:         http.StatusBadRequest,
 	CodeOAuthLinkPendingExpired:    http.StatusBadRequest,
 	CodeReauthRequired:             http.StatusForbidden,
+	CodeSessionCredentialRequired:  http.StatusForbidden,
 	CodeEmailVerificationRequired:  http.StatusForbidden,
 	CodeUnknownHomeMetro:           http.StatusUnprocessableEntity,
 }

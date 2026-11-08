@@ -158,6 +158,47 @@ func RequireRecentSessionAuth(ctx context.Context, operation string) error {
 	}}
 }
 
+// SessionCredentialRequiredError is the refusal an operation answers with
+// when the request's principal was established by an API token: 403
+// SESSION_CREDENTIAL_REQUIRED in the JWTErrorResponse envelope. Not
+// ReauthRequiredError, whose remedy (sign in again) does nothing for a
+// token.
+type SessionCredentialRequiredError struct {
+	JWTErrorResponse
+}
+
+func (e *SessionCredentialRequiredError) Error() string { return e.Message }
+
+// GetStatus satisfies huma.StatusError, so huma writes this value as the body.
+func (e *SessionCredentialRequiredError) GetStatus() int { return http.StatusForbidden }
+
+// RequireSessionCredential returns nil when the request's principal was
+// established by a session JWT, and a *SessionCredentialRequiredError when it
+// was established by an API token. The protected group admits both, so an
+// operation a token must not perform asks this. It says nothing about how
+// recently the session authenticated (RequireRecentSessionAuth). operation
+// names the one that was refused, in the log.
+func RequireSessionCredential(ctx context.Context, operation string) error {
+	if IsSessionCredentialFromContext(ctx) {
+		return nil
+	}
+
+	var userID uint
+	if user := GetUserFromContext(ctx); user != nil {
+		userID = user.ID
+	}
+	logger.AuthWarn(ctx, "operation_refused_not_a_session",
+		"operation", operation,
+		"user_id", userID,
+	)
+
+	return &SessionCredentialRequiredError{JWTErrorResponse: JWTErrorResponse{
+		Message:   autherrors.ToExternalMessage(autherrors.CodeSessionCredentialRequired),
+		ErrorCode: autherrors.CodeSessionCredentialRequired,
+		RequestID: logger.GetRequestID(ctx),
+	}}
+}
+
 // SessionRefusedError is the body and status of the refusal RefuseSession
 // returns: 401 TOKEN_INVALID in the JWTErrorResponse envelope.
 type SessionRefusedError struct {

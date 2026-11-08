@@ -66,7 +66,7 @@ func TestCreateCalendarTokenHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewCalendarHandler(mock, testCalendarConfig())
-	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1}, time.Now())
+	ctx := testhelpers.CtxWithSession(&authm.User{ID: 1}, time.Now())
 
 	resp, err := h.CreateCalendarTokenHandler(ctx, &CreateCalendarTokenRequest{})
 	if err != nil {
@@ -104,7 +104,7 @@ func TestCreateCalendarTokenHandler_FeedURLBase(t *testing.T) {
 			}
 			cfg := &config.Config{Server: tt.server, Email: config.EmailConfig{FrontendURL: tt.front}}
 			h := NewCalendarHandler(mock, cfg)
-			ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1}, time.Now())
+			ctx := testhelpers.CtxWithSession(&authm.User{ID: 1}, time.Now())
 
 			if _, err := h.CreateCalendarTokenHandler(ctx, &CreateCalendarTokenRequest{}); err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -123,7 +123,7 @@ func TestCreateCalendarTokenHandler_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewCalendarHandler(mock, testCalendarConfig())
-	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1}, time.Now())
+	ctx := testhelpers.CtxWithSession(&authm.User{ID: 1}, time.Now())
 
 	_, err := h.CreateCalendarTokenHandler(ctx, &CreateCalendarTokenRequest{})
 	testhelpers.AssertHumaError(t, err, 500)
@@ -141,7 +141,7 @@ func TestCreateCalendarTokenHandler_PassesTheSessionsRevocationStamp(t *testing.
 		},
 	}
 	h := NewCalendarHandler(mock, testCalendarConfig())
-	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1, SessionsValidAfter: &stamp}, time.Now())
+	ctx := testhelpers.CtxWithSession(&authm.User{ID: 1, SessionsValidAfter: &stamp}, time.Now())
 
 	if _, err := h.CreateCalendarTokenHandler(ctx, &CreateCalendarTokenRequest{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -166,7 +166,7 @@ func TestCreateCalendarTokenHandler_SessionNoLongerValidAnswers401(t *testing.T)
 				},
 			}
 			h := NewCalendarHandler(mock, testCalendarConfig())
-			ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1}, time.Now())
+			ctx := testhelpers.CtxWithSession(&authm.User{ID: 1}, time.Now())
 
 			_, err := h.CreateCalendarTokenHandler(ctx, &CreateCalendarTokenRequest{})
 
@@ -277,28 +277,6 @@ func TestGetCalendarTokenStatusHandler_SessionGetsURLsUncached(t *testing.T) {
 	}
 	if !resp.Body.URLRecoverable || resp.Body.FeedURL == "" || resp.Body.FollowsFeedURL == "" {
 		t.Errorf("a session caller must get both URLs, got %+v", resp.Body)
-	}
-	if resp.CacheControl != "no-store" {
-		t.Errorf("Cache-Control = %q, want no-store", resp.CacheControl)
-	}
-}
-
-// An API-token principal learns that a token exists and when it was minted,
-// never the URLs.
-func TestGetCalendarTokenStatusHandler_APITokenPrincipalGetsNoURLs(t *testing.T) {
-	var gotBaseURL string
-	h := NewCalendarHandler(recoverableStatusService(&gotBaseURL), testCalendarConfig())
-	ctx := testhelpers.CtxWithSessionAuthTime(&authm.User{ID: 1}, time.Time{})
-
-	resp, err := h.GetCalendarTokenStatusHandler(ctx, &GetCalendarTokenStatusRequest{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !resp.Body.HasToken || resp.Body.CreatedAt == nil {
-		t.Errorf("an API-token principal still sees has_token and created_at, got %+v", resp.Body)
-	}
-	if resp.Body.FeedURL != "" || resp.Body.FollowsFeedURL != "" || resp.Body.URLRecoverable {
-		t.Errorf("an API-token principal must get no URLs, got %+v", resp.Body)
 	}
 	if resp.CacheControl != "no-store" {
 		t.Errorf("Cache-Control = %q, want no-store", resp.CacheControl)

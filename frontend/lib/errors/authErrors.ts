@@ -22,8 +22,10 @@ export const AuthErrorCode = {
   UNAUTHORIZED: 'UNAUTHORIZED',
   UNKNOWN: 'UNKNOWN',
   /**
-   * A credential mint (API token, CLI token, calendar feed) refused because the
-   * session did not authenticate recently enough. The session is still valid
+   * A credential mint (API token, CLI token, passkey, password) refused because
+   * the session did not authenticate recently enough. The calendar feed mint is
+   * not gated this way: any session may read its URL, so it only refuses an API
+   * token. The session is still valid
    * and the caller is still the owner, so the remedy is a fresh sign-in, never
    * a sign-out or a permission message.
    */

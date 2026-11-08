@@ -33,6 +33,9 @@ import (
 //   - the request completed an authentication factor of its own (a sign-in, a
 //     verified password), so the freshness the gate asks for is what this
 //     request just established: list it below with the factor
+//   - the owner decided the credential needs a session but not a recent
+//     authentication: list it in sessionCredentialMints with the reason, and
+//     call middleware.RequireSessionCredential, which this test checks
 //   - anything else issues on the strength of a credential the caller already
 //     holds: call middleware.RequireRecentSessionAuth first
 //
@@ -59,6 +62,15 @@ var mintGateExemptions = map[string]string{
 	// asks the gate before it consumes one.
 	"auth/oauth_account.go:OAuthAccountHandler.StartOAuthLinkHandler": "one-time token; the link it unlocks is gated",
 	"auth/apple_auth.go:AppleAuthHandler.AppleCallbackHandler":        "apple identity token, verified in this request",
+}
+
+// sessionCredentialMints issue to any session, however long ago it
+// authenticated, by an owner decision whose reason each entry states. They
+// are not exempt from every check: each must name
+// middleware.RequireSessionCredential, because the protected group also
+// admits API-token principals and none of these may issue to one.
+var sessionCredentialMints = map[string]string{
+	"engagement/calendar.go:CalendarHandler.CreateCalendarTokenHandler": "any session can read the current feed URL from GET /calendar/token, so a freshness gate on rotating it protects nothing",
 }
 
 // credentialIssuingMethods are the service methods a handler names when it
@@ -92,7 +104,10 @@ var credentialIssuingFuncs = map[string]bool{
 	"mintOAuthLinkToken": true,
 }
 
-const gateFunc = "RequireRecentSessionAuth"
+const (
+	gateFunc         = "RequireRecentSessionAuth"
+	sessionCheckFunc = "RequireSessionCredential"
+)
 
 func TestCredentialMintsNameTheReauthGate(t *testing.T) {
 	handlersRoot, err := filepath.Abs("..")
@@ -144,6 +159,14 @@ func TestCredentialMintsNameTheReauthGate(t *testing.T) {
 			}
 
 			site := rel + ":" + funcName(fn)
+			if _, sessionOnly := sessionCredentialMints[site]; sessionOnly {
+				if !namesSelector(fn, sessionCheckFunc) {
+					t.Errorf("%s is in sessionCredentialMints but does not call middleware.%s.\n"+
+						"It would issue a credential to an API-token principal.", site, sessionCheckFunc)
+				}
+				gatedOrExempt++
+				continue
+			}
 			if _, exempt := mintGateExemptions[site]; exempt || gated {
 				gatedOrExempt++
 				continue
@@ -181,6 +204,24 @@ func TestCredentialMintsNameTheReauthGate(t *testing.T) {
 			t.Errorf("mintGateExemptions names %s, which no longer issues a credential. Remove the entry.", site)
 		}
 	}
+	for site := range sessionCredentialMints {
+		if !siteExists(t, handlersRoot, site) {
+			t.Errorf("sessionCredentialMints names %s, which no longer issues a credential. Remove the entry.", site)
+		}
+	}
+}
+
+// namesSelector reports whether fn names a selector called name, the way
+// inspectFunc spots the gate: as a name, not as proof that it runs.
+func namesSelector(fn *ast.FuncDecl, name string) bool {
+	found := false
+	ast.Inspect(fn, func(n ast.Node) bool {
+		if sel, ok := n.(*ast.SelectorExpr); ok && sel.Sel.Name == name {
+			found = true
+		}
+		return !found
+	})
+	return found
 }
 
 // inspectFunc reports whether fn names a credential-issuing method or function,

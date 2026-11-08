@@ -81,6 +81,12 @@ func TestIsEngagementMutationRequest(t *testing.T) {
 		{http.MethodPost, "/entity-requests/42", false},
 		{http.MethodPost, "/admin/entity-requests", false},
 		{http.MethodPost, "/admin/entity-requests/42/decide", false},
+		// The feed-token mint and rotation are metered; reading the token's
+		// status is a read, and revoking it stays unmetered.
+		{http.MethodPost, "/calendar/token", true},
+		{http.MethodGet, "/calendar/token", false},
+		{http.MethodDelete, "/calendar/token", false},
+		{http.MethodPost, "/calendar/token/extra", false},
 		// Reads and read-shaped helpers are NOT mutations.
 		{http.MethodGet, "/saved-shows/42", false},
 		{http.MethodGet, "/saved-shows", false},
