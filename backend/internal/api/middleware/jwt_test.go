@@ -1036,3 +1036,47 @@ func TestOptionalHumaJWTMiddleware_InvalidAuthHeaderFormat(t *testing.T) {
 		t.Error("expected no user for non-Bearer auth header")
 	}
 }
+
+// With a session config, a credential that fails validation has the auth cookie
+// cleared; a request with no credential, or a middleware without the config,
+// sets no cookie.
+func TestJWTMiddleware_SessionConfigClearsRejectedCookie(t *testing.T) {
+	jwtService := newTestJWTService()
+	sessConfig := config.SessionConfig{Path: "/", HttpOnly: true, SameSite: "lax"}
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("next handler should not be called")
+	})
+	clearsCookie := func(rr *httptest.ResponseRecorder) bool {
+		for _, c := range rr.Result().Cookies() {
+			if c.Name == config.AuthCookieName && c.Value == "" && c.MaxAge < 0 {
+				return true
+			}
+		}
+		return false
+	}
+
+	for _, c := range []struct {
+		name        string
+		handler     http.Handler
+		cookie      string
+		wantCleared bool
+	}{
+		{"invalid cookie, with config", JWTMiddleware(jwtService, sessConfig)(next), "not-a-jwt", true},
+		{"no credential, with config", JWTMiddleware(jwtService, sessConfig)(next), "", false},
+		{"invalid cookie, without config", JWTMiddleware(jwtService)(next), "not-a-jwt", false},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+		if c.cookie != "" {
+			req.AddCookie(&http.Cookie{Name: config.AuthCookieName, Value: c.cookie})
+		}
+		rr := httptest.NewRecorder()
+		c.handler.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusUnauthorized {
+			t.Errorf("%s: status = %d, want 401", c.name, rr.Code)
+		}
+		if got := clearsCookie(rr); got != c.wantCleared {
+			t.Errorf("%s: cookie cleared = %v, want %v", c.name, got, c.wantCleared)
+		}
+	}
+}

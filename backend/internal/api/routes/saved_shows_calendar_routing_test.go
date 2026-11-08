@@ -2,6 +2,7 @@ package routes
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -42,35 +43,57 @@ func TestSavedShowsCalendarDownloadRouteResolution(t *testing.T) {
 	}
 }
 
-// The download needs a session. A request with none, with a credential that is
-// not a session JWT, or with an API token is refused by JWTMiddleware before
-// the handler runs.
+// The download needs a session. A request with none, or with a credential that
+// is not a valid session JWT, is refused by JWTMiddleware itself (its error
+// code, not the handler's plain-text floor), and a rejected cookie is cleared.
 func TestSavedShowsCalendarDownloadRefusesWithoutSession(t *testing.T) {
 	router := newTestRouter(t)
 
-	for name, decorate := range map[string]func(*http.Request){
-		"no credential":  func(*http.Request) {},
-		"garbage bearer": func(r *http.Request) { r.Header.Set("Authorization", "Bearer not-a-jwt") },
-		"garbage cookie": func(r *http.Request) { r.AddCookie(&http.Cookie{Name: config.AuthCookieName, Value: "not-a-jwt"}) },
-		"api token":      func(r *http.Request) { r.Header.Set("Authorization", "Bearer phk_0123456789abcdef") },
+	for _, c := range []struct {
+		name        string
+		decorate    func(*http.Request)
+		wantCode    string
+		wantCleared bool
+	}{
+		{"no credential", func(*http.Request) {}, "TOKEN_MISSING", false},
+		{"garbage bearer", func(r *http.Request) { r.Header.Set("Authorization", "Bearer not-a-jwt") }, "TOKEN_INVALID", true},
+		{"garbage cookie", func(r *http.Request) {
+			r.AddCookie(&http.Cookie{Name: config.AuthCookieName, Value: "not-a-jwt"})
+		}, "TOKEN_INVALID", true},
 	} {
 		req := httptest.NewRequest(http.MethodGet, savedShowsCalendarDownloadRoute, nil)
-		decorate(req)
+		c.decorate(req)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
 		if w.Code != http.StatusUnauthorized {
-			t.Errorf("%s: GET %s = %d, want 401", name, savedShowsCalendarDownloadRoute, w.Code)
+			t.Errorf("%s: GET %s = %d, want 401", c.name, savedShowsCalendarDownloadRoute, w.Code)
 		}
-		if strings.Contains(w.Body.String(), "BEGIN:VCALENDAR") {
-			t.Errorf("%s: a refused request carried calendar bytes", name)
+		var body struct {
+			ErrorCode string `json:"error_code"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body.ErrorCode != c.wantCode {
+			t.Errorf("%s: body %q, want a JWTMiddleware refusal with error_code %s", c.name, w.Body.String(), c.wantCode)
+		}
+		if cleared := clearsAuthCookie(w); cleared != c.wantCleared {
+			t.Errorf("%s: auth cookie cleared = %v, want %v", c.name, cleared, c.wantCleared)
 		}
 	}
 }
 
+// clearsAuthCookie reports whether the response expires the auth cookie.
+func clearsAuthCookie(w *httptest.ResponseRecorder) bool {
+	for _, c := range w.Result().Cookies() {
+		if c.Name == config.AuthCookieName && c.Value == "" && c.MaxAge < 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // Session-authenticated, so it is not a personal feed: the token-feed exemption
-// must not read a token out of its path, which would take it off the per-user
-// public-read budget.
+// reads no candidate token out of its path, and the request stays on the
+// per-user public-read budget.
 func TestSavedShowsCalendarDownloadIsNotATokenFeed(t *testing.T) {
 	if token := personalFeedTokenFromPath(savedShowsCalendarDownloadRoute); token != "" {
 		t.Errorf("%s reads as personal-feed token %q", savedShowsCalendarDownloadRoute, token)
@@ -98,12 +121,18 @@ func TestSavedShowsCalendarDownloadThroughRouter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mint token: %v", err)
 	}
-	send := func(method, path string) *httptest.ResponseRecorder {
+	sendWith := func(method, path string, authorize func(*http.Request)) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, nil)
-		req.Header.Set("Authorization", "Bearer "+token)
+		authorize(req)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 		return w
+	}
+	bearer := func(tok string) func(*http.Request) {
+		return func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+tok) }
+	}
+	send := func(method, path string) *httptest.ResponseRecorder {
+		return sendWith(method, path, bearer(token))
 	}
 	uid := func(id uint) string { return fmt.Sprintf("UID:show-%d@psychichomily.com\r\n", id) }
 
@@ -173,20 +202,39 @@ func TestSavedShowsCalendarDownloadThroughRouter(t *testing.T) {
 		}
 	}
 
-	stillCached, err := sc.Calendar.GenerateICSFeed(user.ID, frontendURL)
+	// A browser link sends the session as the auth cookie, not a header.
+	viaCookie := sendWith(http.MethodGet, savedShowsCalendarDownloadRoute, func(r *http.Request) {
+		r.AddCookie(&http.Cookie{Name: config.AuthCookieName, Value: token})
+	})
+	if viaCookie.Code != http.StatusOK || !bytes.Equal(viaCookie.Body.Bytes(), body) {
+		t.Errorf("cookie session: GET %s = %d, want 200 with the same file", savedShowsCalendarDownloadRoute, viaCookie.Code)
+	}
+
+	// A real, valid API token is not a session.
+	apiToken, err := sc.APIToken.CreateToken(user.ID, nil, 1)
 	if err != nil {
-		t.Fatalf("re-read feed: %v", err)
+		t.Fatalf("mint API token: %v", err)
 	}
-	if !bytes.Equal(stillCached, cachedFeed) {
-		t.Error("the subscription feed changed; this test needs it cached to show the download bypasses that cache")
-	}
-	if bytes.Contains(stillCached, []byte(uid(late.ID))) {
-		t.Error("the cached subscription feed already carries the late save, so the freshness check proves nothing")
+	if w := sendWith(http.MethodGet, savedShowsCalendarDownloadRoute, bearer(apiToken.Token)); w.Code != http.StatusUnauthorized ||
+		strings.Contains(w.Body.String(), "BEGIN:VCALENDAR") {
+		t.Errorf("API token: GET %s = %d, want 401 with no calendar", savedShowsCalendarDownloadRoute, w.Code)
 	}
 
 	// The {show_id} sibling still reaches its own handler for a real show id.
 	if w := send(http.MethodGet, fmt.Sprintf("/saved-shows/%d/check", late.ID)); w.Code != http.StatusOK ||
 		!strings.Contains(w.Body.String(), `"is_saved":true`) {
 		t.Errorf("GET /saved-shows/%d/check = %d %s, want 200 with is_saved true", late.ID, w.Code, w.Body.String())
+	}
+
+	// The late save being in the download is the property under test. That it
+	// also beats a cached feed holds only while saving leaves the feed cache
+	// alone, which is the feed's behaviour, not the download's; if a save ever
+	// starts clearing that cache, the comparison has nothing left to prove.
+	stillCached, err := sc.Calendar.GenerateICSFeed(user.ID, frontendURL)
+	if err != nil {
+		t.Fatalf("re-read feed: %v", err)
+	}
+	if !bytes.Equal(stillCached, cachedFeed) || bytes.Contains(stillCached, []byte(uid(late.ID))) {
+		t.Skip("the subscription feed no longer serves bytes cached before the save, so there is no stale feed to compare against")
 	}
 }

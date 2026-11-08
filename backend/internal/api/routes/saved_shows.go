@@ -8,9 +8,10 @@ import (
 )
 
 // savedShowsCalendarDownloadRoute is the session-authenticated one-shot calendar
-// file of the caller's upcoming saved shows. Its static last segment outranks
-// the {show_id} sibling in chi for GET; other methods still reach the Huma
-// saved-show operations.
+// file of the caller's upcoming saved shows. chi tries the static segment before
+// the {show_id} parameter, so GET reaches this route; it carries no POST or
+// DELETE, so those still reach the save and unsave operations with
+// show_id "calendar.ics", exactly as before it existed.
 const savedShowsCalendarDownloadRoute = "/saved-shows/calendar.ics"
 
 // setupSavedShowRoutes configures saved show endpoints.
@@ -41,8 +42,9 @@ func setupSavedShowRoutes(rc RouteContext) {
 	huma.Get(rc.Protected, "/saved-shows/{show_id}/check", savedShowHandler.CheckSavedHandler)
 
 	// A raw chi route because the response is a text/calendar file, not JSON.
-	// JWTMiddleware accepts a session only; an API token is refused.
+	// JWTMiddleware accepts a session only; an API token is refused. The session
+	// config lets it clear a rejected cookie, as the Huma protected group does.
 	calendarHandler := engagementh.NewCalendarHandler(rc.SC.Calendar, rc.Cfg)
-	rc.Router.With(middleware.JWTMiddleware(rc.SC.JWT)).
+	rc.Router.With(middleware.JWTMiddleware(rc.SC.JWT, rc.Cfg.Session)).
 		Get(savedShowsCalendarDownloadRoute, calendarHandler.GetSavedShowsCalendarDownloadHandler)
 }

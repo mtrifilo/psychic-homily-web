@@ -80,8 +80,19 @@ type JWTErrorResponse struct {
 	RequestID string `json:"request_id,omitempty"`
 }
 
-// JWTMiddleware validates JWT tokens (standard http.Handler version)
-func JWTMiddleware(jwtService *auth.JWTService) func(http.Handler) http.Handler {
+// JWTMiddleware validates JWT tokens (standard http.Handler version). It
+// accepts a session credential only; an API token fails session validation.
+//
+// With a session config, a credential that fails validation also gets the auth
+// cookie cleared, as HumaJWTMiddleware does, so a browser that navigated here
+// with a revoked or expired session does not keep presenting it. A request with
+// no credential has no cookie to clear.
+func JWTMiddleware(jwtService *auth.JWTService, sessionConfig ...config.SessionConfig) func(http.Handler) http.Handler {
+	var sessConfig *config.SessionConfig
+	if len(sessionConfig) > 0 {
+		sessConfig = &sessionConfig[0]
+	}
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
@@ -121,6 +132,10 @@ func JWTMiddleware(jwtService *auth.JWTService) func(http.Handler) http.Handler 
 					"error", err.Error(),
 					"error_code", errorCode,
 				)
+				if sessConfig != nil {
+					clearCookie := sessConfig.ClearAuthCookie()
+					http.SetCookie(w, &clearCookie)
+				}
 				writeJWTError(ctx, w, requestID, errorCode, message, http.StatusUnauthorized)
 				return
 			}
