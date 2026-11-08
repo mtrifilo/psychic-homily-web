@@ -298,8 +298,9 @@ func (s *AuthHandlerIntegrationSuite) TestLogin_Success() {
 	s.NotEmpty(resp.Body.Token)
 	s.NotNil(resp.Body.User)
 	s.Equal("login-ok@test.com", *resp.Body.User.Email)
-	s.Require().Len(resp.SetCookie, 1)
-	s.NotEmpty(resp.SetCookie[0].Name)
+	cookies := parsedSetCookies(s.T(), resp.SetCookie)
+	s.Require().Len(cookies, 1)
+	s.Equal(config.AuthCookieName, cookies[0].Name)
 }
 
 func (s *AuthHandlerIntegrationSuite) TestLogin_InvalidPassword() {

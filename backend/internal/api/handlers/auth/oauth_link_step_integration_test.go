@@ -14,6 +14,7 @@ import (
 	"github.com/markbates/goth"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/auth"
@@ -140,8 +141,10 @@ func (s *OAuthHandlerIntegrationSuite) verifyLink(env *linkStepEnv, token string
 // returning the emailed link token.
 func (s *OAuthHandlerIntegrationSuite) requestLink(env *linkStepEnv, token string) string {
 	s.T().Helper()
-	body := s.decode(env.api.Post(OAuthLinkByEmailRoute, linkCookieHeader(token)))
+	resp := env.api.Post(OAuthLinkByEmailRoute, linkCookieHeader(token))
+	body := s.decode(resp)
 	s.Require().Equal(true, body["success"], body)
+	assertOnlySetCookies(s.T(), resp.Header())
 	before := len(env.sends())
 	env.outbox.RunNow(context.Background())
 	sends := env.sends()
@@ -383,6 +386,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_PasswordProofLinksAndSignsIn
 
 	body := s.decode(resp)
 	s.Equal(true, body["success"], body)
+	assertOnlySetCookies(s.T(), resp.Header(), oauthPendingLinkCookie.name, config.AuthCookieName)
 	s.sessionFrom(resp)
 	cleared := setCookies(resp)[oauthPendingLinkCookie.name]
 	s.Require().NotNil(cleared)
@@ -592,6 +596,7 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_LinkByEmailRefusedForAGonePe
 	env := s.linkEnv()
 	resp := env.api.Post(OAuthLinkByEmailRoute, linkCookieHeader(token))
 	s.requireRefusal(resp, autherrors.CodeOAuthLinkPendingExpired)
+	assertOnlySetCookies(s.T(), resp.Header(), oauthPendingLinkCookie.name)
 	s.Equal(-1, setCookies(resp)[oauthPendingLinkCookie.name].MaxAge)
 
 	var queued int64

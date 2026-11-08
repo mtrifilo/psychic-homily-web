@@ -170,7 +170,7 @@ type OAuthLinkByEmailRequest struct {
 
 // OAuthLinkByEmailResponse answers the request.
 type OAuthLinkByEmailResponse struct {
-	SetCookie []http.Cookie `header:"Set-Cookie" doc:"Clears the pending-link cookie when the pending link is gone"`
+	SetCookie setCookieLines `header:"Set-Cookie" doc:"Clears the pending-link cookie when the pending link is gone"`
 	Body      struct {
 		Success   bool   `json:"success" doc:"Whether the link was queued for the account's address"`
 		Message   string `json:"message" doc:"Response message"`
@@ -198,7 +198,7 @@ func (h *OAuthLinkStepHandler) LinkByEmailHandler(ctx context.Context, input *OA
 	link, err := h.authService.HoldOAuthLinkForEmail(pendingLinkToken(input.Pending, input.PendingHost, secure))
 	if err != nil {
 		if isLinkPendingExpired(err) {
-			resp.SetCookie = append(resp.SetCookie, clearedPendingLinkCookie(secure))
+			resp.SetCookie.add(clearedPendingLinkCookie(secure))
 			resp.Body.Success = false
 			resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeOAuthLinkPendingExpired)
 			resp.Body.ErrorCode = autherrors.CodeOAuthLinkPendingExpired

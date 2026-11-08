@@ -169,7 +169,7 @@ func (r *FinishOAuthSignupRequest) cookies() signupStepCookies {
 // FinishOAuthSignupResponse is RegisterResponse's shape plus the destination
 // the sign-in named.
 type FinishOAuthSignupResponse struct {
-	SetCookie []http.Cookie `header:"Set-Cookie" doc:"Authentication cookie, and the pending sign-up and refusal marker cookies"`
+	SetCookie setCookieLines `header:"Set-Cookie" doc:"Authentication cookie, and the pending sign-up and refusal marker cookies"`
 	Body      struct {
 		Success   bool        `json:"success" doc:"Success status"`
 		Message   string      `json:"message" doc:"Response message"`
@@ -208,12 +208,12 @@ func (h *OAuthSignupHandler) FinishSignupHandler(ctx context.Context, input *Fin
 		if _, err := h.authService.ConsumeOAuthSignup(token); err != nil && !isSignupExpired(err) {
 			logger.AuthError(ctx, "oauth_finish_signup_consume_failed", err)
 		}
-		resp.SetCookie = append(resp.SetCookie, clearedPendingSignupCookie(secure), signupAgeRefusalMarker(secure))
+		resp.SetCookie.add(clearedPendingSignupCookie(secure), signupAgeRefusalMarker(secure))
 		logger.AuthWarn(ctx, "oauth_finish_signup_refused", "error_code", autherrors.CodeAgeConfirmationRequired, "detail", detail)
 		return refuse(autherrors.ErrAgeConfirmationRequired(detail))
 	}
 	refuseExpired := func(err error) (*FinishOAuthSignupResponse, error) {
-		resp.SetCookie = append(resp.SetCookie, clearedPendingSignupCookie(secure))
+		resp.SetCookie.add(clearedPendingSignupCookie(secure))
 		logger.AuthWarn(ctx, "oauth_finish_signup_refused", "error_code", autherrors.CodeOAuthSignupExpired)
 		return refuse(autherrors.ErrOAuthSignupExpired(err))
 	}
@@ -266,7 +266,7 @@ func (h *OAuthSignupHandler) FinishSignupHandler(ctx context.Context, input *Fin
 		}
 		return h.unavailable(ctx, resp, "oauth_finish_signup_consume", err)
 	}
-	resp.SetCookie = append(resp.SetCookie, clearedPendingSignupCookie(secure))
+	resp.SetCookie.add(clearedPendingSignupCookie(secure))
 	identity := signup.Identity
 
 	user, sessionToken, err := h.authService.CompleteOAuthSignup(signup,
@@ -279,7 +279,7 @@ func (h *OAuthSignupHandler) FinishSignupHandler(ctx context.Context, input *Fin
 		return h.unavailable(ctx, resp, "oauth_finish_signup_create", err)
 	}
 
-	resp.SetCookie = append(resp.SetCookie, h.config.NewSessionCookie(sessionToken))
+	resp.SetCookie.add(h.config.NewSessionCookie(sessionToken))
 	logger.AuthInfo(ctx, "oauth_finish_signup_success", "provider", identity.Provider, "user_id", user.ID)
 
 	resp.Body.Success = true

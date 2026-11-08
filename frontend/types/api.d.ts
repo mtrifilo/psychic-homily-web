@@ -22509,21 +22509,7 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
-                    Domain?: string;
-                    Expires?: string;
-                    HttpOnly?: boolean;
-                    MaxAge?: number;
-                    Name?: string;
-                    Partitioned?: boolean;
-                    Path?: string;
-                    Quoted?: boolean;
-                    Raw?: string;
-                    RawExpires?: string;
-                    SameSite?: number;
-                    Secure?: boolean;
                     "Set-Cookie"?: string;
-                    Unparsed?: string;
-                    Value?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -22724,21 +22710,7 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
-                    Domain?: string;
-                    Expires?: string;
-                    HttpOnly?: boolean;
-                    MaxAge?: number;
-                    Name?: string;
-                    Partitioned?: boolean;
-                    Path?: string;
-                    Quoted?: boolean;
-                    Raw?: string;
-                    RawExpires?: string;
-                    SameSite?: number;
-                    Secure?: boolean;
                     "Set-Cookie"?: string;
-                    Unparsed?: string;
-                    Value?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -22773,21 +22745,7 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
-                    Domain?: string;
-                    Expires?: string;
-                    HttpOnly?: boolean;
-                    MaxAge?: number;
-                    Name?: string;
-                    Partitioned?: boolean;
-                    Path?: string;
-                    Quoted?: boolean;
-                    Raw?: string;
-                    RawExpires?: string;
-                    SameSite?: number;
-                    Secure?: boolean;
                     "Set-Cookie"?: string;
-                    Unparsed?: string;
-                    Value?: string;
                     [name: string]: unknown;
                 };
                 content: {

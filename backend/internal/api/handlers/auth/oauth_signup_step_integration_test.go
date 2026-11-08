@@ -16,6 +16,7 @@ import (
 	"github.com/danielgtaylor/huma/v2/humatest"
 	"github.com/markbates/goth"
 
+	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/legal"
 	authm "psychic-homily-backend/internal/models/auth"
@@ -220,6 +221,7 @@ func (s *OAuthHandlerIntegrationSuite) TestFinishSignup_CreatesTheAccountAndSign
 	s.Equal(true, decoded["success"], resp.Body.String())
 	s.Equal("/shows?city=phoenix", decoded["return_to"])
 	s.NotEmpty(decoded["token"])
+	assertOnlySetCookies(s.T(), resp.Header(), oauthPendingSignupCookie.name, config.AuthCookieName)
 	cookies := setCookies(resp)
 	s.Require().Contains(cookies, "auth_token")
 	s.NotEmpty(cookies["auth_token"].Value)
@@ -288,8 +290,9 @@ func (s *OAuthHandlerIntegrationSuite) TestFinishSignup_RefusesWhatIsNotALiveSte
 
 	s.Require().NoError(s.deps.DB.Exec(
 		"UPDATE oauth_pending_signups SET expires_at = NOW() - INTERVAL '1 second' WHERE provider_user_id = ?", identity.UserID).Error)
-	s.requireRefusal(api.Post(OAuthFinishSignupRoute, pendingCookieHeader(token), validStepBody("1990-01-01")),
-		autherrors.CodeOAuthSignupExpired)
+	expired := api.Post(OAuthFinishSignupRoute, pendingCookieHeader(token), validStepBody("1990-01-01"))
+	s.requireRefusal(expired, autherrors.CodeOAuthSignupExpired)
+	assertOnlySetCookies(s.T(), expired.Header(), oauthPendingSignupCookie.name)
 	s.Zero(s.accountsFor(identity.Email))
 }
 
@@ -347,6 +350,7 @@ func (s *OAuthHandlerIntegrationSuite) TestFinishSignup_UnderSixteenIsRefusedAnd
 	resp := api.Post(OAuthFinishSignupRoute, pendingCookieHeader(token), validStepBody(dateOfBirthAged(legal.MinSignupAge-1)))
 
 	s.requireRefusal(resp, autherrors.CodeAgeConfirmationRequired)
+	assertOnlySetCookies(s.T(), resp.Header(), oauthPendingSignupCookie.name, signupAgeRefusalCookieName)
 	cookies := setCookies(resp)
 	s.Require().Contains(cookies, signupAgeRefusalCookieName)
 	s.Equal(int(SignupAgeRefusalMarkerLifetime/time.Second), cookies[signupAgeRefusalCookieName].MaxAge)
@@ -355,9 +359,10 @@ func (s *OAuthHandlerIntegrationSuite) TestFinishSignup_UnderSixteenIsRefusedAnd
 	s.Zero(s.accountsFor(identity.Email))
 
 	// A different date from the same browser is refused without a form.
-	s.requireRefusal(api.Post(OAuthFinishSignupRoute,
-		pendingCookieHeader(token)+"; "+signupAgeRefusalCookieName+"=1", validStepBody("1990-01-01")),
-		autherrors.CodeAgeConfirmationRequired)
+	marked := api.Post(OAuthFinishSignupRoute,
+		pendingCookieHeader(token)+"; "+signupAgeRefusalCookieName+"=1", validStepBody("1990-01-01"))
+	s.requireRefusal(marked, autherrors.CodeAgeConfirmationRequired)
+	assertOnlySetCookies(s.T(), marked.Header(), oauthPendingSignupCookie.name, signupAgeRefusalCookieName)
 	s.Zero(s.accountsFor(identity.Email))
 }
 
@@ -393,7 +398,9 @@ func (s *OAuthHandlerIntegrationSuite) TestFinishSignup_FieldRefusalsKeepTheStep
 		s.Run(name, func() {
 			body := validStepBody("1990-01-01")
 			tc.mutate(body)
-			refusal := s.requireRefusal(api.Post(OAuthFinishSignupRoute, pendingCookieHeader(token), body), autherrors.CodeValidationFailed)
+			resp := api.Post(OAuthFinishSignupRoute, pendingCookieHeader(token), body)
+			refusal := s.requireRefusal(resp, autherrors.CodeValidationFailed)
+			assertOnlySetCookies(s.T(), resp.Header())
 			if tc.message != "" {
 				s.Equal(tc.message, refusal["message"])
 			}
@@ -426,8 +433,10 @@ func (s *OAuthHandlerIntegrationSuite) TestFinishSignup_AddressTakenMeanwhileIsR
 	token := s.startStep(identity)
 	s.Require().NoError(s.deps.DB.Create(&authm.User{Email: strPtr(identity.Email), IsActive: true, EmailVerified: true}).Error)
 
-	s.requireRefusal(s.stepAPI().Post(OAuthFinishSignupRoute, pendingCookieHeader(token), validStepBody("1990-01-01")),
-		autherrors.CodeOAuthLinkRefused)
+	resp := s.stepAPI().Post(OAuthFinishSignupRoute, pendingCookieHeader(token), validStepBody("1990-01-01"))
+	s.requireRefusal(resp, autherrors.CodeOAuthLinkRefused)
+	// The step was consumed before the refusal, so its cookie is cleared.
+	assertOnlySetCookies(s.T(), resp.Header(), oauthPendingSignupCookie.name)
 	var links int64
 	s.Require().NoError(s.deps.DB.Model(&authm.OAuthAccount{}).Where("provider_user_id = ?", identity.UserID).Count(&links).Error)
 	s.Zero(links)
