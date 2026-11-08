@@ -179,8 +179,9 @@ func (e *SessionCredentialRequiredError) Error() string { return e.Message }
 func (e *SessionCredentialRequiredError) GetStatus() int { return http.StatusForbidden }
 
 // RequireSessionCredential returns nil when the request's principal was
-// established by a session JWT, and a *SessionCredentialRequiredError when it
-// was established by an API token. The protected group admits both, so an
+// established by a session JWT (a CLI token is one), and a
+// *SessionCredentialRequiredError when it was established by an API token
+// (phk_). The protected group admits both, so an
 // operation a token must not perform asks this. It says nothing about how
 // recently the session authenticated (RequireRecentSessionAuth). operation
 // names the one that was refused, in the log.

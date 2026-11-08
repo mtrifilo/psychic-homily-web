@@ -17,7 +17,7 @@ import (
 // file under the handler tree, finds every function that names a
 // credential-issuing service method, and fails when that function does not also
 // name RequireRecentSessionAuth, or, for a site in sessionCredentialMints, when
-// it does not name RequireSessionCredential.
+// it names none of sessionCheckFuncs.
 //
 // What it checks is that the NAME appears in the same function. It does not
 // check that the gate is called, that its error is returned, or that it runs
@@ -36,7 +36,7 @@ import (
 //     request just established: list it below with the factor
 //   - the owner decided the credential needs a session but not a recent
 //     authentication: list it in sessionCredentialMints with the reason, and
-//     call middleware.RequireSessionCredential, which this test checks
+//     name one of sessionCheckFuncs, which this test checks
 //   - anything else issues on the strength of a credential the caller already
 //     holds: call middleware.RequireRecentSessionAuth first
 //
@@ -67,11 +67,21 @@ var mintGateExemptions = map[string]string{
 
 // sessionCredentialMints issue to any session, however long ago it
 // authenticated, by an owner decision whose reason each entry states. They
-// are not exempt from every check: each must name
-// middleware.RequireSessionCredential, because the protected group also
-// admits API-token principals and none of these may issue to one.
+// are not exempt from every check: each must name one of sessionCheckFuncs,
+// because the protected group also admits API-token principals and none of
+// these may issue to one.
 var sessionCredentialMints = map[string]string{
-	"engagement/calendar.go:CalendarHandler.CreateCalendarTokenHandler": "any session can read the current feed URL from GET /calendar/token, so a freshness gate on rotating it protects nothing",
+	"engagement/calendar.go:CalendarHandler.CreateCalendarTokenHandler":    "any session can read the current feed URL from GET /calendar/token, so a freshness gate on rotating it protects nothing",
+	"engagement/calendar.go:CalendarHandler.GetCalendarTokenStatusHandler": "reveals the current feed URLs to any session; withholds them from an API-token principal",
+}
+
+// sessionCheckFuncs are the middleware readers a sessionCredentialMints site
+// may name to tell a session from an API-token principal: the refusal, or the
+// predicate for a site that answers a non-session caller with less rather
+// than refusing it.
+var sessionCheckFuncs = map[string]bool{
+	"RequireSessionCredential":       true,
+	"IsSessionCredentialFromContext": true,
 }
 
 // credentialIssuingMethods are the service methods a handler names when it
@@ -86,6 +96,10 @@ var sessionCredentialMints = map[string]string{
 // makes its site silently disappear rather than fail. The list is the thing to
 // review when a new credential type lands.
 //
+// CalendarService.GetTokenStatus is listed although it mints nothing: it
+// answers with the feed URLs, which are the feed token, so every caller is a
+// site that hands one out.
+//
 // AuthService.RefreshUserToken is deliberately absent: POST /auth/refresh
 // carries the presented session's authentication time forward unchanged, so it
 // hands back a token that grants exactly what the one it replaced granted. The
@@ -97,6 +111,7 @@ var credentialIssuingMethods = map[string]bool{
 	"BeginRegistration":                 true,
 	"FinishRegistration":                true,
 	"FinishSignupRegistrationWithLegal": true,
+	"GetTokenStatus":                    true,
 }
 
 // credentialIssuingFuncs are the same thing spelled as a package-level function
@@ -105,10 +120,7 @@ var credentialIssuingFuncs = map[string]bool{
 	"mintOAuthLinkToken": true,
 }
 
-const (
-	gateFunc         = "RequireRecentSessionAuth"
-	sessionCheckFunc = "RequireSessionCredential"
-)
+const gateFunc = "RequireRecentSessionAuth"
 
 func TestCredentialMintsNameTheReauthGate(t *testing.T) {
 	handlersRoot, err := filepath.Abs("..")
@@ -162,8 +174,8 @@ func TestCredentialMintsNameTheReauthGate(t *testing.T) {
 			site := rel + ":" + funcName(fn)
 			if _, sessionOnly := sessionCredentialMints[site]; sessionOnly {
 				if !found.sessionChecked {
-					t.Errorf("%s is in sessionCredentialMints but does not call middleware.%s.\n"+
-						"It would issue a credential to an API-token principal.", site, sessionCheckFunc)
+					t.Errorf("%s is in sessionCredentialMints but names none of the session checks %v.\n"+
+						"It would issue a credential to an API-token principal.", site, sortedKeys(sessionCheckFuncs))
 				}
 				gatedOrExempt++
 				continue
@@ -216,6 +228,15 @@ func assertSitesStillIssue(t *testing.T, root, listName string, sites map[string
 	}
 }
 
+func sortedKeys(set map[string]bool) []string {
+	keys := make([]string, 0, len(set))
+	for k := range set {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 // mintSite is what inspectFunc found in one function: whether it names a
 // credential-issuing method or function and which, and whether it names the
 // freshness gate and the session-credential check.
@@ -240,10 +261,10 @@ func inspectFunc(fn *ast.FuncDecl) mintSite {
 			if credentialIssuingMethods[node.Sel.Name] {
 				found.issues, found.method = true, node.Sel.Name
 			}
-			switch node.Sel.Name {
-			case gateFunc:
+			if node.Sel.Name == gateFunc {
 				found.gated = true
-			case sessionCheckFunc:
+			}
+			if sessionCheckFuncs[node.Sel.Name] {
 				found.sessionChecked = true
 			}
 		case *ast.Ident:

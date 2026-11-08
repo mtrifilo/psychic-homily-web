@@ -241,8 +241,8 @@ export function CalendarFeedSection({
     )
   }
 
-  // Token exists from an earlier visit. This card does not yet read feed_url
-  // from the status response, so it offers only Regenerate and Disable.
+  // Token exists from an earlier visit. This card does not read feed_url from
+  // the status response, so it offers only Regenerate and Disable.
   if (tokenStatus?.has_token) {
     if (isSettings) {
       return (

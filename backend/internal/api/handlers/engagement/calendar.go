@@ -131,8 +131,9 @@ type CreateCalendarTokenResponse struct {
 // (middleware.RequireRecentSessionAuth): any session can already read the
 // current URL from the status endpoint, so gating its rotation protects
 // nothing more. It does require a session credential, because the protected
-// group also admits API-token principals and a token held by a script must
-// not mint, rotate or read the account's feed URLs.
+// group also admits API-token (phk_) principals, and those must not mint,
+// rotate or read the account's feed URLs. A CLI token is a session JWT and
+// counts as a session here.
 func (h *CalendarHandler) CreateCalendarTokenHandler(ctx context.Context, req *CreateCalendarTokenRequest) (*CreateCalendarTokenResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
@@ -185,9 +186,10 @@ type GetCalendarTokenStatusResponse struct {
 
 // GetCalendarTokenStatusHandler reports whether the caller holds a feed token
 // and, to a session caller, the feed URLs when they are recoverable. An
-// API-token principal is told only whether a token exists and when it was
-// minted: the protected group admits API tokens, and a token held by a script
-// must not be exchangeable for a credential to the account's feeds.
+// API-token (phk_) principal is told only whether a token exists and when it
+// was minted: the protected group admits API tokens, and one must not be
+// exchangeable for a credential to the account's feeds. A CLI token is a
+// session JWT and counts as a session here.
 func (h *CalendarHandler) GetCalendarTokenStatusHandler(ctx context.Context, req *GetCalendarTokenStatusRequest) (*GetCalendarTokenStatusResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 

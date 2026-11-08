@@ -82,14 +82,11 @@ type CalendarTokenStatusResponse struct {
 }
 
 // WithoutFeedURLs is s as a caller that may not receive the feed URLs sees
-// it: whether a token exists and when it was minted, nothing that grants
-// access to the feeds. A field added to the status that carries the token
-// in any form is cleared here.
+// it: whether a token exists and when it was minted, and nothing else. It
+// copies those two fields rather than clearing the others, so a field added
+// to the status later is withheld until it is deliberately copied here.
 func (s CalendarTokenStatusResponse) WithoutFeedURLs() CalendarTokenStatusResponse {
-	s.FeedURL = ""
-	s.FollowsFeedURL = ""
-	s.URLRecoverable = false
-	return s
+	return CalendarTokenStatusResponse{HasToken: s.HasToken, CreatedAt: s.CreatedAt}
 }
 
 // ──────────────────────────────────────────────
