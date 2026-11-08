@@ -5,9 +5,13 @@ import (
 	"sync"
 	"time"
 
+	"gorm.io/gorm"
+
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	engagementsvc "psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/shared"
+	"psychic-homily-backend/internal/testutil"
 )
 
 // principal validates session as the JWT middleware does and returns what it
@@ -39,6 +43,60 @@ func (s *JWTIntegrationSuite) TestSignOutOtherSessions_RevokesTheCalendarFeedTok
 	created, err := s.calendar().CreateToken(user.ID, renewedPrincipal.SessionsValidAfter, "http://localhost:8080")
 	s.Require().NoError(err)
 	s.requireFeedTokenHonored(user.ID, created.Token)
+}
+
+// A feed-token mint that reaches the account row after the sign-out has
+// committed is refused: the session that asked for it is one the sign-out
+// revoked.
+func (s *JWTIntegrationSuite) TestSignOutOtherSessions_RefusesAMintThatReadsTheAccountAfterIt() {
+	user := s.createActiveUser("sign-out-others-feed-after@test.com")
+	caller, err := s.svc.CreateToken(user)
+	s.Require().NoError(err)
+	principal, authAt := s.principal(caller)
+
+	hooked, ran := testutil.WithWriteBeforeItsFirst(s.T(), s.db, func(*gorm.DB) {
+		_, err := s.authSvc.SignOutOtherSessions(principal, authAt)
+		s.Require().NoError(err)
+	}, testutil.BeforeQuery)
+	minted, err := engagementsvc.NewCalendarService(hooked, nil).CreateToken(user.ID, principal.SessionsValidAfter, "http://localhost:8080")
+
+	s.Require().True(*ran, "the sign-out must commit inside the mint's window")
+	s.Nil(minted)
+	s.ErrorIs(err, shared.ErrSessionRevoked)
+	s.Zero(s.feedTokenRows(user.ID), "a refused mint writes no token")
+}
+
+// A feed-token mint that holds the account row when the sign-out starts
+// commits first; the sign-out waits for it and then deletes the token it
+// wrote, so no feed URL a revoked session minted outlives the call.
+func (s *JWTIntegrationSuite) TestSignOutOtherSessions_DeletesTheTokenOfAMintItWaitedFor() {
+	user := s.createActiveUser("sign-out-others-feed-race@test.com")
+	caller, err := s.svc.CreateToken(user)
+	s.Require().NoError(err)
+	principal, authAt := s.principal(caller)
+
+	var signOut <-chan error
+	waitedForMint := false
+	hooked, ran := testutil.WithWriteBeforeItsFirst(s.T(), s.db, func(*gorm.DB) {
+		signOut = testutil.StartOnAnotherConnection(s.T(), s.db, func() error {
+			_, err := s.authSvc.SignOutOtherSessions(principal, authAt)
+			return err
+		})
+		waitedForMint = len(signOut) == 0
+	}, testutil.BeforeCreate)
+	// The mint's read-back of its row runs after its commit, racing the
+	// sign-out's delete, so it may report the row gone; either way the token
+	// it wrote must not survive.
+	minted, _ := engagementsvc.NewCalendarService(hooked, nil).CreateToken(user.ID, principal.SessionsValidAfter, "http://localhost:8080")
+
+	s.Require().True(*ran, "the sign-out must start before the mint's insert")
+	s.Require().NoError(testutil.AwaitConcurrentWrite(s.T(), signOut))
+	s.True(waitedForMint, "the sign-out must wait for the mint holding the account row")
+	s.Zero(s.feedTokenRows(user.ID), "the sign-out deletes the token the mint wrote")
+	if minted != nil {
+		_, err := s.calendar().ValidateCalendarToken(minted.Token)
+		s.Error(err, "the minted feed URL is refused")
+	}
 }
 
 func (s *JWTIntegrationSuite) TestSignOutOtherSessions_RefusesEveryEarlierSessionAndRenewsTheCaller() {

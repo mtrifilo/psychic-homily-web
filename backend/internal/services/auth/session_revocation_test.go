@@ -69,13 +69,19 @@ func (s *JWTIntegrationSuite) feedToken(userID uint) string {
 	return created.Token
 }
 
+// feedTokenRows counts the calendar-feed tokens userID holds.
+func (s *JWTIntegrationSuite) feedTokenRows(userID uint) int64 {
+	s.T().Helper()
+	var rows int64
+	s.Require().NoError(s.db.Model(&engagementm.CalendarToken{}).Where("user_id = ?", userID).Count(&rows).Error)
+	return rows
+}
+
 // requireFeedTokenRevoked checks that userID holds no feed token and that the
 // feed validator refuses token.
 func (s *JWTIntegrationSuite) requireFeedTokenRevoked(userID uint, token string) {
 	s.T().Helper()
-	var rows int64
-	s.Require().NoError(s.db.Model(&engagementm.CalendarToken{}).Where("user_id = ?", userID).Count(&rows).Error)
-	s.Zero(rows, "the account holds no feed token")
+	s.Zero(s.feedTokenRows(userID), "the account holds no feed token")
 	_, err := s.calendar().ValidateCalendarToken(token)
 	s.Error(err, "the old feed URL is refused")
 }
