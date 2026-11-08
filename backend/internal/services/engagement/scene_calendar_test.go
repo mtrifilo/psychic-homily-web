@@ -121,7 +121,7 @@ func TestSceneFeed_EmitsRequiredEventProperties(t *testing.T) {
 
 // The UID and SEQUENCE a scene feed emits must match what the venue feed emits
 // for the same show. Every calendar surface shares one UID per show, and RFC
-// 5546 3.2 resolves a UID collision in favour of the higher SEQUENCE — a scene
+// 5546 2.1.5 resolves a UID collision in favour of the higher SEQUENCE: a scene
 // feed stuck at 0 would always lose to the venue feed's copy.
 func TestSceneFeed_SharesEventIdentityWithSiblingSurfaces(t *testing.T) {
 	shows := []contracts.SceneShowSummary{testSceneShow(99, nil)}

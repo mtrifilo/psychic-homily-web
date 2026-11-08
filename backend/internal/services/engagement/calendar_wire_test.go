@@ -58,6 +58,11 @@ func rfc5545WireProblems(feed []byte, wantEvents int) []string {
 		if bytes.Count(line, []byte("\r")) != 1 {
 			problems = append(problems, fmt.Sprintf("line %d carries a bare CR: %q", i+1, line))
 		}
+		// A trailing blank line is trimmed away by icsContentLines below, so it
+		// has to be caught here, where the physical lines are still intact.
+		if len(line) == 1 {
+			problems = append(problems, fmt.Sprintf("line %d is empty", i+1))
+		}
 	}
 
 	// icsContentLines normalizes line endings, which is safe for the property
@@ -283,6 +288,10 @@ func TestRFC5545Wire_ReportsStructuralDefects(t *testing.T) {
 		},
 		"empty content line": {
 			feed: "BEGIN:VCALENDAR\r\n\r\nEND:VCALENDAR\r\n",
+			want: "is empty",
+		},
+		"trailing blank line": {
+			feed: "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:a\r\nDTSTAMP:20260601T120000Z\r\nSEQUENCE:0\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n\r\n",
 			want: "is empty",
 		},
 		"lower-case duplicate DTSTAMP": {
