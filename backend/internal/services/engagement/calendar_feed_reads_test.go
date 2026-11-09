@@ -30,6 +30,8 @@ func TestClassifyCalendarFeedClient(t *testing.T) {
 		{"Mac OS X CalendarAgent", "Mac OS X/10.15.7 (19H15) CalendarAgent/954", engagementm.CalendarFeedClientAppleMac, true},
 		{"Mac_OS_X CalendarAgent", "Mac_OS_X/10.9 (13A603) CalendarAgent/174", engagementm.CalendarFeedClientAppleMac, true},
 		{"Mac+OS+X dataaccessd", "Mac+OS+X/10.15.7 (19H15) dataaccessd/1.0", engagementm.CalendarFeedClientAppleMac, true},
+		{"Mac OS X dataaccessd", "Mac OS X/10.15.7 (19H15) dataaccessd/1.0", engagementm.CalendarFeedClientAppleMac, true},
+		{"Mac_OS_X accountsd", "Mac_OS_X/10.9 (13A603) accountsd/1.0", engagementm.CalendarFeedClientAppleMac, true},
 		{"CalendarAgent alone", "CalendarAgent/954 CFNetwork/1410.0.3 Darwin/22.4.0", engagementm.CalendarFeedClientAppleMac, true},
 		{"iOS without an Apple fetcher is other", "iOS/17.5.1 (21F90) SomethingElse/1.0", engagementm.CalendarFeedClientOther, true},
 		{"macOS without an Apple fetcher is other", "macOS/26.2 (25C56) SomethingElse/1.0", engagementm.CalendarFeedClientOther, true},
@@ -380,6 +382,34 @@ func (suite *CalendarIntegrationTestSuite) TestRevokeCalendarLinkTx_NoTokenLeave
 	suite.Require().NotNil(at)
 	suite.True(at.Equal(earlier))
 	suite.Equal(engagementm.CalendarLinkResetSignOutEverywhere, *reason)
+}
+
+// A read whose INSERT found the token while a revocation was deleting it
+// waits on the delete, fails its foreign-key check once the delete commits,
+// and reports that it wrote nothing rather than an error.
+func (suite *CalendarIntegrationTestSuite) TestRecordFeedRead_TokenDeletedUnderTheInsertWritesNothing() {
+	user := suite.createTestUser(true)
+	token := suite.mintFeedToken(user.ID)
+
+	revocation := suite.db.Begin()
+	suite.Require().NoError(revocation.Error)
+	defer revocation.Rollback()
+	deleted, err := DeleteCalendarTokensTx(revocation, user.ID)
+	suite.Require().NoError(err)
+	suite.Require().Equal(int64(1), deleted)
+
+	var wrote bool
+	record := testutil.StartOnAnotherConnection(suite.T(), suite.db, func() error {
+		var err error
+		wrote, err = suite.svc.recordFeedReadAt(context.Background(), token, googleUA, time.Now())
+		return err
+	})
+	suite.Require().Empty(record, "the record must be waiting on the uncommitted delete")
+
+	suite.Require().NoError(revocation.Commit().Error)
+	suite.Require().NoError(testutil.AwaitConcurrentWrite(suite.T(), record), "a vanished token is not an error")
+	suite.False(wrote)
+	suite.Zero(suite.allFeedReadRows())
 }
 
 // The CHECK constraints admit every family and reason the model names, so a

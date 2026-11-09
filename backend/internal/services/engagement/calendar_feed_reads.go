@@ -2,6 +2,7 @@ package engagement
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -14,11 +15,12 @@ import (
 )
 
 // feedReadRecordInterval is the least time between two recorded reads of one
-// token by one client family. The API docs state it in words (the
+// token by one client family. Calendar clients poll every few minutes to every
+// few hours; recording each poll would write on every one of them for no gain
+// in what the status can say. The API docs state the interval in words (the
 // last_read_at doc tag on contracts.CalendarFeedReadResponse and
-// CalendarServiceInterface.RecordFeedRead); a change here changes them. Calendar clients poll every few minutes to
-// every few hours; recording each poll would write on every one of them for
-// no gain in what the status can say.
+// CalendarServiceInterface.RecordFeedRead), so a change here must be copied
+// to them.
 const feedReadRecordInterval = 10 * time.Minute
 
 // classifyCalendarFeedClient names the calendar client family a feed request
@@ -87,6 +89,8 @@ func (s *CalendarService) RecordFeedRead(ctx context.Context, plainToken, userAg
 // One statement, so it holds no process state and needs no read first: the
 // token is resolved by its hash inside the INSERT, so a token deleted or
 // replaced since the feed was served matches nothing and nothing is written.
+// A token deleted after the INSERT found it but before the row's foreign-key
+// check fails that check; that is the same outcome and reports the same way.
 // A read recorded less than feedReadRecordInterval before at also makes the
 // SELECT empty, so a poll inside the interval only reads (an ON CONFLICT
 // update refused by its WHERE would still lock, and so write, the row). The
@@ -115,6 +119,9 @@ func (s *CalendarService) recordFeedReadAt(ctx context.Context, plainToken, user
 			last_read_at = EXCLUDED.last_read_at
 		WHERE calendar_feed_reads.last_read_at <= ?::timestamptz`,
 		string(client), at, at, hashCalendarToken(plainToken), string(client), cutoff, cutoff)
+	if errors.Is(result.Error, gorm.ErrForeignKeyViolated) {
+		return false, nil
+	}
 	if result.Error != nil {
 		return false, fmt.Errorf("failed to record calendar feed read: %w", result.Error)
 	}
@@ -169,8 +176,8 @@ func (s *CalendarService) linkResetMarker(userID uint) (*time.Time, *engagementm
 //
 // The token row is locked before its reads are counted, so a read being
 // recorded concurrently either commits first and is counted, or waits for
-// this transaction and then finds the token gone. The count runs before the
-// delete, whose cascade removes the reads.
+// this transaction and then fails its foreign-key check and writes nothing.
+// The count runs before the delete, whose cascade removes the reads.
 func RevokeCalendarLinkTx(tx *gorm.DB, userID uint, at time.Time, reason engagementm.CalendarLinkResetReason) error {
 	var tokenIDs []uint
 	if err := tx.Model(&engagementm.CalendarToken{}).
