@@ -287,7 +287,8 @@ func (s *CalendarService) CreateToken(userID uint, sessionsValidAfter *time.Time
 		}
 
 		// A new link answers any earlier reset of the old one.
-		return ClearCalendarLinkResetTx(tx, userID)
+		_, err := ClearCalendarLinkResetTx(tx, userID)
+		return err
 	})
 	if err != nil {
 		return nil, err
@@ -362,8 +363,9 @@ var errNoCalendarToken = errors.New("no calendar token found")
 // DeleteToken turns userID's feed off (contracts.CalendarServiceInterface):
 // it deletes their token and clears any link-reset marker in one transaction,
 // because turning the feed off is the person's own act and leaves nothing to
-// explain. With no token to delete it changes nothing and reports
-// errNoCalendarToken.
+// explain. A user whose link was reset holds a marker and no token, and
+// turning the feed off then clears the marker and succeeds. Only a user with
+// neither gets errNoCalendarToken, and nothing changes.
 func (s *CalendarService) DeleteToken(userID uint) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
@@ -374,10 +376,14 @@ func (s *CalendarService) DeleteToken(userID uint) error {
 		if err != nil {
 			return err
 		}
-		if deleted == 0 {
+		cleared, err := ClearCalendarLinkResetTx(tx, userID)
+		if err != nil {
+			return err
+		}
+		if deleted == 0 && !cleared {
 			return errNoCalendarToken
 		}
-		return ClearCalendarLinkResetTx(tx, userID)
+		return nil
 	})
 	if err != nil {
 		return err

@@ -276,7 +276,7 @@ func evictOtherCredentials(tx *gorm.DB, userID uint, keepProvider string) error 
 	if _, err := engagementsvc.DeleteCalendarTokensTx(tx, userID); err != nil {
 		return err
 	}
-	if err := engagementsvc.ClearCalendarLinkResetTx(tx, userID); err != nil {
+	if _, err := engagementsvc.ClearCalendarLinkResetTx(tx, userID); err != nil {
 		return err
 	}
 	// FOR UPDATE: a concurrent disconnect of one of these rows waits for the

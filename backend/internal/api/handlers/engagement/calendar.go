@@ -41,9 +41,10 @@ func NewCalendarHandler(calendarService contracts.CalendarServiceInterface, cfg 
 const feedReadRecordTimeout = 5 * time.Second
 
 // recordFeedRead hands the record of a served feed read to afterFeedResponse.
-// The write runs after the request has ended, so it takes no request state
-// beyond the logger, the token and the User-Agent, and its context is its own,
-// bounded by feedReadRecordTimeout. A failure is logged and goes no further.
+// It is called after the response has been written, and the work can outlive
+// the request, so it takes no request state beyond the logger, the token and
+// the User-Agent, and its context is its own, bounded by
+// feedReadRecordTimeout. A failure is logged and goes no further.
 func (h *CalendarHandler) recordFeedRead(r *http.Request, token string) {
 	log := logger.FromContext(r.Context())
 	userAgent := r.UserAgent()
@@ -60,9 +61,10 @@ func (h *CalendarHandler) recordFeedRead(r *http.Request, token string) {
 
 // --- ICS Feed endpoint (Chi http.HandlerFunc, public, token-authenticated) ---
 
-// GetCalendarFeedHandler serves the ICS calendar feed and, once the feed is
-// written, records which calendar client family read it (recordFeedRead).
-// Only a served feed is recorded.
+// GetCalendarFeedHandler serves the ICS calendar feed and, once the feed has
+// been written, records which calendar client family read it
+// (recordFeedRead). A feed that was refused, failed to build, or failed to
+// write is not recorded.
 func (h *CalendarHandler) GetCalendarFeedHandler(w http.ResponseWriter, r *http.Request) {
 	token := chi.URLParam(r, "token")
 	if token == "" {
@@ -100,7 +102,10 @@ func (h *CalendarHandler) GetCalendarFeedHandler(w http.ResponseWriter, r *http.
 	// the server-side cache immediately, and private avoids shared-proxy reuse.
 	w.Header().Set("Cache-Control", "private, max-age=120")
 	w.WriteHeader(http.StatusOK)
-	respond.SafeWrite(r.Context(), w, icsData)
+	if _, err := w.Write(icsData); err != nil {
+		logger.FromContext(r.Context()).Debug("response write failed", "err", err)
+		return
+	}
 	h.recordFeedRead(r, token)
 }
 
@@ -216,11 +221,13 @@ type GetCalendarTokenStatusResponse struct {
 }
 
 // GetCalendarTokenStatusHandler reports whether the caller holds a feed token
-// and, to a session caller, the feed URLs when they are recoverable. An
+// and, to a session caller, the feed URLs when they are recoverable, the
+// calendar clients observed reading the link, and any link-reset marker. An
 // API-token (phk_) principal is told only whether a token exists and when it
-// was minted: the protected group admits API tokens, and one must not be
-// exchangeable for a credential to the account's feeds. A CLI token is a
-// session JWT and counts as a session here.
+// was minted (WithoutFeedURLs): the protected group admits API tokens, and
+// one must not be exchangeable for a credential to the account's feeds. The
+// reads and the marker are withheld from it along with the URLs. A CLI token
+// is a session JWT and counts as a session here.
 func (h *CalendarHandler) GetCalendarTokenStatusHandler(ctx context.Context, req *GetCalendarTokenStatusRequest) (*GetCalendarTokenStatusResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 

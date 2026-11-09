@@ -94,9 +94,11 @@ type CalendarFeedReadResponse struct {
 }
 
 // WithoutFeedURLs is s as a caller that may not receive the feed URLs sees
-// it: whether a token exists and when it was minted, and nothing else. It
-// copies those two fields rather than clearing the others, so a field added
-// to the status later is withheld until it is deliberately copied here.
+// it: whether a token exists and when it was minted, and nothing else. The
+// observed reads and the link-reset marker are withheld with the URLs: they
+// are for the account's own session only. It copies the two kept fields
+// rather than clearing the others, so a field added to the status later is
+// withheld until it is deliberately copied here.
 func (s CalendarTokenStatusResponse) WithoutFeedURLs() CalendarTokenStatusResponse {
 	return CalendarTokenStatusResponse{HasToken: s.HasToken, CreatedAt: s.CreatedAt}
 }
@@ -396,8 +398,8 @@ type CalendarServiceInterface interface {
 	// them returns CalendarTokenStatusResponse.WithoutFeedURLs.
 	GetTokenStatus(userID uint, apiBaseURL string) (*CalendarTokenStatusResponse, error)
 	// DeleteToken turns userID's feed off: it deletes their token and clears
-	// any link-reset marker in one transaction. With no token it changes
-	// nothing and reports an error.
+	// any link-reset marker in one transaction. It reports an error, and
+	// changes nothing, only when there is neither a token nor a marker.
 	DeleteToken(userID uint) error
 	ValidateCalendarToken(plainToken string) (*authm.User, error)
 	// RecordFeedRead notes that the holder of plainToken fetched the

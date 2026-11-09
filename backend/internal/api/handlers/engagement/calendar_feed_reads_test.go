@@ -51,6 +51,13 @@ func TestGetCalendarFeedHandler_RecordsTheReadAfterTheResponse(t *testing.T) {
 	req := feedRequestWithToken("phcal_ok")
 	req.Header.Set("User-Agent", "Google-Calendar-Importer")
 	w := httptest.NewRecorder()
+	h.afterFeedResponse = func(work func()) bool {
+		if w.Code != http.StatusOK || w.Body.String() != string(ics) {
+			t.Errorf("the record was handed off before the feed was written: %d %q", w.Code, w.Body.String())
+		}
+		work()
+		return true
+	}
 
 	h.GetCalendarFeedHandler(w, req)
 

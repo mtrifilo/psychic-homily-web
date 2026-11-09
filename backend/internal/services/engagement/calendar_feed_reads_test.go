@@ -6,6 +6,7 @@ import (
 	"time"
 
 	engagementm "psychic-homily-backend/internal/models/engagement"
+	"psychic-homily-backend/internal/testutil"
 )
 
 func TestClassifyCalendarFeedClient(t *testing.T) {
@@ -286,11 +287,12 @@ func (suite *CalendarIntegrationTestSuite) TestCreateToken_ClearsTheLinkReset() 
 	suite.Nil(reason)
 }
 
+// A marker beside a live token is not reachable through the services; it is
+// planted here so the clear in the same transaction as the delete is
+// observable.
 func (suite *CalendarIntegrationTestSuite) TestDeleteToken_ClearsTheLinkReset() {
 	user := suite.createTestUser(true)
 	suite.mintFeedToken(user.ID)
-	// A marker beside a live token is not reachable through the services; it
-	// is planted here so the clear is observable.
 	suite.markLinkReset(user.ID, time.Now(), engagementm.CalendarLinkResetPasswordReset)
 
 	suite.Require().NoError(suite.svc.DeleteToken(user.ID))
@@ -300,16 +302,76 @@ func (suite *CalendarIntegrationTestSuite) TestDeleteToken_ClearsTheLinkReset() 
 	suite.Nil(reason)
 }
 
-// With no token, turning the feed off fails and changes nothing, the marker
-// included.
-func (suite *CalendarIntegrationTestSuite) TestDeleteToken_NoTokenLeavesTheLinkReset() {
+// After a reset the user holds a marker and no token. Turning the feed off
+// then succeeds and clears the marker.
+func (suite *CalendarIntegrationTestSuite) TestDeleteToken_AfterAResetClearsTheMarker() {
 	user := suite.createTestUser(true)
+	token := suite.mintFeedToken(user.ID)
+	deleted, err := DeleteCalendarTokensTx(suite.db, user.ID)
+	suite.Require().NoError(err)
+	suite.Require().Equal(int64(1), deleted)
 	suite.markLinkReset(user.ID, time.Now(), engagementm.CalendarLinkResetPasswordReset)
 
-	suite.Require().ErrorIs(suite.svc.DeleteToken(user.ID), errNoCalendarToken)
+	suite.Require().NoError(suite.svc.DeleteToken(user.ID))
 
-	at, _ := suite.linkReset(user.ID)
-	suite.NotNil(at)
+	at, reason := suite.linkReset(user.ID)
+	suite.Nil(at)
+	suite.Nil(reason)
+	_, err = suite.svc.ValidateCalendarToken(token)
+	suite.Error(err, "the reset link stays refused")
+	suite.ErrorIs(suite.svc.DeleteToken(user.ID), errNoCalendarToken, "with neither a token nor a marker there is nothing to turn off")
+}
+
+// The CHECK constraints admit every family and reason the model names, so a
+// constant added without widening its constraint fails here rather than on
+// every poll.
+func (suite *CalendarIntegrationTestSuite) TestFeedReadAndLinkResetConstraintsAdmitTheVocabularies() {
+	user := suite.createTestUser(true)
+	suite.mintFeedToken(user.ID)
+	at := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+
+	var tokenID uint
+	suite.Require().NoError(suite.db.Table("calendar_tokens").Where("user_id = ?", user.ID).Pluck("id", &tokenID).Error)
+	for _, client := range engagementm.CalendarFeedClients {
+		suite.NoError(suite.db.Exec(
+			"INSERT INTO calendar_feed_reads (token_id, client, first_read_at, last_read_at) VALUES (?, ?, ?, ?)",
+			tokenID, string(client), at, at).Error, "client %q", client)
+	}
+	for _, reason := range engagementm.CalendarLinkResetReasons {
+		suite.NoError(MarkCalendarLinkResetTx(suite.db, user.ID, at, reason), "reason %q", reason)
+	}
+}
+
+// Two polls inside the interval that race past the NOT EXISTS: the second
+// waits on the first's row and, once it commits, the conflict branch refuses
+// the update, so the first read stands.
+func (suite *CalendarIntegrationTestSuite) TestRecordFeedRead_RacingPollInsideTheIntervalDoesNotWrite() {
+	user := suite.createTestUser(true)
+	token := suite.mintFeedToken(user.ID)
+	at := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+
+	first := suite.db.Begin()
+	suite.Require().NoError(first.Error)
+	defer first.Rollback()
+	wrote, err := (&CalendarService{db: first}).recordFeedReadAt(context.Background(), token, googleUA, at)
+	suite.Require().NoError(err)
+	suite.Require().True(wrote)
+
+	var secondWrote bool
+	second := testutil.StartOnAnotherConnection(suite.T(), suite.db, func() error {
+		var err error
+		secondWrote, err = suite.svc.recordFeedReadAt(context.Background(), token, googleUA, at.Add(feedReadRecordInterval/2))
+		return err
+	})
+	suite.Require().Empty(second, "the second poll must be waiting on the first's uncommitted row")
+
+	suite.Require().NoError(first.Commit().Error)
+	suite.Require().NoError(testutil.AwaitConcurrentWrite(suite.T(), second))
+
+	suite.False(secondWrote, "the conflict branch refuses a read inside the interval")
+	rows := suite.feedReadRows(user.ID)
+	suite.Require().Len(rows, 1)
+	suite.True(rows[0].LastReadAt.Equal(at), "last_read_at stays %v, got %v", at, rows[0].LastReadAt)
 }
 
 // The CHECK constraints admit only the known families and reasons, and only a

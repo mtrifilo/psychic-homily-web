@@ -2,6 +2,8 @@ package contracts
 
 import (
 	"encoding/json"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -47,5 +49,37 @@ func TestCalendarTokenStatusResponse_WithoutFeedURLsWithholdsReadsAndReset(t *te
 	}
 	if fields["url_recoverable"] != false {
 		t.Errorf("url_recoverable = %v, want false", fields["url_recoverable"])
+	}
+}
+
+// The API enum tags list exactly the model's vocabularies, in order, so the
+// published schema and the generated frontend types cannot drift from the
+// values the server writes.
+func TestCalendarStatusEnumTagsMatchTheModelVocabularies(t *testing.T) {
+	var clients []string
+	for _, c := range engagementm.CalendarFeedClients {
+		clients = append(clients, string(c))
+	}
+	var reasons []string
+	for _, r := range engagementm.CalendarLinkResetReasons {
+		reasons = append(reasons, string(r))
+	}
+
+	cases := []struct {
+		structType reflect.Type
+		field      string
+		want       string
+	}{
+		{reflect.TypeOf(CalendarFeedReadResponse{}), "Client", strings.Join(clients, ",")},
+		{reflect.TypeOf(CalendarTokenStatusResponse{}), "LinkResetReason", strings.Join(reasons, ",")},
+	}
+	for _, c := range cases {
+		field, ok := c.structType.FieldByName(c.field)
+		if !ok {
+			t.Fatalf("%s has no field %s", c.structType.Name(), c.field)
+		}
+		if got := field.Tag.Get("enum"); got != c.want {
+			t.Errorf("%s.%s enum tag = %q, want %q", c.structType.Name(), c.field, got, c.want)
+		}
 	}
 }

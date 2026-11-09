@@ -13,7 +13,9 @@ import (
 )
 
 // feedReadRecordInterval is the least time between two recorded reads of one
-// token by one client family. Calendar clients poll every few minutes to
+// token by one client family. The API docs state it in words (the
+// last_read_at doc tag on contracts.CalendarFeedReadResponse and
+// CalendarServiceInterface.RecordFeedRead); a change here changes them. Calendar clients poll every few minutes to
 // every few hours; recording each poll would write on every one of them for
 // no gain in what the status can say.
 const feedReadRecordInterval = 10 * time.Minute
@@ -151,17 +153,18 @@ func MarkCalendarLinkResetTx(tx *gorm.DB, userID uint, at time.Time, reason enga
 }
 
 // ClearCalendarLinkResetTx removes userID's link-reset marker through tx,
-// which the caller commits. A user with no marker, or no preferences row, is
-// left untouched.
-func ClearCalendarLinkResetTx(tx *gorm.DB, userID uint) error {
-	if err := tx.Exec(`
+// which the caller commits, and reports whether there was one to remove. A
+// user with no marker, or no preferences row, is left untouched.
+func ClearCalendarLinkResetTx(tx *gorm.DB, userID uint) (bool, error) {
+	result := tx.Exec(`
 		UPDATE user_preferences SET
 			calendar_link_reset_at = NULL,
 			calendar_link_reset_reason = NULL,
 			updated_at = NOW()
 		WHERE user_id = ? AND calendar_link_reset_at IS NOT NULL`,
-		userID).Error; err != nil {
-		return fmt.Errorf("failed to clear calendar link reset: %w", err)
+		userID)
+	if result.Error != nil {
+		return false, fmt.Errorf("failed to clear calendar link reset: %w", result.Error)
 	}
-	return nil
+	return result.RowsAffected > 0, nil
 }
