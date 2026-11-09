@@ -314,9 +314,15 @@ func (s *CalendarService) CreateToken(userID uint, sessionsValidAfter *time.Time
 // token's plaintext is stored, the subscribe URLs built on apiBaseURL
 // (contracts.CalendarServiceInterface). A row minted before the plaintext was
 // stored reports HasToken with URLRecoverable false and no URLs. A token
-// carries the calendar clients observed reading it; no token carries the
-// link-reset marker, if one is outstanding.
+// carries the calendar clients observed reading it that are still
+// remembered (feedReadForgetAfter); no token carries the link-reset marker,
+// if one is outstanding.
 func (s *CalendarService) GetTokenStatus(userID uint, apiBaseURL string) (*contracts.CalendarTokenStatusResponse, error) {
+	return s.tokenStatusAt(userID, apiBaseURL, time.Now())
+}
+
+// tokenStatusAt is GetTokenStatus as of the instant now.
+func (s *CalendarService) tokenStatusAt(userID uint, apiBaseURL string, now time.Time) (*contracts.CalendarTokenStatusResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -338,7 +344,7 @@ func (s *CalendarService) GetTokenStatus(userID uint, apiBaseURL string) (*contr
 		return nil, fmt.Errorf("failed to check token status: %w", err)
 	}
 
-	reads, err := s.feedReads(token.ID)
+	reads, err := s.feedReads(token.ID, now)
 	if err != nil {
 		return nil, err
 	}

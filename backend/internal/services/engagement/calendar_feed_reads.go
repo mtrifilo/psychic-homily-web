@@ -23,6 +23,27 @@ import (
 // to them.
 const feedReadRecordInterval = 10 * time.Minute
 
+// feedReadForgetAfter is how long after its last read a client family is
+// forgotten by age. A read forgotten by age keeps its row, which the
+// family's next read reuses, but is treated everywhere as absent: the status
+// does not list it, a revocation does not count it, and that next read
+// starts it afresh, as a read never seen before would. Keeping the row needs
+// no sweeper; every reader of the table applies feedReadRememberedSince
+// instead. A read the account forgets (ForgetFeedRead) is deleted, to the
+// same observable effect. The API docs state the period in words (the reads and link_reset_at
+// doc tags on contracts.CalendarTokenStatusResponse and
+// contracts.CalendarFeedStatusResponse, CalendarServiceInterface.GetTokenStatus,
+// and the hand-written CalendarTokenStatusResponse in
+// frontend/features/shows/types.ts), so a change here must be copied to them.
+const feedReadForgetAfter = 30 * 24 * time.Hour
+
+// feedReadRememberedSince is the earliest last_read_at a read can have and
+// still be remembered at the instant now. A read exactly feedReadForgetAfter
+// old is remembered; one any older is forgotten.
+func feedReadRememberedSince(now time.Time) time.Time {
+	return now.Add(-feedReadForgetAfter)
+}
+
 // classifyCalendarFeedClient names the calendar client family a feed request
 // came from, judged by its User-Agent alone. ok is false for a browser (a
 // Mozilla/ User-Agent carrying none of the calendar markers): that is a person
@@ -95,7 +116,9 @@ func (s *CalendarService) RecordFeedRead(ctx context.Context, plainToken, userAg
 // SELECT empty, so a poll inside the interval only reads (an ON CONFLICT
 // update refused by its WHERE would still lock, and so write, the row). The
 // conflict branch repeats that bound for two polls that race past the
-// SELECT, and keeps last_read_at from moving backwards.
+// SELECT, and keeps last_read_at from moving backwards. A conflicting row that
+// was forgotten as of at (feedReadForgetAfter) takes at as its first_read_at
+// too, so a family that comes back reads as newly seen.
 func (s *CalendarService) recordFeedReadAt(ctx context.Context, plainToken, userAgent string, at time.Time) (bool, error) {
 	if s.db == nil {
 		return false, fmt.Errorf("database not initialized")
@@ -116,9 +139,14 @@ func (s *CalendarService) recordFeedReadAt(ctx context.Context, plainToken, user
 			WHERE r.token_id = t.id AND r.client = ?::text AND r.last_read_at > ?::timestamptz
 		  )
 		ON CONFLICT (token_id, client) DO UPDATE SET
+			first_read_at = CASE
+				WHEN calendar_feed_reads.last_read_at < ?::timestamptz THEN EXCLUDED.first_read_at
+				ELSE calendar_feed_reads.first_read_at
+			END,
 			last_read_at = EXCLUDED.last_read_at
 		WHERE calendar_feed_reads.last_read_at <= ?::timestamptz`,
-		string(client), at, at, hashCalendarToken(plainToken), string(client), cutoff, cutoff)
+		string(client), at, at, hashCalendarToken(plainToken), string(client), cutoff,
+		feedReadRememberedSince(at), cutoff)
 	if errors.Is(result.Error, gorm.ErrForeignKeyViolated) {
 		return false, nil
 	}
@@ -128,10 +156,11 @@ func (s *CalendarService) recordFeedReadAt(ctx context.Context, plainToken, user
 	return result.RowsAffected > 0, nil
 }
 
-// feedReads lists the recorded reads of tokenID, most recently read first.
-func (s *CalendarService) feedReads(tokenID uint) ([]contracts.CalendarFeedReadResponse, error) {
+// feedReads lists the reads of tokenID still remembered at the instant now
+// (feedReadForgetAfter), most recently read first.
+func (s *CalendarService) feedReads(tokenID uint, now time.Time) ([]contracts.CalendarFeedReadResponse, error) {
 	var rows []engagementm.CalendarFeedRead
-	if err := s.db.Where("token_id = ?", tokenID).
+	if err := s.db.Where("token_id = ? AND last_read_at >= ?", tokenID, feedReadRememberedSince(now)).
 		Order("last_read_at DESC, client").
 		Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("failed to load calendar feed reads: %w", err)
@@ -148,6 +177,25 @@ func (s *CalendarService) feedReads(tokenID uint) ([]contracts.CalendarFeedReadR
 		}
 	}
 	return reads, nil
+}
+
+// ForgetFeedRead deletes the recorded reads of userID's feed link by client
+// (contracts.CalendarServiceInterface). The client's next read inserts a new
+// row, so it comes back as newly seen. A read the feed handler queued before
+// the delete commits may be recorded after it, and then lists the client
+// again.
+func (s *CalendarService) ForgetFeedRead(userID uint, client engagementm.CalendarFeedClient) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	if err := s.db.Exec(`
+		DELETE FROM calendar_feed_reads
+		WHERE client = ?
+		  AND token_id IN (SELECT id FROM calendar_tokens WHERE user_id = ?)`,
+		string(client), userID).Error; err != nil {
+		return fmt.Errorf("failed to forget calendar feed read: %w", err)
+	}
+	return nil
 }
 
 // linkResetMarker reads userID's outstanding link-reset marker. Both results
@@ -169,10 +217,10 @@ func (s *CalendarService) linkResetMarker(userID uint) (*time.Time, *engagementm
 
 // RevokeCalendarLinkTx deletes userID's feed token through tx, which the
 // caller commits, for a security revocation, and records the link reset at
-// the instant at for reason when the deleted token had been read by a
-// calendar app at least once. A link no calendar app ever read leaves no
-// marker: its owner never had a calendar that could stop updating. An account
-// with no token is left as it is, its marker included.
+// the instant at for reason when the deleted token had a read still
+// remembered at at (feedReadForgetAfter). A link with none leaves no marker:
+// no calendar app its owner is still told about could stop updating. An
+// account with no token is left as it is, its marker included.
 //
 // The token row is locked before its reads are counted, so a read being
 // recorded concurrently either commits first and is counted, or waits for
@@ -192,7 +240,8 @@ func RevokeCalendarLinkTx(tx *gorm.DB, userID uint, at time.Time, reason engagem
 
 	var read bool
 	if err := tx.Raw(
-		"SELECT EXISTS (SELECT 1 FROM calendar_feed_reads WHERE token_id IN ?)", tokenIDs,
+		"SELECT EXISTS (SELECT 1 FROM calendar_feed_reads WHERE token_id IN ? AND last_read_at >= ?)",
+		tokenIDs, feedReadRememberedSince(at),
 	).Scan(&read).Error; err != nil {
 		return fmt.Errorf("failed to check calendar feed reads: %w", err)
 	}

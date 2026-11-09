@@ -689,6 +689,7 @@ func (m *MockBandcampProfileFiller) FillProfileResolvedEmbedFromBandcamp(artistI
 type MockCalendarService struct {
 	CreateTokenFn                 func(uint, *time.Time, string) (*contracts.CalendarTokenCreateResponse, error)
 	GetTokenStatusFn              func(uint, string) (*contracts.CalendarTokenStatusResponse, error)
+	ForgetFeedReadFn              func(uint, engagementm.CalendarFeedClient) error
 	DeleteTokenFn                 func(uint) error
 	ValidateCalendarTokenFn       func(string) (*authm.User, error)
 	RecordFeedReadFn              func(context.Context, string, string) error
@@ -708,6 +709,12 @@ func (m *MockCalendarService) GetTokenStatus(userID uint, apiBaseURL string) (*c
 		return m.GetTokenStatusFn(userID, apiBaseURL)
 	}
 	return nil, nil
+}
+func (m *MockCalendarService) ForgetFeedRead(userID uint, client engagementm.CalendarFeedClient) error {
+	if m.ForgetFeedReadFn != nil {
+		return m.ForgetFeedReadFn(userID, client)
+	}
+	return nil
 }
 func (m *MockCalendarService) DeleteToken(userID uint) error {
 	if m.DeleteTokenFn != nil {

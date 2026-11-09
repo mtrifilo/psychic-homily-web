@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -12,6 +13,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/logger"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/respond"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
@@ -222,13 +224,45 @@ type GetCalendarTokenStatusResponse struct {
 
 // GetCalendarTokenStatusHandler reports whether the caller holds a feed token
 // and, to a session caller, the feed URLs when they are recoverable, the
-// calendar clients observed reading the link, and any link-reset marker. An
+// calendar clients observed reading the link, and any link-reset marker
+// (callerTokenStatus).
+func (h *CalendarHandler) GetCalendarTokenStatusHandler(ctx context.Context, req *GetCalendarTokenStatusRequest) (*GetCalendarTokenStatusResponse, error) {
+	status, err := h.callerTokenStatus(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &GetCalendarTokenStatusResponse{CacheControl: "no-store", Body: *status}, nil
+}
+
+// GetCalendarFeedStatusRequest is empty: the user is derived from JWT context.
+type GetCalendarFeedStatusRequest struct{}
+
+// GetCalendarFeedStatusResponse wraps the status without its feed addresses.
+// It carries the account's observed reads, so no cache may keep it.
+type GetCalendarFeedStatusResponse struct {
+	CacheControl string `header:"Cache-Control"`
+	Body         contracts.CalendarFeedStatusResponse
+}
+
+// GetCalendarFeedStatusHandler reports what GetCalendarTokenStatusHandler
+// reports to the same caller, without the feed addresses, for any caller
+// (CalendarTokenStatusResponse.FeedStatus). An API-token principal is told
+// only whether a token exists and when it was minted, as on the token status.
+func (h *CalendarHandler) GetCalendarFeedStatusHandler(ctx context.Context, req *GetCalendarFeedStatusRequest) (*GetCalendarFeedStatusResponse, error) {
+	status, err := h.callerTokenStatus(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &GetCalendarFeedStatusResponse{CacheControl: "no-store", Body: status.FeedStatus()}, nil
+}
+
+// callerTokenStatus is the feed status the request's caller may see. An
 // API-token (phk_) principal is told only whether a token exists and when it
 // was minted (WithoutFeedURLs): the protected group admits API tokens, and
 // one must not be exchangeable for a credential to the account's feeds. The
 // reads and the marker are withheld from it along with the URLs. A CLI token
 // is a session JWT and counts as a session here.
-func (h *CalendarHandler) GetCalendarTokenStatusHandler(ctx context.Context, req *GetCalendarTokenStatusRequest) (*GetCalendarTokenStatusResponse, error) {
+func (h *CalendarHandler) callerTokenStatus(ctx context.Context) (*contracts.CalendarTokenStatusResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
 	user := middleware.GetUserFromContext(ctx)
@@ -248,12 +282,73 @@ func (h *CalendarHandler) GetCalendarTokenStatusHandler(ctx context.Context, req
 		)
 	}
 
-	body := *status
 	if !middleware.IsSessionCredentialFromContext(ctx) {
-		body = body.WithoutFeedURLs()
+		withheld := status.WithoutFeedURLs()
+		return &withheld, nil
+	}
+	return status, nil
+}
+
+// ForgetCalendarFeedReadRequest names the calendar client family to forget.
+// The enum tag spells engagementm.CalendarFeedClients; a test joins the two.
+type ForgetCalendarFeedReadRequest struct {
+	Client string `query:"client" required:"true" enum:"google,apple_ios,apple_mac,other" doc:"The calendar client family to forget, as the status's reads name it."`
+}
+
+// ForgetCalendarFeedReadResponse returns success status.
+type ForgetCalendarFeedReadResponse struct {
+	Body struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+}
+
+// ForgetCalendarFeedReadHandler makes the site forget one calendar client
+// family that read the caller's feed link, so the status stops listing it
+// until it reads the link again. Forgetting a family with no recorded read
+// succeeds. It requires a session credential: the protected group also
+// admits API-token principals, and the reads are the account's own session's
+// to manage. The family is checked here as well as by the enum tag, so an
+// unknown one is refused whatever validated the request.
+func (h *CalendarHandler) ForgetCalendarFeedReadHandler(ctx context.Context, req *ForgetCalendarFeedReadRequest) (*ForgetCalendarFeedReadResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
 	}
 
-	return &GetCalendarTokenStatusResponse{CacheControl: "no-store", Body: body}, nil
+	if err := middleware.RequireSessionCredential(ctx, "forget_calendar_feed_read"); err != nil {
+		return nil, err
+	}
+
+	client := engagementm.CalendarFeedClient(req.Client)
+	if !slices.Contains(engagementm.CalendarFeedClients, client) {
+		return nil, huma.Error422UnprocessableEntity("Unknown calendar client")
+	}
+
+	if err := h.calendarService.ForgetFeedRead(user.ID, client); err != nil {
+		logger.FromContext(ctx).Error("forget_calendar_feed_read_failed",
+			"user_id", user.ID,
+			"client", req.Client,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to forget calendar client (request_id: %s)", requestID),
+		)
+	}
+
+	logger.FromContext(ctx).Info("forget_calendar_feed_read_success",
+		"user_id", user.ID,
+		"client", req.Client,
+		"request_id", requestID,
+	)
+
+	resp := &ForgetCalendarFeedReadResponse{}
+	resp.Body.Success = true
+	resp.Body.Message = "Calendar client forgotten"
+	return resp, nil
 }
 
 // DeleteCalendarTokenRequest is empty — user is derived from JWT context

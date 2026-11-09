@@ -11,8 +11,8 @@ import (
 
 // PSY-1482: dedicated rate limit for authenticated one-row mutations
 // (save/unsave show+release, follow/unfollow entity+scene, venue confirm,
-// PSY-1991's single entity-request file+withdraw, and the calendar feed-token
-// mint), mounted globally in cmd/server/main.go. Public-read limiting (PSY-1362/1373) explicitly exempts
+// PSY-1991's single entity-request file+withdraw, the calendar feed-token
+// mint, and forgetting a calendar client), mounted globally in cmd/server/main.go. Public-read limiting (PSY-1362/1373) explicitly exempts
 // writes, so these mutations had no ceiling on rc.Protected (JWT only).
 //
 // A single global mount keeps the SHARED per-user budget honest: one limiter
@@ -76,8 +76,13 @@ var engagementMutationPathPatterns = []*regexp.Regexp{
 // engagementMutationExactPaths are the in-scope paths that carry no parameter.
 // They are matched by comparison rather than by a regexp that would spell the
 // same literal, and are checked first so the common case costs no match at all.
+//
+// DELETE /calendar/token/reads forgets one calendar client from the feed
+// status. It is a row delete any session may repeat, so it shares the budget
+// the feed-token mint spends.
 var engagementMutationExactPaths = map[string]bool{
-	"/entity-requests": true,
+	"/entity-requests":     true,
+	calendarFeedReadsRoute: true,
 }
 
 // engagementMutationPostOnlyPaths are in scope for POST and not for DELETE.
