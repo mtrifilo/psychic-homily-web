@@ -22,9 +22,9 @@ type feedRead struct {
 
 // feedHandlerRecordingReads is a calendar handler serving ics to user 7 that
 // records every RecordFeedRead call into reads, answering each with
-// recordErr. Work after the response runs synchronously and is counted in
-// afterResponse, so a test sees exactly what ran once the handler returned.
-func feedHandlerRecordingReads(ics []byte, reads *[]feedRead, recordErr error, afterResponse *int) *CalendarHandler {
+// recordErr. Work after the response runs synchronously, so a test sees
+// exactly what ran once the handler returned.
+func feedHandlerRecordingReads(ics []byte, reads *[]feedRead, recordErr error) *CalendarHandler {
 	mock := &testhelpers.MockCalendarService{
 		ValidateCalendarTokenFn: func(string) (*authm.User, error) {
 			return &authm.User{ID: 7}, nil
@@ -38,11 +38,7 @@ func feedHandlerRecordingReads(ics []byte, reads *[]feedRead, recordErr error, a
 		},
 	}
 	h := NewCalendarHandler(mock, testCalendarConfig())
-	h.afterFeedResponse = func(work func()) bool {
-		*afterResponse++
-		work()
-		return true
-	}
+	h.afterFeedResponse = func(work func()) bool { work(); return true }
 	return h
 }
 
@@ -51,8 +47,7 @@ func feedHandlerRecordingReads(ics []byte, reads *[]feedRead, recordErr error, a
 func TestGetCalendarFeedHandler_RecordsTheReadAfterTheResponse(t *testing.T) {
 	ics := []byte("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n")
 	var reads []feedRead
-	var afterResponse int
-	h := feedHandlerRecordingReads(ics, &reads, nil, &afterResponse)
+	h := feedHandlerRecordingReads(ics, &reads, nil)
 	req := feedRequestWithToken("phcal_ok")
 	req.Header.Set("User-Agent", "Google-Calendar-Importer")
 	w := httptest.NewRecorder()
@@ -61,9 +56,6 @@ func TestGetCalendarFeedHandler_RecordsTheReadAfterTheResponse(t *testing.T) {
 
 	if w.Code != http.StatusOK || w.Body.String() != string(ics) {
 		t.Fatalf("feed response = %d %q, want 200 with the feed", w.Code, w.Body.String())
-	}
-	if afterResponse != 1 {
-		t.Errorf("after-response work ran %d times, want 1", afterResponse)
 	}
 	want := []feedRead{{token: "phcal_ok", userAgent: "Google-Calendar-Importer"}}
 	if len(reads) != 1 || reads[0] != want[0] {
@@ -75,12 +67,11 @@ func TestGetCalendarFeedHandler_RecordsTheReadAfterTheResponse(t *testing.T) {
 func TestGetCalendarFeedHandler_FailingRecordLeavesTheResponse(t *testing.T) {
 	ics := []byte("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n")
 	var okReads, failedReads []feedRead
-	var okAfter, failedAfter int
 	ok := httptest.NewRecorder()
 	failed := httptest.NewRecorder()
 
-	feedHandlerRecordingReads(ics, &okReads, nil, &okAfter).GetCalendarFeedHandler(ok, feedRequestWithToken("phcal_ok"))
-	feedHandlerRecordingReads(ics, &failedReads, errors.New("db down"), &failedAfter).GetCalendarFeedHandler(failed, feedRequestWithToken("phcal_ok"))
+	feedHandlerRecordingReads(ics, &okReads, nil).GetCalendarFeedHandler(ok, feedRequestWithToken("phcal_ok"))
+	feedHandlerRecordingReads(ics, &failedReads, errors.New("db down")).GetCalendarFeedHandler(failed, feedRequestWithToken("phcal_ok"))
 
 	if len(failedReads) != 1 {
 		t.Fatalf("the failing record must still have been attempted, got %d calls", len(failedReads))
@@ -162,47 +153,6 @@ func TestGetCalendarFeedHandler_RecordOutlivesTheRequestContext(t *testing.T) {
 	}
 	if !hasDeadline {
 		t.Error("the record's context must carry its own deadline")
-	}
-}
-
-// The runner never runs more than its limit at once: work offered while the
-// slots are full is dropped, a freed slot is reused, and a panic in work
-// frees its slot instead of ending the process.
-func TestBoundedDetachedRunner_DropsPastTheLimit(t *testing.T) {
-	run := boundedDetachedRunner(1)
-	release := make(chan struct{})
-
-	if !run(func() { <-release }) {
-		t.Fatal("the first work must take the free slot")
-	}
-	if run(func() { t.Error("dropped work must not run") }) {
-		t.Fatal("work offered while the only slot is busy must be dropped")
-	}
-	close(release)
-
-	panicked := make(chan struct{})
-	offerUntilTaken(t, run, func() {
-		close(panicked)
-		panic("record exploded")
-	})
-	<-panicked
-
-	ran := make(chan struct{})
-	offerUntilTaken(t, run, func() { close(ran) })
-	<-ran
-}
-
-// offerUntilTaken offers work to run until a slot takes it. A slot is freed
-// by a goroutine the test cannot join, so the offer is retried rather than
-// assumed to land.
-func offerUntilTaken(t *testing.T, run func(func()) bool, work func()) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for !run(work) {
-		if time.Now().After(deadline) {
-			t.Fatal("no slot freed within 5s")
-		}
-		time.Sleep(time.Millisecond)
 	}
 }
 

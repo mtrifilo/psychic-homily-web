@@ -197,10 +197,11 @@ func main() {
 	// handling. Neither side can see the other -- the worker count is a
 	// package constant and the ceiling is an env var -- so the comparison
 	// belongs here, where both are in scope.
-	if cfg.Database.MaxOpenConns <= servicesshared.AuditWriteWorkers {
-		log.Printf("WARNING: DB_MAX_OPEN_CONNS=%d is not above the %d audit-log workers; "+
-			"background writes can claim the whole pool and starve requests",
-			cfg.Database.MaxOpenConns, servicesshared.AuditWriteWorkers)
+	backgroundWriteWorkers := servicesshared.AuditWriteWorkers + servicesshared.CalendarFeedReadWorkers
+	if cfg.Database.MaxOpenConns <= backgroundWriteWorkers {
+		log.Printf("WARNING: DB_MAX_OPEN_CONNS=%d is not above the %d background-write workers "+
+			"(audit log and calendar feed reads); background writes can claim the whole pool and starve requests",
+			cfg.Database.MaxOpenConns, backgroundWriteWorkers)
 	}
 
 	// PSY-1384: refuse to boot if critical columns are missing or mistyped: catches
@@ -840,6 +841,9 @@ func main() {
 	drainCtx, drainCancel := context.WithTimeout(context.Background(), auditDrainTimeout)
 	defer drainCancel()
 	if err := servicesshared.ShutdownAuditWrites(drainCtx); err != nil {
+		log.Printf("WARNING: %s", err)
+	}
+	if err := servicesshared.ShutdownCalendarFeedReadWrites(drainCtx); err != nil {
 		log.Printf("WARNING: %s", err)
 	}
 

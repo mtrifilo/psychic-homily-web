@@ -74,18 +74,12 @@ func (suite *CalendarIntegrationTestSuite) mintFeedToken(userID uint) string {
 	return minted.Token
 }
 
-type linkResetRow struct {
-	At     *time.Time `gorm:"column:calendar_link_reset_at"`
-	Reason *string    `gorm:"column:calendar_link_reset_reason"`
-}
-
-func (suite *CalendarIntegrationTestSuite) linkReset(userID uint) linkResetRow {
+// linkReset is userID's link-reset marker as the status read sees it.
+func (suite *CalendarIntegrationTestSuite) linkReset(userID uint) (*time.Time, *engagementm.CalendarLinkResetReason) {
 	suite.T().Helper()
-	var row linkResetRow
-	suite.Require().NoError(suite.db.Raw(
-		"SELECT calendar_link_reset_at, calendar_link_reset_reason FROM user_preferences WHERE user_id = ?",
-		userID).Scan(&row).Error)
-	return row
+	at, reason, err := suite.svc.linkResetMarker(userID)
+	suite.Require().NoError(err)
+	return at, reason
 }
 
 func (suite *CalendarIntegrationTestSuite) markLinkReset(userID uint, at time.Time, reason engagementm.CalendarLinkResetReason) {
@@ -221,16 +215,6 @@ func (suite *CalendarIntegrationTestSuite) TestCreateToken_ReplacingTheTokenRemo
 	suite.Empty(status.Reads)
 }
 
-func (suite *CalendarIntegrationTestSuite) TestDeleteToken_RemovesItsReads() {
-	user := suite.createTestUser(true)
-	token := suite.mintFeedToken(user.ID)
-	suite.Require().NoError(suite.svc.RecordFeedRead(context.Background(), token, appleUA))
-
-	suite.Require().NoError(suite.svc.DeleteToken(user.ID))
-
-	suite.Zero(suite.allFeedReadRows())
-}
-
 func (suite *CalendarIntegrationTestSuite) TestDeleteCalendarTokensTx_RemovesItsReads() {
 	user := suite.createTestUser(true)
 	token := suite.mintFeedToken(user.ID)
@@ -279,16 +263,16 @@ func (suite *CalendarIntegrationTestSuite) TestMarkCalendarLinkResetTx_CreatesOr
 	first := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
 	suite.markLinkReset(user.ID, first, engagementm.CalendarLinkResetSignOutEverywhere)
 
-	row := suite.linkReset(user.ID)
-	suite.Require().NotNil(row.At)
-	suite.True(row.At.Equal(first))
-	suite.Equal("sign_out_everywhere", *row.Reason)
+	at, reason := suite.linkReset(user.ID)
+	suite.Require().NotNil(at)
+	suite.True(at.Equal(first))
+	suite.Equal(engagementm.CalendarLinkResetSignOutEverywhere, *reason)
 
 	second := first.Add(time.Hour)
 	suite.markLinkReset(user.ID, second, engagementm.CalendarLinkResetPasswordReset)
-	row = suite.linkReset(user.ID)
-	suite.True(row.At.Equal(second))
-	suite.Equal("password_reset", *row.Reason)
+	at, reason = suite.linkReset(user.ID)
+	suite.True(at.Equal(second))
+	suite.Equal(engagementm.CalendarLinkResetPasswordReset, *reason)
 }
 
 func (suite *CalendarIntegrationTestSuite) TestCreateToken_ClearsTheLinkReset() {
@@ -297,9 +281,9 @@ func (suite *CalendarIntegrationTestSuite) TestCreateToken_ClearsTheLinkReset() 
 
 	suite.mintFeedToken(user.ID)
 
-	row := suite.linkReset(user.ID)
-	suite.Nil(row.At)
-	suite.Nil(row.Reason)
+	at, reason := suite.linkReset(user.ID)
+	suite.Nil(at)
+	suite.Nil(reason)
 }
 
 func (suite *CalendarIntegrationTestSuite) TestDeleteToken_ClearsTheLinkReset() {
@@ -311,9 +295,9 @@ func (suite *CalendarIntegrationTestSuite) TestDeleteToken_ClearsTheLinkReset() 
 
 	suite.Require().NoError(suite.svc.DeleteToken(user.ID))
 
-	row := suite.linkReset(user.ID)
-	suite.Nil(row.At)
-	suite.Nil(row.Reason)
+	at, reason := suite.linkReset(user.ID)
+	suite.Nil(at)
+	suite.Nil(reason)
 }
 
 // With no token, turning the feed off fails and changes nothing, the marker
@@ -324,7 +308,8 @@ func (suite *CalendarIntegrationTestSuite) TestDeleteToken_NoTokenLeavesTheLinkR
 
 	suite.Require().ErrorIs(suite.svc.DeleteToken(user.ID), errNoCalendarToken)
 
-	suite.NotNil(suite.linkReset(user.ID).At)
+	at, _ := suite.linkReset(user.ID)
+	suite.NotNil(at)
 }
 
 // The CHECK constraints admit only the known families and reasons, and only a

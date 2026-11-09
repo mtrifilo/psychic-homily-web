@@ -56,10 +56,12 @@ func (s *CalendarService) RecordFeedRead(ctx context.Context, plainToken, userAg
 //
 // One statement, so it holds no process state and needs no read first: the
 // token is resolved by its hash inside the INSERT, so a token deleted or
-// replaced since the feed was served matches nothing and nothing is written;
-// and the conflict branch updates only when the stored read is at least
-// feedReadRecordInterval older than at, so a poll inside the interval is a
-// no-op and last_read_at never moves backwards.
+// replaced since the feed was served matches nothing and nothing is written.
+// A read recorded less than feedReadRecordInterval before at also makes the
+// SELECT empty, so a poll inside the interval only reads (an ON CONFLICT
+// update refused by its WHERE would still lock, and so write, the row). The
+// conflict branch repeats that bound for two polls that race past the
+// SELECT, and keeps last_read_at from moving backwards.
 func (s *CalendarService) recordFeedReadAt(ctx context.Context, plainToken, userAgent string, at time.Time) (bool, error) {
 	if s.db == nil {
 		return false, fmt.Errorf("database not initialized")
@@ -69,15 +71,20 @@ func (s *CalendarService) recordFeedReadAt(ctx context.Context, plainToken, user
 		return false, nil
 	}
 
+	cutoff := at.Add(-feedReadRecordInterval)
 	result := s.db.WithContext(ctx).Exec(`
 		INSERT INTO calendar_feed_reads (token_id, client, first_read_at, last_read_at)
-		SELECT id, ?::text, ?::timestamptz, ?::timestamptz
-		FROM calendar_tokens
-		WHERE token_hash = ?
+		SELECT t.id, ?::text, ?::timestamptz, ?::timestamptz
+		FROM calendar_tokens t
+		WHERE t.token_hash = ?
+		  AND NOT EXISTS (
+			SELECT 1 FROM calendar_feed_reads r
+			WHERE r.token_id = t.id AND r.client = ?::text AND r.last_read_at > ?::timestamptz
+		  )
 		ON CONFLICT (token_id, client) DO UPDATE SET
 			last_read_at = EXCLUDED.last_read_at
 		WHERE calendar_feed_reads.last_read_at <= ?::timestamptz`,
-		string(client), at, at, hashCalendarToken(plainToken), at.Add(-feedReadRecordInterval))
+		string(client), at, at, hashCalendarToken(plainToken), string(client), cutoff, cutoff)
 	if result.Error != nil {
 		return false, fmt.Errorf("failed to record calendar feed read: %w", result.Error)
 	}
@@ -107,11 +114,12 @@ func (s *CalendarService) feedReads(tokenID uint) ([]contracts.CalendarFeedReadR
 }
 
 // linkResetMarker reads userID's outstanding link-reset marker. Both results
-// are nil when there is none, including when the user has no preferences row.
+// are nil when there is none, including when the user has no preferences row;
+// the pair CHECK constraint keeps them from differing.
 func (s *CalendarService) linkResetMarker(userID uint) (*time.Time, *engagementm.CalendarLinkResetReason, error) {
 	var marker struct {
-		At     *time.Time `gorm:"column:calendar_link_reset_at"`
-		Reason *string    `gorm:"column:calendar_link_reset_reason"`
+		At     *time.Time                           `gorm:"column:calendar_link_reset_at"`
+		Reason *engagementm.CalendarLinkResetReason `gorm:"column:calendar_link_reset_reason"`
 	}
 	if err := s.db.Raw(`
 		SELECT calendar_link_reset_at, calendar_link_reset_reason
@@ -119,11 +127,7 @@ func (s *CalendarService) linkResetMarker(userID uint) (*time.Time, *engagementm
 		WHERE user_id = ?`, userID).Scan(&marker).Error; err != nil {
 		return nil, nil, fmt.Errorf("failed to load calendar link reset: %w", err)
 	}
-	if marker.At == nil || marker.Reason == nil {
-		return nil, nil, nil
-	}
-	reason := engagementm.CalendarLinkResetReason(*marker.Reason)
-	return marker.At, &reason, nil
+	return marker.At, marker.Reason, nil
 }
 
 // MarkCalendarLinkResetTx records through tx, which the caller commits, that

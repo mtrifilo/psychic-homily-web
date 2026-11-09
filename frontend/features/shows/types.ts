@@ -463,25 +463,24 @@ export interface CalendarTokenStatusResponse {
   reads?: CalendarFeedRead[] | null
   /**
    * When a security action (signing out everywhere, or a password reset)
-   * deleted the feed link. Present only while has_token is false; minting a
-   * link or turning the feed off clears it.
+   * deleted the feed link. Present only while has_token is false and the
+   * caller is a signed-in session; minting a link or turning the feed off
+   * clears it.
    */
   link_reset_at?: string // ISO date string
   /** Which security action deleted the feed link; present exactly when link_reset_at is. */
   link_reset_reason?: CalendarLinkResetReason
 }
 
+/** One calendar client family's observed reads of the current feed link. */
+export type CalendarFeedRead = components['schemas']['CalendarFeedReadResponse']
+
 /** Calendar client family, classified server-side from the feed request's User-Agent. */
-export type CalendarFeedClient = 'google' | 'apple_ios' | 'apple_mac' | 'other'
+export type CalendarFeedClient = CalendarFeedRead['client']
 
-export type CalendarLinkResetReason = 'sign_out_everywhere' | 'password_reset'
-
-export interface CalendarFeedRead {
-  client: CalendarFeedClient
-  first_read_at: string // ISO date string
-  /** Recorded at most once per ten minutes per client, so it can trail the latest fetch by up to that long. */
-  last_read_at: string // ISO date string
-}
+export type CalendarLinkResetReason = NonNullable<
+  components['schemas']['CalendarTokenStatusResponse']['link_reset_reason']
+>
 
 export interface CalendarTokenCreateResponse {
   token: string
