@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
@@ -33,10 +34,9 @@ func classifyCalendarFeedClient(userAgent string) (client engagementm.CalendarFe
 	switch {
 	case strings.Contains(userAgent, "Google-Calendar-Importer"):
 		return engagementm.CalendarFeedClientGoogle, true
-	case (strings.HasPrefix(userAgent, "iOS/") || strings.HasPrefix(userAgent, "iPadOS/")) &&
-		strings.Contains(userAgent, "dataaccessd"):
+	case hasAnyPrefix(userAgent, appleIOSPrefixes) && containsAny(userAgent, appleIOSFetchers):
 		return engagementm.CalendarFeedClientAppleIOS, true
-	case strings.HasPrefix(userAgent, "macOS/") && strings.Contains(userAgent, "dataaccessd"),
+	case hasAnyPrefix(userAgent, appleMacPrefixes) && containsAny(userAgent, appleMacFetchers),
 		strings.Contains(userAgent, "CalendarAgent"):
 		return engagementm.CalendarFeedClientAppleMac, true
 	case strings.HasPrefix(userAgent, "Mozilla/"):
@@ -44,6 +44,34 @@ func classifyCalendarFeedClient(userAgent string) (client engagementm.CalendarFe
 	default:
 		return engagementm.CalendarFeedClientOther, true
 	}
+}
+
+// The platform prefixes and fetcher names an Apple calendar User-Agent is
+// recognised by. A User-Agent needs one of its platform's prefixes and one of
+// its fetchers, except that CalendarAgent alone is enough for apple_mac.
+var (
+	appleIOSPrefixes = []string{"iOS/", "iPadOS/"}
+	appleIOSFetchers = []string{"dataaccessd", "accountsd"}
+	appleMacPrefixes = []string{"macOS/", "Mac OS X/", "Mac_OS_X/", "Mac+OS+X/"}
+	appleMacFetchers = []string{"dataaccessd", "accountsd", "CalendarAgent"}
+)
+
+func hasAnyPrefix(s string, prefixes []string) bool {
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(s, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsAny(s string, substrings []string) bool {
+	for _, sub := range substrings {
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+	return false
 }
 
 // RecordFeedRead notes that the holder of plainToken fetched the saved-shows
@@ -132,12 +160,50 @@ func (s *CalendarService) linkResetMarker(userID uint) (*time.Time, *engagementm
 	return marker.At, marker.Reason, nil
 }
 
+// RevokeCalendarLinkTx deletes userID's feed token through tx, which the
+// caller commits, for a security revocation, and records the link reset at
+// the instant at for reason when the deleted token had been read by a
+// calendar app at least once. A link no calendar app ever read leaves no
+// marker: its owner never had a calendar that could stop updating. An account
+// with no token is left as it is, its marker included.
+//
+// The token row is locked before its reads are counted, so a read being
+// recorded concurrently either commits first and is counted, or waits for
+// this transaction and then finds the token gone. The count runs before the
+// delete, whose cascade removes the reads.
+func RevokeCalendarLinkTx(tx *gorm.DB, userID uint, at time.Time, reason engagementm.CalendarLinkResetReason) error {
+	var tokenIDs []uint
+	if err := tx.Model(&engagementm.CalendarToken{}).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("user_id = ?", userID).
+		Pluck("id", &tokenIDs).Error; err != nil {
+		return fmt.Errorf("failed to lock calendar token: %w", err)
+	}
+	if len(tokenIDs) == 0 {
+		return nil
+	}
+
+	var read bool
+	if err := tx.Raw(
+		"SELECT EXISTS (SELECT 1 FROM calendar_feed_reads WHERE token_id IN ?)", tokenIDs,
+	).Scan(&read).Error; err != nil {
+		return fmt.Errorf("failed to check calendar feed reads: %w", err)
+	}
+
+	if _, err := DeleteCalendarTokensTx(tx, userID); err != nil {
+		return err
+	}
+	if !read {
+		return nil
+	}
+	return MarkCalendarLinkResetTx(tx, userID, at, reason)
+}
+
 // MarkCalendarLinkResetTx records through tx, which the caller commits, that
 // a security revocation deleted userID's feed link at the instant at, for
-// reason. The caller marks only after a delete that removed a token, so the
-// marker always names a link that existed. Creates the preferences row when
-// the user has none; every column the INSERT does not name takes its DDL
-// default.
+// reason. RevokeCalendarLinkTx is its caller: it marks only a link it deleted
+// that a calendar app had read. Creates the preferences row when the user has
+// none; every column the INSERT does not name takes its DDL default.
 func MarkCalendarLinkResetTx(tx *gorm.DB, userID uint, at time.Time, reason engagementm.CalendarLinkResetReason) error {
 	if err := tx.Exec(`
 		INSERT INTO user_preferences (user_id, calendar_link_reset_at, calendar_link_reset_reason)

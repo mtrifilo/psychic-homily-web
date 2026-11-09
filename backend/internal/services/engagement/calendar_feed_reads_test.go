@@ -18,11 +18,22 @@ func TestClassifyCalendarFeedClient(t *testing.T) {
 	}{
 		{"Google Calendar importer", "Google-Calendar-Importer", engagementm.CalendarFeedClientGoogle, true},
 		{"Google importer inside a longer string", "Mozilla/5.0 (compatible; Google-Calendar-Importer)", engagementm.CalendarFeedClientGoogle, true},
-		{"Apple iOS fetcher", "iOS/17.5.1 (21F90) dataaccessd/1.0", engagementm.CalendarFeedClientAppleIOS, true},
+		{"Apple iOS dataaccessd", "iOS/17.5.1 (21F90) dataaccessd/1.0", engagementm.CalendarFeedClientAppleIOS, true},
+		{"Apple iOS 26 dataaccessd", "iOS/26.6 (23G71) dataaccessd/1.0", engagementm.CalendarFeedClientAppleIOS, true},
+		{"Apple iOS accountsd", "iOS/17.5 (21F79) accountsd/1.0", engagementm.CalendarFeedClientAppleIOS, true},
 		{"Apple iPadOS fetcher", "iPadOS/17.5.1 (21F90) dataaccessd/1.0", engagementm.CalendarFeedClientAppleIOS, true},
-		{"Apple macOS fetcher", "macOS/26.2 (25C56) dataaccessd/1.0", engagementm.CalendarFeedClientAppleMac, true},
-		{"macOS CalendarAgent", "CalendarAgent/954 CFNetwork/1410.0.3 Darwin/22.4.0", engagementm.CalendarFeedClientAppleMac, true},
-		{"iOS without dataaccessd is not Apple iOS", "iOS/17.5.1 (21F90) SomethingElse/1.0", engagementm.CalendarFeedClientOther, true},
+		{"Apple iPadOS accountsd", "iPadOS/17.5 (21F79) accountsd/1.0", engagementm.CalendarFeedClientAppleIOS, true},
+		{"Apple macOS dataaccessd", "macOS/26.2 (25C56) dataaccessd/1.0", engagementm.CalendarFeedClientAppleMac, true},
+		{"Apple macOS 27 dataaccessd", "macOS/27.0 (26A428) dataaccessd/1.0", engagementm.CalendarFeedClientAppleMac, true},
+		{"Apple macOS 26.6.2 dataaccessd", "macOS/26.6.2 (25G83) dataaccessd/1.0", engagementm.CalendarFeedClientAppleMac, true},
+		{"Apple macOS accountsd", "macOS/26.2 (25C56) accountsd/1.0", engagementm.CalendarFeedClientAppleMac, true},
+		{"Mac OS X CalendarAgent", "Mac OS X/10.15.7 (19H15) CalendarAgent/954", engagementm.CalendarFeedClientAppleMac, true},
+		{"Mac_OS_X CalendarAgent", "Mac_OS_X/10.9 (13A603) CalendarAgent/174", engagementm.CalendarFeedClientAppleMac, true},
+		{"Mac+OS+X dataaccessd", "Mac+OS+X/10.15.7 (19H15) dataaccessd/1.0", engagementm.CalendarFeedClientAppleMac, true},
+		{"CalendarAgent alone", "CalendarAgent/954 CFNetwork/1410.0.3 Darwin/22.4.0", engagementm.CalendarFeedClientAppleMac, true},
+		{"iOS without an Apple fetcher is other", "iOS/17.5.1 (21F90) SomethingElse/1.0", engagementm.CalendarFeedClientOther, true},
+		{"macOS without an Apple fetcher is other", "macOS/26.2 (25C56) SomethingElse/1.0", engagementm.CalendarFeedClientOther, true},
+		{"accountsd without an Apple prefix is other", "Linux/6.1 accountsd/1.0", engagementm.CalendarFeedClientOther, true},
 		{"desktop browser is not a read", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36", "", false},
 		{"empty User-Agent", "", engagementm.CalendarFeedClientOther, true},
 		{"unknown client", "Thunderbird-Calendar/1.0", engagementm.CalendarFeedClientOther, true},
@@ -320,6 +331,55 @@ func (suite *CalendarIntegrationTestSuite) TestDeleteToken_AfterAResetClearsTheM
 	_, err = suite.svc.ValidateCalendarToken(token)
 	suite.Error(err, "the reset link stays refused")
 	suite.ErrorIs(suite.svc.DeleteToken(user.ID), errNoCalendarToken, "with neither a token nor a marker there is nothing to turn off")
+}
+
+// A revoked link that a calendar app had read is marked with the reason; its
+// reads go with the token.
+func (suite *CalendarIntegrationTestSuite) TestRevokeCalendarLinkTx_ReadLinkIsMarked() {
+	user := suite.createTestUser(true)
+	token := suite.mintFeedToken(user.ID)
+	suite.Require().NoError(suite.svc.RecordFeedRead(context.Background(), token, appleUA))
+	at := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+
+	suite.Require().NoError(RevokeCalendarLinkTx(suite.db, user.ID, at, engagementm.CalendarLinkResetPasswordReset))
+
+	_, err := suite.svc.ValidateCalendarToken(token)
+	suite.Error(err, "the link is revoked")
+	suite.Zero(suite.allFeedReadRows())
+	markedAt, reason := suite.linkReset(user.ID)
+	suite.Require().NotNil(markedAt)
+	suite.True(markedAt.Equal(at))
+	suite.Equal(engagementm.CalendarLinkResetPasswordReset, *reason)
+}
+
+// A revoked link no calendar app ever read leaves no marker; a browser
+// opening it is not a read.
+func (suite *CalendarIntegrationTestSuite) TestRevokeCalendarLinkTx_UnreadLinkIsNotMarked() {
+	user := suite.createTestUser(true)
+	token := suite.mintFeedToken(user.ID)
+	suite.Require().NoError(suite.svc.RecordFeedRead(context.Background(), token, browserUA))
+
+	suite.Require().NoError(RevokeCalendarLinkTx(suite.db, user.ID, time.Now(), engagementm.CalendarLinkResetSignOutEverywhere))
+
+	_, err := suite.svc.ValidateCalendarToken(token)
+	suite.Error(err, "the link is revoked")
+	at, reason := suite.linkReset(user.ID)
+	suite.Nil(at)
+	suite.Nil(reason)
+}
+
+// With no token to revoke, nothing changes, an earlier marker included.
+func (suite *CalendarIntegrationTestSuite) TestRevokeCalendarLinkTx_NoTokenLeavesTheMarker() {
+	user := suite.createTestUser(true)
+	earlier := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+	suite.markLinkReset(user.ID, earlier, engagementm.CalendarLinkResetSignOutEverywhere)
+
+	suite.Require().NoError(RevokeCalendarLinkTx(suite.db, user.ID, earlier.Add(time.Hour), engagementm.CalendarLinkResetPasswordReset))
+
+	at, reason := suite.linkReset(user.ID)
+	suite.Require().NotNil(at)
+	suite.True(at.Equal(earlier))
+	suite.Equal(engagementm.CalendarLinkResetSignOutEverywhere, *reason)
 }
 
 // The CHECK constraints admit every family and reason the model names, so a

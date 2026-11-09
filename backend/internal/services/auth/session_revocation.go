@@ -30,9 +30,10 @@ func RevokeAllSessions(db *gorm.DB, user *authm.User, now time.Time) error {
 // mailbox-proof reclaim deletes the token through evictOtherCredentials
 // instead, with the provider identities it removes.
 //
-// When a token was deleted, the same transaction records the link reset at
-// now for reason, so the owner can be told why their subscribed calendar
-// stopped updating. An account that held no token gets no marker.
+// When the deleted token had been read by a calendar app, the same
+// transaction records the link reset at now for reason, so the owner can be
+// told why their subscribed calendar stopped updating
+// (engagement RevokeCalendarLinkTx).
 //
 // account's users row is locked before the delete: the caller holds it FOR
 // UPDATE, and RevokeAllSessions' write to it would take the lock otherwise. A
@@ -44,9 +45,5 @@ func revokeSessionsAndFeedToken(tx *gorm.DB, account *authm.User, now time.Time,
 	if err := RevokeAllSessions(tx, account, now); err != nil {
 		return err
 	}
-	deleted, err := engagementsvc.DeleteCalendarTokensTx(tx, account.ID)
-	if err != nil || deleted == 0 {
-		return err
-	}
-	return engagementsvc.MarkCalendarLinkResetTx(tx, account.ID, now, reason)
+	return engagementsvc.RevokeCalendarLinkTx(tx, account.ID, now, reason)
 }

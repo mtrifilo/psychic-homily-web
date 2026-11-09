@@ -398,8 +398,8 @@ func (s *CalendarService) DeleteToken(userID uint) error {
 // cached in some process's CalendarService cannot reach its holder; the next
 // token CreateToken mints clears that cache. The token's recorded feed reads
 // are deleted with it (calendar_feed_reads cascades from calendar_tokens).
-// It writes no link-reset marker; a caller that owes the user one writes it
-// with MarkCalendarLinkResetTx.
+// It writes no link-reset marker; a security revocation deletes through
+// RevokeCalendarLinkTx, which does.
 func DeleteCalendarTokensTx(tx *gorm.DB, userID uint) (int64, error) {
 	result := tx.Where("user_id = ?", userID).Delete(&engagementm.CalendarToken{})
 	if result.Error != nil {

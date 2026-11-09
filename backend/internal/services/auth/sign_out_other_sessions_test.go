@@ -32,6 +32,7 @@ func (s *JWTIntegrationSuite) TestSignOutOtherSessions_RevokesTheCalendarFeedTok
 	s.Require().NoError(err)
 	feed := s.feedToken(user.ID)
 	s.requireFeedTokenHonored(user.ID, feed)
+	s.recordCalendarRead(feed)
 
 	principal, authAt := s.principal(caller)
 	before := time.Now()
@@ -46,6 +47,22 @@ func (s *JWTIntegrationSuite) TestSignOutOtherSessions_RevokesTheCalendarFeedTok
 	created, err := s.calendar().CreateToken(user.ID, renewedPrincipal.SessionsValidAfter, "http://localhost:8080")
 	s.Require().NoError(err)
 	s.requireFeedTokenHonored(user.ID, created.Token)
+	s.requireNoLinkReset(user.ID)
+}
+
+// Signing out everywhere deletes a link no calendar app ever read without
+// recording a link reset.
+func (s *JWTIntegrationSuite) TestSignOutOtherSessions_UnreadFeedTokenNoLinkReset() {
+	user := s.createActiveUser("sign-out-others-unread-feed@test.com")
+	caller, err := s.svc.CreateToken(user)
+	s.Require().NoError(err)
+	feed := s.feedToken(user.ID)
+
+	principal, authAt := s.principal(caller)
+	_, err = s.authSvc.SignOutOtherSessions(principal, authAt)
+	s.Require().NoError(err)
+
+	s.requireFeedTokenRevoked(user.ID, feed)
 	s.requireNoLinkReset(user.ID)
 }
 

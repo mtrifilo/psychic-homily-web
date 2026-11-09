@@ -668,6 +668,8 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_PreHijackedAccountIsReclaime
 	}).Error)
 	_, err = calendar.ValidateCalendarToken(feed.Token)
 	s.Require().NoError(err, "the attacker's feed works before the proof")
+	s.Require().NoError(calendar.RecordFeedRead(context.Background(), feed.Token, "Google-Calendar-Importer"),
+		"the attacker's calendar has read the feed")
 	// A link-reset marker left by the attacker's own security actions on the
 	// account, planted directly so the proof's handling of it is observable.
 	s.Require().NoError(engagementsvc.MarkCalendarLinkResetTx(s.deps.DB, squatted.ID, time.Now(), engagementm.CalendarLinkResetSignOutEverywhere))

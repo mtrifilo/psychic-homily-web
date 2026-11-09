@@ -81,7 +81,7 @@ type CalendarTokenStatusResponse struct {
 	FollowsFeedURL  string                               `json:"follows_feed_url,omitempty" doc:"Followed-artist Atom subscribe URL, present when url_recoverable is true"`
 	URLRecoverable  bool                                 `json:"url_recoverable" doc:"Whether this response carries the feed URLs. False while has_token is true means the URLs cannot be shown to this caller: the token was minted before its URL was stored (regenerating replaces it with one that is), or the caller is not a signed-in session."`
 	Reads           []CalendarFeedReadResponse           `json:"reads,omitempty" doc:"Calendar clients observed fetching the current saved-shows feed link, most recently read first. Absent when none has, when has_token is false, or when the caller is not a signed-in session."`
-	LinkResetAt     *time.Time                           `json:"link_reset_at,omitempty" doc:"When a security action (signing out everywhere, or a password reset) deleted the feed link. Present only while has_token is false and the caller is a signed-in session; minting a link or turning the feed off clears it."`
+	LinkResetAt     *time.Time                           `json:"link_reset_at,omitempty" doc:"When a security action (signing out everywhere, or a password reset) deleted a feed link that a calendar app had read. Present only while has_token is false and the caller is a signed-in session; minting a link or turning the feed off clears it."`
 	LinkResetReason *engagementm.CalendarLinkResetReason `json:"link_reset_reason,omitempty" enum:"sign_out_everywhere,password_reset" doc:"Which security action deleted the feed link. Present exactly when link_reset_at is."`
 }
 

@@ -463,9 +463,9 @@ export interface CalendarTokenStatusResponse {
   reads?: CalendarFeedRead[] | null
   /**
    * When a security action (signing out everywhere, or a password reset)
-   * deleted the feed link. Present only while has_token is false and the
-   * caller is a signed-in session; minting a link or turning the feed off
-   * clears it.
+   * deleted a feed link that a calendar app had read. Present only while
+   * has_token is false and the caller is a signed-in session; minting a link
+   * or turning the feed off clears it.
    */
   link_reset_at?: string // ISO date string
   /** Which security action deleted the feed link; present exactly when link_reset_at is. */

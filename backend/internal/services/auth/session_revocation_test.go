@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -115,6 +116,13 @@ func (s *JWTIntegrationSuite) requireRevocationDeletesTheTokenOfAMintItWaitedFor
 		_, err := s.calendar().ValidateCalendarToken(minted.Token)
 		s.Error(err, "the minted feed URL is refused")
 	}
+}
+
+// recordCalendarRead records a read of the feed link token by Apple's
+// calendar fetcher, as a subscribed calendar's poll does.
+func (s *JWTIntegrationSuite) recordCalendarRead(token string) {
+	s.T().Helper()
+	s.Require().NoError(s.calendar().RecordFeedRead(context.Background(), token, "iOS/17.5.1 (21F90) dataaccessd/1.0"))
 }
 
 // linkReset is userID's calendar link-reset marker as the status endpoint

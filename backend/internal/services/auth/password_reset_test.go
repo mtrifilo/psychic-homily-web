@@ -271,12 +271,14 @@ func (s *JWTIntegrationSuite) TestCompletePasswordReset_RevokesEarlierSessionsAn
 }
 
 // A reset is a reclaim, and a squatter's session can have carried the feed
-// URL away, so the reset deletes the calendar-feed token.
+// URL away, so the reset deletes the calendar-feed token. A link a calendar
+// app had read is marked as reset by the password reset.
 func (s *JWTIntegrationSuite) TestCompletePasswordReset_RevokesTheCalendarFeedToken() {
 	user := s.createActiveUser("reset-feed@test.com")
 	s.setPasswordHash(user.ID, "planted-password-1!")
 	feed := s.feedToken(user.ID)
 	s.requireFeedTokenHonored(user.ID, feed)
+	s.recordCalendarRead(feed)
 	claims := s.resetClaimsFor(user.ID)
 
 	before := time.Now()
@@ -285,6 +287,21 @@ func (s *JWTIntegrationSuite) TestCompletePasswordReset_RevokesTheCalendarFeedTo
 
 	s.requireFeedTokenRevoked(user.ID, feed)
 	s.requireLinkReset(user.ID, engagementm.CalendarLinkResetPasswordReset, before)
+}
+
+// A reset that deletes a link no calendar app ever read records no link
+// reset: there was no calendar to stop updating.
+func (s *JWTIntegrationSuite) TestCompletePasswordReset_UnreadFeedTokenNoLinkReset() {
+	user := s.createActiveUser("reset-unread-feed@test.com")
+	s.setPasswordHash(user.ID, "planted-password-1!")
+	feed := s.feedToken(user.ID)
+	claims := s.resetClaimsFor(user.ID)
+
+	_, err := s.authSvc.CompletePasswordReset(claims, "owners-new-password-1!")
+	s.Require().NoError(err)
+
+	s.requireFeedTokenRevoked(user.ID, feed)
+	s.requireNoLinkReset(user.ID)
 }
 
 // A reset of an account that held no feed token records no link reset: there
