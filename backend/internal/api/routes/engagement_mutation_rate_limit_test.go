@@ -91,7 +91,7 @@ func TestIsEngagementMutationRequest(t *testing.T) {
 		// address-free status is a read.
 		{http.MethodDelete, "/calendar/token/reads?client=google", true},
 		{http.MethodDelete, "/calendar/token/reads", true},
-		{http.MethodGet, "/calendar/token/status", false},
+		{http.MethodGet, "/calendar/token/feed-status", false},
 		// Reads and read-shaped helpers are NOT mutations.
 		{http.MethodGet, "/saved-shows/42", false},
 		{http.MethodGet, "/saved-shows", false},

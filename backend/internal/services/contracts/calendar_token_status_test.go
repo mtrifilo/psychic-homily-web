@@ -52,35 +52,49 @@ func TestCalendarTokenStatusResponse_WithoutFeedURLsWithholdsReadsAndReset(t *te
 	}
 }
 
-// FeedStatus keeps everything but the feed addresses.
-func TestCalendarTokenStatusResponse_FeedStatusDropsOnlyTheAddresses(t *testing.T) {
-	now := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
-	reason := engagementm.CalendarLinkResetSignOutEverywhere
-	reads := []CalendarFeedReadResponse{
-		{Client: engagementm.CalendarFeedClientAppleMac, FirstReadAt: now, LastReadAt: now},
-	}
-	full := CalendarTokenStatusResponse{
-		HasToken:        true,
-		CreatedAt:       &now,
-		FeedURL:         "https://api.example.test/feeds/phcal_x/saved-shows.ics",
-		FollowsFeedURL:  "https://api.example.test/feeds/phcal_x/follows.atom",
-		URLRecoverable:  true,
-		Reads:           reads,
-		LinkResetAt:     &now,
-		LinkResetReason: &reason,
-	}
+// FeedStatus copies every field CalendarFeedStatusResponse declares from its
+// same-named twin. Every field of the source is set to a non-zero value, so a
+// field declared on both types but left out of the copy reads as zero here
+// and fails.
+func TestCalendarTokenStatusResponse_FeedStatusCopiesEveryDeclaredField(t *testing.T) {
+	var full CalendarTokenStatusResponse
+	fillNonZero(t, reflect.ValueOf(&full).Elem())
 
-	got := full.FeedStatus()
-
-	want := CalendarFeedStatusResponse{
-		HasToken:        true,
-		CreatedAt:       &now,
-		Reads:           reads,
-		LinkResetAt:     &now,
-		LinkResetReason: &reason,
+	got := reflect.ValueOf(full.FeedStatus())
+	source := reflect.ValueOf(full)
+	for i := 0; i < got.NumField(); i++ {
+		name := got.Type().Field(i).Name
+		if want := source.FieldByName(name); !reflect.DeepEqual(got.Field(i).Interface(), want.Interface()) {
+			t.Errorf("FeedStatus().%s = %v, want %v copied from the token status", name, got.Field(i).Interface(), want.Interface())
+		}
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("FeedStatus() = %+v, want %+v", got, want)
+}
+
+// fillNonZero sets v, and everything it holds, to a value that is not its
+// type's zero value.
+func fillNonZero(t *testing.T, v reflect.Value) {
+	t.Helper()
+	if v.Type() == reflect.TypeOf(time.Time{}) {
+		v.Set(reflect.ValueOf(time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)))
+		return
+	}
+	switch v.Kind() {
+	case reflect.Bool:
+		v.SetBool(true)
+	case reflect.String:
+		v.SetString("x")
+	case reflect.Pointer:
+		v.Set(reflect.New(v.Type().Elem()))
+		fillNonZero(t, v.Elem())
+	case reflect.Slice:
+		v.Set(reflect.MakeSlice(v.Type(), 1, 1))
+		fillNonZero(t, v.Index(0))
+	case reflect.Struct:
+		for i := 0; i < v.NumField(); i++ {
+			fillNonZero(t, v.Field(i))
+		}
+	default:
+		t.Fatalf("fillNonZero: add a case for %s", v.Type())
 	}
 }
 

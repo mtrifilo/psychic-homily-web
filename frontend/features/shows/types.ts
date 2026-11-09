@@ -475,7 +475,7 @@ export interface CalendarTokenStatusResponse {
 }
 
 /**
- * The feed status with no feed address in it (GET /calendar/token/status):
+ * The feed status with no feed address in it (GET /calendar/token/feed-status):
  * has_token, created_at, reads and the link-reset marker, for a surface that
  * only says whether a calendar is connected. Settings reads
  * CalendarTokenStatusResponse, which carries the addresses.
@@ -484,7 +484,7 @@ export type CalendarFeedStatusResponse =
   components['schemas']['CalendarFeedStatusResponse']
 
 /** Response to forgetting one calendar client (DELETE /calendar/token/reads?client=). */
-export type CalendarFeedReadForgetResponse =
+export type ForgetCalendarFeedReadResponse =
   components['schemas']['ForgetCalendarFeedReadResponseBody']
 
 /** One calendar client family's observed reads of the current feed link. */

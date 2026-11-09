@@ -41,6 +41,6 @@ func setupCalendarRoutes(rc RouteContext) {
 // phcal_ token spelled into one can earn the personal-feed exemption. The
 // client to forget is a query parameter for that reason.
 const (
-	calendarFeedStatusRoute = "/calendar/token/status" // feed status with no feed address
-	calendarFeedReadsRoute  = "/calendar/token/reads"  // DELETE ?client= forgets one client family
+	calendarFeedStatusRoute = "/calendar/token/feed-status" // feed status with no feed address
+	calendarFeedReadsRoute  = "/calendar/token/reads"       // DELETE ?client= forgets one client family
 )

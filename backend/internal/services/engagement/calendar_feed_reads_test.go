@@ -2,10 +2,14 @@ package engagement
 
 import (
 	"context"
+	"fmt"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	engagementm "psychic-homily-backend/internal/models/engagement"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -49,6 +53,26 @@ func TestClassifyCalendarFeedClient(t *testing.T) {
 					c.userAgent, client, read, c.wantClient, c.wantRead)
 			}
 		})
+	}
+}
+
+// The API docs state the forget period in words; each names the period
+// feedReadForgetAfter holds.
+func TestForgetPeriodDocsNameTheConstant(t *testing.T) {
+	want := fmt.Sprintf("%d days", int(feedReadForgetAfter/(24*time.Hour)))
+	for _, typ := range []reflect.Type{
+		reflect.TypeOf(contracts.CalendarTokenStatusResponse{}),
+		reflect.TypeOf(contracts.CalendarFeedStatusResponse{}),
+	} {
+		for _, name := range []string{"Reads", "LinkResetAt"} {
+			field, ok := typ.FieldByName(name)
+			if !ok {
+				t.Fatalf("%s has no field %s", typ.Name(), name)
+			}
+			if doc := field.Tag.Get("doc"); !strings.Contains(doc, want) {
+				t.Errorf("%s.%s doc does not name %q: %s", typ.Name(), name, want, doc)
+			}
+		}
 	}
 }
 
@@ -274,6 +298,21 @@ func (suite *CalendarIntegrationTestSuite) TestGetTokenStatus_ReadOlderThanTheFo
 		suite.statusReadsAt(user.ID, edge.Add(time.Second)), "a read older than the period is forgotten")
 	suite.Nil(suite.statusReadsAt(user.ID, edge.Add(2*time.Hour)), "with every read forgotten the status lists none")
 	suite.Len(suite.feedReadRows(user.ID), 2, "forgetting by age hides the rows; it does not delete them")
+}
+
+// GetTokenStatus judges the age of a read against the present: a read older
+// than the period is not listed, a fresh one is.
+func (suite *CalendarIntegrationTestSuite) TestGetTokenStatus_ForgetsByAgeAsOfNow() {
+	user := suite.createTestUser(true)
+	token := suite.mintFeedToken(user.ID)
+	_, err := suite.svc.recordFeedReadAt(context.Background(), token, googleUA, time.Now().Add(-feedReadForgetAfter-time.Minute))
+	suite.Require().NoError(err)
+	suite.Require().NoError(suite.svc.RecordFeedRead(context.Background(), token, appleUA))
+
+	status, err := suite.svc.GetTokenStatus(user.ID, "http://localhost:8080")
+	suite.Require().NoError(err)
+	suite.Require().Len(status.Reads, 1)
+	suite.Equal(engagementm.CalendarFeedClientAppleIOS, status.Reads[0].Client)
 }
 
 // A family read again after being forgotten by age comes back as newly seen:

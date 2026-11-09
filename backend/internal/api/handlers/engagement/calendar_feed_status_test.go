@@ -19,7 +19,9 @@ import (
 
 // statusWithReadsAndReset answers GetTokenStatus with every field of the
 // status set, the feed URLs included, so a response missing one is the
-// handler withholding it.
+// handler withholding it. The service never pairs a live token with a
+// link-reset marker; the handler passes fields through without judging that,
+// which is all these tests ask of it.
 func statusWithReadsAndReset(userID uint, apiBaseURL string) (*contracts.CalendarTokenStatusResponse, error) {
 	status, err := statusWithReads(userID, apiBaseURL)
 	if err != nil {

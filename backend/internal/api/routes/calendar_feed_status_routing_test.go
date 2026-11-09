@@ -30,7 +30,7 @@ func TestCalendarTokenRoutesResolution(t *testing.T) {
 		{http.MethodGet, "/calendar/token", "/calendar/token"},
 		{http.MethodPost, "/calendar/token", "/calendar/token"},
 		{http.MethodDelete, "/calendar/token", "/calendar/token"},
-		{http.MethodGet, "/calendar/token/status", calendarFeedStatusRoute},
+		{http.MethodGet, "/calendar/token/feed-status", calendarFeedStatusRoute},
 		{http.MethodDelete, "/calendar/token/reads", calendarFeedReadsRoute},
 		{http.MethodGet, "/calendar/phcal_abc123", legacyCalendarFeedRoute},
 	} {
@@ -148,6 +148,19 @@ func TestCalendarFeedStatusAndForgetThroughRouter(t *testing.T) {
 		t.Fatalf("GET /calendar/{token} = %d %q, want 200 with a calendar", feed.Code, feed.Body.String())
 	}
 	awaitReads("google")
+
+	// A read 31 days old is listed by neither status route.
+	stale := time.Now().Add(-31 * 24 * time.Hour)
+	if err := td.DB.Exec(`
+		INSERT INTO calendar_feed_reads (token_id, client, first_read_at, last_read_at)
+		SELECT id, 'apple_mac', ?, ? FROM calendar_tokens WHERE user_id = ?`,
+		stale, stale, user.ID).Error; err != nil {
+		t.Fatalf("plant a stale read: %v", err)
+	}
+	awaitReads("google")
+	if w := request(http.MethodGet, "/calendar/token", session, ""); strings.Join(readClients(decode(w)), ",") != "google" {
+		t.Errorf("GET /calendar/token reads = %s, want google only", w.Body.String())
+	}
 
 	// No feed address in the address-free status, for either credential.
 	for name, bearer := range map[string]string{"session": session, "API token": apiToken.Token} {

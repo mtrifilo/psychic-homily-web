@@ -24,10 +24,13 @@ import (
 const feedReadRecordInterval = 10 * time.Minute
 
 // feedReadForgetAfter is how long after its last read a client family is
-// forgotten. A forgotten read is kept as a row but treated everywhere as
-// absent: the status does not list it, a revocation does not count it, and
-// the family's next read starts it afresh, as a read never seen before
-// would. The API docs state the period in words (the reads and link_reset_at
+// forgotten by age. A read forgotten by age keeps its row, which the
+// family's next read reuses, but is treated everywhere as absent: the status
+// does not list it, a revocation does not count it, and that next read
+// starts it afresh, as a read never seen before would. Keeping the row needs
+// no sweeper; every reader of the table applies feedReadRememberedSince
+// instead. A read the account forgets (ForgetFeedRead) is deleted, to the
+// same observable effect. The API docs state the period in words (the reads and link_reset_at
 // doc tags on contracts.CalendarTokenStatusResponse and
 // contracts.CalendarFeedStatusResponse, CalendarServiceInterface.GetTokenStatus,
 // and the hand-written CalendarTokenStatusResponse in
@@ -178,7 +181,8 @@ func (s *CalendarService) feedReads(tokenID uint, now time.Time) ([]contracts.Ca
 
 // ForgetFeedRead deletes the recorded reads of userID's feed link by client
 // (contracts.CalendarServiceInterface). The client's next read inserts a new
-// row, so it comes back as newly seen.
+// row, so it comes back as newly seen. A read the feed handler queued before
+// the delete commits is recorded after it, and so lists the client again.
 func (s *CalendarService) ForgetFeedRead(userID uint, client engagementm.CalendarFeedClient) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")

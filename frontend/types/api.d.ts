@@ -3433,6 +3433,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/calendar/token/feed-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get calendar token feed status */
+        get: operations["get-calendar-token-feed-status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/calendar/token/reads": {
         parameters: {
             query?: never;
@@ -3445,23 +3462,6 @@ export interface paths {
         post?: never;
         /** Delete calendar token reads */
         delete: operations["delete-calendar-token-reads"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/calendar/token/status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get calendar token status */
-        get: operations["get-calendar-token-status"];
-        put?: never;
-        post?: never;
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -24579,6 +24579,36 @@ export interface operations {
             };
         };
     };
+    "get-calendar-token-feed-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarFeedStatusResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "delete-calendar-token-reads": {
         parameters: {
             query: {
@@ -24598,36 +24628,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ForgetCalendarFeedReadResponseBody"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    "get-calendar-token-status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    "Cache-Control"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CalendarFeedStatusResponse"];
                 };
             };
             /** @description Error */
