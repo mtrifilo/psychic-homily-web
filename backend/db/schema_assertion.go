@@ -114,6 +114,14 @@ var requiredSchemaColumns = []requiredColumn{
 	// feed-token INSERT: absent DDL fails every calendar feed mint and
 	// regeneration at request time.
 	{Table: "calendar_tokens", Column: "token"},
+	// Signing out everywhere and a password reset write the link-reset marker
+	// in the transaction that revokes the account's sessions, so absent DDL
+	// fails both for every account that holds a feed token.
+	{Table: "user_preferences", Column: "calendar_link_reset_at"},
+	{Table: "user_preferences", Column: "calendar_link_reset_reason"},
+	// Every feed-token status read lists the token's recorded reads, so absent
+	// DDL fails that status read for every account with a token.
+	{Table: "calendar_feed_reads", Column: "last_read_at"},
 	// Typed entries: exactly the columns whose type a timestamp-named
 	// migration changed. golang-migrate skips a timestamp-named migration
 	// whose version is below the recorded pointer, which happens when branches

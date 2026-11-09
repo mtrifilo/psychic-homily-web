@@ -11,6 +11,7 @@ import (
 	"psychic-homily-backend/internal/config"
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 	usersvc "psychic-homily-backend/internal/services/user"
 )
@@ -278,10 +279,25 @@ func (s *JWTIntegrationSuite) TestCompletePasswordReset_RevokesTheCalendarFeedTo
 	s.requireFeedTokenHonored(user.ID, feed)
 	claims := s.resetClaimsFor(user.ID)
 
+	before := time.Now()
 	_, err := s.authSvc.CompletePasswordReset(claims, "owners-new-password-1!")
 	s.Require().NoError(err)
 
 	s.requireFeedTokenRevoked(user.ID, feed)
+	s.requireLinkReset(user.ID, engagementm.CalendarLinkResetPasswordReset, before)
+}
+
+// A reset of an account that held no feed token records no link reset: there
+// was no link to lose.
+func (s *JWTIntegrationSuite) TestCompletePasswordReset_NoFeedTokenNoLinkReset() {
+	user := s.createActiveUser("reset-no-feed@test.com")
+	s.setPasswordHash(user.ID, "planted-password-1!")
+	claims := s.resetClaimsFor(user.ID)
+
+	_, err := s.authSvc.CompletePasswordReset(claims, "owners-new-password-1!")
+	s.Require().NoError(err)
+
+	s.requireNoLinkReset(user.ID)
 }
 
 // A feed-token mint that holds the account row when the reset starts commits

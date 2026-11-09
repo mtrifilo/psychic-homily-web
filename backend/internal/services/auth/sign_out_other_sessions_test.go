@@ -9,6 +9,7 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	engagementsvc "psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/testutil"
@@ -33,16 +34,33 @@ func (s *JWTIntegrationSuite) TestSignOutOtherSessions_RevokesTheCalendarFeedTok
 	s.requireFeedTokenHonored(user.ID, feed)
 
 	principal, authAt := s.principal(caller)
+	before := time.Now()
 	renewed, err := s.authSvc.SignOutOtherSessions(principal, authAt)
 	s.Require().NoError(err)
 
 	s.requireFeedTokenRevoked(user.ID, feed)
+	s.requireLinkReset(user.ID, engagementm.CalendarLinkResetSignOutEverywhere, before)
 	// The renewal names the stamp the revocation wrote, so it can mint the
-	// owner a new feed URL.
+	// owner a new feed URL, and the new link answers the reset.
 	renewedPrincipal, _ := s.principal(renewed)
 	created, err := s.calendar().CreateToken(user.ID, renewedPrincipal.SessionsValidAfter, "http://localhost:8080")
 	s.Require().NoError(err)
 	s.requireFeedTokenHonored(user.ID, created.Token)
+	s.requireNoLinkReset(user.ID)
+}
+
+// Signing out everywhere from an account that held no feed token records no
+// link reset.
+func (s *JWTIntegrationSuite) TestSignOutOtherSessions_NoFeedTokenNoLinkReset() {
+	user := s.createActiveUser("sign-out-others-no-feed@test.com")
+	caller, err := s.svc.CreateToken(user)
+	s.Require().NoError(err)
+
+	principal, authAt := s.principal(caller)
+	_, err = s.authSvc.SignOutOtherSessions(principal, authAt)
+	s.Require().NoError(err)
+
+	s.requireNoLinkReset(user.ID)
 }
 
 // A feed-token mint that reaches the account row after the sign-out has

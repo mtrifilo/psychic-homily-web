@@ -11,6 +11,7 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
 )
@@ -80,7 +81,7 @@ func completePasswordReset(
 		account.FailedLoginAttempts = 0
 		account.LockedUntil = nil
 
-		if err := revokeSessionsAndFeedToken(tx, account, time.Now()); err != nil {
+		if err := revokeSessionsAndFeedToken(tx, account, time.Now(), engagementm.CalendarLinkResetPasswordReset); err != nil {
 			return err
 		}
 		// The revocation set account.SessionsValidAfter to the stamp it

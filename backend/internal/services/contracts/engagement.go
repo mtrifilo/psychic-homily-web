@@ -1,6 +1,7 @@
 package contracts
 
 import (
+	"context"
 	"time"
 
 	authm "psychic-homily-backend/internal/models/auth"
@@ -74,11 +75,22 @@ type CalendarTokenCreateResponse struct {
 // token is never part of it. FeedURL and FollowsFeedURL are set exactly when
 // URLRecoverable is true.
 type CalendarTokenStatusResponse struct {
-	HasToken       bool       `json:"has_token"`
-	CreatedAt      *time.Time `json:"created_at,omitempty"`
-	FeedURL        string     `json:"feed_url,omitempty" doc:"Saved-shows iCal subscribe URL, present when url_recoverable is true"`
-	FollowsFeedURL string     `json:"follows_feed_url,omitempty" doc:"Followed-artist Atom subscribe URL, present when url_recoverable is true"`
-	URLRecoverable bool       `json:"url_recoverable" doc:"Whether this response carries the feed URLs. False while has_token is true means the URLs cannot be shown to this caller: the token was minted before its URL was stored (regenerating replaces it with one that is), or the caller is not a signed-in session."`
+	HasToken        bool                                 `json:"has_token"`
+	CreatedAt       *time.Time                           `json:"created_at,omitempty"`
+	FeedURL         string                               `json:"feed_url,omitempty" doc:"Saved-shows iCal subscribe URL, present when url_recoverable is true"`
+	FollowsFeedURL  string                               `json:"follows_feed_url,omitempty" doc:"Followed-artist Atom subscribe URL, present when url_recoverable is true"`
+	URLRecoverable  bool                                 `json:"url_recoverable" doc:"Whether this response carries the feed URLs. False while has_token is true means the URLs cannot be shown to this caller: the token was minted before its URL was stored (regenerating replaces it with one that is), or the caller is not a signed-in session."`
+	Reads           []CalendarFeedReadResponse           `json:"reads,omitempty" doc:"Calendar clients observed fetching the current saved-shows feed link, most recently read first. Absent when none has, when has_token is false, or when the caller is not a signed-in session."`
+	LinkResetAt     *time.Time                           `json:"link_reset_at,omitempty" doc:"When a security action (signing out everywhere, or a password reset) deleted the feed link. Present only while has_token is false and the caller is a signed-in session; minting a link or turning the feed off clears it."`
+	LinkResetReason *engagementm.CalendarLinkResetReason `json:"link_reset_reason,omitempty" enum:"sign_out_everywhere,password_reset" doc:"Which security action deleted the feed link. Present exactly when link_reset_at is."`
+}
+
+// CalendarFeedReadResponse is one calendar client family's observed reads of
+// the current feed link.
+type CalendarFeedReadResponse struct {
+	Client      engagementm.CalendarFeedClient `json:"client" enum:"google,apple_ios,apple_mac,other" doc:"The calendar client family, classified from the request's User-Agent."`
+	FirstReadAt time.Time                      `json:"first_read_at"`
+	LastReadAt  time.Time                      `json:"last_read_at" doc:"Most recent observed read. Reads are recorded at most once per ten minutes per client, so this can trail the latest fetch by up to that long."`
 }
 
 // WithoutFeedURLs is s as a caller that may not receive the feed URLs sees
@@ -383,8 +395,17 @@ type CalendarServiceInterface interface {
 	// are a bearer credential: a caller answering someone who may not receive
 	// them returns CalendarTokenStatusResponse.WithoutFeedURLs.
 	GetTokenStatus(userID uint, apiBaseURL string) (*CalendarTokenStatusResponse, error)
+	// DeleteToken turns userID's feed off: it deletes their token and clears
+	// any link-reset marker in one transaction. With no token it changes
+	// nothing and reports an error.
 	DeleteToken(userID uint) error
 	ValidateCalendarToken(plainToken string) (*authm.User, error)
+	// RecordFeedRead notes that the holder of plainToken fetched the
+	// saved-shows feed with userAgent. It stores the client family only, and
+	// writes nothing for a browser, for a token that no longer exists, or when
+	// the same family's read of the same token was recorded less than ten
+	// minutes earlier.
+	RecordFeedRead(ctx context.Context, plainToken, userAgent string) error
 	GenerateICSFeed(userID uint, frontendURL string) ([]byte, error)
 	// RenderSavedShowsCalendar renders the same saved-shows calendar as
 	// GenerateICSFeed with no cache in front of it, so a save made a moment

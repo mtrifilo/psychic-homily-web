@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-chi/chi/v5"
@@ -20,19 +21,82 @@ import (
 type CalendarHandler struct {
 	calendarService contracts.CalendarServiceInterface
 	config          *config.Config
+	// afterFeedResponse takes work once a feed response has been written, so
+	// the work can neither delay nor change that response, and reports
+	// whether it took it.
+	afterFeedResponse func(work func()) bool
 }
 
 // NewCalendarHandler creates a new calendar handler
 func NewCalendarHandler(calendarService contracts.CalendarServiceInterface, cfg *config.Config) *CalendarHandler {
 	return &CalendarHandler{
-		calendarService: calendarService,
-		config:          cfg,
+		calendarService:   calendarService,
+		config:            cfg,
+		afterFeedResponse: boundedDetachedRunner(maxConcurrentFeedReadRecords),
 	}
+}
+
+// feedReadRecordTimeout bounds how long one feed-read record may hold its
+// slot and a database connection.
+const feedReadRecordTimeout = 5 * time.Second
+
+// maxConcurrentFeedReadRecords bounds the feed-read records in flight. The
+// feed routes are exempt from the public-read limiter and the record runs
+// after its request has ended, so without a bound polls could start records
+// faster than the database pool drains them. A record past the bound is
+// dropped; the client's next poll records the read instead.
+const maxConcurrentFeedReadRecords = 8
+
+// boundedDetachedRunner returns a runner that runs each work on its own
+// goroutine while fewer than limit are running, and drops the work otherwise,
+// reporting which it did. A panic in work is logged and stops there: nothing
+// upstream of the goroutine can recover it, and it would otherwise end the
+// process.
+func boundedDetachedRunner(limit int) func(work func()) bool {
+	slots := make(chan struct{}, limit)
+	return func(work func()) bool {
+		select {
+		case slots <- struct{}{}:
+		default:
+			logger.Default().Debug("calendar_feed_after_response_dropped")
+			return false
+		}
+		go func() {
+			defer func() { <-slots }()
+			defer func() {
+				if p := recover(); p != nil {
+					logger.Default().Error("calendar_feed_after_response_panic", "panic", fmt.Sprint(p))
+				}
+			}()
+			work()
+		}()
+		return true
+	}
+}
+
+// recordFeedRead hands the record of a served feed read to afterFeedResponse.
+// The request's context ends with the response, so the write runs on a
+// context detached from it and bounded by feedReadRecordTimeout. A failure is
+// logged and goes no further.
+func (h *CalendarHandler) recordFeedRead(r *http.Request, token string) {
+	ctx := context.WithoutCancel(r.Context())
+	userAgent := r.UserAgent()
+	h.afterFeedResponse(func() {
+		ctx, cancel := context.WithTimeout(ctx, feedReadRecordTimeout)
+		defer cancel()
+		if err := h.calendarService.RecordFeedRead(ctx, token, userAgent); err != nil {
+			logger.FromContext(ctx).Warn("calendar_feed_read_record_failed",
+				"error", err.Error(),
+			)
+		}
+	})
 }
 
 // --- ICS Feed endpoint (Chi http.HandlerFunc, public, token-authenticated) ---
 
-// GetCalendarFeedHandler serves the ICS calendar feed
+// GetCalendarFeedHandler serves the ICS calendar feed and, once the feed is
+// written, records which calendar client family read it (recordFeedRead).
+// Only a served feed is recorded.
 func (h *CalendarHandler) GetCalendarFeedHandler(w http.ResponseWriter, r *http.Request) {
 	token := chi.URLParam(r, "token")
 	if token == "" {
@@ -71,6 +135,7 @@ func (h *CalendarHandler) GetCalendarFeedHandler(w http.ResponseWriter, r *http.
 	w.Header().Set("Cache-Control", "private, max-age=120")
 	w.WriteHeader(http.StatusOK)
 	respond.SafeWrite(r.Context(), w, icsData)
+	h.recordFeedRead(r, token)
 }
 
 // GetFollowsActivityFeedHandler serves the Atom feed of followed-artist

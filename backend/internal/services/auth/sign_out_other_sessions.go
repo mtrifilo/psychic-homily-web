@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	authm "psychic-homily-backend/internal/models/auth"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/shared"
 )
 
@@ -52,7 +53,7 @@ func signOutOtherSessions(db *gorm.DB, user *authm.User, authAt, now time.Time, 
 		if err := shared.CheckSessionAccount(&account, user.SessionsValidAfter); err != nil {
 			return err
 		}
-		if err := revokeSessionsAndFeedToken(tx, &account, now); err != nil {
+		if err := revokeSessionsAndFeedToken(tx, &account, now, engagementm.CalendarLinkResetSignOutEverywhere); err != nil {
 			return err
 		}
 		// The revocation set account.SessionsValidAfter to the stamp it

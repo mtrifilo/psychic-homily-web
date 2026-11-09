@@ -9017,6 +9017,20 @@ export interface components {
             /** Format: int64 */
             venue_id: number;
         };
+        CalendarFeedReadResponse: {
+            /**
+             * @description The calendar client family, classified from the request's User-Agent.
+             * @enum {string}
+             */
+            client: "google" | "apple_ios" | "apple_mac" | "other";
+            /** Format: date-time */
+            first_read_at: string;
+            /**
+             * Format: date-time
+             * @description Most recent observed read. Reads are recorded at most once per ten minutes per client, so this can trail the latest fetch by up to that long.
+             */
+            last_read_at: string;
+        };
         CalendarTokenCreateResponse: {
             /** Format: date-time */
             created_at: string;
@@ -9032,6 +9046,18 @@ export interface components {
             /** @description Followed-artist Atom subscribe URL, present when url_recoverable is true */
             follows_feed_url?: string;
             has_token: boolean;
+            /**
+             * Format: date-time
+             * @description When a security action (signing out everywhere, or a password reset) deleted the feed link. Present only while has_token is false and the caller is a signed-in session; minting a link or turning the feed off clears it.
+             */
+            link_reset_at?: string;
+            /**
+             * @description Which security action deleted the feed link. Present exactly when link_reset_at is.
+             * @enum {string}
+             */
+            link_reset_reason?: "sign_out_everywhere" | "password_reset";
+            /** @description Calendar clients observed fetching the current saved-shows feed link, most recently read first. Absent when none has, when has_token is false, or when the caller is not a signed-in session. */
+            reads?: components["schemas"]["CalendarFeedReadResponse"][] | null;
             /** @description Whether this response carries the feed URLs. False while has_token is true means the URLs cannot be shown to this caller: the token was minted before its URL was stored (regenerating replaces it with one that is), or the caller is not a signed-in session. */
             url_recoverable: boolean;
         };

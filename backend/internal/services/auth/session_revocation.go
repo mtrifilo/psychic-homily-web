@@ -6,6 +6,7 @@ import (
 	"gorm.io/gorm"
 
 	authm "psychic-homily-backend/internal/models/auth"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	engagementsvc "psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/shared"
 )
@@ -29,16 +30,23 @@ func RevokeAllSessions(db *gorm.DB, user *authm.User, now time.Time) error {
 // mailbox-proof reclaim deletes the token through evictOtherCredentials
 // instead, with the provider identities it removes.
 //
+// When a token was deleted, the same transaction records the link reset at
+// now for reason, so the owner can be told why their subscribed calendar
+// stopped updating. An account that held no token gets no marker.
+//
 // account's users row is locked before the delete: the caller holds it FOR
 // UPDATE, and RevokeAllSessions' write to it would take the lock otherwise. A
 // feed-token mint judges its session under a lock on that row before it
 // writes (engagement CalendarService.CreateToken), so a mint from a session
 // this revokes either commits first, and its token is deleted here, or waits
 // and is refused.
-func revokeSessionsAndFeedToken(tx *gorm.DB, account *authm.User, now time.Time) error {
+func revokeSessionsAndFeedToken(tx *gorm.DB, account *authm.User, now time.Time, reason engagementm.CalendarLinkResetReason) error {
 	if err := RevokeAllSessions(tx, account, now); err != nil {
 		return err
 	}
-	_, err := engagementsvc.DeleteCalendarTokensTx(tx, account.ID)
-	return err
+	deleted, err := engagementsvc.DeleteCalendarTokensTx(tx, account.ID)
+	if err != nil || deleted == 0 {
+		return err
+	}
+	return engagementsvc.MarkCalendarLinkResetTx(tx, account.ID, now, reason)
 }
