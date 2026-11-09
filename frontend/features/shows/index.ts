@@ -41,6 +41,8 @@ export type {
   CalendarTokenStatusResponse,
   CalendarTokenCreateResponse,
   CalendarTokenDeleteResponse,
+  CalendarFeedStatusResponse,
+  CalendarFeedReadForgetResponse,
   ShowSaveCount,
   SaveCountEntry,
   BatchSaveCountsResponse,

@@ -3433,6 +3433,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/calendar/token/reads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete calendar token reads */
+        delete: operations["delete-calendar-token-reads"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/calendar/token/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get calendar token status */
+        get: operations["get-calendar-token-status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/charts/active-venues": {
         parameters: {
             query?: never;
@@ -9031,6 +9065,23 @@ export interface components {
              */
             last_read_at: string;
         };
+        CalendarFeedStatusResponse: {
+            /** Format: date-time */
+            created_at?: string;
+            has_token: boolean;
+            /**
+             * Format: date-time
+             * @description When a security action (signing out everywhere, or a password reset) deleted a feed link that a calendar app had read in the 30 days before. Present only while has_token is false and the caller is a signed-in session; minting a link or turning the feed off clears it.
+             */
+            link_reset_at?: string;
+            /**
+             * @description Which security action deleted the feed link. Present exactly when link_reset_at is.
+             * @enum {string}
+             */
+            link_reset_reason?: "sign_out_everywhere" | "password_reset";
+            /** @description Calendar clients observed fetching the current saved-shows feed link in the last 30 days, most recently read first. A client whose last read is older, or that the account forgot (DELETE /calendar/token/reads), is not listed until it reads the link again. Absent when none is listed, when has_token is false, or when the caller is not a signed-in session. */
+            reads?: components["schemas"]["CalendarFeedReadResponse"][] | null;
+        };
         CalendarTokenCreateResponse: {
             /** Format: date-time */
             created_at: string;
@@ -9048,7 +9099,7 @@ export interface components {
             has_token: boolean;
             /**
              * Format: date-time
-             * @description When a security action (signing out everywhere, or a password reset) deleted a feed link that a calendar app had read. Present only while has_token is false and the caller is a signed-in session; minting a link or turning the feed off clears it.
+             * @description When a security action (signing out everywhere, or a password reset) deleted a feed link that a calendar app had read in the 30 days before. Present only while has_token is false and the caller is a signed-in session; minting a link or turning the feed off clears it.
              */
             link_reset_at?: string;
             /**
@@ -9056,7 +9107,7 @@ export interface components {
              * @enum {string}
              */
             link_reset_reason?: "sign_out_everywhere" | "password_reset";
-            /** @description Calendar clients observed fetching the current saved-shows feed link, most recently read first. Absent when none has, when has_token is false, or when the caller is not a signed-in session. */
+            /** @description Calendar clients observed fetching the current saved-shows feed link in the last 30 days, most recently read first. A client whose last read is older, or that the account forgot (DELETE /calendar/token/reads), is not listed until it reads the link again. Absent when none is listed, when has_token is false, or when the caller is not a signed-in session. */
             reads?: components["schemas"]["CalendarFeedReadResponse"][] | null;
             /** @description Whether this response carries the feed URLs. False while has_token is true means the URLs cannot be shown to this caller: the token was minted before its URL was stored (regenerating replaces it with one that is), or the caller is not a signed-in session. */
             url_recoverable: boolean;
@@ -11042,6 +11093,10 @@ export interface components {
             slug: string;
             station_name?: string;
             station_slug?: string;
+        };
+        ForgetCalendarFeedReadResponseBody: {
+            message: string;
+            success: boolean;
         };
         ForkedFromInfo: {
             /** Format: int64 */
@@ -24511,6 +24566,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeleteCalendarTokenResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-calendar-token-reads": {
+        parameters: {
+            query: {
+                /** @description The calendar client family to forget, as the status's reads name it. */
+                client: "google" | "apple_ios" | "apple_mac" | "other";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForgetCalendarFeedReadResponseBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-calendar-token-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarFeedStatusResponse"];
                 };
             };
             /** @description Error */

@@ -52,6 +52,73 @@ func TestCalendarTokenStatusResponse_WithoutFeedURLsWithholdsReadsAndReset(t *te
 	}
 }
 
+// FeedStatus keeps everything but the feed addresses, and its JSON has no
+// key that can carry one.
+func TestCalendarTokenStatusResponse_FeedStatusDropsOnlyTheAddresses(t *testing.T) {
+	now := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+	reason := engagementm.CalendarLinkResetSignOutEverywhere
+	reads := []CalendarFeedReadResponse{
+		{Client: engagementm.CalendarFeedClientAppleMac, FirstReadAt: now, LastReadAt: now},
+	}
+	full := CalendarTokenStatusResponse{
+		HasToken:        true,
+		CreatedAt:       &now,
+		FeedURL:         "https://api.example.test/feeds/phcal_x/saved-shows.ics",
+		FollowsFeedURL:  "https://api.example.test/feeds/phcal_x/follows.atom",
+		URLRecoverable:  true,
+		Reads:           reads,
+		LinkResetAt:     &now,
+		LinkResetReason: &reason,
+	}
+
+	got := full.FeedStatus()
+
+	want := CalendarFeedStatusResponse{
+		HasToken:        true,
+		CreatedAt:       &now,
+		Reads:           reads,
+		LinkResetAt:     &now,
+		LinkResetReason: &reason,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("FeedStatus() = %+v, want %+v", got, want)
+	}
+	raw, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(raw), "phcal_") || strings.Contains(string(raw), "feed_url") {
+		t.Errorf("the feed status carries an address: %s", raw)
+	}
+}
+
+// Every field of the address-free status is the same-named field of the
+// token status, with the same type and tags, so the two publish one contract
+// for what they share. None of the token status's address fields is among
+// them.
+func TestCalendarFeedStatusResponse_FieldsMirrorTheTokenStatus(t *testing.T) {
+	feed := reflect.TypeOf(CalendarFeedStatusResponse{})
+	token := reflect.TypeOf(CalendarTokenStatusResponse{})
+	addresses := map[string]bool{"FeedURL": true, "FollowsFeedURL": true, "URLRecoverable": true}
+
+	for i := 0; i < feed.NumField(); i++ {
+		f := feed.Field(i)
+		if addresses[f.Name] {
+			t.Errorf("CalendarFeedStatusResponse has address field %s", f.Name)
+			continue
+		}
+		twin, ok := token.FieldByName(f.Name)
+		if !ok {
+			t.Errorf("CalendarFeedStatusResponse.%s has no twin on CalendarTokenStatusResponse", f.Name)
+			continue
+		}
+		if f.Type != twin.Type || f.Tag != twin.Tag {
+			t.Errorf("CalendarFeedStatusResponse.%s = %s `%s`, token status has %s `%s`",
+				f.Name, f.Type, f.Tag, twin.Type, twin.Tag)
+		}
+	}
+}
+
 // The API enum tags list exactly the model's vocabularies, in order, so the
 // published schema and the generated frontend types cannot drift from the
 // values the server writes.

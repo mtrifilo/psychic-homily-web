@@ -456,21 +456,36 @@ export interface CalendarTokenStatusResponse {
    */
   url_recoverable?: boolean
   /**
-   * Calendar clients observed fetching the current saved-shows feed link, most
-   * recently read first. Absent when none has, when has_token is false, or
-   * when the caller is not a signed-in session.
+   * Calendar clients observed fetching the current saved-shows feed link in
+   * the last 30 days, most recently read first. A client whose last read is
+   * older, or that the account forgot, is not listed until it reads the link
+   * again. Absent when none is listed, when has_token is false, or when the
+   * caller is not a signed-in session.
    */
   reads?: CalendarFeedRead[] | null
   /**
    * When a security action (signing out everywhere, or a password reset)
-   * deleted a feed link that a calendar app had read. Present only while
-   * has_token is false and the caller is a signed-in session; minting a link
-   * or turning the feed off clears it.
+   * deleted a feed link that a calendar app had read in the 30 days before.
+   * Present only while has_token is false and the caller is a signed-in
+   * session; minting a link or turning the feed off clears it.
    */
   link_reset_at?: string // ISO date string
   /** Which security action deleted the feed link; present exactly when link_reset_at is. */
   link_reset_reason?: CalendarLinkResetReason
 }
+
+/**
+ * The feed status with no feed address in it (GET /calendar/token/status):
+ * has_token, created_at, reads and the link-reset marker, for a surface that
+ * only says whether a calendar is connected. Settings reads
+ * CalendarTokenStatusResponse, which carries the addresses.
+ */
+export type CalendarFeedStatusResponse =
+  components['schemas']['CalendarFeedStatusResponse']
+
+/** Response to forgetting one calendar client (DELETE /calendar/token/reads?client=). */
+export type CalendarFeedReadForgetResponse =
+  components['schemas']['ForgetCalendarFeedReadResponseBody']
 
 /** One calendar client family's observed reads of the current feed link. */
 export type CalendarFeedRead = components['schemas']['CalendarFeedReadResponse']

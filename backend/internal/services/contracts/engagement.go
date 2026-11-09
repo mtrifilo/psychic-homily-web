@@ -80,8 +80,20 @@ type CalendarTokenStatusResponse struct {
 	FeedURL         string                               `json:"feed_url,omitempty" doc:"Saved-shows iCal subscribe URL, present when url_recoverable is true"`
 	FollowsFeedURL  string                               `json:"follows_feed_url,omitempty" doc:"Followed-artist Atom subscribe URL, present when url_recoverable is true"`
 	URLRecoverable  bool                                 `json:"url_recoverable" doc:"Whether this response carries the feed URLs. False while has_token is true means the URLs cannot be shown to this caller: the token was minted before its URL was stored (regenerating replaces it with one that is), or the caller is not a signed-in session."`
-	Reads           []CalendarFeedReadResponse           `json:"reads,omitempty" doc:"Calendar clients observed fetching the current saved-shows feed link, most recently read first. Absent when none has, when has_token is false, or when the caller is not a signed-in session."`
-	LinkResetAt     *time.Time                           `json:"link_reset_at,omitempty" doc:"When a security action (signing out everywhere, or a password reset) deleted a feed link that a calendar app had read. Present only while has_token is false and the caller is a signed-in session; minting a link or turning the feed off clears it."`
+	Reads           []CalendarFeedReadResponse           `json:"reads,omitempty" doc:"Calendar clients observed fetching the current saved-shows feed link in the last 30 days, most recently read first. A client whose last read is older, or that the account forgot (DELETE /calendar/token/reads), is not listed until it reads the link again. Absent when none is listed, when has_token is false, or when the caller is not a signed-in session."`
+	LinkResetAt     *time.Time                           `json:"link_reset_at,omitempty" doc:"When a security action (signing out everywhere, or a password reset) deleted a feed link that a calendar app had read in the 30 days before. Present only while has_token is false and the caller is a signed-in session; minting a link or turning the feed off clears it."`
+	LinkResetReason *engagementm.CalendarLinkResetReason `json:"link_reset_reason,omitempty" enum:"sign_out_everywhere,password_reset" doc:"Which security action deleted the feed link. Present exactly when link_reset_at is."`
+}
+
+// CalendarFeedStatusResponse is the feed status with no feed address in it:
+// what a surface that only says whether a calendar is connected reads. It has
+// no field that can hold a URL or a token, so no caller can receive one from
+// it.
+type CalendarFeedStatusResponse struct {
+	HasToken        bool                                 `json:"has_token"`
+	CreatedAt       *time.Time                           `json:"created_at,omitempty"`
+	Reads           []CalendarFeedReadResponse           `json:"reads,omitempty" doc:"Calendar clients observed fetching the current saved-shows feed link in the last 30 days, most recently read first. A client whose last read is older, or that the account forgot (DELETE /calendar/token/reads), is not listed until it reads the link again. Absent when none is listed, when has_token is false, or when the caller is not a signed-in session."`
+	LinkResetAt     *time.Time                           `json:"link_reset_at,omitempty" doc:"When a security action (signing out everywhere, or a password reset) deleted a feed link that a calendar app had read in the 30 days before. Present only while has_token is false and the caller is a signed-in session; minting a link or turning the feed off clears it."`
 	LinkResetReason *engagementm.CalendarLinkResetReason `json:"link_reset_reason,omitempty" enum:"sign_out_everywhere,password_reset" doc:"Which security action deleted the feed link. Present exactly when link_reset_at is."`
 }
 
@@ -101,6 +113,21 @@ type CalendarFeedReadResponse struct {
 // withheld until it is deliberately copied here.
 func (s CalendarTokenStatusResponse) WithoutFeedURLs() CalendarTokenStatusResponse {
 	return CalendarTokenStatusResponse{HasToken: s.HasToken, CreatedAt: s.CreatedAt}
+}
+
+// FeedStatus is s without its feed addresses. It copies the fields it keeps
+// rather than dropping the others, so a field added to the status later is
+// absent here until it is deliberately added to CalendarFeedStatusResponse
+// and copied. It withholds nothing else: a caller that may not see the reads
+// or the link-reset marker takes WithoutFeedURLs first.
+func (s CalendarTokenStatusResponse) FeedStatus() CalendarFeedStatusResponse {
+	return CalendarFeedStatusResponse{
+		HasToken:        s.HasToken,
+		CreatedAt:       s.CreatedAt,
+		Reads:           s.Reads,
+		LinkResetAt:     s.LinkResetAt,
+		LinkResetReason: s.LinkResetReason,
+	}
 }
 
 // ──────────────────────────────────────────────
@@ -395,8 +422,14 @@ type CalendarServiceInterface interface {
 	// GetTokenStatus reports whether userID holds a feed token and, when its
 	// plaintext is stored, the subscribe URLs built on apiBaseURL. The URLs
 	// are a bearer credential: a caller answering someone who may not receive
-	// them returns CalendarTokenStatusResponse.WithoutFeedURLs.
+	// them returns CalendarTokenStatusResponse.WithoutFeedURLs. Its reads are
+	// the client families whose last read is at most 30 days old.
 	GetTokenStatus(userID uint, apiBaseURL string) (*CalendarTokenStatusResponse, error)
+	// ForgetFeedRead deletes the recorded reads of userID's feed link by
+	// client, so the status stops listing that client until it reads the link
+	// again. It succeeds, and changes nothing, when there is no such read or
+	// no token.
+	ForgetFeedRead(userID uint, client engagementm.CalendarFeedClient) error
 	// DeleteToken turns userID's feed off: it deletes their token and clears
 	// any link-reset marker in one transaction. It reports an error, and
 	// changes nothing, only when there is neither a token nor a marker.

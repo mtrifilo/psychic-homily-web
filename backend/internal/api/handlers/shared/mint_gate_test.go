@@ -71,8 +71,8 @@ var mintGateExemptions = map[string]string{
 // because the protected group also admits API-token principals and none of
 // these may issue to one.
 var sessionCredentialMints = map[string]string{
-	"engagement/calendar.go:CalendarHandler.CreateCalendarTokenHandler":    "any session can read the current feed URL from GET /calendar/token, so a freshness gate on rotating it protects nothing",
-	"engagement/calendar.go:CalendarHandler.GetCalendarTokenStatusHandler": "reveals the current feed URLs to any session; withholds them from an API-token principal",
+	"engagement/calendar.go:CalendarHandler.CreateCalendarTokenHandler": "any session can read the current feed URL from GET /calendar/token, so a freshness gate on rotating it protects nothing",
+	"engagement/calendar.go:CalendarHandler.callerTokenStatus":          "reveals the current feed URLs to any session; withholds them from an API-token principal",
 }
 
 // sessionCheckFuncs are the middleware readers a sessionCredentialMints site

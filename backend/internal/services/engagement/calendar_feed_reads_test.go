@@ -192,7 +192,7 @@ func (suite *CalendarIntegrationTestSuite) TestGetTokenStatus_ListsReadsMostRece
 	_, err = suite.svc.recordFeedReadAt(context.Background(), token, appleUA, at.Add(time.Minute))
 	suite.Require().NoError(err)
 
-	status, err := suite.svc.GetTokenStatus(user.ID, "http://localhost:8080")
+	status, err := suite.svc.tokenStatusAt(user.ID, "http://localhost:8080", at.Add(time.Hour))
 	suite.Require().NoError(err)
 
 	suite.Require().Len(status.Reads, 2)
@@ -239,6 +239,117 @@ func (suite *CalendarIntegrationTestSuite) TestDeleteCalendarTokensTx_RemovesIts
 	suite.Equal(int64(1), deleted)
 
 	suite.Zero(suite.allFeedReadRows())
+}
+
+// --- Forgetting a client ---
+
+// statusReadsAt is the client families the status lists for userID at the
+// instant now.
+func (suite *CalendarIntegrationTestSuite) statusReadsAt(userID uint, now time.Time) []engagementm.CalendarFeedClient {
+	suite.T().Helper()
+	status, err := suite.svc.tokenStatusAt(userID, "http://localhost:8080", now)
+	suite.Require().NoError(err)
+	var clients []engagementm.CalendarFeedClient
+	for _, read := range status.Reads {
+		clients = append(clients, read.Client)
+	}
+	return clients
+}
+
+// A read exactly feedReadForgetAfter old is still listed; one a moment older
+// is not, though its row is kept.
+func (suite *CalendarIntegrationTestSuite) TestGetTokenStatus_ReadOlderThanTheForgetPeriodIsNotListed() {
+	user := suite.createTestUser(true)
+	token := suite.mintFeedToken(user.ID)
+	at := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+	_, err := suite.svc.recordFeedReadAt(context.Background(), token, googleUA, at)
+	suite.Require().NoError(err)
+	_, err = suite.svc.recordFeedReadAt(context.Background(), token, appleUA, at.Add(time.Hour))
+	suite.Require().NoError(err)
+
+	edge := at.Add(feedReadForgetAfter)
+	suite.Equal([]engagementm.CalendarFeedClient{engagementm.CalendarFeedClientAppleIOS, engagementm.CalendarFeedClientGoogle},
+		suite.statusReadsAt(user.ID, edge), "a read exactly the period old is remembered")
+	suite.Equal([]engagementm.CalendarFeedClient{engagementm.CalendarFeedClientAppleIOS},
+		suite.statusReadsAt(user.ID, edge.Add(time.Second)), "a read older than the period is forgotten")
+	suite.Nil(suite.statusReadsAt(user.ID, edge.Add(2*time.Hour)), "with every read forgotten the status lists none")
+	suite.Len(suite.feedReadRows(user.ID), 2, "forgetting by age hides the rows; it does not delete them")
+}
+
+// A family read again after being forgotten by age comes back as newly seen:
+// its first read is the new one.
+func (suite *CalendarIntegrationTestSuite) TestRecordFeedRead_ForgottenFamilyComesBackNewlySeen() {
+	user := suite.createTestUser(true)
+	token := suite.mintFeedToken(user.ID)
+	at := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+	_, err := suite.svc.recordFeedReadAt(context.Background(), token, googleUA, at)
+	suite.Require().NoError(err)
+	_, err = suite.svc.recordFeedReadAt(context.Background(), token, googleUA, at.Add(time.Hour))
+	suite.Require().NoError(err)
+
+	back := at.Add(time.Hour + feedReadForgetAfter + time.Second)
+	wrote, err := suite.svc.recordFeedReadAt(context.Background(), token, googleUA, back)
+	suite.Require().NoError(err)
+	suite.True(wrote)
+
+	rows := suite.feedReadRows(user.ID)
+	suite.Require().Len(rows, 1)
+	suite.True(rows[0].FirstReadAt.Equal(back), "first_read_at restarts at %v, got %v", back, rows[0].FirstReadAt)
+	suite.True(rows[0].LastReadAt.Equal(back), "last_read_at = %v, got %v", back, rows[0].LastReadAt)
+
+	// A family still remembered keeps its first read.
+	later := back.Add(feedReadForgetAfter)
+	_, err = suite.svc.recordFeedReadAt(context.Background(), token, googleUA, later)
+	suite.Require().NoError(err)
+	rows = suite.feedReadRows(user.ID)
+	suite.True(rows[0].FirstReadAt.Equal(back), "first_read_at stays %v, got %v", back, rows[0].FirstReadAt)
+	suite.True(rows[0].LastReadAt.Equal(later))
+}
+
+// Forgetting one family removes it from the status and leaves the others,
+// and that family's next real read brings it back as newly seen.
+func (suite *CalendarIntegrationTestSuite) TestForgetFeedRead_RemovesOneFamilyUntilItReadsAgain() {
+	user := suite.createTestUser(true)
+	token := suite.mintFeedToken(user.ID)
+	other := suite.createTestUser(true)
+	otherToken := suite.mintFeedToken(other.ID)
+	for _, tok := range []string{token, otherToken} {
+		for _, ua := range []string{googleUA, appleUA} {
+			suite.Require().NoError(suite.svc.RecordFeedRead(context.Background(), tok, ua))
+		}
+	}
+
+	suite.Require().NoError(suite.svc.ForgetFeedRead(user.ID, engagementm.CalendarFeedClientGoogle))
+
+	now := time.Now()
+	suite.Equal([]engagementm.CalendarFeedClient{engagementm.CalendarFeedClientAppleIOS}, suite.statusReadsAt(user.ID, now))
+	suite.Len(suite.statusReadsAt(other.ID, now), 2, "another account's reads are untouched")
+
+	returned := now.Add(time.Second)
+	wrote, err := suite.svc.recordFeedReadAt(context.Background(), token, googleUA, returned)
+	suite.Require().NoError(err)
+	suite.True(wrote, "the forgotten family's next read is recorded at once")
+	suite.ElementsMatch([]engagementm.CalendarFeedClient{engagementm.CalendarFeedClientAppleIOS, engagementm.CalendarFeedClientGoogle},
+		suite.statusReadsAt(user.ID, returned))
+	for _, row := range suite.feedReadRows(user.ID) {
+		if row.Client == engagementm.CalendarFeedClientGoogle {
+			suite.True(row.FirstReadAt.Equal(returned), "first_read_at = %v, want %v", row.FirstReadAt, returned)
+		}
+	}
+}
+
+// Forgetting a family with no read, or with no token at all, succeeds and
+// changes nothing.
+func (suite *CalendarIntegrationTestSuite) TestForgetFeedRead_NothingToForgetSucceeds() {
+	user := suite.createTestUser(true)
+	suite.Require().NoError(suite.svc.ForgetFeedRead(user.ID, engagementm.CalendarFeedClientOther), "no token")
+
+	token := suite.mintFeedToken(user.ID)
+	suite.Require().NoError(suite.svc.RecordFeedRead(context.Background(), token, appleUA))
+	suite.Require().NoError(suite.svc.ForgetFeedRead(user.ID, engagementm.CalendarFeedClientGoogle), "no read by that family")
+	suite.Require().NoError(suite.svc.ForgetFeedRead(user.ID, engagementm.CalendarFeedClientGoogle), "twice")
+
+	suite.Len(suite.feedReadRows(user.ID), 1)
 }
 
 // --- The link-reset marker ---
@@ -368,6 +479,32 @@ func (suite *CalendarIntegrationTestSuite) TestRevokeCalendarLinkTx_UnreadLinkIs
 	at, reason := suite.linkReset(user.ID)
 	suite.Nil(at)
 	suite.Nil(reason)
+}
+
+// A revoked link whose only reads are forgotten, by age or by the account,
+// leaves no marker; a read exactly the forget period old still marks it.
+func (suite *CalendarIntegrationTestSuite) TestRevokeCalendarLinkTx_ForgottenReadsAreNotCounted() {
+	at := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+	revokedAt := func(readAt time.Time) *time.Time {
+		user := suite.createTestUser(true)
+		token := suite.mintFeedToken(user.ID)
+		_, err := suite.svc.recordFeedReadAt(context.Background(), token, appleUA, readAt)
+		suite.Require().NoError(err)
+		suite.Require().NoError(RevokeCalendarLinkTx(suite.db, user.ID, at, engagementm.CalendarLinkResetPasswordReset))
+		marked, _ := suite.linkReset(user.ID)
+		return marked
+	}
+
+	suite.Nil(revokedAt(at.Add(-feedReadForgetAfter-time.Second)), "a read older than the period is not counted")
+	suite.NotNil(revokedAt(at.Add(-feedReadForgetAfter)), "a read exactly the period old is counted")
+
+	user := suite.createTestUser(true)
+	token := suite.mintFeedToken(user.ID)
+	suite.Require().NoError(suite.svc.RecordFeedRead(context.Background(), token, appleUA))
+	suite.Require().NoError(suite.svc.ForgetFeedRead(user.ID, engagementm.CalendarFeedClientAppleIOS))
+	suite.Require().NoError(RevokeCalendarLinkTx(suite.db, user.ID, time.Now(), engagementm.CalendarLinkResetSignOutEverywhere))
+	marked, _ := suite.linkReset(user.ID)
+	suite.Nil(marked, "a read the account forgot is not counted")
 }
 
 // With no token to revoke, nothing changes, an earlier marker included.

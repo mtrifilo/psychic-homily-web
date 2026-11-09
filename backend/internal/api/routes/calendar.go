@@ -32,4 +32,15 @@ func setupCalendarRoutes(rc RouteContext) {
 	huma.Post(rc.Protected, "/calendar/token", calendarHandler.CreateCalendarTokenHandler)
 	huma.Get(rc.Protected, "/calendar/token", calendarHandler.GetCalendarTokenStatusHandler)
 	huma.Delete(rc.Protected, "/calendar/token", calendarHandler.DeleteCalendarTokenHandler)
+	huma.Get(rc.Protected, calendarFeedStatusRoute, calendarHandler.GetCalendarFeedStatusHandler)
+	huma.Delete(rc.Protected, calendarFeedReadsRoute, calendarHandler.ForgetCalendarFeedReadHandler)
 }
+
+// No route under /calendar/ but the legacy alias takes a path parameter
+// (TestOtherCalendarRoutesCannotEarnTheFeedExemption holds that), so no
+// phcal_ token spelled into one can earn the personal-feed exemption. The
+// client to forget is a query parameter for that reason.
+const (
+	calendarFeedStatusRoute = "/calendar/token/status" // feed status with no feed address
+	calendarFeedReadsRoute  = "/calendar/token/reads"  // DELETE ?client= forgets one client family
+)
