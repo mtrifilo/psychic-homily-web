@@ -17,10 +17,10 @@ import (
 	"psychic-homily-backend/internal/testutil"
 )
 
-// The feed status and forget routes sit beside the legacy /calendar/{token}
-// alias, which chi registers on the same tree. Each path must reach its own
-// route, and a two-segment path that is not one of the literals must still
-// reach the alias.
+// The token CRUD and the feed status and forget routes share the /calendar/
+// prefix with the legacy /calendar/{token} alias, which chi registers on the
+// same tree. Each path reaches its own route, and a real token's two-segment
+// path still reaches the alias.
 func TestCalendarTokenRoutesResolution(t *testing.T) {
 	router := newTestRouter(t)
 
@@ -39,9 +39,6 @@ func TestCalendarTokenRoutesResolution(t *testing.T) {
 		}
 	}
 }
-
-// statusBody is a decoded JSON response body.
-type statusBody = map[string]any
 
 // End to end through the built router against a real database: the legacy
 // alias serves a real token and records the read; the address-free status
@@ -69,10 +66,7 @@ func TestCalendarFeedStatusAndForgetThroughRouter(t *testing.T) {
 	// API tokens validate only for an admin owner, so the account under test
 	// is an admin and holds both credentials.
 	user := testhelpers.CreateAdminUser(td.DB)
-	session, err := sc.JWT.CreateToken(user)
-	if err != nil {
-		t.Fatalf("mint session: %v", err)
-	}
+	session := mintToken(t, sc, user)
 	apiToken, err := sc.APIToken.CreateToken(user.ID, nil, 1)
 	if err != nil {
 		t.Fatalf("mint API token: %v", err)
@@ -81,7 +75,7 @@ func TestCalendarFeedStatusAndForgetThroughRouter(t *testing.T) {
 		t.Fatalf("the API token fixture is not valid, so its refusals prove nothing: %v", err)
 	}
 
-	send := func(method, path, bearer, userAgent string) *httptest.ResponseRecorder {
+	request := func(method, path, bearer, userAgent string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, nil)
 		if bearer != "" {
 			req.Header.Set("Authorization", "Bearer "+bearer)
@@ -93,15 +87,15 @@ func TestCalendarFeedStatusAndForgetThroughRouter(t *testing.T) {
 		router.ServeHTTP(w, req)
 		return w
 	}
-	decode := func(w *httptest.ResponseRecorder) statusBody {
+	decode := func(w *httptest.ResponseRecorder) map[string]any {
 		t.Helper()
-		var body statusBody
+		var body map[string]any
 		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 			t.Fatalf("decode %q: %v", w.Body.String(), err)
 		}
 		return body
 	}
-	readClients := func(body statusBody) []string {
+	readClients := func(body map[string]any) []string {
 		reads, _ := body["reads"].([]any)
 		var clients []string
 		for _, r := range reads {
@@ -111,9 +105,9 @@ func TestCalendarFeedStatusAndForgetThroughRouter(t *testing.T) {
 		}
 		return clients
 	}
-	feedStatus := func(bearer string) (statusBody, string) {
+	readFeedStatus := func(bearer string) (map[string]any, string) {
 		t.Helper()
-		w := send(http.MethodGet, calendarFeedStatusRoute, bearer, "")
+		w := request(http.MethodGet, calendarFeedStatusRoute, bearer, "")
 		if w.Code != http.StatusOK {
 			t.Fatalf("GET %s = %d; body: %s", calendarFeedStatusRoute, w.Code, w.Body.String())
 		}
@@ -128,7 +122,7 @@ func TestCalendarFeedStatusAndForgetThroughRouter(t *testing.T) {
 		t.Helper()
 		deadline := time.Now().Add(5 * time.Second)
 		for {
-			body, raw := feedStatus(session)
+			body, raw := readFeedStatus(session)
 			if strings.Join(readClients(body), ",") == strings.Join(want, ",") {
 				return
 			}
@@ -139,7 +133,7 @@ func TestCalendarFeedStatusAndForgetThroughRouter(t *testing.T) {
 		}
 	}
 
-	w := send(http.MethodPost, "/calendar/token", session, "")
+	w := request(http.MethodPost, "/calendar/token", session, "")
 	if w.Code != http.StatusOK {
 		t.Fatalf("POST /calendar/token = %d; body: %s", w.Code, w.Body.String())
 	}
@@ -149,7 +143,7 @@ func TestCalendarFeedStatusAndForgetThroughRouter(t *testing.T) {
 	}
 
 	// The legacy alias serves the real token, and a Google poll of it is a read.
-	feed := send(http.MethodGet, "/calendar/"+feedToken, "", "Google-Calendar-Importer")
+	feed := request(http.MethodGet, strings.Replace(legacyCalendarFeedRoute, "{token}", feedToken, 1), "", "Google-Calendar-Importer")
 	if feed.Code != http.StatusOK || !strings.Contains(feed.Body.String(), "BEGIN:VCALENDAR") {
 		t.Fatalf("GET /calendar/{token} = %d %q, want 200 with a calendar", feed.Code, feed.Body.String())
 	}
@@ -157,7 +151,7 @@ func TestCalendarFeedStatusAndForgetThroughRouter(t *testing.T) {
 
 	// No feed address in the address-free status, for either credential.
 	for name, bearer := range map[string]string{"session": session, "API token": apiToken.Token} {
-		body, raw := feedStatus(bearer)
+		body, raw := readFeedStatus(bearer)
 		for _, key := range []string{"feed_url", "follows_feed_url", "url_recoverable"} {
 			if _, present := body[key]; present {
 				t.Errorf("%s: %s carries %s: %s", name, calendarFeedStatusRoute, key, raw)
@@ -169,21 +163,23 @@ func TestCalendarFeedStatusAndForgetThroughRouter(t *testing.T) {
 		if body["has_token"] != true || body["created_at"] == nil {
 			t.Errorf("%s: %s = %s, want has_token and created_at", name, calendarFeedStatusRoute, raw)
 		}
-	}
-	// An API token learns only that a token exists and when it was minted.
-	if body, raw := feedStatus(apiToken.Token); len(body) != 2 {
-		t.Errorf("API token: %s = %s, want has_token and created_at only", calendarFeedStatusRoute, raw)
+		// An API token learns only that a token exists and when it was minted.
+		if name == "API token" && len(body) != 2 {
+			t.Errorf("API token: %s = %s, want has_token and created_at only", calendarFeedStatusRoute, raw)
+		}
 	}
 
 	// The token status still gives a session the URLs.
-	w = send(http.MethodGet, "/calendar/token", session, "")
-	if body := decode(w); w.Code != http.StatusOK ||
-		!strings.Contains(body["feed_url"].(string), feedToken) || !strings.Contains(body["follows_feed_url"].(string), feedToken) {
+	w = request(http.MethodGet, "/calendar/token", session, "")
+	body := decode(w)
+	feedURL, _ := body["feed_url"].(string)
+	followsURL, _ := body["follows_feed_url"].(string)
+	if w.Code != http.StatusOK || !strings.Contains(feedURL, feedToken) || !strings.Contains(followsURL, feedToken) {
 		t.Errorf("GET /calendar/token = %d %s, want both feed URLs for a session", w.Code, w.Body.String())
 	}
 
 	// An API token cannot forget, and nothing is forgotten.
-	w = send(http.MethodDelete, calendarFeedReadsRoute+"?client=google", apiToken.Token, "")
+	w = request(http.MethodDelete, calendarFeedReadsRoute+"?client=google", apiToken.Token, "")
 	if w.Code != http.StatusForbidden || decode(w)["error_code"] != autherrors.CodeSessionCredentialRequired {
 		t.Errorf("API token: DELETE %s = %d %s, want 403 %s",
 			calendarFeedReadsRoute, w.Code, w.Body.String(), autherrors.CodeSessionCredentialRequired)
@@ -192,7 +188,7 @@ func TestCalendarFeedStatusAndForgetThroughRouter(t *testing.T) {
 
 	// An unknown or missing client is refused, not forgotten as a no-op.
 	for _, query := range []string{"?client=outlook", "?client=", ""} {
-		if w := send(http.MethodDelete, calendarFeedReadsRoute+query, session, ""); w.Code != http.StatusUnprocessableEntity {
+		if w := request(http.MethodDelete, calendarFeedReadsRoute+query, session, ""); w.Code != http.StatusUnprocessableEntity {
 			t.Errorf("DELETE %s%s = %d %s, want 422", calendarFeedReadsRoute, query, w.Code, w.Body.String())
 		}
 	}
@@ -200,17 +196,17 @@ func TestCalendarFeedStatusAndForgetThroughRouter(t *testing.T) {
 
 	// A session forgets the client; forgetting it again still succeeds.
 	for i := 0; i < 2; i++ {
-		w := send(http.MethodDelete, calendarFeedReadsRoute+"?client=google", session, "")
+		w := request(http.MethodDelete, calendarFeedReadsRoute+"?client=google", session, "")
 		if w.Code != http.StatusOK || decode(w)["success"] != true {
 			t.Fatalf("DELETE %s?client=google #%d = %d %s, want 200", calendarFeedReadsRoute, i+1, w.Code, w.Body.String())
 		}
-		if body, raw := feedStatus(session); body["reads"] != nil {
+		if body, raw := readFeedStatus(session); body["reads"] != nil {
 			t.Errorf("after forgetting: %s = %s, want no reads", calendarFeedStatusRoute, raw)
 		}
 	}
 
 	// The client's next real read brings it back.
-	if feed := send(http.MethodGet, "/feeds/"+feedToken+"/saved-shows.ics", "", "Google-Calendar-Importer"); feed.Code != http.StatusOK {
+	if feed := request(http.MethodGet, strings.Replace(savedShowsFeedRoute, "{token}", feedToken, 1), "", "Google-Calendar-Importer"); feed.Code != http.StatusOK {
 		t.Fatalf("GET saved-shows feed = %d", feed.Code)
 	}
 	awaitReads("google")

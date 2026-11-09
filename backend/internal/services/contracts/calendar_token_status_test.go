@@ -52,8 +52,7 @@ func TestCalendarTokenStatusResponse_WithoutFeedURLsWithholdsReadsAndReset(t *te
 	}
 }
 
-// FeedStatus keeps everything but the feed addresses, and its JSON has no
-// key that can carry one.
+// FeedStatus keeps everything but the feed addresses.
 func TestCalendarTokenStatusResponse_FeedStatusDropsOnlyTheAddresses(t *testing.T) {
 	now := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
 	reason := engagementm.CalendarLinkResetSignOutEverywhere
@@ -82,13 +81,6 @@ func TestCalendarTokenStatusResponse_FeedStatusDropsOnlyTheAddresses(t *testing.
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("FeedStatus() = %+v, want %+v", got, want)
-	}
-	raw, err := json.Marshal(got)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	if strings.Contains(string(raw), "phcal_") || strings.Contains(string(raw), "feed_url") {
-		t.Errorf("the feed status carries an address: %s", raw)
 	}
 }
 

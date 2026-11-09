@@ -29,9 +29,9 @@ const feedReadRecordInterval = 10 * time.Minute
 // the family's next read starts it afresh, as a read never seen before
 // would. The API docs state the period in words (the reads and link_reset_at
 // doc tags on contracts.CalendarTokenStatusResponse and
-// contracts.CalendarFeedStatusResponse, and
-// CalendarServiceInterface.GetTokenStatus), so a change here must be copied
-// to them.
+// contracts.CalendarFeedStatusResponse, CalendarServiceInterface.GetTokenStatus,
+// and the hand-written CalendarTokenStatusResponse in
+// frontend/features/shows/types.ts), so a change here must be copied to them.
 const feedReadForgetAfter = 30 * 24 * time.Hour
 
 // feedReadRememberedSince is the earliest last_read_at a read can have and
