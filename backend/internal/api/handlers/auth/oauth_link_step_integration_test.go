@@ -17,6 +17,7 @@ import (
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/auth"
 	engagementsvc "psychic-homily-backend/internal/services/engagement"
 )
@@ -667,6 +668,11 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_PreHijackedAccountIsReclaime
 	}).Error)
 	_, err = calendar.ValidateCalendarToken(feed.Token)
 	s.Require().NoError(err, "the attacker's feed works before the proof")
+	s.Require().NoError(calendar.RecordFeedRead(context.Background(), feed.Token, "Google-Calendar-Importer"),
+		"the attacker's calendar has read the feed")
+	// A link-reset marker left by the attacker's own security actions on the
+	// account, planted directly so the proof's handling of it is observable.
+	s.Require().NoError(engagementsvc.MarkCalendarLinkResetTx(s.deps.DB, squatted.ID, time.Now(), engagementm.CalendarLinkResetSignOutEverywhere))
 
 	victim := s.linkEnv()
 	token := s.startLink(collisionIdentity("victim@test.com", "google-victim"))
@@ -702,6 +708,13 @@ func (s *OAuthHandlerIntegrationSuite) TestLinkStep_PreHijackedAccountIsReclaime
 	// victim's Google identity is left; the passkey stays.
 	_, err = calendar.ValidateCalendarToken(feed.Token)
 	s.Error(err, "the attacker's calendar feed is revoked")
+	// The victim inherits no calendar story: the proof records no link reset
+	// for the feed it revoked and removes the one that was there.
+	feedStatus, err := calendar.GetTokenStatus(squatted.ID, "http://localhost:8080")
+	s.Require().NoError(err)
+	s.False(feedStatus.HasToken)
+	s.Nil(feedStatus.LinkResetAt, "the mailbox proof leaves no link-reset marker")
+	s.Nil(feedStatus.LinkResetReason)
 	var providers []string
 	s.Require().NoError(s.deps.DB.Model(&authm.OAuthAccount{}).Where("user_id = ?", squatted.ID).Pluck("provider", &providers).Error)
 	s.Equal([]string{"google"}, providers, "every other provider identity is removed")

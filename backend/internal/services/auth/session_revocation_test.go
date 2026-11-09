@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -115,6 +116,41 @@ func (s *JWTIntegrationSuite) requireRevocationDeletesTheTokenOfAMintItWaitedFor
 		_, err := s.calendar().ValidateCalendarToken(minted.Token)
 		s.Error(err, "the minted feed URL is refused")
 	}
+}
+
+// recordCalendarRead records a read of the feed link token by Apple's
+// calendar fetcher, as a subscribed calendar's poll does.
+func (s *JWTIntegrationSuite) recordCalendarRead(token string) {
+	s.T().Helper()
+	s.Require().NoError(s.calendar().RecordFeedRead(context.Background(), token, "iOS/17.5.1 (21F90) dataaccessd/1.0"))
+}
+
+// linkReset is userID's calendar link-reset marker as the status endpoint
+// reports it.
+func (s *JWTIntegrationSuite) linkReset(userID uint) (*time.Time, *engagementm.CalendarLinkResetReason) {
+	s.T().Helper()
+	status, err := s.calendar().GetTokenStatus(userID, "http://localhost:8080")
+	s.Require().NoError(err)
+	return status.LinkResetAt, status.LinkResetReason
+}
+
+// requireLinkReset checks that userID holds a link-reset marker for reason,
+// stamped no earlier than notBefore.
+func (s *JWTIntegrationSuite) requireLinkReset(userID uint, reason engagementm.CalendarLinkResetReason, notBefore time.Time) {
+	s.T().Helper()
+	at, got := s.linkReset(userID)
+	s.Require().NotNil(at, "the revocation records the link reset")
+	s.Require().NotNil(got)
+	s.Equal(reason, *got)
+	s.False(at.Before(notBefore.Truncate(time.Microsecond)), "reset at %v, revocation started %v", at, notBefore)
+}
+
+// requireNoLinkReset checks that userID holds no link-reset marker.
+func (s *JWTIntegrationSuite) requireNoLinkReset(userID uint) {
+	s.T().Helper()
+	at, reason := s.linkReset(userID)
+	s.Nil(at, "no link reset is recorded")
+	s.Nil(reason)
 }
 
 // requireFeedTokenHonored checks that the feed validator still serves token

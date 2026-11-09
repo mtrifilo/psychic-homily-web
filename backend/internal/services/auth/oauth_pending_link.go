@@ -268,8 +268,15 @@ func (s *AuthService) CompleteOAuthLinkByEmail(claims *contracts.OAuthLinkTokenC
 // keepProvider's, through the paths Settings revokes and disconnects them by.
 // The mailbox proof leaves the account with the mailbox owner's identity
 // from keepProvider, its passkeys (which are not evicted) and no password.
+//
+// It leaves no calendar link-reset marker, and removes any already there: the
+// link and every reset of it belonged to whoever held the account before the
+// proof, so the mailbox owner has no calendar to be told about.
 func evictOtherCredentials(tx *gorm.DB, userID uint, keepProvider string) error {
 	if _, err := engagementsvc.DeleteCalendarTokensTx(tx, userID); err != nil {
+		return err
+	}
+	if _, err := engagementsvc.ClearCalendarLinkResetTx(tx, userID); err != nil {
 		return err
 	}
 	// FOR UPDATE: a concurrent disconnect of one of these rows waits for the

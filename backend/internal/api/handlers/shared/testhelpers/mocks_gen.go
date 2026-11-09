@@ -691,6 +691,7 @@ type MockCalendarService struct {
 	GetTokenStatusFn              func(uint, string) (*contracts.CalendarTokenStatusResponse, error)
 	DeleteTokenFn                 func(uint) error
 	ValidateCalendarTokenFn       func(string) (*authm.User, error)
+	RecordFeedReadFn              func(context.Context, string, string) error
 	GenerateICSFeedFn             func(uint, string) ([]byte, error)
 	RenderSavedShowsCalendarFn    func(uint, string) ([]byte, error)
 	GenerateFollowsActivityFeedFn func(uint, string) ([]byte, error)
@@ -719,6 +720,12 @@ func (m *MockCalendarService) ValidateCalendarToken(plainToken string) (*authm.U
 		return m.ValidateCalendarTokenFn(plainToken)
 	}
 	return nil, nil
+}
+func (m *MockCalendarService) RecordFeedRead(ctx context.Context, plainToken string, userAgent string) error {
+	if m.RecordFeedReadFn != nil {
+		return m.RecordFeedReadFn(ctx, plainToken, userAgent)
+	}
+	return nil
 }
 func (m *MockCalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]byte, error) {
 	if m.GenerateICSFeedFn != nil {

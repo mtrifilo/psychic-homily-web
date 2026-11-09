@@ -286,7 +286,9 @@ func (s *CalendarService) CreateToken(userID uint, sessionsValidAfter *time.Time
 			return fmt.Errorf("failed to create token: %w", err)
 		}
 
-		return nil
+		// A new link answers any earlier reset of the old one.
+		_, err := ClearCalendarLinkResetTx(tx, userID)
+		return err
 	})
 	if err != nil {
 		return nil, err
@@ -311,7 +313,9 @@ func (s *CalendarService) CreateToken(userID uint, sessionsValidAfter *time.Time
 // GetTokenStatus reports whether userID holds a feed token and, when the
 // token's plaintext is stored, the subscribe URLs built on apiBaseURL
 // (contracts.CalendarServiceInterface). A row minted before the plaintext was
-// stored reports HasToken with URLRecoverable false and no URLs.
+// stored reports HasToken with URLRecoverable false and no URLs. A token
+// carries the calendar clients observed reading it; no token carries the
+// link-reset marker, if one is outstanding.
 func (s *CalendarService) GetTokenStatus(userID uint, apiBaseURL string) (*contracts.CalendarTokenStatusResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -321,14 +325,28 @@ func (s *CalendarService) GetTokenStatus(userID uint, apiBaseURL string) (*contr
 	err := s.db.Where("user_id = ?", userID).First(&token).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return &contracts.CalendarTokenStatusResponse{HasToken: false}, nil
+			resetAt, resetReason, err := s.linkResetMarker(userID)
+			if err != nil {
+				return nil, err
+			}
+			return &contracts.CalendarTokenStatusResponse{
+				HasToken:        false,
+				LinkResetAt:     resetAt,
+				LinkResetReason: resetReason,
+			}, nil
 		}
 		return nil, fmt.Errorf("failed to check token status: %w", err)
+	}
+
+	reads, err := s.feedReads(token.ID)
+	if err != nil {
+		return nil, err
 	}
 
 	status := &contracts.CalendarTokenStatusResponse{
 		HasToken:  true,
 		CreatedAt: &token.CreatedAt,
+		Reads:     reads,
 	}
 	if token.Token != nil {
 		status.FeedURL = calendarFeedURL(apiBaseURL, *token.Token)
@@ -338,18 +356,37 @@ func (s *CalendarService) GetTokenStatus(userID uint, apiBaseURL string) (*contr
 	return status, nil
 }
 
-// DeleteToken removes a user's calendar token
+// errNoCalendarToken is DeleteToken's report that there was nothing to turn
+// off.
+var errNoCalendarToken = errors.New("no calendar token found")
+
+// DeleteToken turns userID's feed off (contracts.CalendarServiceInterface):
+// it deletes their token and clears any link-reset marker in one transaction,
+// because turning the feed off is the person's own act and leaves nothing to
+// explain. A user whose link was reset holds a marker and no token, and
+// turning the feed off then clears the marker and succeeds. Only a user with
+// neither gets errNoCalendarToken, and nothing changes.
 func (s *CalendarService) DeleteToken(userID uint) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
 
-	deleted, err := DeleteCalendarTokensTx(s.db, userID)
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		deleted, err := DeleteCalendarTokensTx(tx, userID)
+		if err != nil {
+			return err
+		}
+		cleared, err := ClearCalendarLinkResetTx(tx, userID)
+		if err != nil {
+			return err
+		}
+		if deleted == 0 && !cleared {
+			return errNoCalendarToken
+		}
+		return nil
+	})
 	if err != nil {
 		return err
-	}
-	if deleted == 0 {
-		return fmt.Errorf("no calendar token found")
 	}
 	s.invalidateFeedCache(userID)
 	return nil
@@ -359,7 +396,10 @@ func (s *CalendarService) DeleteToken(userID uint) error {
 // which the caller commits, and reports how many it deleted. A revoked token
 // is refused by ValidateCalendarToken before any feed is served, so a feed
 // cached in some process's CalendarService cannot reach its holder; the next
-// token CreateToken mints clears that cache.
+// token CreateToken mints clears that cache. The token's recorded feed reads
+// are deleted with it (calendar_feed_reads cascades from calendar_tokens).
+// It writes no link-reset marker; a security revocation deletes through
+// RevokeCalendarLinkTx, which does.
 func DeleteCalendarTokensTx(tx *gorm.DB, userID uint) (int64, error) {
 	result := tx.Where("user_id = ?", userID).Delete(&engagementm.CalendarToken{})
 	if result.Error != nil {

@@ -455,7 +455,32 @@ export interface CalendarTokenStatusResponse {
    * caller is not a signed-in session.
    */
   url_recoverable?: boolean
+  /**
+   * Calendar clients observed fetching the current saved-shows feed link, most
+   * recently read first. Absent when none has, when has_token is false, or
+   * when the caller is not a signed-in session.
+   */
+  reads?: CalendarFeedRead[] | null
+  /**
+   * When a security action (signing out everywhere, or a password reset)
+   * deleted a feed link that a calendar app had read. Present only while
+   * has_token is false and the caller is a signed-in session; minting a link
+   * or turning the feed off clears it.
+   */
+  link_reset_at?: string // ISO date string
+  /** Which security action deleted the feed link; present exactly when link_reset_at is. */
+  link_reset_reason?: CalendarLinkResetReason
 }
+
+/** One calendar client family's observed reads of the current feed link. */
+export type CalendarFeedRead = components['schemas']['CalendarFeedReadResponse']
+
+/** Calendar client family, classified server-side from the feed request's User-Agent. */
+export type CalendarFeedClient = CalendarFeedRead['client']
+
+export type CalendarLinkResetReason = NonNullable<
+  components['schemas']['CalendarTokenStatusResponse']['link_reset_reason']
+>
 
 export interface CalendarTokenCreateResponse {
   token: string
