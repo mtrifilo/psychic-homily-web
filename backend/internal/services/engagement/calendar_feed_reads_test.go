@@ -360,7 +360,9 @@ func (suite *CalendarIntegrationTestSuite) TestForgetFeedRead_RemovesOneFamilyUn
 
 	suite.Require().NoError(suite.svc.ForgetFeedRead(user.ID, engagementm.CalendarFeedClientGoogle))
 
-	now := time.Now()
+	// timestamptz keeps microseconds, so an instant compared exactly with one
+	// read back from the database is truncated to them first.
+	now := time.Now().Truncate(time.Microsecond)
 	suite.Equal([]engagementm.CalendarFeedClient{engagementm.CalendarFeedClientAppleIOS}, suite.statusReadsAt(user.ID, now))
 	suite.Len(suite.statusReadsAt(other.ID, now), 2, "another account's reads are untouched")
 
