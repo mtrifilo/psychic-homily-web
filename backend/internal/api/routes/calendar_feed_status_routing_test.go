@@ -151,11 +151,11 @@ func TestCalendarFeedStatusAndForgetThroughRouter(t *testing.T) {
 
 	// A read 31 days old is listed by neither status route.
 	stale := time.Now().Add(-31 * 24 * time.Hour)
-	if err := td.DB.Exec(`
+	if planted := td.DB.Exec(`
 		INSERT INTO calendar_feed_reads (token_id, client, first_read_at, last_read_at)
 		SELECT id, 'apple_mac', ?, ? FROM calendar_tokens WHERE user_id = ?`,
-		stale, stale, user.ID).Error; err != nil {
-		t.Fatalf("plant a stale read: %v", err)
+		stale, stale, user.ID); planted.Error != nil || planted.RowsAffected != 1 {
+		t.Fatalf("plant a stale read: %v, %d rows", planted.Error, planted.RowsAffected)
 	}
 	awaitReads("google")
 	if w := request(http.MethodGet, "/calendar/token", session, ""); strings.Join(readClients(decode(w)), ",") != "google" {

@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -53,48 +54,58 @@ func TestCalendarTokenStatusResponse_WithoutFeedURLsWithholdsReadsAndReset(t *te
 }
 
 // FeedStatus copies every field CalendarFeedStatusResponse declares from its
-// same-named twin. Every field of the source is set to a non-zero value, so a
-// field declared on both types but left out of the copy reads as zero here
-// and fails.
+// same-named twin. Every string and time in the source is distinct and
+// non-zero, so a field declared on both types but left out of the copy, or
+// copied from another field of its type, fails here. Bools cannot all be
+// distinct; HasToken is the only one FeedStatus copies.
 func TestCalendarTokenStatusResponse_FeedStatusCopiesEveryDeclaredField(t *testing.T) {
 	var full CalendarTokenStatusResponse
-	fillNonZero(t, reflect.ValueOf(&full).Elem())
+	seq := 0
+	fillDistinct(t, reflect.ValueOf(&full).Elem(), &seq)
 
 	got := reflect.ValueOf(full.FeedStatus())
 	source := reflect.ValueOf(full)
 	for i := 0; i < got.NumField(); i++ {
 		name := got.Type().Field(i).Name
-		if want := source.FieldByName(name); !reflect.DeepEqual(got.Field(i).Interface(), want.Interface()) {
+		want := source.FieldByName(name)
+		if !want.IsValid() {
+			t.Errorf("CalendarFeedStatusResponse.%s has no twin on CalendarTokenStatusResponse", name)
+			continue
+		}
+		if !reflect.DeepEqual(got.Field(i).Interface(), want.Interface()) {
 			t.Errorf("FeedStatus().%s = %v, want %v copied from the token status", name, got.Field(i).Interface(), want.Interface())
 		}
 	}
 }
 
-// fillNonZero sets v, and everything it holds, to a value that is not its
-// type's zero value.
-func fillNonZero(t *testing.T, v reflect.Value) {
+// fillDistinct sets v, and everything it holds, to non-zero values, giving
+// each string and time a value no other one in the tree has. seq counts the
+// values handed out.
+func fillDistinct(t *testing.T, v reflect.Value, seq *int) {
 	t.Helper()
 	if v.Type() == reflect.TypeOf(time.Time{}) {
-		v.Set(reflect.ValueOf(time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)))
+		*seq++
+		v.Set(reflect.ValueOf(time.Date(2026, 11, 9, 12, 0, *seq, 0, time.UTC)))
 		return
 	}
 	switch v.Kind() {
 	case reflect.Bool:
 		v.SetBool(true)
 	case reflect.String:
-		v.SetString("x")
+		*seq++
+		v.SetString(fmt.Sprintf("x%d", *seq))
 	case reflect.Pointer:
 		v.Set(reflect.New(v.Type().Elem()))
-		fillNonZero(t, v.Elem())
+		fillDistinct(t, v.Elem(), seq)
 	case reflect.Slice:
 		v.Set(reflect.MakeSlice(v.Type(), 1, 1))
-		fillNonZero(t, v.Index(0))
+		fillDistinct(t, v.Index(0), seq)
 	case reflect.Struct:
 		for i := 0; i < v.NumField(); i++ {
-			fillNonZero(t, v.Field(i))
+			fillDistinct(t, v.Field(i), seq)
 		}
 	default:
-		t.Fatalf("fillNonZero: add a case for %s", v.Type())
+		t.Fatalf("fillDistinct: add a case for %s", v.Type())
 	}
 }
 

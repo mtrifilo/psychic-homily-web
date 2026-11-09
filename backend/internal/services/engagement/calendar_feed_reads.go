@@ -182,7 +182,8 @@ func (s *CalendarService) feedReads(tokenID uint, now time.Time) ([]contracts.Ca
 // ForgetFeedRead deletes the recorded reads of userID's feed link by client
 // (contracts.CalendarServiceInterface). The client's next read inserts a new
 // row, so it comes back as newly seen. A read the feed handler queued before
-// the delete commits is recorded after it, and so lists the client again.
+// the delete commits may be recorded after it, and then lists the client
+// again.
 func (s *CalendarService) ForgetFeedRead(userID uint, client engagementm.CalendarFeedClient) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
