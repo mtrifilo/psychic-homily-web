@@ -124,8 +124,8 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 	suite.Zero(rows, "the unlinked identity must not be written back")
 }
 
-// The repeat connect writes the profile and updated_at. A value written to any
-// other column after its read is not replaced by what it read. The row lock
+// The repeat connect writes the profile, NULL to the three credential columns,
+// and updated_at. A value written to any other column after its read is not replaced by what it read. The row lock
 // keeps other transactions out of that window, so the write here runs inside
 // the repeat connect's own transaction.
 func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatConnectWritesOnlyTheColumnsItOwns() {

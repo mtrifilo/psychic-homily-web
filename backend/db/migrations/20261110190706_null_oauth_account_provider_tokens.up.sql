@@ -3,8 +3,8 @@
 -- them. Nothing reads them, and no path copies them from a provider. The
 -- columns stay.
 --
--- The UPDATE locks only the rows it changes, and a link, attach or unlink that
--- holds one of them waits it out. lock_timeout bounds that wait, so a
+-- The UPDATE locks only the rows it changes, and waits for a link, attach or
+-- unlink that holds one of them. lock_timeout bounds that wait, so a
 -- long-running transaction fails this migration instead of queueing later
 -- writes to the same rows behind it.
 SET LOCAL lock_timeout = '5s';
