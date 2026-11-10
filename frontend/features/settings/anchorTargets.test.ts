@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { findAnchorTarget, jumpToAnchor } from './anchorTargets'
+import { findAnchorTarget, findNearestAnchorTarget, jumpToAnchor } from './anchorTargets'
 
 describe('anchorTargets', () => {
   let decoy: HTMLElement
@@ -60,6 +60,22 @@ describe('anchorTargets', () => {
       window.removeEventListener('hashchange', onHashChange)
     }
     expect(onHashChange).not.toHaveBeenCalled()
+  })
+
+  it('finds the target nearest to a node inside the root, not the hidden copy', () => {
+    const link = document.createElement('a')
+    const nested = document.createElement('div')
+    nested.append(link)
+    root.append(nested)
+
+    expect(findNearestAnchorTarget(link, 'alerts')).toBe(target)
+  })
+
+  it('returns null when no ancestor holds the anchor', () => {
+    const link = document.createElement('a')
+    root.append(link)
+
+    expect(findNearestAnchorTarget(link, 'feeds')).toBeNull()
   })
 
   it('does nothing without a root or a target', () => {

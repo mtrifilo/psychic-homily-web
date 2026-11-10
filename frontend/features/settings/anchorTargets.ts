@@ -18,6 +18,23 @@ export function findAnchorTarget(
 }
 
 /**
+ * The target for `anchor` nearest to `from`: the closest ancestor of `from`
+ * that holds one decides. A link inside a page reaches its own page's target
+ * without being handed the page's root, and a hidden route's copy, which only
+ * an ancestor outside the page can hold, never wins over it.
+ */
+export function findNearestAnchorTarget(
+  from: Element,
+  anchor: string
+): HTMLElement | null {
+  for (let node = from.parentElement; node; node = node.parentElement) {
+    const target = findAnchorTarget(node, anchor)
+    if (target) return target
+  }
+  return null
+}
+
+/**
  * Reveals the root's own target for `anchor` and leaves the address bar as it
  * is. A fragment navigation would add a history entry the App Router cannot
  * restore, and a router `pushState` would re-render the router for a change

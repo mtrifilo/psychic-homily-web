@@ -34,6 +34,8 @@ describe('auth hooks barrel', () => {
 
   it('re-exports the calendar-feed hooks', () => {
     expect(typeof hooks.useCalendarTokenStatus).toBe('function')
+    expect(typeof hooks.useCalendarFeedStatus).toBe('function')
+    expect(typeof hooks.calendarLinkWasResetBy).toBe('function')
     expect(typeof hooks.useCreateCalendarToken).toBe('function')
     expect(typeof hooks.useDeleteCalendarToken).toBe('function')
   })

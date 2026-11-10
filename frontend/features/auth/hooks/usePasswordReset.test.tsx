@@ -104,6 +104,32 @@ describe('password reset hooks', () => {
     expect(refetch).toHaveBeenCalledWith({ queryKey: ['auth', 'profile'] })
   })
 
+  // The reset deletes the calendar link, and the success page reads the feed
+  // status to say so: a status cached before the reset must not answer.
+  it('drops the calendar feed status cached before the reset', async () => {
+    mockApiRequest.mockResolvedValueOnce({ success: true, message: 'Password reset' })
+    const queryClient = createTestQueryClient()
+    vi.spyOn(queryClient, 'refetchQueries').mockResolvedValue()
+    // Nothing observes these, so they are kept from garbage collection; a
+    // removal is then the hook's, not the test client's.
+    queryClient.setQueryDefaults(['calendar'], { gcTime: Infinity })
+    queryClient.setQueryData(['calendar', 'feedStatus'], { has_token: true })
+    queryClient.setQueryData(['calendar', 'tokenStatus'], { has_token: true })
+    const { result } = renderHook(() => useCompletePasswordReset(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+
+    await act(async () => {
+      await result.current.mutateAsync({ token: 'reset-link', newPassword: 'owners-new-password-1!' })
+    })
+
+    expect(queryClient.getQueryData(['calendar', 'tokenStatus'])).toEqual({ has_token: true })
+    expect(queryClient.getQueryData(['calendar', 'feedStatus'])).toBeUndefined()
+    await waitFor(() =>
+      expect(queryClient.getQueryState(['calendar', 'tokenStatus'])?.isInvalidated).toBe(true)
+    )
+  })
+
   it('refreshes nothing when the set is refused', async () => {
     mockApiRequest.mockResolvedValueOnce({ success: false, message: 'weak', error_code: 'VALIDATION_FAILED' })
     const { wrapper, refetch } = setup()

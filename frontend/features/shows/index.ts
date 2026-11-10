@@ -42,6 +42,7 @@ export type {
   CalendarTokenCreateResponse,
   CalendarTokenDeleteResponse,
   CalendarFeedStatusResponse,
+  CalendarLinkResetReason,
   ForgetCalendarFeedReadResponse,
   ShowSaveCount,
   SaveCountEntry,
