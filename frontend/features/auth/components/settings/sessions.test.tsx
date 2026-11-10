@@ -290,14 +290,14 @@ describe('SessionsSettings', () => {
     })
 
     it('ignores a marker another action left', async () => {
-      mockFeedStatusRequest.mockResolvedValue({
+      mockFeedStatusRequest.mockResolvedValueOnce(HAS_LINK).mockResolvedValue({
         ...RESET_BY_SIGN_OUT,
         link_reset_reason: 'password_reset',
       })
       mockSignOutRequest.mockResolvedValueOnce({ success: true })
       const user = userEvent.setup()
       renderWithProviders(<SessionsSettings />)
-      await waitFor(() => expect(mockFeedStatusRequest).toHaveBeenCalledTimes(1))
+      await screen.findByText(HELPER_LINE_WITH_LINK)
 
       await confirmSignOut(user)
 
@@ -339,6 +339,36 @@ describe('SessionsSettings', () => {
       await waitFor(() => expect(mockFeedStatusRequest).toHaveBeenCalledTimes(2))
       await waitFor(() => expect(screen.getByRole('status').textContent).toBe(SUCCESS_LINE))
       expect(screen.queryByRole('link', { name: 'Calendar' })).not.toBeInTheDocument()
+    })
+
+    // This page's status can be stale: a link made in another tab or on another
+    // device since it was read. A marker that is new since the confirm is this
+    // action's.
+    it('says the link was reset when the marker is new, even if this page had not seen the link', async () => {
+      mockFeedStatusRequest.mockResolvedValueOnce(NO_LINK).mockResolvedValue(RESET_BY_SIGN_OUT)
+      mockSignOutRequest.mockResolvedValueOnce({ success: true })
+      const user = userEvent.setup()
+      renderWithProviders(<SessionsSettings />)
+      await waitFor(() => expect(mockFeedStatusRequest).toHaveBeenCalledTimes(1))
+      expect(screen.getByText(HELPER_LINE)).toBeInTheDocument()
+
+      await confirmSignOut(user)
+
+      await waitFor(() => expect(screen.getByRole('status').textContent).toBe(RESET_SUCCESS_LINE))
+    })
+
+    it('says the link was reset when a new marker replaces an earlier one', async () => {
+      mockFeedStatusRequest
+        .mockResolvedValueOnce(RESET_BY_SIGN_OUT)
+        .mockResolvedValue({ ...RESET_BY_SIGN_OUT, link_reset_at: '2026-11-11T09:00:00Z' })
+      mockSignOutRequest.mockResolvedValueOnce({ success: true })
+      const user = userEvent.setup()
+      renderWithProviders(<SessionsSettings />)
+      await waitFor(() => expect(mockFeedStatusRequest).toHaveBeenCalledTimes(1))
+
+      await confirmSignOut(user)
+
+      await waitFor(() => expect(screen.getByRole('status').textContent).toBe(RESET_SUCCESS_LINE))
     })
 
     it('makes no reset claim when the status was unknown as the action was confirmed', async () => {

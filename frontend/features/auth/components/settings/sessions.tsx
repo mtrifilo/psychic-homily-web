@@ -65,18 +65,22 @@ function CalendarCardLink() {
  *
  * The same step deletes the account's calendar link. The line under the
  * button says so only while the feed status confirms there is a link. The
- * success line says a link was reset only when the status confirmed a link
- * as the action was confirmed AND the status read after it carries this
- * action's reset marker: the backend marks only a link it deleted, and a
- * marker outlives its action until a link is added again, so a marker after
- * an action that began with no link is an earlier action's. An unknown status
- * adds no calendar sentence either way.
+ * success line says a link was reset only when the status read after the
+ * action carries this action's reset marker, and that marker is not the one
+ * the status held as the action was confirmed: a marker outlives its action,
+ * and an action that deletes no link leaves it unchanged, so an unchanged
+ * marker is an earlier action's. An unknown status, then or after, adds no
+ * calendar sentence.
  */
 export function SessionsSettings() {
   const signOutEverywhereElse = useSignOutEverywhereElse()
   const { data: feedStatus } = useCalendarFeedStatus()
   const [confirmOpen, setConfirmOpen] = useState(false)
-  const [hadLinkWhenConfirmed, setHadLinkWhenConfirmed] = useState(false)
+  // The reset marker the status held as the action was confirmed, or null
+  // while the status was unknown then.
+  const [markerWhenConfirmed, setMarkerWhenConfirmed] = useState<{
+    resetAt: string | undefined
+  } | null>(null)
   const anchorRef = useAnchorScroll(SESSIONS_SETTINGS_ANCHOR)
 
   const staysSignedInLine =
@@ -85,11 +89,12 @@ export function SessionsSettings() {
       : 'This device stays signed in.'
   const calendarLinkWasReset =
     signOutEverywhereElse.isSuccess &&
-    hadLinkWhenConfirmed &&
+    markerWhenConfirmed !== null &&
+    feedStatus?.link_reset_at !== markerWhenConfirmed.resetAt &&
     calendarLinkWasResetBy(feedStatus, 'sign_out_everywhere')
 
   const handleConfirm = () => {
-    setHadLinkWhenConfirmed(feedStatus?.has_token === true)
+    setMarkerWhenConfirmed(feedStatus ? { resetAt: feedStatus.link_reset_at } : null)
     signOutEverywhereElse.mutate(undefined, {
       // Closed either way, so the outcome line on the card is what the reader
       // sees next.

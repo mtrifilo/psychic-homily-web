@@ -65,7 +65,7 @@ export const useCalendarFeedStatus = (enabled: boolean = true) => {
  * or the feed is turned off, and a later action on an account with no link
  * leaves it as it is. So it says that SOME action of this kind reset a link;
  * a caller that can see the status from before its action should also require
- * that a link existed then.
+ * the marker to differ from the one it held then.
  */
 export function calendarLinkWasResetBy(
   status: CalendarFeedStatusResponse | undefined,
