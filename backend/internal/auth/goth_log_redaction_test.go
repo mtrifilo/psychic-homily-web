@@ -2,6 +2,7 @@ package auth
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 	"testing"
 
@@ -12,19 +13,17 @@ import (
 	"psychic-homily-backend/internal/testlog"
 )
 
-// TestSetupGothNeverLogsTheOAuthSecret asserts the invariant that the OAuth
-// bootstrap logs the LENGTH of cfg.OAuth.SecretKey and never its value. That
-// key is the HMAC key the gothic cookie store signs the session with, so a
-// reader of the log stream could forge a session cookie.
-func TestSetupGothNeverLogsTheOAuthSecret(t *testing.T) {
-	const sentinelOAuthSecret = "SENTINEL-OAUTH-SECRET-KEY-f13b8e0a"
-
-	// SetupGoth reads the process environment and assigns package-global
-	// stores and the goth provider registry; pin the one and restore the rest.
+// isolateGothGlobals lets t call SetupGoth. SetupGoth reads the process
+// environment and assigns package-global stores and the goth provider
+// registry; this pins the one and restores the rest when t ends.
+func isolateGothGlobals(t *testing.T) {
+	t.Helper()
 	t.Setenv(EnableOAuthTestProviderEnvVar, "")
 	prevSessionStore := SessionStore
 	prevGothicStore := gothic.Store
-	prevProviders := goth.GetProviders()
+	// A copy: GetProviders returns the live registry, which SetupGoth writes
+	// into.
+	prevProviders := maps.Clone(goth.GetProviders())
 	t.Cleanup(func() {
 		SessionStore = prevSessionStore
 		gothic.Store = prevGothicStore
@@ -33,6 +32,16 @@ func TestSetupGothNeverLogsTheOAuthSecret(t *testing.T) {
 			goth.UseProviders(p)
 		}
 	})
+}
+
+// TestSetupGothNeverLogsTheOAuthSecret asserts the invariant that the OAuth
+// bootstrap logs the LENGTH of cfg.OAuth.SecretKey and never its value. That
+// key is the HMAC key the gothic cookie store signs the session with, so a
+// reader of the log stream could forge a session cookie.
+func TestSetupGothNeverLogsTheOAuthSecret(t *testing.T) {
+	const sentinelOAuthSecret = "SENTINEL-OAUTH-SECRET-KEY-f13b8e0a"
+
+	isolateGothGlobals(t)
 
 	cfg := &config.Config{}
 	cfg.OAuth.SecretKey = sentinelOAuthSecret

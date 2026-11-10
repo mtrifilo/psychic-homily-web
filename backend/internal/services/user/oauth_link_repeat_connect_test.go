@@ -13,23 +13,15 @@ import (
 // A repeat connect is LinkOAuthAccountToUser on an identity the account
 // already holds.
 
-var (
-	repeatConnectStoredExpiry     = time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
-	repeatConnectConcurrentExpiry = time.Date(2031, 6, 1, 0, 0, 0, 0, time.UTC)
-)
-
-// linkedForRepeatConnect creates an account holding a google identity whose
-// row carries known tokens and repeatConnectStoredExpiry.
+// linkedForRepeatConnect creates an account holding a google identity, linked
+// by a connect whose provider sent tokens and an expiry.
 func (suite *UserServiceIntegrationTestSuite) linkedForRepeatConnect(address, subject string) *authm.User {
 	suite.T().Helper()
 	owner := suite.createLinkableAccount(address)
-	_, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
-		UserID:       subject,
-		Email:        address,
-		AccessToken:  "stored-access",
-		RefreshToken: "stored-refresh",
-		ExpiresAt:    repeatConnectStoredExpiry,
-	}, "google")
+	_, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, withProviderCredentials(goth.User{
+		UserID: subject,
+		Email:  address,
+	}), "google")
 	suite.Require().NoError(err)
 	return owner
 }
@@ -70,43 +62,41 @@ func (suite *UserServiceIntegrationTestSuite) awaitConcurrentWrite(done <-chan e
 	suite.Require().NoError(testutil.AwaitConcurrentWrite(suite.T(), done))
 }
 
-// Two repeat connects on one identity: the row ends up holding one connect's
-// tokens and expiry together, never one connect's tokens with an expiry that
-// the other connect's write had already replaced.
-func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatConnectDoesNotUndoAConcurrentConnect() {
+// Two repeat connects on one identity serialize on the row lock
+// checkOAuthIdentityAttach takes: a connect that reaches the row while another
+// holds it waits, so its write lands after the other's and its profile is the
+// one stored.
+func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatConnectsOnOneIdentitySerialize() {
 	owner := suite.linkedForRepeatConnect("repeat-connect-race@example.com", "repeat-connect-race-subject")
 
 	var concurrent <-chan error
 	svc, ran := suite.serviceWithWriteBeforeItsFirstUpdate(func(*gorm.DB) {
 		concurrent = suite.startOnAnotherConnection(func() error {
-			_, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
-				UserID:       "repeat-connect-race-subject",
-				Email:        "repeat-connect-race@example.com",
-				AccessToken:  "concurrent-access",
-				RefreshToken: "concurrent-refresh",
-				ExpiresAt:    repeatConnectConcurrentExpiry,
-			}, "google")
+			_, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, withProviderCredentials(goth.User{
+				UserID:    "repeat-connect-race-subject",
+				Email:     "repeat-connect-race-concurrent@example.com",
+				Name:      "Concurrent Name",
+				AvatarURL: "https://example.com/concurrent.png",
+			}), "google")
 			return err
 		})
 	})
 
-	// This connect's provider sent no expiry.
-	_, err := svc.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
-		UserID:       "repeat-connect-race-subject",
-		Email:        "repeat-connect-race@example.com",
-		AccessToken:  "hooked-access",
-		RefreshToken: "hooked-refresh",
-	}, "google")
+	_, err := svc.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, withProviderCredentials(goth.User{
+		UserID:    "repeat-connect-race-subject",
+		Email:     "repeat-connect-race-hooked@example.com",
+		Name:      "Hooked Name",
+		AvatarURL: "https://example.com/hooked.png",
+	}), "google")
 	suite.Require().NoError(err)
 	suite.Require().True(*ran, "the concurrent connect must start before the repeat connect's write")
 	suite.awaitConcurrentWrite(concurrent)
 
 	got := suite.storedGoogleAccount(owner.ID)
-	suite.Require().NotNil(got.ExpiresAt)
-	suite.WithinDuration(repeatConnectConcurrentExpiry, *got.ExpiresAt, 0,
-		"the concurrent connect's expiry must survive the repeat connect")
-	suite.Equal("concurrent-access", *got.AccessToken)
-	suite.Equal("concurrent-refresh", *got.RefreshToken)
+	suite.Equal("repeat-connect-race-concurrent@example.com", *got.ProviderEmail)
+	suite.Equal("Concurrent Name", *got.ProviderName)
+	suite.Equal("https://example.com/concurrent.png", *got.ProviderAvatarURL)
+	suite.requireNoProviderCredential(got)
 }
 
 // A disconnect that lands while a repeat connect is in flight stays
@@ -121,11 +111,10 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 		})
 	})
 
-	_, err := svc.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
-		UserID:      "repeat-connect-unlink-subject",
-		Email:       "repeat-connect-unlink@example.com",
-		AccessToken: "hooked-access",
-	}, "google")
+	_, err := svc.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, withProviderCredentials(goth.User{
+		UserID: "repeat-connect-unlink-subject",
+		Email:  "repeat-connect-unlink@example.com",
+	}), "google")
 	suite.Require().NoError(err)
 	suite.Require().True(*ran, "the unlink must start before the repeat connect's write")
 	suite.awaitConcurrentWrite(concurrent)
@@ -135,53 +124,43 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 	suite.Zero(rows, "the unlinked identity must not be written back")
 }
 
-// The repeat connect writes the profile, the tokens, the expiry when the
-// provider sent one, and updated_at. A value written to any other column after
-// its read is not replaced by what it read. The row lock keeps other
-// transactions out of that window, so the write here runs inside the repeat
-// connect's own transaction.
+// The repeat connect writes the profile, NULL to the three credential columns,
+// and updated_at. A value written to any other column after its read is not replaced by what it read. The row lock
+// keeps other transactions out of that window, so the write here runs inside
+// the repeat connect's own transaction.
 func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatConnectWritesOnlyTheColumnsItOwns() {
 	owner := suite.linkedForRepeatConnect("repeat-connect-columns@example.com", "repeat-connect-columns-subject")
 	writtenAfterRead := time.Date(2032, 3, 1, 0, 0, 0, 0, time.UTC)
 
 	svc, ran := suite.serviceWithWriteBeforeItsFirstUpdate(func(inFlight *gorm.DB) {
 		suite.Require().NoError(inFlight.Session(&gorm.Session{NewDB: true}).Exec(
-			"UPDATE oauth_accounts SET expires_at = ?, created_at = ? WHERE user_id = ? AND provider = ?",
-			writtenAfterRead, writtenAfterRead, owner.ID, "google").Error)
+			"UPDATE oauth_accounts SET created_at = ? WHERE user_id = ? AND provider = ?",
+			writtenAfterRead, owner.ID, "google").Error)
 	})
 
-	_, err := svc.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
-		UserID:       "repeat-connect-columns-subject",
-		Email:        "repeat-connect-columns-new@example.com",
-		AccessToken:  "hooked-access",
-		RefreshToken: "hooked-refresh",
-	}, "google")
+	_, err := svc.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, withProviderCredentials(goth.User{
+		UserID: "repeat-connect-columns-subject",
+		Email:  "repeat-connect-columns-new@example.com",
+	}), "google")
 	suite.Require().NoError(err)
 	suite.Require().True(*ran)
 
 	got := suite.storedGoogleAccount(owner.ID)
-	suite.Require().NotNil(got.ExpiresAt)
-	suite.WithinDuration(writtenAfterRead, *got.ExpiresAt, 0, "expires_at is not written when the provider sent none")
 	suite.WithinDuration(writtenAfterRead, got.CreatedAt, 0, "created_at is never written by a repeat connect")
 	suite.Equal("repeat-connect-columns-new@example.com", *got.ProviderEmail)
-	suite.Equal("hooked-access", *got.AccessToken)
-	suite.Equal("hooked-refresh", *got.RefreshToken)
+	suite.requireNoProviderCredential(got)
 }
 
-func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatConnectRefreshesProfileTokensAndExpiry() {
+func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatConnectRefreshesTheProfile() {
 	owner := suite.linkedForRepeatConnect("repeat-connect-refresh@example.com", "repeat-connect-refresh-subject")
 	before := suite.storedGoogleAccount(owner.ID)
-	refreshedExpiry := time.Date(2033, 2, 1, 0, 0, 0, 0, time.UTC)
 
-	linked, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
-		UserID:       "repeat-connect-refresh-subject",
-		Email:        "repeat-connect-refresh-new@example.com",
-		Name:         "Refreshed Name",
-		AvatarURL:    "https://example.com/refreshed.png",
-		AccessToken:  "refreshed-access",
-		RefreshToken: "refreshed-refresh",
-		ExpiresAt:    refreshedExpiry,
-	}, "google")
+	linked, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, withProviderCredentials(goth.User{
+		UserID:    "repeat-connect-refresh-subject",
+		Email:     "repeat-connect-refresh-new@example.com",
+		Name:      "Refreshed Name",
+		AvatarURL: "https://example.com/refreshed.png",
+	}), "google")
 	suite.Require().NoError(err)
 	suite.Equal(owner.ID, linked.ID)
 	suite.Require().Len(linked.OAuthAccounts, 1)
@@ -192,9 +171,6 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 	suite.Equal("repeat-connect-refresh-new@example.com", *got.ProviderEmail)
 	suite.Equal("Refreshed Name", *got.ProviderName)
 	suite.Equal("https://example.com/refreshed.png", *got.ProviderAvatarURL)
-	suite.Equal("refreshed-access", *got.AccessToken)
-	suite.Equal("refreshed-refresh", *got.RefreshToken)
-	suite.Require().NotNil(got.ExpiresAt)
-	suite.WithinDuration(refreshedExpiry, *got.ExpiresAt, 0)
+	suite.requireNoProviderCredential(got)
 	suite.True(got.UpdatedAt.After(before.UpdatedAt), "updated_at advances on a repeat connect")
 }
