@@ -1,8 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type MouseEvent } from 'react'
 import * as Sentry from '@sentry/nextjs'
-import { useSignOutEverywhereElse } from '@/features/auth'
+import {
+  calendarLinkWasResetBy,
+  useCalendarFeedStatus,
+  useSignOutEverywhereElse,
+} from '@/features/auth'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -15,7 +19,18 @@ import {
 } from '@/components/ui/dialog'
 import { AlertCircle, AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { SETTINGS_ANCHOR_SCROLL_MT, useAnchorScroll } from './useAnchorScroll'
+import { isPlainNavigationClick } from '@/components/shared/paginationChrome'
+import { findNearestAnchorTarget } from '@/features/settings/anchorTargets'
+import { PERSONAL_FEED_TOKEN_REVOKED_EVENT } from '@/features/collections/components/personalFeedTokenEvents'
+import {
+  CALENDAR_FEED_SETTINGS_ANCHOR,
+  CALENDAR_FEED_SETTINGS_HREF,
+} from './calendar-feed-anchor'
+import {
+  SETTINGS_ANCHOR_SCROLL_MT,
+  revealAnchorTarget,
+  useAnchorScroll,
+} from './useAnchorScroll'
 
 /** The Settings sessions card's fragment. */
 export const SESSIONS_SETTINGS_ANCHOR = 'sessions'
@@ -24,23 +39,64 @@ export const SESSIONS_SETTINGS_ANCHOR = 'sessions'
 export const SESSIONS_SETTINGS_HREF = `/profile?tab=settings#${SESSIONS_SETTINGS_ANCHOR}`
 
 /**
+ * "Calendar" in the success line: a plain click reveals this page's calendar
+ * card without a navigation; any other click, or a page without the card,
+ * follows the href.
+ */
+function CalendarCardLink() {
+  const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (!isPlainNavigationClick(event)) return
+    const target = findNearestAnchorTarget(event.currentTarget, CALENDAR_FEED_SETTINGS_ANCHOR)
+    if (!target) return
+    event.preventDefault()
+    revealAnchorTarget(target)
+  }
+
+  return (
+    <a href={CALENDAR_FEED_SETTINGS_HREF} onClick={handleClick} className="underline underline-offset-4">
+      Calendar
+    </a>
+  )
+}
+
+/**
  * Sessions card: signs out every other device and browser, and keeps this
  * one signed in, because the response that signs the others out renews this
  * browser's session in the same step.
  *
- * Calendar-feed tokens are separate credentials the backend leaves in place,
- * which is what the line under the button tells the reader.
+ * The same step deletes the account's calendar link. The line under the
+ * button says so only while the feed status confirms there is a link, and the
+ * success line says a link was reset only when the status read after the
+ * action carries this action's reset marker, which the backend leaves only
+ * when a calendar app had been reading the link. An unknown status (loading or
+ * failed) adds no calendar sentence either way.
  */
 export function SessionsSettings() {
   const signOutEverywhereElse = useSignOutEverywhereElse()
+  // The mutation's own success resets this query, so after a success it
+  // holds only a status read after the action.
+  const { data: feedStatus } = useCalendarFeedStatus()
   const [confirmOpen, setConfirmOpen] = useState(false)
   const anchorRef = useAnchorScroll(SESSIONS_SETTINGS_ANCHOR)
+
+  const staysSignedInLine =
+    feedStatus?.has_token === true
+      ? 'This device stays signed in. Your calendar link is reset too.'
+      : 'This device stays signed in.'
+  const calendarLinkWasReset =
+    signOutEverywhereElse.isSuccess &&
+    calendarLinkWasResetBy(feedStatus, 'sign_out_everywhere')
 
   const handleConfirm = () => {
     signOutEverywhereElse.mutate(undefined, {
       // Closed either way, so the outcome line on the card is what the reader
       // sees next.
       onSettled: () => setConfirmOpen(false),
+      // The link is gone whether or not an app had read it, so a link this
+      // page minted and still shows is withdrawn from the calendar card.
+      onSuccess: () => {
+        window.dispatchEvent(new CustomEvent(PERSONAL_FEED_TOKEN_REVOKED_EVENT))
+      },
       onError: error => {
         Sentry.captureException(error, {
           level: 'warning',
@@ -67,10 +123,18 @@ export function SessionsSettings() {
         {signOutEverywhereElse.isSuccess && (
           <div
             role="status"
-            className="flex items-center gap-2 rounded-md bg-success p-3 text-sm text-success-foreground"
+            className="flex items-start gap-2 rounded-md bg-success p-3 text-sm text-success-foreground"
           >
-            <CheckCircle2 className="h-4 w-4 shrink-0" />
-            <span>Signed out everywhere else. This device is still signed in.</span>
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              Signed out everywhere else. This device is still signed in.
+              {calendarLinkWasReset && (
+                <>
+                  {' '}Your calendar link was reset too; add it again under{' '}
+                  <CalendarCardLink /> on this page.
+                </>
+              )}
+            </span>
           </div>
         )}
 
@@ -93,9 +157,7 @@ export function SessionsSettings() {
           Sign out everywhere else
         </Button>
 
-        <p className="text-xs text-muted-foreground">
-          This device stays signed in. Calendar feeds keep working.
-        </p>
+        <p className="text-xs text-muted-foreground">{staysSignedInLine}</p>
 
         <Dialog
           open={confirmOpen}
@@ -111,8 +173,7 @@ export function SessionsSettings() {
               </DialogTitle>
               <DialogDescription>
                 Every other device and browser signed in to your account will be
-                signed out and will need to sign in again. This device stays
-                signed in. Calendar feeds keep working.
+                signed out and will need to sign in again. {staysSignedInLine}
               </DialogDescription>
             </DialogHeader>
             <DialogFooter className="gap-2 sm:gap-0">

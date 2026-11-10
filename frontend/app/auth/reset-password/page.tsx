@@ -6,13 +6,19 @@ import Link from 'next/link'
 import { useForm } from '@tanstack/react-form'
 import type { z } from 'zod'
 import { AlertCircle, Loader2, ServerCrash, User } from 'lucide-react'
-import { useCheckPasswordReset, useCompletePasswordReset } from '@/features/auth'
+import {
+  calendarLinkWasResetBy,
+  useCalendarFeedStatus,
+  useCheckPasswordReset,
+  useCompletePasswordReset,
+} from '@/features/auth'
 import { AccountRecoverableMessage } from '@/app/auth/_components/account-recoverable-message'
 import { PasswordInput } from '@/features/auth/components/settings/password-input'
 import { newPasswordWithConfirmSchema } from '@/features/auth/components/settings/password-rules'
 import { formatPasswordConfirmError } from '@/features/auth/components/settings/password-confirm-errors'
 import { SESSIONS_SETTINGS_HREF } from '@/features/auth/components/settings/sessions'
 import { PASSWORD_SETTINGS_HREF } from '@/features/auth/components/settings/password-settings'
+import { CALENDAR_FEED_SETTINGS_HREF } from '@/features/auth/components/settings/calendar-feed-anchor'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import {
   AuthErrorCode,
@@ -120,13 +126,36 @@ function LinkNoLongerWorks() {
   )
 }
 
-/** State 4A: the password is set, this browser is signed in, the rest are not. */
+/**
+ * State 4A: the password is set, this browser is signed in, the rest are not.
+ *
+ * The reset also deleted the calendar link. The line says so only when the
+ * feed status carries a password-reset marker, which the backend leaves only
+ * when a calendar app had been reading the link. This card mounts once the
+ * reset has succeeded, and that success resets the cached status, so the
+ * status read here is one made after the reset.
+ */
 function PasswordResetDone() {
+  const { data: feedStatus } = useCalendarFeedStatus()
+  const calendarLinkWasReset = calendarLinkWasResetBy(feedStatus, 'password_reset')
+
   return (
     <StateCard kicker="Password reset · signed in" title="New password set.">
       <p className="text-sm leading-[22px] text-foreground">
         You&apos;re signed in on this device. Every other device was signed out. Your passkeys
         still work.
+        {calendarLinkWasReset && (
+          <>
+            {' '}Your calendar link was reset too; add it again in{' '}
+            <Link
+              href={CALENDAR_FEED_SETTINGS_HREF}
+              className="text-link underline underline-offset-4"
+            >
+              Settings
+            </Link>
+            .
+          </>
+        )}
       </p>
       <div className="flex flex-wrap items-center gap-3">
         <Button asChild>

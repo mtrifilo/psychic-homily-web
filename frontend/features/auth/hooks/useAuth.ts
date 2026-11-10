@@ -32,6 +32,7 @@ import {
 } from '@/lib/errors'
 import type { NavMode } from '@/lib/nav-mode'
 import { forgetAccountCreatedThisSession } from '../accountCreatedMarker'
+import { refreshCalendarAfterLinkRevocation } from './useCalendarFeed'
 import type { AuthApiUser } from '../authUser'
 import type { APIToken } from '../types'
 import type { components } from '@/types/api'
@@ -874,11 +875,14 @@ type SignOutEverywhereElseResponse =
 /**
  * Sign out every other session the account holds. The response renews this
  * browser's session cookie in the same step, so the signed-in profile is
- * unchanged and nothing is refetched. Any failure rejects: a 5xx means no
- * session was signed out, and a 401 means this session had itself been
- * signed out by then and its cookie is cleared.
+ * unchanged and is not refetched. The same step deletes the calendar feed
+ * link, so the calendar caches are refreshed. Any failure rejects: a 5xx
+ * means no session was signed out, and a 401 means this session had itself
+ * been signed out by then and its cookie is cleared.
  */
 export const useSignOutEverywhereElse = () => {
+  const queryClient = useQueryClient()
+
   return useMutation({
     mutationKey: sessionChangeKey('sign-out-everywhere-else'),
     mutationFn: async (): Promise<SignOutEverywhereElseResponse> => {
@@ -898,6 +902,8 @@ export const useSignOutEverywhereElse = () => {
     },
     onSuccess: data => {
       authLogger.info('Signed out everywhere else', undefined, data.request_id)
+      // Not awaited: the mutation settles without waiting on the refetch.
+      void refreshCalendarAfterLinkRevocation(queryClient)
     },
   })
 }
@@ -1082,7 +1088,8 @@ export const useCheckPasswordReset = (token: string | null) => {
 /**
  * Set a new password with an emailed reset link. Success signs every other
  * session out and signs this browser in, so the profile is brought up to
- * date with the new session before the mutation settles.
+ * date with the new session before the mutation settles. It also deletes the
+ * calendar feed link, so the calendar caches are refreshed.
  */
 export const useCompletePasswordReset = () => {
   const queryClient = useQueryClient()
@@ -1110,6 +1117,9 @@ export const useCompletePasswordReset = () => {
     },
     onSuccess: async data => {
       authLogger.info('Password reset', undefined, data.request_id)
+      // Not awaited: its reset is synchronous, and the refetch need not hold
+      // the mutation open.
+      void refreshCalendarAfterLinkRevocation(queryClient)
       await refreshCachesForNewSession(queryClient)
     },
   })

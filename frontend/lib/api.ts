@@ -128,6 +128,9 @@ export const API_ENDPOINTS = {
   // Calendar feed endpoints
   CALENDAR: {
     TOKEN: `${API_BASE_URL}/calendar/token`,
+    // The token status without the feed addresses, for a surface that only
+    // says whether a calendar is connected or its link was reset.
+    FEED_STATUS: `${API_BASE_URL}/calendar/token/feed-status`,
     // One-shot .ics of the signed-in user's upcoming saved shows. It needs the
     // session, unlike the token feed URLs, so a calendar app cannot subscribe
     // to it.

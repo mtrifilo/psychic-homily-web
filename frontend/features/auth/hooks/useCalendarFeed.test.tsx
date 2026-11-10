@@ -12,6 +12,7 @@ vi.mock('@/lib/api', () => ({
   API_ENDPOINTS: {
     CALENDAR: {
       TOKEN: '/calendar/token',
+      FEED_STATUS: '/calendar/token/feed-status',
     },
   },
   API_BASE_URL: 'http://localhost:8080',
@@ -23,6 +24,7 @@ vi.mock('@/lib/queryClient', () => ({
     calendar: {
       all: ['calendar'],
       tokenStatus: ['calendar', 'tokenStatus'],
+      feedStatus: ['calendar', 'feedStatus'],
     },
   },
   createInvalidateQueries: () => ({
@@ -32,10 +34,106 @@ vi.mock('@/lib/queryClient', () => ({
 
 // Import hooks after mocks are set up
 import {
+  calendarLinkWasResetBy,
+  refreshCalendarAfterLinkRevocation,
+  useCalendarFeedStatus,
   useCalendarTokenStatus,
   useCreateCalendarToken,
   useDeleteCalendarToken,
 } from './useCalendarFeed'
+
+describe('useCalendarFeedStatus', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApiRequest.mockReset()
+  })
+
+  it('reads the feed status without the feed addresses', async () => {
+    const status = { has_token: true, created_at: '2026-11-01T12:00:00Z' }
+    mockApiRequest.mockResolvedValueOnce(status)
+
+    const { result } = renderHook(() => useCalendarFeedStatus(), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.data).toEqual(status)
+    expect(mockApiRequest).toHaveBeenCalledWith('/calendar/token/feed-status', {
+      method: 'GET',
+    })
+  })
+
+  it('does not fetch when enabled is false', () => {
+    const { result } = renderHook(() => useCalendarFeedStatus(false), {
+      wrapper: createWrapper(),
+    })
+
+    expect(result.current.fetchStatus).toBe('idle')
+    expect(mockApiRequest).not.toHaveBeenCalled()
+  })
+})
+
+describe('calendarLinkWasResetBy', () => {
+  const marker = {
+    has_token: false,
+    link_reset_at: '2026-11-10T12:00:00Z',
+    link_reset_reason: 'sign_out_everywhere' as const,
+  }
+
+  it('is true only for a marker left by the named action', () => {
+    expect(calendarLinkWasResetBy(marker, 'sign_out_everywhere')).toBe(true)
+    expect(calendarLinkWasResetBy(marker, 'password_reset')).toBe(false)
+  })
+
+  it('is false without a marker or without a status', () => {
+    expect(calendarLinkWasResetBy({ has_token: false }, 'sign_out_everywhere')).toBe(false)
+    expect(calendarLinkWasResetBy({ has_token: true }, 'password_reset')).toBe(false)
+    expect(calendarLinkWasResetBy(undefined, 'sign_out_everywhere')).toBe(false)
+  })
+})
+
+describe('refreshCalendarAfterLinkRevocation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApiRequest.mockReset()
+  })
+
+  it('drops the feed status read before the action and refetches the token status in place', async () => {
+    const queryClient = createTestQueryClient()
+    // Nothing observes these, so they are kept from garbage collection; a
+    // removal is then the helper's, not the test client's.
+    queryClient.setQueryDefaults(['calendar'], { gcTime: Infinity })
+    queryClient.setQueryData(['calendar', 'feedStatus'], { has_token: true })
+    queryClient.setQueryData(['calendar', 'tokenStatus'], { has_token: true })
+
+    await refreshCalendarAfterLinkRevocation(queryClient)
+
+    expect(queryClient.getQueryData(['calendar', 'feedStatus'])).toBeUndefined()
+    expect(queryClient.getQueryData(['calendar', 'tokenStatus'])).toEqual({ has_token: true })
+    expect(queryClient.getQueryState(['calendar', 'tokenStatus'])?.isInvalidated).toBe(true)
+  })
+
+  it('discards a feed-status read that was in flight when the action succeeded', async () => {
+    const queryClient = createTestQueryClient()
+    let answerStaleRead: (value: unknown) => void = () => {}
+    mockApiRequest
+      .mockImplementationOnce(() => new Promise(resolve => { answerStaleRead = resolve }))
+      .mockResolvedValueOnce({ has_token: false })
+
+    const { result } = renderHook(() => useCalendarFeedStatus(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+    await waitFor(() => expect(mockApiRequest).toHaveBeenCalledTimes(1))
+
+    await act(async () => {
+      await refreshCalendarAfterLinkRevocation(queryClient)
+    })
+    answerStaleRead({ has_token: true })
+
+    await waitFor(() => expect(result.current.data).toEqual({ has_token: false }))
+    expect(mockApiRequest).toHaveBeenCalledTimes(2)
+  })
+})
 
 describe('useCalendarTokenStatus', () => {
   beforeEach(() => {

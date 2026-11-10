@@ -37,6 +37,9 @@ import { AlertSettings } from './alert-settings'
 import { NotificationSettings } from './notification-settings'
 import { ReplyPermissionSettings } from './reply-permission-settings'
 import { CalendarFeedSection, FollowsActivityFeedSection } from '@/features/collections'
+import { cn } from '@/lib/utils'
+import { CALENDAR_FEED_SETTINGS_ANCHOR } from './calendar-feed-anchor'
+import { SETTINGS_ANCHOR_SCROLL_MT, useAnchorScroll } from './useAnchorScroll'
 import { useAutoDismissBanner } from '@/lib/hooks/common'
 import { CredentialErrorMessage } from '@/components/shared/CredentialErrorMessage'
 
@@ -78,6 +81,7 @@ export function SettingsPanel() {
   const exportData = useExportData()
   const generateCLIToken = useGenerateCLIToken()
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const calendarFeedAnchorRef = useAnchorScroll(CALENDAR_FEED_SETTINGS_ANCHOR)
   const [cliToken, setCLIToken] = useState<string | null>(null)
   const [cliTokenLifetimeSeconds, setCLITokenLifetimeSeconds] = useState<number | null>(null)
   // Shared auto-dismiss primitive rather than a hand-rolled timer, which must
@@ -196,8 +200,15 @@ export function SettingsPanel() {
 
       <NotificationSettings />
 
-      {/* Saved-shows iCal feed (PSY-1430) — not on board J; kept after Notifications */}
-      <Card>
+      {/* Saved-shows iCal feed (PSY-1430), not on board J; kept after Notifications.
+          The anchor is on this shell, not inside CalendarFeedSection, which
+          renders nothing while it loads, so the fragment always resolves. */}
+      <Card
+        ref={calendarFeedAnchorRef}
+        id={CALENDAR_FEED_SETTINGS_ANCHOR}
+        tabIndex={-1}
+        className={cn(SETTINGS_ANCHOR_SCROLL_MT, 'focus:outline-none')}
+      >
         <CardHeader>
           <CardTitle className="text-base">Calendar feed</CardTitle>
           <CardDescription>
