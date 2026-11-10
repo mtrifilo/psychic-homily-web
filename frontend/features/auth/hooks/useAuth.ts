@@ -32,7 +32,7 @@ import {
 } from '@/lib/errors'
 import type { NavMode } from '@/lib/nav-mode'
 import { forgetAccountCreatedThisSession } from '../accountCreatedMarker'
-import { refreshCalendarAfterLinkRevocation } from './useCalendarFeed'
+import { forgetRevokedCalendarLink } from './useCalendarFeed'
 import type { AuthApiUser } from '../authUser'
 import type { APIToken } from '../types'
 import type { components } from '@/types/api'
@@ -903,7 +903,7 @@ export const useSignOutEverywhereElse = () => {
     onSuccess: data => {
       authLogger.info('Signed out everywhere else', undefined, data.request_id)
       // Not awaited: the mutation settles without waiting on the refetch.
-      void refreshCalendarAfterLinkRevocation(queryClient)
+      void forgetRevokedCalendarLink(queryClient)
     },
   })
 }
@@ -1119,7 +1119,7 @@ export const useCompletePasswordReset = () => {
       authLogger.info('Password reset', undefined, data.request_id)
       // Not awaited: its reset is synchronous, and the refetch need not hold
       // the mutation open.
-      void refreshCalendarAfterLinkRevocation(queryClient)
+      void forgetRevokedCalendarLink(queryClient)
       await refreshCachesForNewSession(queryClient)
     },
   })

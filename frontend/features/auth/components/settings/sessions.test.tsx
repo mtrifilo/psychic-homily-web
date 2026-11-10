@@ -323,6 +323,39 @@ describe('SessionsSettings', () => {
       expect(screen.getByRole('status').textContent).toBe(SUCCESS_LINE)
     })
 
+    // The backend keeps a marker until a link is added again, and an action on
+    // an account with no link leaves it in place: the read after this action
+    // returns the earlier action's marker unchanged.
+    it('ignores a marker an earlier sign-out left when there was no link to reset', async () => {
+      mockFeedStatusRequest.mockResolvedValue(RESET_BY_SIGN_OUT)
+      mockSignOutRequest.mockResolvedValueOnce({ success: true })
+      const user = userEvent.setup()
+      renderWithProviders(<SessionsSettings />)
+      await waitFor(() => expect(mockFeedStatusRequest).toHaveBeenCalledTimes(1))
+      expect(screen.getByText(HELPER_LINE)).toBeInTheDocument()
+
+      await confirmSignOut(user)
+
+      await waitFor(() => expect(mockFeedStatusRequest).toHaveBeenCalledTimes(2))
+      await waitFor(() => expect(screen.getByRole('status').textContent).toBe(SUCCESS_LINE))
+      expect(screen.queryByRole('link', { name: 'Calendar' })).not.toBeInTheDocument()
+    })
+
+    it('makes no reset claim when the status was unknown as the action was confirmed', async () => {
+      // The first read never answers, so the card cannot know a link existed.
+      mockFeedStatusRequest
+        .mockImplementationOnce(() => new Promise(() => {}))
+        .mockResolvedValue(RESET_BY_SIGN_OUT)
+      mockSignOutRequest.mockResolvedValueOnce({ success: true })
+      const user = userEvent.setup()
+      renderWithProviders(<SessionsSettings />)
+
+      await confirmSignOut(user)
+
+      await waitFor(() => expect(mockFeedStatusRequest).toHaveBeenCalledTimes(2))
+      await waitFor(() => expect(screen.getByRole('status').textContent).toBe(SUCCESS_LINE))
+    })
+
     it('shows the shipped line when the status cannot be read after the action', async () => {
       mockFeedStatusRequest
         .mockResolvedValueOnce(HAS_LINK)

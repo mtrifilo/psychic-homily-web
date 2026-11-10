@@ -132,7 +132,10 @@ function LinkNoLongerWorks() {
  * The reset also deleted the calendar link. The line says so only when the
  * feed status carries the password reset's marker. This card mounts once the
  * reset has succeeded, and that success resets the cached status, so the
- * status read here is one made after the reset.
+ * status read here is one made after the reset. The reader was signed out
+ * before the reset, so the page cannot tell this reset's marker from one an
+ * earlier reset left on an account with no link added since; the line shows
+ * for both.
  */
 function PasswordResetDone() {
   const { data: feedStatus } = useCalendarFeedStatus()

@@ -60,6 +60,12 @@ export const useCalendarFeedStatus = (enabled: boolean = true) => {
  * link. The backend leaves one only when a calendar app had been reading the
  * link, so a link nobody used yields false. Unknown status (loading or failed)
  * is false too: the reader is never told about a reset that was not confirmed.
+ *
+ * The marker outlives the action that left it, until a link is added again
+ * or the feed is turned off, and a later action on an account with no link
+ * leaves it as it is. So it says that SOME action of this kind reset a link;
+ * a caller that can see the status from before its action should also require
+ * that a link existed then.
  */
 export function calendarLinkWasResetBy(
   status: CalendarFeedStatusResponse | undefined,
@@ -83,7 +89,7 @@ export function calendarLinkWasResetBy(
  *
  * Never rejects.
  */
-export function refreshCalendarAfterLinkRevocation(
+export function forgetRevokedCalendarLink(
   queryClient: QueryClient
 ): Promise<unknown> {
   window.dispatchEvent(new CustomEvent(PERSONAL_FEED_TOKEN_REVOKED_EVENT))

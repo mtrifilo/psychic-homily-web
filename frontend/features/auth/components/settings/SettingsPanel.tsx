@@ -200,9 +200,9 @@ export function SettingsPanel() {
 
       <NotificationSettings />
 
-      {/* Saved-shows iCal feed (PSY-1430), not on board J; kept after Notifications.
-          The anchor is on this shell, not inside CalendarFeedSection, which
-          renders nothing while it loads, so the fragment always resolves. */}
+      {/* Saved-shows iCal feed. The anchor is on this shell, not inside
+          CalendarFeedSection, which renders nothing while it loads, so the
+          fragment always resolves. */}
       <Card
         ref={calendarFeedAnchorRef}
         id={CALENDAR_FEED_SETTINGS_ANCHOR}

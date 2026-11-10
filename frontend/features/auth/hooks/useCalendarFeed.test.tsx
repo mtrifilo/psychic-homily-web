@@ -37,7 +37,7 @@ import { PERSONAL_FEED_TOKEN_REVOKED_EVENT } from '@/features/collections/compon
 // Import hooks after mocks are set up
 import {
   calendarLinkWasResetBy,
-  refreshCalendarAfterLinkRevocation,
+  forgetRevokedCalendarLink,
   useCalendarFeedStatus,
   useCalendarTokenStatus,
   useCreateCalendarToken,
@@ -94,7 +94,7 @@ describe('calendarLinkWasResetBy', () => {
   })
 })
 
-describe('refreshCalendarAfterLinkRevocation', () => {
+describe('forgetRevokedCalendarLink', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
@@ -108,7 +108,7 @@ describe('refreshCalendarAfterLinkRevocation', () => {
     queryClient.setQueryData(['calendar', 'feedStatus'], { has_token: true })
     queryClient.setQueryData(['calendar', 'tokenStatus'], { has_token: true })
 
-    await refreshCalendarAfterLinkRevocation(queryClient)
+    await forgetRevokedCalendarLink(queryClient)
 
     expect(queryClient.getQueryData(['calendar', 'feedStatus'])).toBeUndefined()
     expect(queryClient.getQueryData(['calendar', 'tokenStatus'])).toEqual({ has_token: true })
@@ -119,7 +119,7 @@ describe('refreshCalendarAfterLinkRevocation', () => {
     const onRevoked = vi.fn()
     window.addEventListener(PERSONAL_FEED_TOKEN_REVOKED_EVENT, onRevoked)
     try {
-      await refreshCalendarAfterLinkRevocation(createTestQueryClient())
+      await forgetRevokedCalendarLink(createTestQueryClient())
       expect(onRevoked).toHaveBeenCalledTimes(1)
     } finally {
       window.removeEventListener(PERSONAL_FEED_TOKEN_REVOKED_EVENT, onRevoked)
@@ -139,7 +139,7 @@ describe('refreshCalendarAfterLinkRevocation', () => {
     await waitFor(() => expect(mockApiRequest).toHaveBeenCalledTimes(1))
 
     await act(async () => {
-      await refreshCalendarAfterLinkRevocation(queryClient)
+      await forgetRevokedCalendarLink(queryClient)
     })
     answerStaleRead({ has_token: true })
 
