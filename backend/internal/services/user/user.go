@@ -739,11 +739,11 @@ func AttachOAuthIdentityTx(tx *gorm.DB, userID uint, provider string, gothUser g
 		return err
 	}
 	if held != nil {
-		// The write names the columns applyGothUserToOAuthAccount set (GORM
+		// The write names the columns applyGothProfileToOAuthAccount set (GORM
 		// adds updated_at) rather than using Save: Save writes back every
 		// column it read, and turns an update that matches no row into an
 		// insert.
-		refreshed := applyGothUserToOAuthAccount(held, gothUser)
+		refreshed := applyGothProfileToOAuthAccount(held, gothUser)
 		if err := tx.Model(held).Select(refreshed).Updates(held).Error; err != nil {
 			return fmt.Errorf("failed to update OAuth account: %w", err)
 		}
@@ -755,7 +755,7 @@ func AttachOAuthIdentityTx(tx *gorm.DB, userID uint, provider string, gothUser g
 		Provider:       provider,
 		ProviderUserID: gothUser.UserID,
 	}
-	applyGothUserToOAuthAccount(oauthAccount, gothUser)
+	applyGothProfileToOAuthAccount(oauthAccount, gothUser)
 	err = tx.Transaction(func(sp *gorm.DB) error { return sp.Create(oauthAccount).Error })
 	if err == nil || !errors.Is(err, gorm.ErrDuplicatedKey) {
 		if err != nil {
@@ -820,25 +820,18 @@ func checkOAuthIdentityAttach(tx *gorm.DB, userID uint, provider, subject string
 	return nil, nil
 }
 
-// applyGothUserToOAuthAccount copies the provider's profile and tokens onto an
+// applyGothProfileToOAuthAccount copies the provider's profile onto an
 // oauth_accounts row and returns the columns it set. It deliberately leaves
 // ProviderUserID alone: the subject is the identity a row is keyed on, and
 // rewriting it retargets which provider account signs in as the row's owner.
 //
-// ExpiresAt is set only when the provider supplied one, so a provider that
-// stops sending an expiry does not blank a stored value.
-func applyGothUserToOAuthAccount(account *authm.OAuthAccount, gothUser goth.User) []string {
+// The provider's access token, refresh token and their expiry are never
+// copied: nothing reads them, and a credential that is not stored cannot leak.
+func applyGothProfileToOAuthAccount(account *authm.OAuthAccount, gothUser goth.User) []string {
 	account.ProviderEmail = &gothUser.Email
 	account.ProviderName = &gothUser.Name
 	account.ProviderAvatarURL = &gothUser.AvatarURL
-	account.AccessToken = &gothUser.AccessToken
-	account.RefreshToken = &gothUser.RefreshToken
-	columns := []string{"provider_email", "provider_name", "provider_avatar_url", "access_token", "refresh_token"}
-	if !gothUser.ExpiresAt.IsZero() {
-		account.ExpiresAt = &gothUser.ExpiresAt
-		columns = append(columns, "expires_at")
-	}
-	return columns
+	return []string{"provider_email", "provider_name", "provider_avatar_url"}
 }
 
 // reloadUserWithRelations returns the user as callers of the OAuth paths

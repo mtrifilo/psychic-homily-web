@@ -52,6 +52,10 @@ func SetupGoth(cfg *config.Config) error {
 			cfg.OAuth.GoogleClientSecret,
 			cfg.OAuth.GoogleCallbackURL,
 		)
+		// The access token is used once, inside the callback, to read the
+		// profile, and no token is stored, so Google is not asked for the
+		// offline access that mints a refresh token. goth's default asks for it.
+		googleProvider.SetAccessType("online")
 		providers = append(providers, googleProvider)
 		log.Printf("DEBUG: Google provider configured with callback URL: %s", cfg.OAuth.GoogleCallbackURL)
 	}

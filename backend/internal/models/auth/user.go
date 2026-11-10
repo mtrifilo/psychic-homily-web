@@ -105,9 +105,9 @@ type OAuthAccount struct {
 	ProviderEmail     *string    `json:"provider_email"`
 	ProviderName      *string    `json:"provider_name"`
 	ProviderAvatarURL *string    `json:"provider_avatar_url"`
-	AccessToken       *string    `json:"-" gorm:"column:access_token"`  // Hidden from JSON
-	RefreshToken      *string    `json:"-" gorm:"column:refresh_token"` // Hidden from JSON
-	ExpiresAt         *time.Time `json:"expires_at"`
+	AccessToken       *string    `json:"-" gorm:"column:access_token"`  // Always NULL: provider tokens are not stored
+	RefreshToken      *string    `json:"-" gorm:"column:refresh_token"` // Always NULL: provider tokens are not stored
+	ExpiresAt         *time.Time `json:"expires_at"`                    // Always NULL: the provider token's expiry is not stored
 	CreatedAt         time.Time  `json:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at"`
 
