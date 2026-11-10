@@ -32,6 +32,8 @@ vi.mock('@/lib/queryClient', () => ({
   }),
 }))
 
+import { PERSONAL_FEED_TOKEN_REVOKED_EVENT } from '@/features/collections/components/personalFeedTokenEvents'
+
 // Import hooks after mocks are set up
 import {
   calendarLinkWasResetBy,
@@ -111,6 +113,17 @@ describe('refreshCalendarAfterLinkRevocation', () => {
     expect(queryClient.getQueryData(['calendar', 'feedStatus'])).toBeUndefined()
     expect(queryClient.getQueryData(['calendar', 'tokenStatus'])).toEqual({ has_token: true })
     expect(queryClient.getQueryState(['calendar', 'tokenStatus'])?.isInvalidated).toBe(true)
+  })
+
+  it('tells the feed cards the link they may still show is gone', async () => {
+    const onRevoked = vi.fn()
+    window.addEventListener(PERSONAL_FEED_TOKEN_REVOKED_EVENT, onRevoked)
+    try {
+      await refreshCalendarAfterLinkRevocation(createTestQueryClient())
+      expect(onRevoked).toHaveBeenCalledTimes(1)
+    } finally {
+      window.removeEventListener(PERSONAL_FEED_TOKEN_REVOKED_EVENT, onRevoked)
+    }
   })
 
   it('discards a feed-status read that was in flight when the action succeeded', async () => {

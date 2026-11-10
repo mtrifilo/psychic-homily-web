@@ -3,7 +3,7 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { SettingsPanel } from './SettingsPanel'
-import { CALENDAR_FEED_SETTINGS_ANCHOR, CALENDAR_FEED_SETTINGS_HREF } from './calendar-feed-anchor'
+import { CALENDAR_FEED_SETTINGS_ANCHOR } from './calendar-feed-anchor'
 import {
   AuthError,
   AuthErrorCode,
@@ -248,7 +248,6 @@ describe('SettingsPanel', () => {
     expect(card).toHaveAttribute('tabindex', '-1')
     expect(card).toHaveTextContent('Calendar feed')
     expect(card).toContainElement(screen.getByTestId('calendar-feed-section'))
-    expect(CALENDAR_FEED_SETTINGS_HREF).toBe('/profile?tab=settings#calendar')
   })
 
   it('renders FollowsActivityFeedSection', () => {

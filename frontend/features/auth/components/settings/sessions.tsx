@@ -21,7 +21,6 @@ import { AlertCircle, AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { isPlainNavigationClick } from '@/components/shared/paginationChrome'
 import { findNearestAnchorTarget } from '@/features/settings/anchorTargets'
-import { PERSONAL_FEED_TOKEN_REVOKED_EVENT } from '@/features/collections/components/personalFeedTokenEvents'
 import {
   CALENDAR_FEED_SETTINGS_ANCHOR,
   CALENDAR_FEED_SETTINGS_HREF,
@@ -66,15 +65,12 @@ function CalendarCardLink() {
  *
  * The same step deletes the account's calendar link. The line under the
  * button says so only while the feed status confirms there is a link, and the
- * success line says a link was reset only when the status read after the
- * action carries this action's reset marker, which the backend leaves only
- * when a calendar app had been reading the link. An unknown status (loading or
- * failed) adds no calendar sentence either way.
+ * success line says a link was reset only when the status, which the action's
+ * success resets and reads again, carries this action's reset marker. An
+ * unknown status adds no calendar sentence either way.
  */
 export function SessionsSettings() {
   const signOutEverywhereElse = useSignOutEverywhereElse()
-  // The mutation's own success resets this query, so after a success it
-  // holds only a status read after the action.
   const { data: feedStatus } = useCalendarFeedStatus()
   const [confirmOpen, setConfirmOpen] = useState(false)
   const anchorRef = useAnchorScroll(SESSIONS_SETTINGS_ANCHOR)
@@ -92,11 +88,6 @@ export function SessionsSettings() {
       // Closed either way, so the outcome line on the card is what the reader
       // sees next.
       onSettled: () => setConfirmOpen(false),
-      // The link is gone whether or not an app had read it, so a link this
-      // page minted and still shows is withdrawn from the calendar card.
-      onSuccess: () => {
-        window.dispatchEvent(new CustomEvent(PERSONAL_FEED_TOKEN_REVOKED_EVENT))
-      },
       onError: error => {
         Sentry.captureException(error, {
           level: 'warning',

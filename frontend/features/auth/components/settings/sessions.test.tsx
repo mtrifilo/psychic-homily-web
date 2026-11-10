@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, onTestFinished } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createTestQueryClient, renderWithProviders } from '@/test/utils'
@@ -6,7 +6,6 @@ import { AuthError, AuthErrorCode } from '@/lib/errors'
 import { queryKeys } from '@/lib/queryClient'
 import { SESSIONS_SETTINGS_ANCHOR, SESSIONS_SETTINGS_HREF, SessionsSettings } from './sessions'
 import { CALENDAR_FEED_SETTINGS_ANCHOR, CALENDAR_FEED_SETTINGS_HREF } from './calendar-feed-anchor'
-import { PERSONAL_FEED_TOKEN_REVOKED_EVENT } from '@/features/collections/components/personalFeedTokenEvents'
 
 // The card runs on the real mutation and query hooks; only the requests are
 // stubbed, one stub per endpoint.
@@ -252,13 +251,6 @@ describe('SessionsSettings', () => {
   })
 
   describe('after the action', () => {
-    const scrollIntoView = vi.fn()
-
-    beforeEach(() => {
-      scrollIntoView.mockReset()
-      Element.prototype.scrollIntoView = scrollIntoView
-    })
-
     it('says the link was reset when the status read after the action carries this action\'s marker', async () => {
       mockFeedStatusRequest.mockResolvedValueOnce(HAS_LINK).mockResolvedValue(RESET_BY_SIGN_OUT)
       mockSignOutRequest.mockResolvedValueOnce({ success: true })
@@ -343,29 +335,17 @@ describe('SessionsSettings', () => {
       await confirmSignOut(user)
 
       await waitFor(() => expect(mockFeedStatusRequest).toHaveBeenCalledTimes(2))
-      expect(await screen.findByRole('status')).toHaveTextContent(SUCCESS_LINE)
-      expect(screen.getByRole('status').textContent).toBe(SUCCESS_LINE)
+      expect((await screen.findByRole('status')).textContent).toBe(SUCCESS_LINE)
       expect(screen.getByText(HELPER_LINE)).toBeInTheDocument()
     })
 
-    it('withdraws a link the calendar card on this page still shows', async () => {
-      mockSignOutRequest.mockResolvedValueOnce({ success: true })
-      const onRevoked = vi.fn()
-      window.addEventListener(PERSONAL_FEED_TOKEN_REVOKED_EVENT, onRevoked)
-      try {
-        const user = userEvent.setup()
-        renderWithProviders(<SessionsSettings />)
-
-        await confirmSignOut(user)
-
-        await screen.findByRole('status')
-        expect(onRevoked).toHaveBeenCalledTimes(1)
-      } finally {
-        window.removeEventListener(PERSONAL_FEED_TOKEN_REVOKED_EVENT, onRevoked)
-      }
-    })
-
     it('"Calendar" reveals this page\'s calendar card in place', async () => {
+      const scrollIntoView = vi.fn()
+      const originalScrollIntoView = Element.prototype.scrollIntoView
+      Element.prototype.scrollIntoView = scrollIntoView
+      onTestFinished(() => {
+        Element.prototype.scrollIntoView = originalScrollIntoView
+      })
       mockFeedStatusRequest.mockResolvedValueOnce(HAS_LINK).mockResolvedValue(RESET_BY_SIGN_OUT)
       mockSignOutRequest.mockResolvedValueOnce({ success: true })
       const user = userEvent.setup()

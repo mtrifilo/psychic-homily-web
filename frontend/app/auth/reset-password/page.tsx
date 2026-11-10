@@ -130,8 +130,7 @@ function LinkNoLongerWorks() {
  * State 4A: the password is set, this browser is signed in, the rest are not.
  *
  * The reset also deleted the calendar link. The line says so only when the
- * feed status carries a password-reset marker, which the backend leaves only
- * when a calendar app had been reading the link. This card mounts once the
+ * feed status carries the password reset's marker. This card mounts once the
  * reset has succeeded, and that success resets the cached status, so the
  * status read here is one made after the reset.
  */

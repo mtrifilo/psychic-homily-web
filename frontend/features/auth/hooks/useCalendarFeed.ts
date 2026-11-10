@@ -16,6 +16,7 @@ import type {
   CalendarTokenCreateResponse,
   CalendarTokenDeleteResponse,
 } from '@/features/shows'
+import { PERSONAL_FEED_TOKEN_REVOKED_EVENT } from '@/features/collections/components/personalFeedTokenEvents'
 
 /**
  * Hook to check if the user has a calendar feed token
@@ -55,9 +56,10 @@ export const useCalendarFeedStatus = (enabled: boolean = true) => {
 }
 
 /**
- * Whether `status` says `reason` reset a calendar link that an app had been
- * reading. Unknown status (loading or failed) is false: the reader is never
- * told about a reset that was not confirmed.
+ * Whether `status` carries the marker `reason` left when it reset the calendar
+ * link. The backend leaves one only when a calendar app had been reading the
+ * link, so a link nobody used yields false. Unknown status (loading or failed)
+ * is false too: the reader is never told about a reset that was not confirmed.
  */
 export function calendarLinkWasResetBy(
   status: CalendarFeedStatusResponse | undefined,
@@ -76,13 +78,15 @@ export function calendarLinkWasResetBy(
  * to the link can only ever read a status fetched after it. Resetting cancels
  * any fetch in flight, and an active query refetches at once. The token status
  * refetches in place instead, so the Settings calendar card keeps its content
- * on screen until the new answer lands.
+ * on screen until the new answer lands. The feed cards hold a link they just
+ * minted outside the cache, so they are told the link is gone as well.
  *
  * Never rejects.
  */
 export function refreshCalendarAfterLinkRevocation(
   queryClient: QueryClient
 ): Promise<unknown> {
+  window.dispatchEvent(new CustomEvent(PERSONAL_FEED_TOKEN_REVOKED_EVENT))
   return Promise.all([
     queryClient.resetQueries({ queryKey: queryKeys.calendar.feedStatus }),
     refetchAfterMutation(queryClient, queryKeys.calendar.tokenStatus),
