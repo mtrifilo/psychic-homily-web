@@ -64,8 +64,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_ReturningSignInStoresNoProvi
 }
 
 func (s *OAuthHandlerIntegrationSuite) TestLinkCallback_StoresNoProviderCredential() {
-	user := &authm.User{Email: strPtr("credentials-link@test.com"), IsActive: true, EmailVerified: true}
-	s.Require().NoError(s.deps.DB.Create(user).Error)
+	user := s.createLinkUser("credentials-link@test.com")
 	handler := s.newHandler(&mockOAuthCompleter{user: withProviderCredentials(goth.User{
 		Provider: "google",
 		UserID:   "google-credentials-link",

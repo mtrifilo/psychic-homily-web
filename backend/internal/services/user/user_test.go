@@ -446,8 +446,6 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_WithOAuthAcc
 		ProviderUserID: "google_oauth_test_123",
 		ProviderEmail:  stringPtr("oauthuser@example.com"),
 		ProviderName:   stringPtr("OAuth Test User"),
-		AccessToken:    stringPtr("test_access_token"),
-		RefreshToken:   stringPtr("test_refresh_token"),
 	}
 
 	err = suite.db.Create(oauthAccount).Error
@@ -521,8 +519,6 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_WithOAuthAnd
 		ProviderUserID: "github_full_test_456",
 		ProviderEmail:  stringPtr("fulluser@example.com"),
 		ProviderName:   stringPtr("Full Test User"),
-		AccessToken:    stringPtr("github_access_token"),
-		RefreshToken:   stringPtr("github_refresh_token"),
 	}
 
 	err = suite.db.Create(oauthAccount).Error

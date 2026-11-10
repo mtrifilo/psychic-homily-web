@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/markbates/goth"
-	"github.com/markbates/goth/gothic"
 
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/testlog"
@@ -15,20 +14,7 @@ import (
 // authorization URL asks for online access, so Google issues no refresh
 // token for a sign-in.
 func TestSetupGothAsksGoogleForOnlineAccessOnly(t *testing.T) {
-	// SetupGoth reads the process environment and assigns package-global
-	// stores and the goth provider registry; pin the one and restore the rest.
-	t.Setenv(EnableOAuthTestProviderEnvVar, "")
-	prevSessionStore := SessionStore
-	prevGothicStore := gothic.Store
-	prevProviders := goth.GetProviders()
-	t.Cleanup(func() {
-		SessionStore = prevSessionStore
-		gothic.Store = prevGothicStore
-		goth.ClearProviders()
-		for _, p := range prevProviders {
-			goth.UseProviders(p)
-		}
-	})
+	isolateGothGlobals(t)
 
 	cfg := &config.Config{}
 	cfg.OAuth.SecretKey = "test-oauth-secret-key"

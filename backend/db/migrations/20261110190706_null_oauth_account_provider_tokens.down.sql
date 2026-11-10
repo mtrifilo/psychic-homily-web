@@ -1,4 +1,3 @@
--- The up migration discarded the stored provider tokens and their expiry, and
--- nothing kept a copy, so this cannot restore them. The columns were never
--- dropped, so there is no schema to put back; this is a deliberate no-op.
+-- No-op. The up migration's change is irreversible: no copy of the provider
+-- tokens or their expiry exists to restore, and it alters no schema.
 SELECT 1;

@@ -13,16 +13,6 @@ import (
 // A repeat connect is LinkOAuthAccountToUser on an identity the account
 // already holds.
 
-// providerCredentials is what a real provider's goth.User carries beside the
-// profile: an access token, a refresh token and the token's expiry. None of it
-// is stored.
-func providerCredentials(user goth.User, tag string) goth.User {
-	user.AccessToken = tag + "-access"
-	user.RefreshToken = tag + "-refresh"
-	user.ExpiresAt = time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
-	return user
-}
-
 // linkedForRepeatConnect creates an account holding a google identity, linked
 // by a connect whose provider sent tokens and an expiry.
 func (suite *UserServiceIntegrationTestSuite) linkedForRepeatConnect(address, subject string) *authm.User {
@@ -31,7 +21,7 @@ func (suite *UserServiceIntegrationTestSuite) linkedForRepeatConnect(address, su
 	_, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, providerCredentials(goth.User{
 		UserID: subject,
 		Email:  address,
-	}, "stored"), "google")
+	}), "google")
 	suite.Require().NoError(err)
 	return owner
 }
@@ -85,7 +75,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 				Email:     "repeat-connect-race-concurrent@example.com",
 				Name:      "Concurrent Name",
 				AvatarURL: "https://example.com/concurrent.png",
-			}, "concurrent"), "google")
+			}), "google")
 			return err
 		})
 	})
@@ -95,7 +85,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 		Email:     "repeat-connect-race-hooked@example.com",
 		Name:      "Hooked Name",
 		AvatarURL: "https://example.com/hooked.png",
-	}, "hooked"), "google")
+	}), "google")
 	suite.Require().NoError(err)
 	suite.Require().True(*ran, "the concurrent connect must start before the repeat connect's write")
 	suite.awaitConcurrentWrite(concurrent)
@@ -122,7 +112,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 	_, err := svc.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, providerCredentials(goth.User{
 		UserID: "repeat-connect-unlink-subject",
 		Email:  "repeat-connect-unlink@example.com",
-	}, "hooked"), "google")
+	}), "google")
 	suite.Require().NoError(err)
 	suite.Require().True(*ran, "the unlink must start before the repeat connect's write")
 	suite.awaitConcurrentWrite(concurrent)
@@ -149,7 +139,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 	_, err := svc.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, providerCredentials(goth.User{
 		UserID: "repeat-connect-columns-subject",
 		Email:  "repeat-connect-columns-new@example.com",
-	}, "hooked"), "google")
+	}), "google")
 	suite.Require().NoError(err)
 	suite.Require().True(*ran)
 
@@ -168,7 +158,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 		Email:     "repeat-connect-refresh-new@example.com",
 		Name:      "Refreshed Name",
 		AvatarURL: "https://example.com/refreshed.png",
-	}, "refreshed"), "google")
+	}), "google")
 	suite.Require().NoError(err)
 	suite.Equal(owner.ID, linked.ID)
 	suite.Require().Len(linked.OAuthAccounts, 1)
