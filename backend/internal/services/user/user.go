@@ -827,11 +827,16 @@ func checkOAuthIdentityAttach(tx *gorm.DB, userID uint, provider, subject string
 //
 // The provider's access token, refresh token and their expiry are never
 // copied: nothing reads them, and a credential that is not stored cannot leak.
+// Their columns are set to NULL and named in the returned list, so every
+// attach also clears a credential the row already held.
 func applyGothProfileToOAuthAccount(account *authm.OAuthAccount, gothUser goth.User) []string {
 	account.ProviderEmail = &gothUser.Email
 	account.ProviderName = &gothUser.Name
 	account.ProviderAvatarURL = &gothUser.AvatarURL
-	return []string{"provider_email", "provider_name", "provider_avatar_url"}
+	account.AccessToken = nil
+	account.RefreshToken = nil
+	account.ExpiresAt = nil
+	return []string{"provider_email", "provider_name", "provider_avatar_url", "access_token", "refresh_token", "expires_at"}
 }
 
 // reloadUserWithRelations returns the user as callers of the OAuth paths

@@ -18,7 +18,7 @@ import (
 func (suite *UserServiceIntegrationTestSuite) linkedForRepeatConnect(address, subject string) *authm.User {
 	suite.T().Helper()
 	owner := suite.createLinkableAccount(address)
-	_, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, providerCredentials(goth.User{
+	_, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, withProviderCredentials(goth.User{
 		UserID: subject,
 		Email:  address,
 	}), "google")
@@ -62,15 +62,17 @@ func (suite *UserServiceIntegrationTestSuite) awaitConcurrentWrite(done <-chan e
 	suite.Require().NoError(testutil.AwaitConcurrentWrite(suite.T(), done))
 }
 
-// Two repeat connects on one identity: the row ends up holding one connect's
-// profile whole, never a mix of the two connects' values.
-func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatConnectDoesNotUndoAConcurrentConnect() {
+// Two repeat connects on one identity serialize on the row lock
+// checkOAuthIdentityAttach takes: a connect that reaches the row while another
+// holds it waits, so its write lands after the other's and its profile is the
+// one stored.
+func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatConnectsOnOneIdentitySerialize() {
 	owner := suite.linkedForRepeatConnect("repeat-connect-race@example.com", "repeat-connect-race-subject")
 
 	var concurrent <-chan error
 	svc, ran := suite.serviceWithWriteBeforeItsFirstUpdate(func(*gorm.DB) {
 		concurrent = suite.startOnAnotherConnection(func() error {
-			_, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, providerCredentials(goth.User{
+			_, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, withProviderCredentials(goth.User{
 				UserID:    "repeat-connect-race-subject",
 				Email:     "repeat-connect-race-concurrent@example.com",
 				Name:      "Concurrent Name",
@@ -80,7 +82,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 		})
 	})
 
-	_, err := svc.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, providerCredentials(goth.User{
+	_, err := svc.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, withProviderCredentials(goth.User{
 		UserID:    "repeat-connect-race-subject",
 		Email:     "repeat-connect-race-hooked@example.com",
 		Name:      "Hooked Name",
@@ -109,7 +111,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 		})
 	})
 
-	_, err := svc.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, providerCredentials(goth.User{
+	_, err := svc.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, withProviderCredentials(goth.User{
 		UserID: "repeat-connect-unlink-subject",
 		Email:  "repeat-connect-unlink@example.com",
 	}), "google")
@@ -136,7 +138,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 			writtenAfterRead, owner.ID, "google").Error)
 	})
 
-	_, err := svc.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, providerCredentials(goth.User{
+	_, err := svc.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, withProviderCredentials(goth.User{
 		UserID: "repeat-connect-columns-subject",
 		Email:  "repeat-connect-columns-new@example.com",
 	}), "google")
@@ -153,7 +155,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 	owner := suite.linkedForRepeatConnect("repeat-connect-refresh@example.com", "repeat-connect-refresh-subject")
 	before := suite.storedGoogleAccount(owner.ID)
 
-	linked, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, providerCredentials(goth.User{
+	linked, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, withProviderCredentials(goth.User{
 		UserID:    "repeat-connect-refresh-subject",
 		Email:     "repeat-connect-refresh-new@example.com",
 		Name:      "Refreshed Name",

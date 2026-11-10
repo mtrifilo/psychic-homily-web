@@ -2,6 +2,7 @@ package auth
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 	"testing"
 
@@ -20,7 +21,9 @@ func isolateGothGlobals(t *testing.T) {
 	t.Setenv(EnableOAuthTestProviderEnvVar, "")
 	prevSessionStore := SessionStore
 	prevGothicStore := gothic.Store
-	prevProviders := goth.GetProviders()
+	// A copy: GetProviders returns the live registry, which SetupGoth writes
+	// into.
+	prevProviders := maps.Clone(goth.GetProviders())
 	t.Cleanup(func() {
 		SessionStore = prevSessionStore
 		gothic.Store = prevGothicStore
