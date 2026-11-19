@@ -265,13 +265,14 @@ function groupAllows(rules: string[], pathAndQuery: string) {
 
 /**
  * The names that can appear as a URL's first path segment under a directory:
- * its entries, with App Router route groups `(name)` opened, since a group
- * adds no segment of its own.
+ * its entries, with App Router route groups `(name)` and parallel-route slots
+ * `@name` opened, since neither adds a segment of its own.
  */
 function firstUrlSegments(dir: string): string[] {
-  return readdirSync(resolve(process.cwd(), dir)).flatMap(entry =>
-    entry.startsWith('(') && entry.endsWith(')') ? firstUrlSegments(`${dir}/${entry}`) : [entry]
-  )
+  return readdirSync(resolve(process.cwd(), dir)).flatMap(entry => {
+    const addsNoSegment = (entry.startsWith('(') && entry.endsWith(')')) || entry.startsWith('@')
+    return addsNoSegment ? firstUrlSegments(`${dir}/${entry}`) : [entry]
+  })
 }
 
 const PUBLIC_RULE_LINES = [
