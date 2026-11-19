@@ -289,10 +289,18 @@ expect_line "8. **Breadth totals are not the daily totals.** Rows grouped by pag
 expect_line "9. **Query rows on dated show pages at average position 1.5 or better"
 expect_line "   are most likely Google's events box listing the page as a source, not ranking.**"
 expect_line "   The 1.5 threshold is a heuristic, not Google's definition:"
+expect_line "   it also catches a show page that genuinely ranks first, and misses any"
+expect_line "   a source page is inferred, not documented. The \`searchAppearance\`"
 expect_line "   dimension does not label these rows. Read the two groups of the query-row"
-expect_line "   the same listings. Query rows are a floor: Google withholds rare queries, so the"
+expect_line "   the same pages' impressions. Query rows are a floor: Google withholds rare queries, so the"
 expect_line "   rows miss part of the demand. They are also counted per page (trap 8), so"
-expect_line "include impressions from Google's events box; read them beside the query-row"
+expect_line "   neither group is a share of the daily series, and the first can run above it."
+expect_line "can include impressions that are most likely Google's events box (trap 9);"
+# The split intro says rows are classified one by one and do not reconcile
+# with the daily series.
+expect_line "classified one by one, so a page can sit in both groups and the Pages cells do"
+expect_line "not add up. Query rows omit withheld queries and count per page (trap 9), so"
+expect_line "neither group compares with the daily series."
 # The query-row split: the classifier and the 1.5 boundary (week of 09-28),
 # pagination past the cap (10-05), and a week with no qualifying row (10-12).
 expected_split="$(cat <<'ROWS'

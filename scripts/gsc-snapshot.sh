@@ -1079,15 +1079,15 @@ Source: Google Search Console Search Analytics API, captured by
    are most likely Google's events box listing the page as a source, not ranking.**
    The ${EVENTS_BOX_MAX_POSITION} threshold is a heuristic, not Google's definition:
    it also catches a show page that genuinely ranks first, and misses any
-   listing whose rows average worse. The signature seen in September and
-   October 2026: many broad queries on one show page per venue, position near
-   1, CTR near 1%. An Events card, opened, lists source sites under "Tickets &
+   listing whose rows average worse. The signature seen from Sep 21 to Oct 11,
+   2026: many broad queries piling onto a few show pages, position near 1,
+   CTR near 1%. An Events card, opened, lists source sites under "Tickets &
    information"; how Search Console attributes card impressions and clicks to
    a source page is inferred, not documented. The \`searchAppearance\`
    dimension does not label these rows. Read the two groups of the query-row
    split separately before reading a trend in query rows, and read the dated
    \`show:\` breadth families beside that split, since those families count
-   the same listings. Query rows are a floor: Google withholds rare queries, so the
+   the same pages' impressions. Query rows are a floor: Google withholds rare queries, so the
    rows miss part of the demand. They are also counted per page (trap 8), so
    neither group is a share of the daily series, and the first can run above it.
 
@@ -1155,8 +1155,8 @@ with a date is placed against the table's week by that date: in these labels
 calendar are their own rows, and any other path is grouped under
 \`other:\` by its first path segment (\`other: tags\`), or by the whole path
 when it has one segment (\`other: /about\`). The dated \`show:\` families
-include impressions from Google's events box; read them beside the query-row
-split for the same week before reading a trend (trap 9).
+can include impressions that are most likely Google's events box (trap 9);
+read them beside the query-row split for the same week before reading a trend.
 
 ${BREADTH_SECTIONS}
 
