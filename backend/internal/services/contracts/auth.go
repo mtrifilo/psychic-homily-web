@@ -596,9 +596,6 @@ type AuthEmailOutboxInterface interface {
 	EnqueueOAuthLink(ctx context.Context, userID uint, ref string) error
 	// EnqueueCalendarSteps queues the calendar steps email for user, the
 	// signed-in account that asked for it, to its own address, on Enqueue's
-	// terms. It refuses an address that is not verified
-	// (apperrors.ErrCalendarStepsAddressUnverified, an *AuthError) and a
-	// request over the account's hourly cap
-	// (*apperrors.CalendarStepsRateLimitedError), queueing nothing.
+	// terms. Its refusals are listed on the outbox's implementation.
 	EnqueueCalendarSteps(ctx context.Context, user *authm.User) error
 }

@@ -85,8 +85,7 @@ func TestSendCalendarStepsEmailHandler_CapAnswers429WithRetryAfter(t *testing.T)
 		"rounded up":      {1199*time.Second + time.Millisecond, "1200"},
 		"a full hour":     {time.Hour, "3600"},
 		"never zero":      {time.Millisecond, "1"},
-		"never below one": {0, "1"},
-		"never negative":  {-time.Second, "1"},
+		"never below one": {-time.Second, "1"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := calendarStepsHandler(func(context.Context, *authm.User) error {

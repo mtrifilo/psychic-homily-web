@@ -310,44 +310,37 @@ func capped[T int | time.Duration](key string, v, limit T) T {
 // bounded by authEmailEnqueueTimeout: a client that disconnects after asking
 // still gets its email, and a stalled database cannot hold the request open.
 func (o *AuthEmailOutbox) Enqueue(ctx context.Context, kind authm.AuthEmailKind, userID uint) error {
-	return o.enqueue(ctx, authm.AuthEmailOutboxItem{Kind: kind, UserID: userID})
+	return o.enqueue(ctx, authm.AuthEmailOutboxItem{Kind: kind, UserID: userID}, nil)
 }
 
 // EnqueueOAuthLink queues the sign-in link that proves userID's mailbox for
 // the pending link ref names, on Enqueue's terms. While one is queued for the
 // account, a call for any pending link is a no-op.
 func (o *AuthEmailOutbox) EnqueueOAuthLink(ctx context.Context, userID uint, ref string) error {
-	return o.enqueue(ctx, authm.AuthEmailOutboxItem{Kind: authm.AuthEmailKindOAuthLink, UserID: userID, OAuthLinkRef: &ref})
+	return o.enqueue(ctx, authm.AuthEmailOutboxItem{Kind: authm.AuthEmailKindOAuthLink, UserID: userID, OAuthLinkRef: &ref}, nil)
 }
 
 // EnqueueCalendarSteps queues the calendar steps email for user, the signed-in
-// account that asked for it, to the account's own address. It queues nothing
-// and refuses:
+// account that asked for it, to the account's own address, on Enqueue's
+// terms. It queues nothing and refuses:
 //
+//   - while no email provider is configured (ErrAuthEmailSenderNotConfigured)
+//     or the kill switch is set (ErrAuthEmailOutboxDisabled);
 //   - an account whose address is not verified, or that has none
 //     (apperrors.ErrCalendarStepsAddressUnverified), which the poller would
 //     skip;
 //   - an account that has already asked calendarStepsPerWindow times within
 //     calendarStepsWindow (*apperrors.CalendarStepsRateLimitedError). Every
 //     row of the kind counts, whatever became of it, so the cap holds across
-//     restarts and failed sends;
-//   - while the kill switch is set (ErrAuthEmailOutboxDisabled) or no email
-//     provider is configured (ErrAuthEmailSenderNotConfigured).
-//
-// A call while one is still queued for the account is a no-op that returns
-// nil and adds no row, as with Enqueue.
+//     restarts and failed sends.
 //
 // The count and the insert run in one transaction holding a per-account
 // advisory lock, so concurrent requests cannot each read a count under the
 // cap and each insert. Only this method writes rows of the kind, and it
 // inserts only under the cap, so the window never holds more than
 // calendarStepsPerWindow rows and the oldest of them leaving it is what frees
-// the next request. The transaction runs on Enqueue's detached, bounded
-// context.
+// the next request.
 func (o *AuthEmailOutbox) EnqueueCalendarSteps(ctx context.Context, user *authm.User) error {
-	if AuthEmailOutboxDisabled() {
-		return ErrAuthEmailOutboxDisabled
-	}
 	if !o.sender.IsConfigured() {
 		return ErrAuthEmailSenderNotConfigured
 	}
@@ -356,9 +349,8 @@ func (o *AuthEmailOutbox) EnqueueCalendarSteps(ctx context.Context, user *authm.
 	}
 
 	const kind = authm.AuthEmailKindCalendarSteps
-	ictx, cancel := context.WithTimeout(context.WithoutCancel(ctx), authEmailEnqueueTimeout)
-	defer cancel()
-	return o.db.WithContext(ictx).Transaction(func(tx *gorm.DB) error {
+	item := authm.AuthEmailOutboxItem{Kind: kind, UserID: user.ID}
+	return o.enqueue(ctx, item, func(tx *gorm.DB) error {
 		lockKey := fmt.Sprintf("auth_email_outbox:%s:%d", kind, user.ID)
 		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", lockKey).Error; err != nil {
 			return err
@@ -384,20 +376,35 @@ func (o *AuthEmailOutbox) EnqueueCalendarSteps(ctx context.Context, user *authm.
 				RetryAfter: window.Oldest.Add(calendarStepsWindow).Sub(now),
 			}
 		}
-
-		item := authm.AuthEmailOutboxItem{Kind: kind, UserID: user.ID, Status: authm.AuthEmailStatusPending}
-		return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&item).Error
+		return nil
 	})
 }
 
-func (o *AuthEmailOutbox) enqueue(ctx context.Context, item authm.AuthEmailOutboxItem) error {
+// enqueue inserts item as pending, a no-op while one is already queued for its
+// account and kind, on the detached, bounded context Enqueue describes. With
+// admit set, the insert runs in a transaction after admit, and an error from
+// admit refuses it.
+func (o *AuthEmailOutbox) enqueue(ctx context.Context, item authm.AuthEmailOutboxItem, admit func(tx *gorm.DB) error) error {
 	if AuthEmailOutboxDisabled() {
 		return ErrAuthEmailOutboxDisabled
 	}
 	ictx, cancel := context.WithTimeout(context.WithoutCancel(ctx), authEmailEnqueueTimeout)
 	defer cancel()
 	item.Status = authm.AuthEmailStatusPending
-	return o.db.WithContext(ictx).Clauses(clause.OnConflict{DoNothing: true}).Create(&item).Error
+	insert := func(db *gorm.DB) error {
+		return db.Clauses(clause.OnConflict{DoNothing: true}).Create(&item).Error
+	}
+
+	db := o.db.WithContext(ictx)
+	if admit == nil {
+		return insert(db)
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := admit(tx); err != nil {
+			return err
+		}
+		return insert(tx)
+	})
 }
 
 // Start begins the poller. The first tick is at most one interval in.

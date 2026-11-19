@@ -3,13 +3,11 @@ package routes
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -24,13 +22,7 @@ import (
 	"psychic-homily-backend/internal/testutil"
 )
 
-// stepsMailbox records every email the provider is asked to send, as the JSON
-// the email service hands it.
-type stepsMailbox struct {
-	mu   sync.Mutex
-	sent []stepsEmail
-}
-
+// stepsEmail is the part of a sent email's request body these tests read.
 type stepsEmail struct {
 	To      []string          `json:"to"`
 	Subject string            `json:"subject"`
@@ -39,25 +31,18 @@ type stepsEmail struct {
 	raw     string
 }
 
-func (m *stepsMailbox) RoundTrip(req *http.Request) (*http.Response, error) {
-	body, _ := io.ReadAll(req.Body)
-	var email stepsEmail
-	_ = json.Unmarshal(body, &email)
-	email.raw = string(body)
-	m.mu.Lock()
-	m.sent = append(m.sent, email)
-	m.mu.Unlock()
-	return &http.Response{
-		StatusCode: http.StatusOK,
-		Body:       io.NopCloser(strings.NewReader(`{"id":"sent"}`)),
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-	}, nil
-}
-
-func (m *stepsMailbox) emails() []stepsEmail {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return append([]stepsEmail(nil), m.sent...)
+func decodedEmails(t *testing.T, mailbox *sentEmails) []stepsEmail {
+	t.Helper()
+	mailbox.mu.Lock()
+	defer mailbox.mu.Unlock()
+	emails := make([]stepsEmail, len(mailbox.raw))
+	for i, raw := range mailbox.raw {
+		if err := json.Unmarshal([]byte(raw), &emails[i]); err != nil {
+			t.Fatalf("decode sent email: %v", err)
+		}
+		emails[i].raw = raw
+	}
+	return emails
 }
 
 var stepsHref = regexp.MustCompile(`href="([^"]*)"`)
@@ -81,7 +66,7 @@ func TestCalendarStepsEmailThroughRouter(t *testing.T) {
 	cfg.Email.ResendAPIKey = "re_fake_key_for_testing"
 	cfg.Email.FromEmail = "test@psychichomily.com"
 	sc := services.NewServiceContainer(td.DB, cfg)
-	mailbox := &stepsMailbox{}
+	mailbox := &sentEmails{}
 	sc.Email = notification.NewEmailServiceWithTransport(cfg, mailbox)
 	sc.AuthEmailOutbox = authsvc.NewAuthEmailOutbox(td.DB, sc.User, sc.JWT, sc.Email)
 	// HumaJWTMiddleware validates API tokens on the process-wide handle it
@@ -165,12 +150,12 @@ func TestCalendarStepsEmailThroughRouter(t *testing.T) {
 			t.Fatalf("request %d: %d rows queued, want %d", i, n, i)
 		}
 		sc.AuthEmailOutbox.RunNow(context.Background())
-		if sent := mailbox.emails(); len(sent) != i {
+		if sent := decodedEmails(t, mailbox); len(sent) != i {
 			t.Fatalf("request %d: %d emails sent, want %d", i, len(sent), i)
 		}
 	}
 
-	email := mailbox.emails()[0]
+	email := decodedEmails(t, mailbox)[0]
 	if strings.Join(email.To, ",") != *user.Email {
 		t.Errorf("sent to %v, want the account's own address", email.To)
 	}

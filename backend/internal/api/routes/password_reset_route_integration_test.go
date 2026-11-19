@@ -28,11 +28,13 @@ import (
 // link in that email opens, sets the password once, signs this browser in
 // and signs the earlier session out, and the calendar-feed URL stops working.
 
-// sentEmails records every email the provider is asked to send.
+// sentEmails records every email the provider is asked to send: its HTML, its
+// recipients, and the whole request body the email service sent.
 type sentEmails struct {
 	mu    sync.Mutex
 	html  []string
 	inbox []string
+	raw   []string
 }
 
 func (s *sentEmails) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -45,6 +47,7 @@ func (s *sentEmails) RoundTrip(req *http.Request) (*http.Response, error) {
 	s.mu.Lock()
 	s.html = append(s.html, msg.HTML)
 	s.inbox = append(s.inbox, strings.Join(msg.To, ","))
+	s.raw = append(s.raw, string(body))
 	s.mu.Unlock()
 	return &http.Response{
 		StatusCode: http.StatusOK,

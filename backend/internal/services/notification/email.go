@@ -266,9 +266,6 @@ func (s *EmailService) SendCalendarStepsEmail(toEmail string) error {
 
 // SendCalendarStepsEmailContext is SendCalendarStepsEmail reporting a provider
 // error on the Sentry hub ctx carries (send).
-//
-// The account asked for this email itself, so it is transactional: no alert
-// preference governs it and it carries no unsubscribe link.
 func (s *EmailService) SendCalendarStepsEmailContext(ctx context.Context, toEmail string) error {
 	return s.send(ctx, outboundEmail{
 		kind:    "calendar_steps",
