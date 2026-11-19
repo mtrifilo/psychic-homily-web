@@ -483,19 +483,22 @@ test.describe('Not-found pages — HTTP 404 status', () => {
    * `wfmu-drummer`. A show is a 404 under any station segment but its own.
    */
   test.describe('Radio routes', () => {
+    // Titles carry `{nonce}` rather than NONCE itself: each worker computes its
+    // own NONCE, and a title that differs between processes is not found.
     const missing = [
-      `/radio/nonexistent-${NONCE}`,
-      `/radio/kexp/nonexistent-${NONCE}`,
-      `/radio/nonexistent-${NONCE}/the-morning-show`,
+      '/radio/nonexistent-{nonce}',
+      '/radio/kexp/nonexistent-{nonce}',
+      '/radio/nonexistent-{nonce}/the-morning-show',
       '/radio/wfmu/the-morning-show',
-      `/radio/kexp/nonexistent-${NONCE}/2025-01-15`,
+      '/radio/kexp/nonexistent-{nonce}/2025-01-15',
       '/radio/kexp/the-morning-show/2025-01-16',
       '/radio/kexp/the-morning-show/2025-02-30',
-      `/radio/wfmu/channel/nonexistent-${NONCE}`,
-      `/radio/playlists/nonexistent-${NONCE}`,
+      '/radio/wfmu/channel/nonexistent-{nonce}',
+      '/radio/playlists/nonexistent-{nonce}',
     ]
-    for (const pathname of missing) {
-      test(`${pathname} returns HTTP 404`, async ({ page }) => {
+    for (const template of missing) {
+      const pathname = template.replace('{nonce}', NONCE)
+      test(`${template} returns HTTP 404`, async ({ page }) => {
         const response = await page.goto(pathname)
         expect(response?.status(), `${pathname} must return 404, not a not-found body at 200`).toBe(404)
       })
