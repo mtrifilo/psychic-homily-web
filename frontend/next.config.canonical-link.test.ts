@@ -5,10 +5,15 @@ import type { Metadata } from 'next'
 import type { NextRequest } from 'next/server'
 import { PHASE_PRODUCTION_SERVER } from 'next/constants'
 import { getPathMatch } from 'next/dist/shared/lib/router/utils/path-match'
-import { compileNonPath } from 'next/dist/shared/lib/router/utils/prepare-destination'
+import { parse as parseQuery } from 'node:querystring'
+import type { RouteHas } from 'next/dist/lib/load-custom-routes'
+import * as pageStaticInfo from 'next/dist/build/analysis/get-page-static-info'
+import type { ProxyMatcher } from 'next/dist/build/analysis/get-page-static-info'
+import { getMiddlewareRouteMatcher } from 'next/dist/shared/lib/router/utils/middleware-route-matcher'
+import { compileNonPath, matchHas } from 'next/dist/shared/lib/router/utils/prepare-destination'
 import { modifyRouteRegex } from 'next/dist/lib/redirect-status'
 import nextConfigForPhase, { SELF_CANONICAL_ROUTES } from './next.config'
-import { clearExistenceVerdictsForTests, proxy } from './proxy'
+import { clearExistenceVerdictsForTests, config as proxyConfig, proxy } from './proxy'
 import { SITE_URL } from './lib/seo/siteMetadata'
 import { jsonBodyResponse } from './lib/seo/test-helpers'
 
@@ -32,7 +37,12 @@ import { generateMetadata as venueYearMetadata } from './app/venues/[slug]/shows
 import { generateMetadata as sceneTonightMetadata } from './app/scenes/[slug]/tonight/page'
 import { generateMetadata as radioStationMetadata } from './app/radio/[station-slug]/page'
 
-type HeaderRule = { source: string; headers: { key: string; value: string }[] }
+type HeaderRule = {
+  source: string
+  has?: RouteHas[]
+  missing?: RouteHas[]
+  headers: { key: string; value: string }[]
+}
 
 async function loadHeaderRules(): Promise<HeaderRule[]> {
   return (await nextConfigForPhase(PHASE_PRODUCTION_SERVER).headers!()) as HeaderRule[]
@@ -48,19 +58,33 @@ function compileSource(source: string) {
 }
 
 const compiledRules = loadHeaderRules().then(rules =>
-  rules.map(rule => ({ headers: rule.headers, match: compileSource(rule.source) })),
+  rules.map(rule => ({ ...rule, match: compileSource(rule.source) })),
 )
 
+/** The path of a request target, without its query string. */
+const pathOf = (target: string) => target.split('?')[0]
+
 /**
- * The response headers Next's router adds for `pathname`: values substituted
- * with `compileNonPath` as `resolve-routes.js` does, later rules overwriting
- * earlier ones key by key.
+ * The response headers Next's router adds for a request target (path plus
+ * optional query): `has`/`missing` checked with `matchHas` and values
+ * substituted with `compileNonPath`, as `resolve-routes.js` does, later rules
+ * overwriting earlier ones key by key.
  */
-async function configHeadersFor(pathname: string): Promise<Record<string, string>> {
+async function configHeadersFor(target: string): Promise<Record<string, string>> {
+  const [pathname, search = ''] = target.split('?')
+  const query = parseQuery(search)
   const out: Record<string, string> = {}
-  for (const { match, headers } of await compiledRules) {
-    const params = match(pathname)
-    if (params === false) continue
+  for (const { match, has, missing, headers } of await compiledRules) {
+    const pathParams = match(pathname)
+    if (pathParams === false) continue
+    const conditionParams = matchHas(
+      { headers: {} } as unknown as Parameters<typeof matchHas>[0],
+      query,
+      has,
+      missing,
+    )
+    if (conditionParams === false) continue
+    const params = { ...pathParams, ...conditionParams }
     const hasParams = Object.keys(params).length > 0
     for (const { key, value } of headers) {
       out[hasParams ? compileNonPath(key, params) : key] = hasParams
@@ -216,11 +240,11 @@ const COVERED: Record<string, { route: string; cases: CoveredCase[]; calendar?: 
         () => showsDayMetadata({ ...params({ slug: '2026', month: '11', day: '14' }), ...noSearch }),
       ],
       [
-        '/shows/2026/11/14',
+        '/shows/2026/11/14?days=',
         () =>
           showsDayMetadata({
             ...params({ slug: '2026', month: '11', day: '14' }),
-            searchParams: Promise.resolve({ days: '3' }),
+            searchParams: Promise.resolve({ days: '' }),
           }),
       ],
     ],
@@ -251,8 +275,10 @@ const EXCLUDED: Record<string, string> = {
   'dj-sets/[slug]': 'prerendered with the canonical inside <head>; unknown slugs are outside the proxy existence checks',
   'categories/[category]':
     'prerendered with the canonical inside <head>; unknown slugs are outside the proxy existence checks',
-  'charts/[module]': 'not covered: chart lists',
-  'charts/[module]/[period]': 'not covered: chart archives',
+  'charts/[module]':
+    'a year archive before launch or in the future passes the proxy and soft-404s at HTTP 200; the module drill-downs are self-canonical and proxy-checked but are not announced in any sitemap, and are left for their own change',
+  'charts/[module]/[period]':
+    'a quarter before launch or in the future passes the proxy shape check and soft-404s at HTTP 200',
   'requests/[id]': 'declares no canonical',
   'users/[username]': 'declares no canonical',
 }
@@ -260,11 +286,11 @@ const EXCLUDED: Record<string, string> = {
 const COVERED_CASES = Object.values(COVERED).flatMap(family => family.cases)
 
 describe('canonical Link header on self-canonical routes', () => {
-  it.each(COVERED_CASES)('declares the page canonical for %s', async (pathname, pageMetadata) => {
+  it.each(COVERED_CASES)('declares the page canonical for %s', async (target, pageMetadata) => {
     const pageCanonical = canonicalOf(await pageMetadata())
 
-    expect(pageCanonical).toBe(`${SITE_URL}${pathname}`)
-    expect(await headerCanonicalFor(pathname)).toBe(pageCanonical)
+    expect(pageCanonical).toBe(`${SITE_URL}${pathOf(target)}`)
+    expect(await headerCanonicalFor(target)).toBe(pageCanonical)
   })
 
   it('samples every self-canonical route through exactly its own rule', () => {
@@ -273,11 +299,11 @@ describe('canonical Link header on self-canonical routes', () => {
     )
     for (const [dir, { route, cases }] of Object.entries(COVERED)) {
       expect(cases.length, `${dir} has no sample request`).toBeGreaterThan(0)
-      for (const [pathname] of cases) {
+      for (const [target] of cases) {
         const matching = SELF_CANONICAL_ROUTES.filter(
-          candidate => compileSource(candidate.source)(pathname) !== false,
+          candidate => compileSource(candidate.source)(pathOf(target)) !== false,
         ).map(candidate => candidate.path)
-        expect(matching, pathname).toEqual([route])
+        expect(matching, target).toEqual([route])
       }
     }
   })
@@ -299,23 +325,45 @@ function proxyRequestFor(pathname: string): NextRequest {
   } as unknown as NextRequest
 }
 
-describe('the proxy turns a missing covered entity into a real 404', () => {
+describe('the proxy answers for every covered route', () => {
   afterEach(() => {
     clearExistenceVerdictsForTests()
   })
 
-  // A soft 404 (a not-found page at HTTP 200) told by this header that it is
-  // canonical would be a canonical claim the page itself withholds.
+  // The proxy's `config.matcher` compiled and applied the way
+  // `next/experimental/testing/server`'s `unstable_doesMiddlewareMatch` does,
+  // for a plain navigation (no prefetch headers).
+  // `getMiddlewareMatchers` is exported at runtime but missing from Next's
+  // published declarations.
+  const { getMiddlewareMatchers } = pageStaticInfo as unknown as {
+    getMiddlewareMatchers: (matcher: unknown, nextConfig: object) => ProxyMatcher[]
+  }
+  const routesThroughProxy = getMiddlewareRouteMatcher(
+    getMiddlewareMatchers(proxyConfig.matcher, {}),
+  )
+
+  it.each(COVERED_CASES)('routes %s through the proxy', target => {
+    const url = new URL(target, 'http://localhost:3000')
+    const request = { headers: {}, cookies: {} } as unknown as Parameters<typeof routesThroughProxy>[1]
+
+    expect(
+      routesThroughProxy(url.pathname, request, Object.fromEntries(url.searchParams)),
+    ).toBe(true)
+  })
+
+  // When the backend reports the entity missing, the proxy's 404 lands before
+  // anything streams; without it the page would serve a not-found body at
+  // HTTP 200 under a header that calls that URL canonical.
   const entityFamilies = Object.entries(COVERED).filter(([, family]) => !family.calendar)
 
-  it.each(entityFamilies)('%s', async (_dir, { cases }) => {
+  it.each(entityFamilies)('404s a missing entity on %s', async (_dir, { cases }) => {
     fetchMock.mockImplementation(
       async () =>
         new Response(null, { status: 404, headers: { 'content-type': 'application/problem+json' } }),
     )
-    for (const [pathname] of cases) {
+    for (const [target] of cases) {
       clearExistenceVerdictsForTests()
-      expect((await proxy(proxyRequestFor(pathname))).status, pathname).toBe(404)
+      expect((await proxy(proxyRequestFor(target))).status, target).toBe(404)
     }
   })
 })
@@ -356,6 +404,26 @@ describe('no canonical Link header where the page declares a different URL', () 
     expect(pageCanonical).toBe(`${SITE_URL}/scenes/phoenix-az/tonight`)
     expect(await headerCanonicalFor('/scenes/mesa-az/tonight')).toBeNull()
   })
+
+  const day = params({ slug: '2026', month: '11', day: '14' })
+
+  it('leaves a day run alone, which is noindexed and canonical to the day root', async () => {
+    const meta = await showsDayMetadata({ ...day, searchParams: Promise.resolve({ days: '3' }) })
+
+    expect(meta.robots).toMatchObject({ index: false })
+    expect(await headerCanonicalFor('/shows/2026/11/14?days=3')).toBeNull()
+  })
+
+  it.each(['15', '0', '03', 'abc', ['3', '4']])(
+    'leaves a refused run (days=%s) alone, whose page declares no canonical',
+    async days => {
+      const meta = await showsDayMetadata({ ...day, searchParams: Promise.resolve({ days }) })
+      const search = (Array.isArray(days) ? days : [days]).map(value => `days=${value}`).join('&')
+
+      expect(canonicalOf(meta)).toBeUndefined()
+      expect(await headerCanonicalFor(`/shows/2026/11/14?${search}`)).toBeNull()
+    },
+  )
 
   it.each([
     '/shows/saved',

@@ -46,21 +46,25 @@ export function assertBuildApiOriginConfigured(
  */
 const ENTITY_SLUG_SEGMENT = '[0-9]*[a-z-][a-z0-9.-]*'
 
+/** A query key whose presence, with any non-empty value, withholds the header. */
+type MissingQueryKey = { type: 'query'; key: string }
+
 /**
  * A self-canonical route: `path` is the route with `:name` parameters, which is
  * what the `Link` header names, and `source` is the same route with each
  * parameter constrained to `ENTITY_SLUG_SEGMENT` unless `paramPatterns` gives
- * it another pattern.
+ * it another pattern. `missing` lists query keys the header requires absent.
  */
 function selfCanonicalRoute(
   path: string,
   paramPatterns: Readonly<Record<string, string>> = {},
-): { source: string; path: string } {
+  missing: MissingQueryKey[] = [],
+): { source: string; path: string; missing: MissingQueryKey[] } {
   const source = path.replace(
     /:(\w+)/g,
     (_, name: string) => `:${name}(${paramPatterns[name] ?? ENTITY_SLUG_SEGMENT})`,
   )
-  return { source, path }
+  return { source, path, missing }
 }
 
 /**
@@ -68,12 +72,17 @@ function selfCanonicalRoute(
  * every request its `source` matches:
  *
  * - The page declares the request's own path on the apex host as canonical.
- * - A request the page treats as not found gets a real HTTP 404 from
- *   `proxy.ts` before anything streams, so no soft-404 page at HTTP 200 is
- *   told it is canonical.
+ * - A request whose entity the proxy's existence check reports missing, or a
+ *   calendar window outside the addressable span, gets a real HTTP 404 from
+ *   `proxy.ts` before anything streams.
  *
- * `next.config.canonical-link.test.ts` checks both against the pages and the
- * proxy, and records why every other dynamic page route is left out.
+ * Two windows still serve a not-found body at HTTP 200 under the header: the
+ * proxy passes a request through when its existence probe cannot answer, and
+ * it reuses a positive verdict for a few minutes after the entity is gone.
+ * Both name the request's own URL, so the header points nowhere else.
+ *
+ * `next.config.canonical-link.test.ts` checks the rules against the pages and
+ * the proxy, and records why every other dynamic page route is left out.
  */
 export const SELF_CANONICAL_ROUTES = [
   selfCanonicalRoute('/artists/:slug'),
@@ -94,11 +103,15 @@ export const SELF_CANONICAL_ROUTES = [
     year: '20\\d{2}|2100',
     month: '0[1-9]|1[0-2]',
   }),
-  selfCanonicalRoute('/shows/:year/:month/:day', {
-    year: '20\\d{2}|2100',
-    month: '0[1-9]|1[0-2]',
-    day: '0[1-9]|[12]\\d|3[01]',
-  }),
+  // `?days=` turns a day into a run: a valid one canonicalizes to the day root
+  // and is noindexed, and a refused one is a not-found body at HTTP 200, which
+  // the proxy cannot see because it does not read the query. An empty `days=`
+  // names no run and keeps the header.
+  selfCanonicalRoute(
+    '/shows/:year/:month/:day',
+    { year: '20\\d{2}|2100', month: '0[1-9]|1[0-2]', day: '0[1-9]|[12]\\d|3[01]' },
+    [{ type: 'query', key: 'days' }],
+  ),
   // A year without a leading zero, the only spelling the archive writes.
   selfCanonicalRoute('/venues/:slug/shows/:year', { year: '[1-9]\\d{3}' }),
 ]
@@ -110,8 +123,9 @@ export const SELF_CANONICAL_ROUTES = [
  * header carries the same URL. The render's own `Link` preload entries arrive
  * as a separate `Link` field line.
  */
-const CANONICAL_LINK_HEADER_RULES = SELF_CANONICAL_ROUTES.map(({ source, path }) => ({
+const CANONICAL_LINK_HEADER_RULES = SELF_CANONICAL_ROUTES.map(({ source, path, missing }) => ({
   source,
+  ...(missing.length > 0 ? { missing } : {}),
   headers: [{ key: 'Link', value: `<https://psychichomily.com${path}>; rel="canonical"` }],
 }))
 
