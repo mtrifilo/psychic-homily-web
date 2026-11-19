@@ -32,8 +32,9 @@ concurrency:
 
 # Every setup-bun step reads this one value, so CI runs the Bun version the
 # suite was last verified on. Raise it in a PR whose own CI shows the suite
-# passing on the new version: a floating version lets a Bun release turn main
-# red with no change in the repository.
+# passing on the new version, and raise BUN_VERSION in atlas-perf.yml with it:
+# a floating version lets a Bun release turn main red with no change in the
+# repository.
 env:
   BUN_VERSION: 1.4.4
 

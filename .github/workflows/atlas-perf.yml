@@ -77,9 +77,8 @@ concurrency:
 permissions:
   contents: read
 
-# The setup-bun step reads this one value, so the job runs the Bun version CI
-# was last verified on, the same value as BUN_VERSION in ci.yml. A floating
-# version lets a Bun release break the job with no change in the repository.
+# Must equal BUN_VERSION in ci.yml, where the reason for the pin is stated;
+# nothing checks that the two copies match.
 env:
   BUN_VERSION: 1.4.4
 
