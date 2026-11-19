@@ -88,8 +88,7 @@ permissions:
 jobs:
   check:
     name: Sitemap vs API
-    # Pinned for the reason the Bun pin below gives: an unattended monitor must
-    # not change environment on a day nobody touched the repo.
+    # Pinned for the same reason as the Bun version below.
     runs-on: ubuntu-24.04
     # Walking every shard means tens of thousands of URLs across 33 documents
     # (the index, 32 shards), plus one projection-feed request per entity shard
@@ -127,9 +126,9 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          # Pinned to its own version, not the BUN_VERSION in ci.yml and
-          # atlas-perf.yml. It runs unattended on a schedule, so a bun release that
-          # changed tsconfig `paths` resolution or top-level-await handling
+          # Pinned on its own, apart from the shared CI pin. It runs unattended
+          # on a schedule, so a bun release that changed tsconfig `paths`
+          # resolution or top-level-await handling
           # would stop the monitor on a day nobody touched the repo, and a
           # monitor that silently stopped is the failure this exists to catch.
           # 1.3.3 is the version the check was verified against.

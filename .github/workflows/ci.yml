@@ -30,12 +30,12 @@ concurrency:
   group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# CI runs on the runner image and the Bun version the suite was last verified
-# on, so the environment changes only when a commit changes it. Every job's
-# `runs-on` names ubuntu-24.04 (a literal per job, because `runs-on` cannot
-# read `env`), and every setup-bun step reads BUN_VERSION below. Moving either
-# is a deliberate change: make it in a PR whose own CI shows the suite passing
-# on the new image or version, and move atlas-perf.yml with it.
+# CI runs on the runner image release and the Bun version the suite was last
+# verified on; moving either is a deliberate change, made in a PR whose own CI
+# passes on the new value, with atlas-perf.yml moved alongside. `runs-on`
+# cannot read `env`, so ubuntu-24.04 is a literal in every job; setup-bun steps
+# read BUN_VERSION. The label pins the Ubuntu release, not the image build:
+# GitHub still updates that image's preinstalled tools, Node included.
 env:
   BUN_VERSION: 1.4.4
 
