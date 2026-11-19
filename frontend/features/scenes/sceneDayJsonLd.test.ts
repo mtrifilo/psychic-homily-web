@@ -58,6 +58,12 @@ describe('buildSceneDayJsonLd', () => {
     })
   })
 
+  it('names no organizer on any event, including a cancelled one', () => {
+    const { events } = buildSceneDayJsonLd(day({ shows: [show(), show({ id: 2, is_cancelled: true })] }), NOW)
+    expect(events).toHaveLength(2)
+    for (const event of events) expect(event).not.toHaveProperty('organizer')
+  })
+
   it('emits one MusicEvent per describable show, with the venue-local start', () => {
     const { events } = buildSceneDayJsonLd(day(), NOW)
     expect(events).toHaveLength(1)

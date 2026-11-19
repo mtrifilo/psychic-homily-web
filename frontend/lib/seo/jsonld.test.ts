@@ -11,6 +11,8 @@ import {
   generateItemListSchema,
   renderJsonLd,
 } from './jsonld'
+import * as jsonld from './jsonld'
+import { SITE_URL } from './siteMetadata'
 
 describe('generateOrganizationSchema', () => {
   it('returns correct static fields', () => {
@@ -563,13 +565,106 @@ describe('generateMusicEventSchema', () => {
     })
   })
 
-  it('always includes organizer', () => {
-    const schema = generateMusicEventSchema(baseShow)
-    expect(schema.organizer).toEqual({
-      '@type': 'Organization',
-      name: 'Psychic Homily',
-      url: 'https://psychichomily.com',
-    })
+  it.each([
+    ['a scheduled show', baseShow],
+    ['a cancelled show', { ...baseShow, is_cancelled: true }],
+    ['a show that has started', { ...baseShow, price: 25, has_started: true }],
+    ['a sold-out show', { ...baseShow, is_sold_out: true }],
+    ['a show with no venue or artists', { date: baseShow.date }],
+  ])('emits no organizer for %s, since the site hosts none of these shows', (_, show) => {
+    expect(generateMusicEventSchema(show)).not.toHaveProperty('organizer')
+  })
+})
+
+// Every function the module exports, except the ones named in `NON_BUILDERS`,
+// is swept, so a builder is covered as soon as it is exported, whatever its
+// name. Each runs over every input `inputsFor` gives it. A builder that adds
+// `organizer` only on a branch none of those inputs reaches is not exercised,
+// so an input field that gates what a builder emits belongs in `fullInput` or
+// one of its variants. A builder that throws fails the sweep rather than
+// dropping out of it.
+describe('no schema the module builds carries an organizer', () => {
+  const NON_BUILDERS = ['renderJsonLd']
+
+  const fullInput = {
+    name: 'Test Show',
+    title: 'Test Title',
+    artist: 'Test Artist',
+    date: '2026-03-15T20:00:00Z',
+    description: 'A show.',
+    slug: 'test-show',
+    price: 25,
+    ticket_url: 'https://dice.fm/event/abc',
+    image_url: 'https://cdn.example.com/flyer.jpg',
+    is_cancelled: false,
+    is_sold_out: false,
+    has_started: false,
+    city: 'Phoenix',
+    state: 'AZ',
+    social: { instagram: 'https://instagram.com/testband' },
+    venue: {
+      name: 'The Rebel Lounge',
+      slug: 'the-rebel-lounge',
+      address: '2303 E Indian School Rd',
+      city: 'Phoenix',
+      state: 'AZ',
+      country: 'US',
+      timezone: 'America/Phoenix',
+      zip_code: '85016',
+    },
+    artists: [
+      {
+        name: 'Test Band',
+        slug: 'test-band',
+        is_headliner: true,
+        socials: { instagram: 'https://instagram.com/testband' },
+      },
+    ],
+    listItems: [{ url: `${SITE_URL}/shows/test-show`, name: 'Test Show' }],
+  }
+  const objectInputs = [
+    fullInput,
+    { ...fullInput, is_cancelled: true },
+    { ...fullInput, has_started: true },
+    { ...fullInput, is_sold_out: true, price: undefined },
+    // No venue, no artists, no slug: the sparsest input a builder can get.
+    { date: fullInput.date, listItems: [] },
+  ]
+  const inputsFor = (name: string): unknown[] =>
+    name === 'generateBreadcrumbSchema' ? [[], [{ name: 'Home', url: SITE_URL }]] : objectInputs
+
+  // The builders' input types differ, so each is called through one loose
+  // signature; the sweep inputs are runtime fixtures, not typed per builder.
+  type SweptBuilder = (input: unknown) => unknown
+  const builders = Object.entries(jsonld)
+    .filter(([name, value]) => typeof value === 'function' && !NON_BUILDERS.includes(name))
+    .map(([name, value]) => [name, value as SweptBuilder] as const)
+
+  const nodesOf = (value: unknown): Array<Record<string, unknown>> => {
+    if (Array.isArray(value)) return value.flatMap(nodesOf)
+    if (value === null || typeof value !== 'object') return []
+    const node = value as Record<string, unknown>
+    return [node, ...Object.values(node).flatMap(nodesOf)]
+  }
+  const nodesWithOrganizer = (value: unknown) => nodesOf(value).filter(node => 'organizer' in node)
+
+  it('sweeps the event builder and finds a nested organizer, so the check below is not vacuous', () => {
+    expect(Object.keys(jsonld)).toEqual(expect.arrayContaining(NON_BUILDERS))
+    const swept = builders.flatMap(([name, build]) => inputsFor(name).flatMap(input => nodesOf(build(input))))
+    expect(swept.some(node => node['@type'] === 'MusicEvent')).toBe(true)
+    expect(nodesWithOrganizer({ subEvent: [{ '@type': 'MusicEvent', organizer: 'Psychic Homily' }] })).toHaveLength(1)
+  })
+
+  it.each(builders)('%s emits no organizer on any node, for any sweep input', (name, build) => {
+    for (const input of inputsFor(name)) {
+      const output = build(input)
+      // The walk reads plain objects and arrays only; any other result (a
+      // serialized string, a Promise) fails here instead of passing unread.
+      expect(output).toBeTypeOf('object')
+      expect(output).not.toBeNull()
+      expect(output).not.toBeInstanceOf(Promise)
+      expect(nodesWithOrganizer(output)).toEqual([])
+    }
   })
 })
 
