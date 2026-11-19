@@ -12,6 +12,8 @@ import {
   renderJsonLd,
 } from './jsonld'
 import * as jsonld from './jsonld'
+import { SITE_URL } from './siteMetadata'
+import { hostIsAnchored, parseHttpUrl } from '@/lib/urlAnchor'
 
 describe('generateOrganizationSchema', () => {
   it('returns correct static fields', () => {
@@ -565,13 +567,7 @@ describe('generateMusicEventSchema', () => {
   })
 
   it('emits no organizer, since the site hosts none of these shows', () => {
-    const schema = generateMusicEventSchema({
-      ...baseShow,
-      slug: 'test-show',
-      price: 25,
-      ticket_url: 'https://dice.fm/event/abc',
-      venue: { ...baseShow.venue, slug: 'the-rebel-lounge', address: '2303 E Indian School Rd', city: 'Phoenix' },
-    })
+    const schema = generateMusicEventSchema(baseShow)
     expect(schema).not.toHaveProperty('organizer')
   })
 })
@@ -579,8 +575,8 @@ describe('generateMusicEventSchema', () => {
 // Every exported `generate*Schema` builder is swept, so a builder added to the
 // module is covered as soon as it is exported. Each builder takes at most one
 // argument: `sweepInput` carries every field the object-input builders read,
-// and a builder whose input is not an object is given its own in
-// `sweepInputOverrides`. A builder that throws on its input fails the sweep
+// and a builder whose input is not an object is given its own in `inputFor`.
+// A builder that throws on its input fails the sweep
 // rather than dropping out of it.
 describe('no schema the module builds names the site as an organizer', () => {
   const sweepInput = {
@@ -606,9 +602,7 @@ describe('no schema the module builds names the site as an organizer', () => {
     artists: [{ name: 'Test Band', slug: 'test-band', is_headliner: true }],
     listItems: [{ url: 'https://psychichomily.com/shows/test-show', name: 'Test Show' }],
   }
-  const sweepInputOverrides: Record<string, unknown> = {
-    generateBreadcrumbSchema: [{ name: 'Home', url: 'https://psychichomily.com' }],
-  }
+  const breadcrumbInput = [{ name: 'Home', url: SITE_URL }]
 
   // The builders' input types differ, so each is called through one loose
   // signature; the sweep inputs are runtime fixtures, not typed per builder.
@@ -625,22 +619,18 @@ describe('no schema the module builds names the site as an organizer', () => {
   }
 
   const inputFor = (name: string): unknown =>
-    name in sweepInputOverrides ? sweepInputOverrides[name] : sweepInput
+    name === 'generateBreadcrumbSchema' ? breadcrumbInput : sweepInput
 
+  const siteHost = new URL(SITE_URL).hostname
   const isSiteUrl = (value: unknown): boolean => {
-    if (typeof value !== 'string') return false
-    try {
-      return /(^|\.)psychichomily\.com$/.test(new URL(value).hostname)
-    } catch {
-      return false
-    }
+    const parsed = typeof value === 'string' ? parseHttpUrl(value) : null
+    return parsed !== null && hostIsAnchored(parsed, [siteHost])
   }
 
   const namesTheSite = (organizer: unknown): boolean =>
     nodesOf(organizer).some(node => node.name === 'Psychic Homily' || isSiteUrl(node.url))
 
   it('sweeps the event builder, so the check below is not vacuous', () => {
-    expect(builders.map(([name]) => name)).toContain('generateMusicEventSchema')
     const swept = builders.flatMap(([name, build]) => nodesOf(build(inputFor(name))))
     expect(swept.some(node => node['@type'] === 'MusicEvent')).toBe(true)
   })
