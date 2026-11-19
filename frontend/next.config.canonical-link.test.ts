@@ -395,6 +395,14 @@ describe('the proxy answers for every covered route', () => {
     ).toBe(true)
   })
 
+  it('does not run the proxy for a collection request with a session', () => {
+    const request = { headers: {}, cookies: { auth_token: 'x' } } as unknown as Parameters<
+      typeof routesThroughProxy
+    >[1]
+
+    expect(routesThroughProxy('/collections/essential-shoegaze', request, {})).toBe(false)
+  })
+
   // When the backend reports the entity missing, the proxy's 404 lands before
   // anything streams; without it the page would serve a not-found body at
   // HTTP 200 under a header that calls that URL canonical.

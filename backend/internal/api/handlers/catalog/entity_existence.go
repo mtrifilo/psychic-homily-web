@@ -86,9 +86,8 @@ type CollectionExistsRequest struct {
 	Slug string `path:"slug" doc:"Collection slug or numeric ID" example:"my-favorite-artists"`
 }
 
-// CollectionExistsHandler handles HEAD /collections/{slug}/exists. It answers
-// for a caller without a session whatever the request carries, so a private
-// collection answers 404 exactly as an unused slug does.
+// CollectionExistsHandler handles HEAD /collections/{slug}/exists, with the
+// answer CollectionExists gives.
 func (h *EntityExistenceHandler) CollectionExistsHandler(ctx context.Context, req *CollectionExistsRequest) (*EntityExistsResponse, error) {
 	return existenceAnswer(h.entityExistenceService.CollectionExists(req.Slug))
 }

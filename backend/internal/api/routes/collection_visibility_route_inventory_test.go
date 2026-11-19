@@ -115,10 +115,9 @@ var collectionAddressableRoutes = map[string]collectionRouteDisposition{
 	"GET /crates/{slug}/graph":      collectionGated,
 	"GET /collections/{slug}/stats": collectionGated,
 	"GET /crates/{slug}/stats":      collectionGated,
-	// The frontend proxy's existence probe. It answers as the detail route
-	// answers a caller without a session, whoever calls it, so a private
-	// collection is a 404 to everyone here; TestCollectionExists_* in
-	// services/catalog pins it. Registered under /collections only.
+	// The frontend proxy's existence probe, a 404 for a private collection
+	// whoever calls it; TestCollectionExists_* in services/catalog pins it.
+	// Registered under /collections only.
 	"HEAD /collections/{slug}/exists": collectionGated,
 
 	// Polymorphic sub-resources, gated through services/shared's registry.

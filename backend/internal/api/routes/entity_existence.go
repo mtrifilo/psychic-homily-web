@@ -27,7 +27,5 @@ func setupEntityExistenceRoutes(rc RouteContext) {
 	huma.Head(rc.API, "/radio-stations/{slug}/exists", entityExistenceHandler.RadioStationExistsHandler)
 	huma.Head(rc.API, "/radio-stations/{slug}/radio-shows/{show_slug}/exists", entityExistenceHandler.RadioShowExistsHandler)
 	huma.Head(rc.API, "/radio-stations/{slug}/radio-shows/{show_slug}/episodes/{date}/exists", entityExistenceHandler.RadioEpisodeExistsHandler)
-	// On the main API with no auth middleware: the answer is the one a caller
-	// without a session gets.
 	huma.Head(rc.API, "/collections/{slug}/exists", entityExistenceHandler.CollectionExistsHandler)
 }

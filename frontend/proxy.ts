@@ -184,18 +184,14 @@ export const RESERVED_SEGMENTS: Record<string, ReadonlySet<string>> = {
 }
 
 /**
- * The literal segment of `/radio/{network}/channel/{local}`, a station inside a
- * network. A static segment outranks the `[show-slug]` route only at that
- * depth: `/radio/{station}/channel` is the show route with `channel` as the
- * show slug.
- */
-const RADIO_CHANNEL_SEGMENT = 'channel'
-
-/**
  * The cookie that carries a session; the collection page forwards it to read
- * the collection as the viewer.
+ * the collection as the viewer. `config.matcher` and the collection `Link`
+ * header rule in next.config.ts spell it too.
  */
 const SESSION_COOKIE = 'auth_token'
+
+/** The 404 reading for a probe whose route is new: see `failedProbeResponse`. */
+const NEW_ROUTE_PROBE = { requireApiAuthoredNotFound: true }
 
 /**
  * Shape of the date segments under `/shows/`: `/shows/2026/11` and
@@ -945,39 +941,33 @@ function venueArchiveYearCheck(
  * - `/radio/{network}/channel/{local}`: the station the channel page resolves.
  *
  * Anything deeper matches no route, and the router answers it with its own 404.
- *
- * Every probe is a route of its own, so each reads a 404 strictly (see
- * `failedProbeResponse`): during a deploy, a frontend that reaches an API
- * without these routes renders the page rather than 404ing every radio page.
  */
 function radioCheck(
   request: NextRequest,
   segments: string[]
 ): Promise<NextResponse> | NextResponse {
   const [, , station, second, third] = segments
-  const stationUrl = `${API_BASE_URL}/radio-stations/${encodeURIComponent(station)}`
-  const strict = { requireApiAuthoredNotFound: true }
+  const stationUrl = (slug: string) =>
+    `${API_BASE_URL}/radio-stations/${encodeURIComponent(slug)}`
 
   if (segments.length === 3) {
     if (RESERVED_SEGMENTS.radio.has(station)) {
       return NextResponse.next()
     }
-    return existenceCheck(request, `${stationUrl}/exists`, strict)
+    return existenceCheck(request, `${stationUrl(station)}/exists`, NEW_ROUTE_PROBE)
   }
 
-  const showUrl = `${stationUrl}/radio-shows/${encodeURIComponent(second)}`
+  const showUrl = `${stationUrl(station)}/radio-shows/${encodeURIComponent(second)}`
   if (segments.length === 4) {
-    return existenceCheck(request, `${showUrl}/exists`, strict)
+    return existenceCheck(request, `${showUrl}/exists`, NEW_ROUTE_PROBE)
   }
 
   if (segments.length === 5) {
-    if (second === RADIO_CHANNEL_SEGMENT) {
+    // The static `channel` segment outranks `[show-slug]` only at this depth;
+    // `/radio/{station}/channel` is the show route with `channel` as the show.
+    if (second === 'channel') {
       const channel = channelStationSlug(station, third)
-      return existenceCheck(
-        request,
-        `${API_BASE_URL}/radio-stations/${encodeURIComponent(channel)}/exists`,
-        strict
-      )
+      return existenceCheck(request, `${stationUrl(channel)}/exists`, NEW_ROUTE_PROBE)
     }
     if (!CALENDAR_DATE_SEGMENT.test(third) || !isRealCalendarDate(third)) {
       return notFoundResponse(request)
@@ -985,7 +975,7 @@ function radioCheck(
     return existenceCheck(
       request,
       `${showUrl}/episodes/${encodeURIComponent(third)}/exists`,
-      strict
+      NEW_ROUTE_PROBE
     )
   }
 
@@ -993,15 +983,14 @@ function radioCheck(
 }
 
 /**
- * `/collections/{slug}`, probed as a visitor WITHOUT a session sees it.
+ * `/collections/{slug}`, probed as a visitor WITHOUT a session sees it: the
+ * probe answers a private collection exactly as an unused slug.
  *
- * The probe answers 404 for a private collection exactly as for an unused slug,
- * which is the collection page's own rule for anyone but the creator, so a
- * signed-out request learns nothing from the status that the page would not
- * tell it. A request that carries a session is not probed: the creator of a
- * private collection must reach it, and the probe cannot ask on their behalf.
- * Such a request gets the page's own answer, a not-found body at HTTP 200 for a
- * collection it may not see, the same for a missing one and a hidden one.
+ * A request that carries a session is not probed (`config.matcher` skips it;
+ * the check below holds if it ever reaches here): the creator of a private
+ * collection must reach it, and the probe cannot ask on their behalf. Such a
+ * request gets the page's own answer, a not-found body at HTTP 200 for a
+ * missing collection and a hidden one alike.
  *
  * A positive verdict is a PUBLIC collection's, so reusing it across visitors
  * discloses nothing. A collection made private inside the verdict window
@@ -1017,7 +1006,7 @@ function collectionCheck(
   return existenceCheck(
     request,
     `${API_BASE_URL}/collections/${encodeURIComponent(slug)}/exists`,
-    { requireApiAuthoredNotFound: true }
+    NEW_ROUTE_PROBE
   )
 }
 
@@ -1344,10 +1333,14 @@ export const config = {
       ],
     },
     {
+      // A request with a session gets the page's own answer; see
+      // `collectionCheck`. Next reads this config statically, so the cookie
+      // name is a literal here rather than SESSION_COOKIE.
       source: '/collections/:path*',
       missing: [
         { type: 'header', key: 'next-router-prefetch' },
         { type: 'header', key: 'purpose', value: 'prefetch' },
+        { type: 'cookie', key: 'auth_token' },
       ],
     },
   ],
