@@ -1,6 +1,16 @@
 import { Suspense } from 'react'
+import { HydrationBoundary } from '@tanstack/react-query'
 import { FestivalList } from '@/features/festivals/components'
+import {
+  FESTIVAL_LIST_FIRST_SCREEN_DEFEATING_PARAMS,
+  FESTIVAL_LIST_FIRST_SCREEN_KEY,
+  FESTIVAL_LIST_FIRST_SCREEN_URL,
+} from '@/features/festivals/listFirstScreen'
 import { LoadingSpinner } from '@/components/shared'
+import {
+  dehydrateListFirstScreen,
+  type RouteSearchParams,
+} from '@/lib/ssr/firstScreenSeed'
 
 export const metadata = {
   title: 'Festivals',
@@ -16,7 +26,48 @@ export const metadata = {
   },
 }
 
-export default function FestivalsPage() {
+/**
+ * `FestivalList` under a boundary seeded with the festivals on a bare
+ * `/festivals`, so the rows are in the server HTML.
+ *
+ * Only the rows are seeded because only the rows gate the first paint; the tag
+ * facet fills in after hydration.
+ *
+ * The element is a `HydrationBoundary` on every path, seeded or not: a
+ * different element type here would remount the list on the first navigation
+ * off the seeded URL. A failed read seeds nothing, and the list fetches for
+ * itself and owns the loading and error states.
+ */
+export async function HydratedFestivalList({
+  searchParams,
+}: {
+  searchParams: Promise<RouteSearchParams>
+}) {
+  const dehydratedState = await dehydrateListFirstScreen(
+    await searchParams,
+    FESTIVAL_LIST_FIRST_SCREEN_DEFEATING_PARAMS,
+    [
+      {
+        url: FESTIVAL_LIST_FIRST_SCREEN_URL,
+        queryKey: FESTIVAL_LIST_FIRST_SCREEN_KEY,
+        collection: 'festivals',
+        service: 'festivals-first-screen',
+      },
+    ],
+  )
+
+  return (
+    <HydrationBoundary state={dehydratedState}>
+      <FestivalList />
+    </HydrationBoundary>
+  )
+}
+
+export default function FestivalsPage({
+  searchParams,
+}: {
+  searchParams: Promise<RouteSearchParams>
+}) {
   return (
     <div className="flex min-h-screen items-start justify-center">
       <main className="w-full max-w-6xl px-4 py-8 md:px-8">
@@ -28,7 +79,7 @@ export default function FestivalsPage() {
             </div>
           }
         >
-          <FestivalList />
+          <HydratedFestivalList searchParams={searchParams} />
         </Suspense>
       </main>
     </div>

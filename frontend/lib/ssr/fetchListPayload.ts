@@ -55,6 +55,8 @@ export type ListPayloadCollection =
   | 'months'
   | 'releases'
   | 'labels'
+  | 'festivals'
+  | 'stations'
   | 'tags'
   | 'nodes'
 

@@ -259,4 +259,37 @@ describe('RadioHub', () => {
     render(<RadioHub />)
     expect(screen.getByText("Couldn't load radio stations.")).toBeInTheDocument()
   })
+
+  // A server-seeded dial refetches on its first client commit; that refetch
+  // failing leaves `error` set beside the seeded `data`.
+  it('keeps the strips and shows no error when a refetch of loaded stations fails', () => {
+    mockUseRadioStations.mockReturnValue({
+      data: {
+        stations: [makeStation()],
+        count: 1,
+      },
+      isLoading: false,
+      error: new Error('refetch failed'),
+    })
+    render(<RadioHub />)
+
+    expect(screen.getAllByTestId('dial-strip').map(s => s.textContent)).toEqual([
+      'KEXP',
+    ])
+    expect(
+      screen.queryByText("Couldn't load radio stations.")
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders the empty state when the station list is empty', () => {
+    mockUseRadioStations.mockReturnValue({
+      data: { stations: [], count: 0 },
+      isLoading: false,
+      error: null,
+    })
+    render(<RadioHub />)
+
+    expect(screen.getByText('No radio stations yet.')).toBeInTheDocument()
+    expect(screen.queryByTestId('dial-strip')).not.toBeInTheDocument()
+  })
 })

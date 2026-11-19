@@ -40,6 +40,17 @@ export default function RadioHub() {
 
   const allStations = stationsQuery.data?.stations ?? []
   const stations = sortDialStations(allStations.filter(isStationVisibleOnIndex))
+  // The error notice is for a dial with nothing to show: a failed refetch of
+  // stations already on screen keeps the strips and says nothing. A
+  // server-seeded dial refetches on its first client commit, so that refetch
+  // failing is an expected case, not an outage.
+  const dialNotice = stationsQuery.isLoading
+    ? null
+    : stationsQuery.error && !stationsQuery.data
+      ? "Couldn't load radio stations."
+      : stations.length === 0
+        ? 'No radio stations yet.'
+        : null
   // Every station, sub-streams included: the guide schedules sub-streams the
   // dial hides.
   const stationNetworks = new Map(
@@ -87,17 +98,12 @@ export default function RadioHub() {
               <span className="sr-only">Loading stations</span>
             </div>
           )}
-          {!stationsQuery.isLoading &&
-            (stationsQuery.error || stations.length === 0) && (
-              <div className="flex flex-col items-center gap-1 py-12 text-center">
-                <Radio className="size-7 text-muted-foreground/30" />
-                <p className="text-sm text-muted-foreground">
-                  {stationsQuery.error
-                    ? "Couldn't load radio stations."
-                    : 'No radio stations yet.'}
-                </p>
-              </div>
-            )}
+          {dialNotice && (
+            <div className="flex flex-col items-center gap-1 py-12 text-center">
+              <Radio className="size-7 text-muted-foreground/30" />
+              <p className="text-sm text-muted-foreground">{dialNotice}</p>
+            </div>
+          )}
           {stations.map(station => (
             <DialStationStrip key={station.id} station={station} />
           ))}

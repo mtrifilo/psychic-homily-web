@@ -164,3 +164,72 @@ describe('FestivalList', () => {
     })
   })
 })
+
+describe('FestivalList over rows that answer the current query', () => {
+  const rows = { festivals: [makeFestival(1, 'FORM')], count: 1 }
+  const errorText = 'Failed to load festivals. Please try again later.'
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGet.mockReturnValue(null)
+  })
+
+  const listWrapper = () => screen.getByTestId('festival-count').parentElement!
+
+  it('does not dim during a same-key revalidation', () => {
+    mockUseFestivals.mockReturnValue({
+      data: rows,
+      isLoading: false,
+      isFetching: true,
+      isPlaceholderData: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    render(<FestivalList />)
+
+    expect(listWrapper()).not.toHaveClass('opacity-60')
+  })
+
+  it('dims while the previous filter’s rows stand in for the next', () => {
+    mockUseFestivals.mockReturnValue({
+      data: rows,
+      isLoading: false,
+      isFetching: true,
+      isPlaceholderData: true,
+      error: null,
+      refetch: vi.fn(),
+    })
+    render(<FestivalList />)
+
+    expect(listWrapper()).toHaveClass('opacity-60')
+  })
+
+  it('keeps the rows when their revalidation fails', () => {
+    mockUseFestivals.mockReturnValue({
+      data: rows,
+      isLoading: false,
+      isFetching: false,
+      isPlaceholderData: false,
+      error: new Error('Network error'),
+      refetch: vi.fn(),
+    })
+    render(<FestivalList />)
+
+    expect(screen.getByRole('link', { name: 'FORM' })).toBeInTheDocument()
+    expect(screen.queryByText(errorText)).not.toBeInTheDocument()
+  })
+
+  it('shows the error when only placeholder rows are on screen', () => {
+    mockUseFestivals.mockReturnValue({
+      data: rows,
+      isLoading: false,
+      isFetching: false,
+      isPlaceholderData: true,
+      error: new Error('Network error'),
+      refetch: vi.fn(),
+    })
+    render(<FestivalList />)
+
+    expect(screen.getByText(errorText)).toBeInTheDocument()
+  })
+})

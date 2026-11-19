@@ -79,7 +79,9 @@ export function sortDialStations<T extends { slug: string; name: string }>(
     const pa = DIAL_STATION_PRIORITY[a.slug] ?? Number.MAX_SAFE_INTEGER
     const pb = DIAL_STATION_PRIORITY[b.slug] ?? Number.MAX_SAFE_INTEGER
     if (pa !== pb) return pa - pb
-    return a.name.localeCompare(b.name)
+    // A fixed collation locale: the dial is rendered on the server and again
+    // in the browser, and the runtime default locale differs between the two.
+    return a.name.localeCompare(b.name, 'en')
   })
 }
 
