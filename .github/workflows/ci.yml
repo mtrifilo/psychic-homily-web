@@ -30,6 +30,13 @@ concurrency:
   group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Every setup-bun step reads this one value, so CI runs the Bun version the
+# suite was last verified on. Raise it in a PR whose own CI shows the suite
+# passing on the new version: a floating version lets a Bun release turn main
+# red with no change in the repository.
+env:
+  BUN_VERSION: 1.4.4
+
 jobs:
   migration-lint:
     name: Migration Lint
@@ -457,6 +464,8 @@ jobs:
           cache-dependency-path: backend/go.sum
 
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
 
       - name: Install frontend dependencies
         working-directory: ./frontend
@@ -518,6 +527,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
 
       - name: Install dependencies
         working-directory: ./frontend
@@ -588,6 +599,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
 
       - name: Install dependencies
         working-directory: ./frontend
@@ -642,6 +655,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
 
       - name: Install dependencies
         working-directory: ./cli
@@ -683,6 +698,8 @@ jobs:
           cache-dependency-path: backend/go.sum
 
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
 
       - name: Install frontend dependencies
         working-directory: ./frontend
@@ -798,6 +815,8 @@ jobs:
           cache-dependency-path: backend/go.sum
 
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
 
       - name: Install frontend dependencies
         working-directory: ./frontend
@@ -902,6 +921,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
 
       - name: Install frontend dependencies
         working-directory: ./frontend

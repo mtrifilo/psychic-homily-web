@@ -125,8 +125,10 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          # Pinned — deliberately unlike the other workflows here, which float.
-          # This one runs unattended on a schedule, so a bun release that
+          # Pinned, like every workflow here, but to its own version rather
+          # than the BUN_VERSION that ci.yml and atlas-perf.yml share: this
+          # check was verified separately and moves only when it is
+          # re-verified. It runs unattended on a schedule, so a bun release that
           # changed tsconfig `paths` resolution or top-level-await handling
           # would stop the monitor on a day nobody touched the repo, and a
           # monitor that silently stopped is the failure this exists to catch.
