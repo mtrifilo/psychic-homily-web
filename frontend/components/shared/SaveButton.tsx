@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { Heart } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { BracketLink } from './BracketLink'
@@ -18,6 +19,16 @@ import { useAutoDismissBanner } from '@/lib/hooks/common'
 import { useAuthGatedAction } from '@/lib/hooks/common/useAuthGatedAction'
 import { useShouldOpenFirstSaveHint } from '@/features/shows/hooks/useFirstSaveHint'
 import { FirstSaveHint } from './FirstSaveHint'
+
+// Loaded on first open: the panel is reached only from the one-time hint, and
+// every list row renders a SaveButton.
+const SavedShowsCalendarPanel = dynamic(
+  () =>
+    import(
+      '@/features/collections/components/saved-shows-calendar/SavedShowsCalendarPanel'
+    ).then(m => m.SavedShowsCalendarPanel),
+  { ssr: false }
+)
 
 // How long a save failure stays on screen before auto-hiding.
 const ERROR_DISMISS_MS = 3000
@@ -93,6 +104,11 @@ export function SaveButton({
   const shouldOpenFirstSaveHint = useShouldOpenFirstSaveHint()
   const [isHintOpen, setIsHintOpen] = useState(false)
   const closeHint = useCallback(() => setIsHintOpen(false), [])
+  // Undefined until the hint first opens the calendar panel, then the panel's
+  // open state; kept mounted after that so it closes with its own animation
+  // and focus return.
+  const [isCalendarOpen, setIsCalendarOpen] = useState<boolean>()
+  const openCalendar = useCallback(() => setIsCalendarOpen(true), [])
   // The hint anchors to this wrapper and renders inside it, right after the
   // control, so it is the next stop in tab and reading order.
   const wrapperRef = useRef<HTMLDivElement>(null)
@@ -168,14 +184,26 @@ export function SaveButton({
 
   // Gated on `isSaved` as well: the hint opens with "Saved.", which stops
   // being true the moment the show is unsaved.
-  const firstSaveHint =
-    isHintOpen && isSaved ? (
-      <FirstSaveHint
-        anchorRef={wrapperRef}
-        align={hintAlign}
-        onClose={closeHint}
-      />
-    ) : null
+  const firstSaveHint = (
+    <>
+      {isHintOpen && isSaved ? (
+        <FirstSaveHint
+          anchorRef={wrapperRef}
+          align={hintAlign}
+          onClose={closeHint}
+          onOpenCalendar={openCalendar}
+        />
+      ) : null}
+      {isCalendarOpen !== undefined ? (
+        <SavedShowsCalendarPanel
+          open={isCalendarOpen}
+          onOpenChange={setIsCalendarOpen}
+          anchorRef={wrapperRef}
+          align={hintAlign}
+        />
+      ) : null}
+    </>
+  )
 
   // `authStatus === 'anonymous'`, not `!isAuthenticated`: the sign-in wording
   // is a claim about the viewer, and the unsettled window is not yet entitled

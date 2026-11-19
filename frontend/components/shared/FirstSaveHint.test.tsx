@@ -43,7 +43,12 @@ function Harness({ withBar, open }: { withBar: boolean; open: boolean }) {
       <span data-test-anchor="" ref={anchorRef}>
         <button type="button">Save</button>
         {open ? (
-          <FirstSaveHint anchorRef={anchorRef} align="start" onClose={vi.fn()} />
+          <FirstSaveHint
+            anchorRef={anchorRef}
+            align="start"
+            onClose={vi.fn()}
+            onOpenCalendar={vi.fn()}
+          />
         ) : null}
       </span>
       {withBar ? <nav data-bottom-tab-bar="" /> : null}
