@@ -76,10 +76,12 @@ function selfCanonicalRoute(
  *   calendar window outside the addressable span, gets a real HTTP 404 from
  *   `proxy.ts` before anything streams.
  *
- * Two windows still serve a not-found body at HTTP 200 under the header: the
- * proxy passes a request through when its existence probe cannot answer, and
- * it reuses a positive verdict for a few minutes after the entity is gone.
- * Both name the request's own URL, so the header points nowhere else.
+ * A not-found body can still go out at HTTP 200 under the header: when the
+ * proxy's existence probe cannot answer and the request is passed through,
+ * when the proxy reuses a positive verdict for a few minutes after the entity
+ * is gone, and when a page treats any failed read of its entity as not found
+ * (the venue page does) after a successful probe. Each names the request's own
+ * URL, so the header points nowhere else.
  *
  * `next.config.canonical-link.test.ts` checks the rules against the pages and
  * the proxy, and records why every other dynamic page route is left out.
@@ -106,7 +108,8 @@ export const SELF_CANONICAL_ROUTES = [
   // `?days=` turns a day into a run: a valid one canonicalizes to the day root
   // and is noindexed, and a refused one is a not-found body at HTTP 200, which
   // the proxy cannot see because it does not read the query. An empty `days=`
-  // names no run and keeps the header.
+  // names no run; Next's own router keeps the header for it and Vercel's
+  // withholds it, and either leaves that URL consistent with its page.
   selfCanonicalRoute(
     '/shows/:year/:month/:day',
     { year: '20\\d{2}|2100', month: '0[1-9]|1[0-2]', day: '0[1-9]|[12]\\d|3[01]' },

@@ -239,14 +239,6 @@ const COVERED: Record<string, { route: string; cases: CoveredCase[]; calendar?: 
         '/shows/2026/11/14',
         () => showsDayMetadata({ ...params({ slug: '2026', month: '11', day: '14' }), ...noSearch }),
       ],
-      [
-        '/shows/2026/11/14?days=',
-        () =>
-          showsDayMetadata({
-            ...params({ slug: '2026', month: '11', day: '14' }),
-            searchParams: Promise.resolve({ days: '' }),
-          }),
-      ],
     ],
   },
 }
@@ -406,6 +398,16 @@ describe('no canonical Link header where the page declares a different URL', () 
   })
 
   const day = params({ slug: '2026', month: '11', day: '14' })
+
+  // Next's router keeps the header for an empty `days=` and Vercel's withholds
+  // it; the page names the day root either way, so neither disagrees with it.
+  it('keeps an empty days= consistent with its page under either router', async () => {
+    const meta = await showsDayMetadata({ ...day, searchParams: Promise.resolve({ days: '' }) })
+    const header = await headerCanonicalFor('/shows/2026/11/14?days=')
+
+    expect(canonicalOf(meta)).toBe(`${SITE_URL}/shows/2026/11/14`)
+    expect(header === null || header === canonicalOf(meta)).toBe(true)
+  })
 
   it('leaves a day run alone, which is noindexed and canonical to the day root', async () => {
     const meta = await showsDayMetadata({ ...day, searchParams: Promise.resolve({ days: '3' }) })
