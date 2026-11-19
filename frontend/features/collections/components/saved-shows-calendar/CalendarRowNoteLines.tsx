@@ -45,10 +45,6 @@ function NoteContent({
       return <PanelNote>{PANEL_COPY.outlookOpened}</PanelNote>
     case 'copied':
       return <PanelNote>{PANEL_COPY.copied}</PanelNote>
-    case 'create_failed':
-      return <PanelError>{PANEL_COPY.createFailed}</PanelError>
-    case 'load_failed':
-      return <PanelError>{PANEL_COPY.loadFailed}</PanelError>
     case 'copy_failed':
       return (
         <>

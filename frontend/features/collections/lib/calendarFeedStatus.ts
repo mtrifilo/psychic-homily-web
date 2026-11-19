@@ -116,7 +116,9 @@ export function classifyCalendarApps(
  * marker without one is read as no reset rather than guessed at.
  */
 export function calendarResetReason(
-  status: CalendarFeedStatusResponse | undefined
+  status:
+    | Pick<CalendarFeedStatusResponse, 'link_reset_at' | 'link_reset_reason'>
+    | undefined
 ): CalendarLinkResetReason | null {
   return status?.link_reset_at ? (status.link_reset_reason ?? null) : null
 }

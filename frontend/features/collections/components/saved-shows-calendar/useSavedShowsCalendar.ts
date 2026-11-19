@@ -1,9 +1,6 @@
 'use client'
 
-import {
-  useCalendarFeedStatus,
-  useCalendarTokenStatus,
-} from '@/features/auth/hooks/useCalendarFeed'
+import { useCalendarFeedStatus } from '@/features/auth/hooks/useCalendarFeed'
 import { useSavedShows } from '@/features/shows/hooks/useSavedShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import {
@@ -14,36 +11,45 @@ import {
   buildSavedShowsCalendarModel,
   type SavedShowsCalendarModel,
 } from './savedShowsCalendarModel'
+import {
+  LinkCreateError,
+  useSavedShowsCalendarLink,
+} from './useSavedShowsCalendarLink'
 
 export type SavedShowsCalendarState =
   | { kind: 'loading' }
   | {
+      /** The link could not be loaded or created; nothing can be added. */
+      kind: 'link_failed'
+      failure: 'create' | 'load'
+      retry: () => void
+    }
+  | {
       kind: 'ready'
       model: SavedShowsCalendarModel
       device: CalendarDevice
-      hasToken: boolean
+      /** The private address, or null when it cannot be shown (state H). */
+      feedUrl: string | null
     }
 
 /**
  * Everything the open panel reads, reduced to its model. Mounted only while
- * the panel is open, so the status refetches each time it opens and again
- * whenever the window regains focus: that is how a first check made while the
- * person was in their calendar app shows up when they come back.
+ * the panel is open, so each open prepares the link afresh (see
+ * useSavedShowsCalendarLink) and reads the status again, and the status is
+ * read again whenever the window regains focus: that is how a first check
+ * made while the person was in their calendar app shows up when they return.
  *
- * Loading until the status has been read since this mount, and the newest
- * save, the upcoming count and the device are known, since every row and line
- * depends on one of them. A status cached by another surface is never acted
- * on: whether a row creates a link or loads the existing one is decided by
- * it, and creating one replaces any link a calendar already uses. A failed
+ * Loading until the link is ready, the status has been read since this mount,
+ * and the newest save, the upcoming count and the device are known, since
+ * every row and line depends on one of them. A failed status or saved-shows
  * read stays loading and is retried on the next focus; the panel has no
  * wording for a status it could not read, and never guesses one.
  */
 export function useSavedShowsCalendar(): SavedShowsCalendarState {
   const { user } = useAuthContext()
   const userId = user?.id
+  const link = useSavedShowsCalendarLink(userId)
   const status = useCalendarFeedStatus(true, { live: true })
-  // Read from the cache only; it is filled when a row loads the address.
-  const tokenStatus = useCalendarTokenStatus(false)
   // Sorted newest save first when no time filter is given.
   const newest = useSavedShows({ limit: 1, userId, retryOnFocus: true })
   const upcoming = useSavedShows({
@@ -54,29 +60,31 @@ export function useSavedShowsCalendar(): SavedShowsCalendarState {
   })
   const device = useCalendarDevice()
 
+  if (link.isError && !link.isFetching) {
+    return {
+      kind: 'link_failed',
+      failure: link.error instanceof LinkCreateError ? 'create' : 'load',
+      retry: () => void link.refetch(),
+    }
+  }
+
   const currentStatus =
     status.isFetchedAfterMount && !status.isError ? status.data : undefined
-  if (!currentStatus || !newest.data || !upcoming.data || !device) {
+  if (!link.data || !currentStatus || !newest.data || !upcoming.data || !device) {
     return { kind: 'loading' }
   }
 
-  const newestSavedAt = newest.data.shows[0]?.saved_at ?? null
+  const ready = link.data.kind === 'ready' ? link.data : null
   const model = buildSavedShowsCalendarModel({
     status: currentStatus,
-    urlRecoverable: tokenStatus.data?.has_token
-      ? tokenStatus.data.url_recoverable
-      : undefined,
-    newestSavedAt,
+    unrecoverable: !ready,
+    resetReasonBeforeCreate: ready?.resetReasonBeforeCreate ?? null,
+    newestSavedAt: newest.data.shows[0]?.saved_at ?? null,
     upcomingCount: upcoming.data.total,
     device,
     // Read at render, so an age is as fresh as the panel's last render; the
     // lines do not tick while the panel sits open.
     now: new Date(),
   })
-  return {
-    kind: 'ready',
-    model,
-    device,
-    hasToken: currentStatus.has_token,
-  }
+  return { kind: 'ready', model, device, feedUrl: ready?.feedUrl ?? null }
 }

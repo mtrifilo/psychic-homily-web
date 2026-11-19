@@ -137,6 +137,17 @@ beforeEach(() => {
       if (String(endpoint).endsWith('/calendar/token/feed-status')) {
         return { has_token: false }
       }
+      // The calendar panel prepares its link as it opens.
+      if (String(endpoint).endsWith('/calendar/token')) {
+        return options.method === 'POST'
+          ? {
+              token: 't',
+              feed_url: 'https://api.example.test/calendar/feed/t.ics',
+              follows_feed_url: 'https://api.example.test/follows.atom',
+              created_at: '2026-11-19T12:00:00Z',
+            }
+          : { has_token: false }
+      }
       if (
         String(endpoint).endsWith('/auth/preferences/first-save-hint') &&
         options.method === 'PUT'

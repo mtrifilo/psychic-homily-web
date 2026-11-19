@@ -1,9 +1,14 @@
 'use client'
 
-import { Check, ExternalLink } from 'lucide-react'
+import { Check } from 'lucide-react'
 import { useForgetCalendarClient } from '@/features/auth/hooks/useCalendarFeed'
-import { PanelError, PanelNote, PanelRowButton } from './CalendarPanelParts'
+import {
+  PanelErrorWithRetry,
+  PanelNote,
+  PanelRowButton,
+} from './CalendarPanelParts'
 import { CalendarRowNoteLines } from './CalendarRowNoteLines'
+import { AddTargetControl } from './CalendarAddRows'
 import { PANEL_COPY, addAgainLabel } from './savedShowsCalendarCopy'
 import type {
   ConnectedAppView,
@@ -30,6 +35,8 @@ export function CalendarConnectedApps({ apps }: { apps: ConnectedAppView[] }) {
 
 interface CalendarStoppedAppProps {
   view: StoppedAppView
+  /** Null when the address cannot be shown, where no "again" link is offered. */
+  feedUrl: string | null
   actions: CalendarActions
   onNavigate: () => void
 }
@@ -41,24 +48,22 @@ interface CalendarStoppedAppProps {
  */
 export function CalendarStoppedApp({
   view,
+  feedUrl,
   actions,
   onNavigate,
 }: CalendarStoppedAppProps) {
   const forget = useForgetCalendarClient()
   const { againTarget } = view
+  const forgetApp = () => forget.mutate(view.app.client)
 
   return (
     <div className="flex flex-col gap-2">
       <PanelNote>{view.stoppedLine}</PanelNote>
-      {againTarget ? (
+      {againTarget && feedUrl ? (
         <div className="flex flex-col">
-          <PanelRowButton
-            onClick={actions.addTo[againTarget]}
-            icon={ExternalLink}
-            handlesLink
-          >
+          <AddTargetControl target={againTarget} feedUrl={feedUrl} actions={actions}>
             {addAgainLabel(againTarget)}
-          </PanelRowButton>
+          </AddTargetControl>
           <CalendarRowNoteLines
             note={actions.notes[againTarget]}
             onNavigate={onNavigate}
@@ -66,14 +71,13 @@ export function CalendarStoppedApp({
         </div>
       ) : null}
       <div className="flex flex-col">
-        <PanelRowButton
-          onClick={() => forget.mutate(view.app.client)}
-          disabled={forget.isPending}
-        >
+        <PanelRowButton onClick={forgetApp} disabled={forget.isPending}>
           {PANEL_COPY.removedIt}
         </PanelRowButton>
         {forget.isError ? (
-          <PanelError>{PANEL_COPY.forgetFailed}</PanelError>
+          <PanelErrorWithRetry onRetry={forgetApp}>
+            {PANEL_COPY.forgetFailed}
+          </PanelErrorWithRetry>
         ) : null}
       </div>
     </div>

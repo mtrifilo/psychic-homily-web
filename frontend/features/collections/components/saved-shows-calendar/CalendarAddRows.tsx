@@ -5,10 +5,17 @@ import {
   canAddOnDevice,
   type CalendarDevice,
 } from '@/features/collections/lib/calendarDevice'
+import type { CalendarAddTarget } from '@/features/collections/lib/calendarFeedStatus'
+import {
+  outlookComSubscribeUrl,
+  outlookWorkSubscribeUrl,
+  webcalUrl,
+} from '@/lib/utils/calendarFeedUrls'
 import {
   PanelBlockTitle,
   PanelNote,
   PanelRowButton,
+  PanelRowLink,
   rowStackClass,
   useCalendarPanelLayout,
 } from './CalendarPanelParts'
@@ -21,6 +28,7 @@ import type { CalendarActions } from './useSavedShowsCalendarActions'
 interface CalendarAddRowsProps {
   rows: CalendarRow[]
   device: CalendarDevice
+  feedUrl: string
   actions: CalendarActions
   onNavigate: () => void
 }
@@ -29,6 +37,7 @@ interface CalendarAddRowsProps {
 export function CalendarAddRows({
   rows,
   device,
+  feedUrl,
   actions,
   onNavigate,
 }: CalendarAddRowsProps) {
@@ -37,7 +46,12 @@ export function CalendarAddRows({
     <div className={rowStackClass(layout)}>
       {rows.map(row => (
         <div key={row} className="flex flex-col">
-          <CalendarAddRow row={row} device={device} actions={actions} />
+          <CalendarAddRow
+            row={row}
+            device={device}
+            feedUrl={feedUrl}
+            actions={actions}
+          />
           <CalendarRowNoteLines note={actions.notes[row]} onNavigate={onNavigate} />
         </div>
       ))}
@@ -48,10 +62,12 @@ export function CalendarAddRows({
 function CalendarAddRow({
   row,
   device,
+  feedUrl,
   actions,
 }: {
   row: CalendarRow
   device: CalendarDevice
+  feedUrl: string
   actions: CalendarActions
 }) {
   switch (row) {
@@ -64,13 +80,9 @@ function CalendarAddRow({
       }
       return (
         <>
-          <PanelRowButton
-            onClick={actions.addTo[row]}
-            icon={ExternalLink}
-            handlesLink
-          >
+          <AddTargetControl target={row} feedUrl={feedUrl} actions={actions}>
             {ADD_TARGET_ROW[row]}
-          </PanelRowButton>
+          </AddTargetControl>
           {row === 'apple' && device.kind === 'iphone' ? (
             <PanelNote>{PANEL_COPY.iphoneGoogleAppHint}</PanelNote>
           ) : null}
@@ -79,15 +91,21 @@ function CalendarAddRow({
     case 'outlook_com':
     case 'outlook_work':
       return (
-        <PanelRowButton
-          onClick={() => actions.addToOutlook(row)}
-          icon={ExternalLink}
+        <PanelRowLink
+          href={
+            row === 'outlook_com'
+              ? outlookComSubscribeUrl(feedUrl)
+              : outlookWorkSubscribeUrl(feedUrl)
+          }
+          newTab
           handlesLink
+          icon={ExternalLink}
+          onClick={() => actions.noteOpened(row)}
         >
           {row === 'outlook_com'
             ? PANEL_COPY.rowOutlookCom
             : PANEL_COPY.rowOutlookWork}
-        </PanelRowButton>
+        </PanelRowLink>
       )
     case 'copy':
       return (
@@ -101,6 +119,41 @@ function CalendarAddRow({
         </PanelRowButton>
       )
   }
+}
+
+/**
+ * The one-step add for an app with a row of its own, shared by its row and by
+ * a stopped app's "Add to ... again": Google's two-step, or a webcal link that
+ * hands the address to Apple Calendar.
+ */
+export function AddTargetControl({
+  target,
+  feedUrl,
+  actions,
+  children,
+}: {
+  target: CalendarAddTarget
+  feedUrl: string
+  actions: CalendarActions
+  children: string
+}) {
+  if (target === 'google') {
+    return (
+      <PanelRowButton onClick={actions.addToGoogle} icon={ExternalLink} handlesLink>
+        {children}
+      </PanelRowButton>
+    )
+  }
+  return (
+    <PanelRowLink
+      href={webcalUrl(feedUrl)}
+      handlesLink
+      icon={ExternalLink}
+      onClick={() => actions.noteOpened('apple')}
+    >
+      {children}
+    </PanelRowLink>
+  )
 }
 
 /**

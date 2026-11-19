@@ -19,6 +19,7 @@ import { buildAuthHref } from '@/lib/auth-href'
 import { cn } from '@/lib/utils'
 import {
   PanelError,
+  PanelErrorWithRetry,
   PanelNote,
   PanelRowButton,
   useCalendarPanelLayout,
@@ -73,7 +74,9 @@ export function CalendarEmailStepsAction() {
         <PanelError>{PANEL_COPY.emailRateLimited}</PanelError>
       ) : null}
       {failure === 'failed' ? (
-        <PanelError>{PANEL_COPY.emailFailed}</PanelError>
+        <PanelErrorWithRetry onRetry={onSend}>
+          {PANEL_COPY.emailFailed}
+        </PanelErrorWithRetry>
       ) : null}
     </div>
   )

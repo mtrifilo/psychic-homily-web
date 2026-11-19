@@ -7,10 +7,10 @@ import {
 import { workerAuthFile } from '../fixtures/auth'
 import { runE2ESql } from '../e2e-db'
 
-// The saved-shows calendar panel, opened from the first-save hint: Copy link
-// creates and copies the private link, and a calendar app's check of that
-// link (simulated with Google's importer User-Agent) turns the panel's status
-// to connected when the reader comes back to the tab.
+// The saved-shows calendar panel, opened from the first-save hint: opening it
+// creates the private link, Copy link copies it, and a calendar app's check of
+// that link (simulated with Google's importer User-Agent) turns the panel's
+// status to connected when the reader comes back to the tab.
 
 const SHOW_SLUG = 'e2e-calendar-panel-test'
 const SHOW_TITLE = 'E2E [calendar-panel-test]'
@@ -73,17 +73,8 @@ test.describe('Saved-shows calendar panel', () => {
 
     const hint = page.getByTestId('first-save-hint')
     await expect(hint).toBeVisible({ timeout: 10_000 })
-    await hint
-      .getByRole('button', { name: 'Add saved shows to your calendar' })
-      .click()
-    await expect(hint).toBeHidden()
 
-    const panel = page.getByTestId('saved-shows-calendar-panel')
-    await expect(
-      panel.getByRole('heading', { name: 'Add your saved shows to your calendar' })
-    ).toBeVisible({ timeout: 10_000 })
-
-    // No link exists yet: Copy link creates it and copies it in one click.
+    // The account has no link yet: opening the panel creates one.
     await Promise.all([
       page.waitForResponse(
         resp =>
@@ -91,8 +82,18 @@ test.describe('Saved-shows calendar panel', () => {
           resp.request().method() === 'POST',
         { timeout: 10_000 }
       ),
-      panel.getByRole('button', { name: 'Copy link' }).click(),
+      hint
+        .getByRole('button', { name: 'Add saved shows to your calendar' })
+        .click(),
     ])
+    await expect(hint).toBeHidden()
+
+    const panel = page.getByTestId('saved-shows-calendar-panel')
+    await expect(
+      panel.getByRole('heading', { name: 'Add your saved shows to your calendar' })
+    ).toBeVisible({ timeout: 10_000 })
+
+    await panel.getByRole('button', { name: 'Copy link' }).click()
     await expect(
       panel.getByText(
         'Copied. Paste it where your calendar app adds a calendar from a link.'

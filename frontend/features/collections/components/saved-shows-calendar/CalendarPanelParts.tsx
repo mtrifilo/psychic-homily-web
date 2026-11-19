@@ -39,7 +39,7 @@ interface RowButtonProps {
   disabled?: boolean
   /**
    * The row acts on the private calendar link. Kept out of analytics
-   * autocapture, which would otherwise record the click with its context.
+   * autocapture, which would otherwise record the element and its href.
    */
   handlesLink?: boolean
   testId?: string
@@ -69,21 +69,34 @@ export function PanelRowButton({
   )
 }
 
-/** A row that is a plain link to a page or file. */
+/**
+ * A row that is a link: a file, or an address a calendar app or another site
+ * takes over. `newTab` opens it in a new tab with no opener and no referrer.
+ */
 export function PanelRowLink({
   href,
   children,
   icon: Icon,
   onClick,
+  newTab,
+  handlesLink,
 }: {
   href: string
   children: ReactNode
   icon?: LucideIcon
   onClick?: () => void
+  newTab?: boolean
+  /** The href carries the private calendar link; see PanelRowButton. */
+  handlesLink?: boolean
 }) {
   const layout = useCalendarPanelLayout()
   return (
-    <a href={href} onClick={onClick} className={rowClass(layout)}>
+    <a
+      href={href}
+      onClick={onClick}
+      {...(newTab ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+      className={rowClass(layout, handlesLink ? 'ph-no-capture' : undefined)}
+    >
       {children}
       {Icon ? <Icon className="size-3.5 shrink-0" aria-hidden="true" /> : null}
     </a>
@@ -124,6 +137,37 @@ export function PanelError({ children }: { children: ReactNode }) {
   return (
     <p role="alert" className="text-xs leading-4 text-destructive">
       {children}
+    </p>
+  )
+}
+
+const TRY_AGAIN = 'Try again.'
+
+/**
+ * A failure line that ends "Try again.", where those two words are the retry
+ * control, a link inside the sentence, so the line reads exactly as written.
+ */
+export function PanelErrorWithRetry({
+  children,
+  onRetry,
+}: {
+  children: string
+  onRetry: () => void
+}) {
+  if (!children.endsWith(TRY_AGAIN)) {
+    throw new Error(`A retry line must end "${TRY_AGAIN}": ${children}`)
+  }
+  const lead = children.slice(0, -TRY_AGAIN.length)
+  return (
+    <p role="alert" className="text-xs leading-4 text-destructive">
+      {lead}
+      <button
+        type="button"
+        onClick={onRetry}
+        className="rounded-sm underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {TRY_AGAIN}
+      </button>
     </p>
   )
 }

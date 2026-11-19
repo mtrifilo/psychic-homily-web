@@ -26,12 +26,6 @@ import {
 // The panel against stubbed endpoints: the real hooks, model and rows, with
 // the network, the viewer, the device and the browser's side effects faked.
 
-const openInCalendarApp = vi.fn()
-vi.mock('./calendarPanelBrowser', async importOriginal => ({
-  ...(await importOriginal<typeof import('./calendarPanelBrowser')>()),
-  openInCalendarApp: (url: string) => openInCalendarApp(url),
-}))
-
 vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => ({
     authStatus: 'authenticated',
@@ -53,6 +47,7 @@ vi.mock('@/lib/api', async importOriginal => ({
 }))
 
 const FEED_URL = 'https://api.example.test/calendar/feed/secret-token-abc.ics'
+const WEBCAL_URL = 'webcal://api.example.test/calendar/feed/secret-token-abc.ics'
 const TOKEN = 'secret-token-abc'
 
 const MINUTE = 60 * 1000
@@ -77,7 +72,7 @@ interface Server {
   status: CalendarFeedStatusResponse
   /** Answers GET /calendar/token; an Error rejects. */
   token: CalendarTokenStatusResponse | Error
-  /** Answers POST /calendar/token; an Error rejects; a promise waits. */
+  /** Answers POST /calendar/token. */
   mint: () => Promise<unknown>
   newestSavedAt: string | null
   upcoming: number
@@ -95,20 +90,37 @@ function method(options: unknown): string {
 function calls(fragment: string, verb: string) {
   return apiRequest.mock.calls.filter(
     ([endpoint, options]) =>
-      String(endpoint).includes(fragment) && method(options) === verb
+      String(endpoint).endsWith(fragment) && method(options) === verb
   )
+}
+
+const LINK: CalendarTokenStatusResponse = {
+  has_token: true,
+  url_recoverable: true,
+  feed_url: FEED_URL,
+}
+
+/** The account has a link, with these observed checks. */
+function withLink(reads: CalendarFeedRead[] = []) {
+  server.status = { has_token: true, reads }
+  server.token = LINK
 }
 
 beforeEach(() => {
   server = {
     status: { has_token: false },
-    token: { has_token: true, url_recoverable: true, feed_url: FEED_URL },
-    mint: async () => ({
-      token: TOKEN,
-      feed_url: FEED_URL,
-      follows_feed_url: 'https://api.example.test/follows.atom',
-      created_at: ago(0),
-    }),
+    token: { has_token: false },
+    mint: async () => {
+      // The server now holds the link it just made.
+      server.token = LINK
+      server.status = { has_token: true, reads: [] }
+      return {
+        token: TOKEN,
+        feed_url: FEED_URL,
+        follows_feed_url: 'https://api.example.test/follows.atom',
+        created_at: ago(0),
+      }
+    },
     newestSavedAt: ago(5 * HOUR),
     upcoming: 8,
     forget: async () => ({ success: true, message: 'ok' }),
@@ -144,7 +156,7 @@ beforeEach(() => {
   })
 })
 
-/** A fake tab the panel opens; records where it was sent. */
+/** Every tab the panel opens, and the order of browser side effects. */
 interface FakeTab {
   opener: unknown
   closed: boolean
@@ -152,6 +164,7 @@ interface FakeTab {
   close: () => void
 }
 let tabs: FakeTab[]
+let effects: string[]
 const writeText = vi.fn()
 
 function useDevice(agent: string, wide: boolean) {
@@ -167,9 +180,16 @@ function useDevice(agent: string, wide: boolean) {
   )
 }
 
+/** Keeps jsdom from following a link (it cannot); React handlers still run. */
+function stopNavigation(event: MouseEvent) {
+  if ((event.target as Element).closest('a')) event.preventDefault()
+}
+
 beforeEach(() => {
   tabs = []
+  effects = []
   vi.spyOn(window, 'open').mockImplementation(() => {
+    effects.push('open')
     const tab: FakeTab = {
       opener: window,
       closed: false,
@@ -181,8 +201,16 @@ beforeEach(() => {
     tabs.push(tab)
     return tab as unknown as Window
   })
-  writeText.mockReset().mockResolvedValue(undefined)
+  writeText.mockReset().mockImplementation(async () => {
+    effects.push('copy')
+  })
   useDevice(UA.mac, true)
+  document.addEventListener('click', stopNavigation, true)
+})
+
+afterEach(() => {
+  document.removeEventListener('click', stopNavigation, true)
+  vi.restoreAllMocks()
 })
 
 /**
@@ -197,10 +225,6 @@ function setupUser() {
   })
   return user
 }
-
-afterEach(() => {
-  vi.restoreAllMocks()
-})
 
 function Harness() {
   const anchorRef = useRef<HTMLDivElement>(null)
@@ -219,8 +243,7 @@ function Harness() {
   )
 }
 
-async function renderPanel() {
-  const client = createTestQueryClient()
+async function renderPanel(client = createTestQueryClient()) {
   render(<Harness />, { wrapper: createWrapperWithClient(client) })
   const panel = await screen.findByTestId('saved-shows-calendar-panel')
   // Ready once the loading line is gone.
@@ -230,18 +253,15 @@ async function renderPanel() {
   return panel
 }
 
+const NOT_ROWS = new Set(['Close', PANEL_COPY.manageInSettings])
+
+/** The panel's rows and links in order: buttons and links, minus the chrome. */
 function rowNames(panel: HTMLElement): string[] {
-  return within(panel)
-    .queryAllByRole('button')
-    .map(button => button.textContent ?? '')
-    .filter(name => name !== 'Close')
+  return Array.from(panel.querySelectorAll('a, button'))
+    .map(element => element.textContent ?? '')
+    .filter(name => !NOT_ROWS.has(name) && !name.startsWith('Download'))
 }
 
-const google = (lastAgo: number, firstAgo = lastAgo + DAY): CalendarFeedRead => ({
-  client: 'google',
-  first_read_at: ago(firstAgo),
-  last_read_at: ago(lastAgo),
-})
 const readOf = (
   client: CalendarFeedRead['client'],
   lastAgo: number,
@@ -251,10 +271,22 @@ const readOf = (
   first_read_at: ago(firstAgo),
   last_read_at: ago(lastAgo),
 })
+const google = (lastAgo: number) => readOf('google', lastAgo)
 
-describe('SavedShowsCalendarPanel: states from the status payload', () => {
-  it('F: loading shows one muted line and no rows', async () => {
-    apiRequest.mockImplementation(() => new Promise(() => {}))
+describe('SavedShowsCalendarPanel: preparing the link as it opens', () => {
+  it('F: shows one muted line and no rows until the link and status are ready', async () => {
+    let finish!: () => void
+    server.token = LINK
+    const linkRead = new Promise<void>(resolve => {
+      finish = resolve
+    })
+    const base = apiRequest.getMockImplementation()!
+    apiRequest.mockImplementation(async (endpoint: string, options: unknown) => {
+      if (String(endpoint).endsWith('/calendar/token') && method(options) === 'GET') {
+        await linkRead
+      }
+      return base(endpoint, options)
+    })
     render(<Harness />, {
       wrapper: createWrapperWithClient(createTestQueryClient()),
     })
@@ -264,8 +296,115 @@ describe('SavedShowsCalendarPanel: states from the status payload', () => {
     ).toBeInTheDocument()
     expect(within(panel).getByText(PANEL_COPY.loading)).toBeInTheDocument()
     expect(rowNames(panel)).toEqual([])
+
+    finish()
+    await waitFor(() => expect(rowNames(panel)).toContain('Copy link'))
   })
 
+  it('creates the link once, on open, when the account has none', async () => {
+    const panel = await renderPanel()
+    expect(calls('/calendar/token', 'POST')).toHaveLength(1)
+    expect(rowNames(panel)).toContain('Copy link')
+  })
+
+  it('never creates a link when one exists', async () => {
+    withLink()
+    await renderPanel()
+    expect(calls('/calendar/token', 'GET')).toHaveLength(1)
+    expect(calls('/calendar/token', 'POST')).toHaveLength(0)
+  })
+
+  it('reads the link fresh: a cached "no link" from another page never creates one', async () => {
+    const user = setupUser()
+    const client = createTestQueryClient()
+    client.setQueryData(['calendar', 'feedStatus'], { has_token: false })
+    client.setQueryData(['calendar', 'tokenStatus'], { has_token: false })
+    withLink()
+    const panel = await renderPanel(client)
+
+    await user.click(within(panel).getByRole('button', { name: 'Copy link' }))
+
+    await within(panel).findByText(PANEL_COPY.copied)
+    expect(calls('/calendar/token', 'POST')).toHaveLength(0)
+    expect(writeText).toHaveBeenCalledWith(FEED_URL)
+  })
+
+  it('reads the link fresh: a cached replaced address is never handed out', async () => {
+    const user = setupUser()
+    const client = createTestQueryClient()
+    client.setQueryData(['calendar', 'tokenStatus'], {
+      has_token: true,
+      url_recoverable: true,
+      feed_url: 'https://api.example.test/calendar/feed/replaced-token.ics',
+    })
+    withLink()
+    const panel = await renderPanel(client)
+
+    await user.click(within(panel).getByRole('button', { name: 'Copy link' }))
+
+    await within(panel).findByText(PANEL_COPY.copied)
+    expect(writeText).toHaveBeenCalledWith(FEED_URL)
+  })
+
+  it.each([
+    ['creating', 'create', PANEL_COPY.createFailed],
+    ['loading', 'load', PANEL_COPY.loadFailed],
+  ] as const)(
+    'a failure %s the link shows its line in place of the rows, and "Try again." retries',
+    async (_label, which, line) => {
+      const user = setupUser()
+      if (which === 'create') {
+        const mint = server.mint
+        let failed = false
+        server.mint = async () => {
+          if (!failed) {
+            failed = true
+            throw new Error('500')
+          }
+          return mint()
+        }
+      } else {
+        server.token = new Error('500')
+      }
+      render(<Harness />, {
+        wrapper: createWrapperWithClient(createTestQueryClient()),
+      })
+      const panel = await screen.findByTestId('saved-shows-calendar-panel')
+
+      const alert = await within(panel).findByRole('alert')
+      expect(alert).toHaveTextContent(line)
+      expect(
+        within(panel).getByRole('heading', { name: PANEL_COPY.headingStatus })
+      ).toBeInTheDocument()
+      expect(rowNames(panel)).toEqual(['Try again.'])
+
+      if (which === 'load') server.token = LINK
+      await user.click(within(alert).getByRole('button', { name: 'Try again.' }))
+
+      await waitFor(() => expect(rowNames(panel)).toContain('Copy link'))
+      expect(within(panel).queryByRole('alert')).not.toBeInTheDocument()
+    }
+  )
+
+  it('H: a link whose address cannot be shown is known on open, with no rows', async () => {
+    server.status = { has_token: true, reads: [google(2 * HOUR)] }
+    server.token = { has_token: true, url_recoverable: false }
+    const panel = await renderPanel()
+
+    expect(within(panel).getByText(PANEL_COPY.unrecoverable)).toBeInTheDocument()
+    expect(rowNames(panel)).toEqual([])
+    expect(
+      within(panel).getByText('Checked 2h ago, since your last save.')
+    ).toBeInTheDocument()
+    expect(
+      within(panel).getByRole('link', { name: PANEL_COPY.manageInSettings })
+    ).toBeInTheDocument()
+    expect(calls('/calendar/token', 'POST')).toHaveLength(0)
+    expect(within(panel).queryByText(/Download/)).not.toBeInTheDocument()
+  })
+})
+
+describe('SavedShowsCalendarPanel: states from the status payload', () => {
   it('A: nothing connected on a Mac', async () => {
     const panel = await renderPanel()
     expect(
@@ -300,11 +439,11 @@ describe('SavedShowsCalendarPanel: states from the status payload', () => {
     ])
   })
 
-  it('names one upcoming show in the singular, and hides the download at none', async () => {
+  it('names one upcoming show in the singular', async () => {
     server.upcoming = 1
-    const one = await renderPanel()
+    const panel = await renderPanel()
     expect(
-      within(one).getByRole('link', { name: 'Download this show (.ics)' })
+      within(panel).getByRole('link', { name: 'Download this show (.ics)' })
     ).toBeInTheDocument()
   })
 
@@ -318,12 +457,11 @@ describe('SavedShowsCalendarPanel: states from the status payload', () => {
   })
 
   it('B: a connected app is a status block, never an add row', async () => {
-    server.status = { has_token: true, reads: [google(2 * HOUR)] }
+    withLink([google(2 * HOUR)])
     const panel = await renderPanel()
     expect(
       within(panel).getByRole('heading', { name: PANEL_COPY.headingStatus })
     ).toBeInTheDocument()
-    expect(within(panel).getByText('Google Calendar')).toBeInTheDocument()
     expect(
       within(panel).getByText('Checked 2h ago, since your last save.')
     ).toBeInTheDocument()
@@ -340,7 +478,7 @@ describe('SavedShowsCalendarPanel: states from the status payload', () => {
   })
 
   it('B2: a check before the newest save says it appears at the next check', async () => {
-    server.status = { has_token: true, reads: [google(9 * HOUR)] }
+    withLink([google(9 * HOUR)])
     server.newestSavedAt = ago(HOUR)
     const panel = await renderPanel()
     expect(
@@ -351,22 +489,18 @@ describe('SavedShowsCalendarPanel: states from the status payload', () => {
   })
 
   it('drops the comparison when the account has no saved shows', async () => {
-    server.status = { has_token: true, reads: [google(2 * HOUR)] }
+    withLink([google(2 * HOUR)])
     server.newestSavedAt = null
     const panel = await renderPanel()
     expect(within(panel).getByText('Checked 2h ago.')).toBeInTheDocument()
   })
 
   it('C: several connected apps, each with its own line', async () => {
-    server.status = {
-      has_token: true,
-      reads: [
-        google(2 * HOUR),
-        readOf('apple_ios', DAY + HOUR),
-        readOf('other', 3 * HOUR, 3 * HOUR + 2 * HOUR),
-      ],
-    }
-    server.newestSavedAt = ago(5 * HOUR)
+    withLink([
+      google(2 * HOUR),
+      readOf('apple_ios', DAY + HOUR),
+      readOf('other', 3 * HOUR, 5 * HOUR),
+    ])
     const panel = await renderPanel()
     const blocks = within(panel).getAllByRole('listitem')
     expect(blocks.map(b => b.textContent)).toEqual([
@@ -382,10 +516,7 @@ describe('SavedShowsCalendarPanel: states from the status payload', () => {
   })
 
   it('counts an unnamed app only once its checks span an hour', async () => {
-    server.status = {
-      has_token: true,
-      reads: [readOf('other', 10 * MINUTE, 10 * MINUTE + 59 * MINUTE)],
-    }
+    withLink([readOf('other', 10 * MINUTE, 69 * MINUTE)])
     const panel = await renderPanel()
     expect(
       within(panel).getByRole('heading', { name: PANEL_COPY.headingAdd })
@@ -399,17 +530,19 @@ describe('SavedShowsCalendarPanel: states from the status payload', () => {
     ['Apple, just inside 8 days', readOf('apple_mac', 8 * DAY - MINUTE), 'connected'],
     ['Apple, just past 8 days', readOf('apple_mac', 8 * DAY + MINUTE), 'stopped'],
   ] as const)('%s reads as %s', async (_label, r, want) => {
-    server.status = { has_token: true, reads: [r] }
+    withLink([r])
     const panel = await renderPanel()
     if (want === 'connected') {
       expect(within(panel).getByText(/^Checked /)).toBeInTheDocument()
     } else {
-      expect(within(panel).getByText(/last checked .* ago\. It may have been removed there\.$/)).toBeInTheDocument()
+      expect(
+        within(panel).getByText(/last checked .* ago\. It may have been removed there\.$/)
+      ).toBeInTheDocument()
     }
   })
 
   it('D: a stopped app offers the add again and I removed it', async () => {
-    server.status = { has_token: true, reads: [google(12 * DAY)] }
+    withLink([google(12 * DAY)])
     const panel = await renderPanel()
     expect(
       within(panel).getByText(
@@ -431,10 +564,7 @@ describe('SavedShowsCalendarPanel: states from the status payload', () => {
   })
 
   it('D2: connected lines first, then the stopped line and its links', async () => {
-    server.status = {
-      has_token: true,
-      reads: [readOf('apple_ios', DAY), google(12 * DAY)],
-    }
+    withLink([readOf('apple_ios', DAY), google(12 * DAY)])
     server.newestSavedAt = ago(2 * DAY)
     const panel = await renderPanel()
     const text = panel.textContent ?? ''
@@ -450,9 +580,25 @@ describe('SavedShowsCalendarPanel: states from the status payload', () => {
     ])
   })
 
+  it('offers one Apple "again" link when both Apple families stopped', async () => {
+    withLink([readOf('apple_ios', 10 * DAY), readOf('apple_mac', 12 * DAY)])
+    const panel = await renderPanel()
+    expect(
+      within(panel).getAllByRole('link', { name: 'Add to Apple Calendar again' })
+    ).toHaveLength(1)
+    expect(within(panel).getAllByRole('button', { name: 'I removed it' })).toHaveLength(2)
+  })
+
+  it('offers no Apple "again" link while the other Apple family is connected', async () => {
+    withLink([readOf('apple_mac', HOUR), readOf('apple_ios', 12 * DAY)])
+    const panel = await renderPanel()
+    expect(rowNames(panel)).not.toContain('Add to Apple Calendar again')
+    expect(rowNames(panel)).not.toContain('Apple Calendar')
+  })
+
   it('"I removed it" forgets the app, and the panel offers its row as new', async () => {
     const user = setupUser()
-    server.status = { has_token: true, reads: [google(12 * DAY)] }
+    withLink([google(12 * DAY)])
     const panel = await renderPanel()
     server.status = { has_token: true, reads: [] }
 
@@ -473,9 +619,9 @@ describe('SavedShowsCalendarPanel: states from the status payload', () => {
     ).toBeInTheDocument()
   })
 
-  it('says so inline when forgetting fails', async () => {
+  it('a failed forget says so under its line, and "Try again." retries it', async () => {
     const user = setupUser()
-    server.status = { has_token: true, reads: [google(12 * DAY)] }
+    withLink([google(12 * DAY)])
     server.forget = async () => {
       throw new Error('500')
     }
@@ -483,119 +629,163 @@ describe('SavedShowsCalendarPanel: states from the status payload', () => {
 
     await user.click(within(panel).getByRole('button', { name: 'I removed it' }))
 
-    expect(await within(panel).findByRole('alert')).toHaveTextContent(
-      PANEL_COPY.forgetFailed
+    const alert = await within(panel).findByRole('alert')
+    expect(alert).toHaveTextContent(PANEL_COPY.forgetFailed)
+    await user.click(within(alert).getByRole('button', { name: 'Try again.' }))
+    await waitFor(() =>
+      expect(calls('/calendar/token/reads?client=google', 'DELETE')).toHaveLength(2)
     )
   })
 
   it.each([
     ['an unnamed app', UA.mac, readOf('other', 12 * DAY, 13 * DAY)],
     ['Apple seen from Windows', UA.windows, readOf('apple_mac', 12 * DAY)],
-  ])('a stopped app this device cannot add (%s) gets only I removed it', async (_label, agent, r) => {
-    useDevice(agent, true)
-    server.status = { has_token: true, reads: [r] }
-    const panel = await renderPanel()
-    expect(within(panel).queryByText(/^Add to .* again$/)).not.toBeInTheDocument()
-    expect(rowNames(panel)).toContain('I removed it')
-    expect(rowNames(panel)).toContain('Copy link')
-  })
-
-  it('offers one Apple "again" link when both Apple families stopped', async () => {
-    server.status = {
-      has_token: true,
-      reads: [readOf('apple_ios', 10 * DAY), readOf('apple_mac', 12 * DAY)],
+  ])(
+    'a stopped app this device cannot add (%s) gets only I removed it',
+    async (_label, agent, r) => {
+      useDevice(agent, true)
+      withLink([r])
+      const panel = await renderPanel()
+      expect(within(panel).queryByText(/^Add to .* again$/)).not.toBeInTheDocument()
+      expect(rowNames(panel)).toContain('I removed it')
+      expect(rowNames(panel)).toContain('Copy link')
     }
-    const panel = await renderPanel()
-    expect(
-      within(panel).getAllByRole('button', { name: 'Add to Apple Calendar again' })
-    ).toHaveLength(1)
-    expect(
-      within(panel).getAllByRole('button', { name: 'I removed it' })
-    ).toHaveLength(2)
-  })
-
-  it('offers no Apple "again" link while the other Apple family is connected', async () => {
-    server.status = {
-      has_token: true,
-      reads: [readOf('apple_mac', HOUR), readOf('apple_ios', 12 * DAY)],
-    }
-    const panel = await renderPanel()
-    expect(
-      within(panel).queryByRole('button', { name: 'Add to Apple Calendar again' })
-    ).not.toBeInTheDocument()
-    expect(rowNames(panel)).not.toContain('Apple Calendar')
-  })
+  )
 
   it.each([
     ['sign_out_everywhere', RESET_SUB.sign_out_everywhere],
     ['password_reset', RESET_SUB.password_reset],
-  ] as const)('E: the reset state for %s', async (reason, sub) => {
-    server.status = {
-      has_token: false,
-      link_reset_at: ago(HOUR),
-      link_reset_reason: reason,
+  ] as const)(
+    'E: the reset state for %s survives the link this open created',
+    async (reason, sub) => {
+      server.status = {
+        has_token: false,
+        link_reset_at: ago(HOUR),
+        link_reset_reason: reason,
+      }
+      server.token = {
+        has_token: false,
+        link_reset_at: ago(HOUR),
+        link_reset_reason: reason,
+      }
+      const panel = await renderPanel()
+      // Creating the link cleared the marker on the server.
+      await waitFor(() =>
+        expect(calls('/calendar/token/feed-status', 'GET').length).toBeGreaterThan(1)
+      )
+      expect(
+        within(panel).getByRole('heading', { name: PANEL_COPY.headingReset })
+      ).toBeInTheDocument()
+      expect(within(panel).getByText(sub)).toBeInTheDocument()
+      expect(rowNames(panel)).toEqual([
+        'Google Calendar',
+        'Apple Calendar',
+        'Outlook.com',
+        'Outlook (work or school)',
+        'Copy link',
+      ])
     }
-    const panel = await renderPanel()
-    expect(
-      within(panel).getByRole('heading', { name: PANEL_COPY.headingReset })
-    ).toBeInTheDocument()
-    expect(within(panel).getByText(sub)).toBeInTheDocument()
-    expect(rowNames(panel)).toEqual([
-      'Google Calendar',
-      'Apple Calendar',
-      'Outlook.com',
-      'Outlook (work or school)',
-      'Copy link',
-    ])
-  })
+  )
 })
 
-describe('SavedShowsCalendarPanel: never acts on a status it has not just read', () => {
-  it('offers no row from a cached status while the fresh read is in flight', async () => {
-    const client = createTestQueryClient()
-    // Another surface cached "no link" earlier; meanwhile one was made elsewhere.
-    client.setQueryData(['calendar', 'feedStatus'], { has_token: false })
-    let finish!: () => void
-    const fresh = new Promise<void>(resolve => {
-      finish = resolve
-    })
-    server.status = { has_token: true, reads: [] }
-    const base = apiRequest.getMockImplementation()!
-    apiRequest.mockImplementation(async (endpoint: string, options: unknown) => {
-      if (String(endpoint).endsWith('/calendar/token/feed-status')) await fresh
-      return base(endpoint, options)
-    })
-    render(<Harness />, { wrapper: createWrapperWithClient(client) })
-    const panel = await screen.findByTestId('saved-shows-calendar-panel')
-
-    expect(within(panel).getByText(PANEL_COPY.loading)).toBeInTheDocument()
-    expect(rowNames(panel)).toEqual([])
-
-    finish()
-    await waitFor(() => expect(rowNames(panel)).toContain('Copy link'))
+describe('SavedShowsCalendarPanel: rows act inside the click', () => {
+  it('Copy link copies in the handler and never shows the address', async () => {
     const user = setupUser()
-    await user.click(within(panel).getByRole('button', { name: 'Copy link' }))
-    await within(panel).findByText(PANEL_COPY.copied)
-    expect(calls('/calendar/token', 'POST')).toHaveLength(0)
-  })
+    const panel = await renderPanel()
+    const copy = within(panel).getByRole('button', { name: 'Copy link' })
+    expect(copy).toHaveClass('ph-no-capture')
 
-  it('reads the address from the server, not a cached token status', async () => {
-    const user = setupUser()
-    const client = createTestQueryClient()
-    client.setQueryData(['calendar', 'tokenStatus'], {
-      has_token: true,
-      url_recoverable: true,
-      feed_url: 'https://api.example.test/calendar/feed/replaced-token.ics',
-    })
-    server.status = { has_token: true, reads: [] }
-    render(<Harness />, { wrapper: createWrapperWithClient(client) })
-    const panel = await screen.findByTestId('saved-shows-calendar-panel')
-    await waitFor(() => expect(rowNames(panel)).toContain('Copy link'))
-
-    await user.click(within(panel).getByRole('button', { name: 'Copy link' }))
+    await user.click(copy)
 
     await within(panel).findByText(PANEL_COPY.copied)
     expect(writeText).toHaveBeenCalledWith(FEED_URL)
+    expect(panel.textContent).not.toContain(TOKEN)
+  })
+
+  it('every element whose href carries the address is kept out of autocapture', async () => {
+    withLink([google(12 * DAY)])
+    useDevice(UA.mac, true)
+    const panel = await renderPanel()
+    const carriers = Array.from(panel.querySelectorAll('[href]')).filter(
+      element => element.getAttribute('href')?.includes(TOKEN)
+    )
+    expect(carriers.length).toBeGreaterThan(0)
+    for (const element of carriers) expect(element).toHaveClass('ph-no-capture')
+  })
+
+  it("Google: copies, then opens Google's page, both in the click", async () => {
+    const user = setupUser()
+    const panel = await renderPanel()
+
+    await user.click(within(panel).getByRole('button', { name: 'Google Calendar' }))
+
+    expect(effects).toEqual(['copy', 'open'])
+    expect(tabs[0].opener).toBeNull()
+    expect(tabs[0].location.href).toBe(
+      'https://calendar.google.com/calendar/r/settings/addbyurl'
+    )
+    for (const line of PANEL_COPY.googlePending) {
+      expect(await within(panel).findByText(line)).toBeInTheDocument()
+    }
+  })
+
+  it("Google: a refused copy closes Google's tab and points to Settings", async () => {
+    const user = setupUser()
+    writeText.mockRejectedValue(new Error('NotAllowedError'))
+    const panel = await renderPanel()
+
+    await user.click(within(panel).getByRole('button', { name: 'Google Calendar' }))
+
+    expect(await within(panel).findByRole('alert')).toHaveTextContent(
+      PANEL_COPY.copyFailed
+    )
+    expect(tabs[0].closed).toBe(true)
+  })
+
+  it('Apple: a webcal link to the address', async () => {
+    const user = setupUser()
+    const panel = await renderPanel()
+    const apple = within(panel).getByRole('link', { name: 'Apple Calendar' })
+    expect(apple).toHaveAttribute('href', WEBCAL_URL)
+    expect(apple).not.toHaveAttribute('target')
+
+    await user.click(apple)
+
+    expect(await within(panel).findByText(PANEL_COPY.appleOpened)).toBeInTheDocument()
+  })
+
+  it('Outlook: a new-tab link to Microsoft with the webcal address', async () => {
+    const user = setupUser()
+    const panel = await renderPanel()
+    const outlook = within(panel).getByRole('link', {
+      name: 'Outlook (work or school)',
+    })
+    expect(outlook).toHaveAttribute('target', '_blank')
+    expect(outlook).toHaveAttribute('rel', 'noopener noreferrer')
+    const sent = new URL(outlook.getAttribute('href')!)
+    expect(sent.origin + sent.pathname).toBe(
+      'https://outlook.office.com/calendar/0/addfromweb/'
+    )
+    expect(sent.searchParams.get('url')).toBe(WEBCAL_URL)
+
+    await user.click(outlook)
+
+    expect(await within(panel).findByText(PANEL_COPY.outlookOpened)).toBeInTheDocument()
+  })
+
+  it('a refused copy points to Settings', async () => {
+    const user = setupUser()
+    writeText.mockRejectedValue(new Error('NotAllowedError'))
+    const panel = await renderPanel()
+
+    await user.click(within(panel).getByRole('button', { name: 'Copy link' }))
+
+    expect(await within(panel).findByRole('alert')).toHaveTextContent(
+      PANEL_COPY.copyFailed
+    )
+    expect(
+      within(panel).getByRole('link', { name: PANEL_COPY.manageInSettings })
+    ).toBeInTheDocument()
   })
 })
 
@@ -627,170 +817,6 @@ describe('SavedShowsCalendarPanel: focus', () => {
       expect(screen.queryByTestId('saved-shows-calendar-panel')).not.toBeInTheDocument()
     )
     expect(screen.getByRole('textbox', { name: 'search' })).toHaveFocus()
-  })
-})
-
-describe('SavedShowsCalendarPanel: rows that need the link', () => {
-  it('creates the link on the first pick, copies it, and never shows it', async () => {
-    const user = setupUser()
-    const panel = await renderPanel()
-    const copy = within(panel).getByRole('button', { name: 'Copy link' })
-    expect(copy).toHaveClass('ph-no-capture')
-
-    await user.click(copy)
-
-    await within(panel).findByText(PANEL_COPY.copied)
-    expect(calls('/calendar/token', 'POST')).toHaveLength(1)
-    expect(writeText).toHaveBeenCalledWith(FEED_URL)
-    expect(panel.textContent).not.toContain(TOKEN)
-    for (const element of panel.querySelectorAll('[href]')) {
-      expect(element.getAttribute('href')).not.toContain(TOKEN)
-    }
-  })
-
-  it('reuses the link it created for a second pick', async () => {
-    const user = setupUser()
-    const panel = await renderPanel()
-
-    await user.click(within(panel).getByRole('button', { name: 'Copy link' }))
-    await within(panel).findByText(PANEL_COPY.copied)
-    await user.click(within(panel).getByRole('button', { name: 'Outlook.com' }))
-    await within(panel).findByText(PANEL_COPY.outlookOpened)
-
-    expect(calls('/calendar/token', 'POST')).toHaveLength(1)
-  })
-
-  it('loads an existing link instead of creating one', async () => {
-    const user = setupUser()
-    server.status = { has_token: true, reads: [] }
-    const panel = await renderPanel()
-
-    await user.click(within(panel).getByRole('button', { name: 'Copy link' }))
-
-    await within(panel).findByText(PANEL_COPY.copied)
-    expect(calls('/calendar/token', 'POST')).toHaveLength(0)
-    expect(writeText).toHaveBeenCalledWith(FEED_URL)
-  })
-
-  it("Google: opens Google's page in the click, before the link exists, then shows the two-step", async () => {
-    const user = setupUser()
-    let finishMint!: () => void
-    const minted = server.mint
-    server.mint = () =>
-      new Promise(resolve => {
-        finishMint = () => resolve(minted())
-      })
-    const panel = await renderPanel()
-
-    await user.click(within(panel).getByRole('button', { name: 'Google Calendar' }))
-
-    expect(tabs).toHaveLength(1)
-    expect(tabs[0].opener).toBeNull()
-    expect(tabs[0].location.href).toBe(
-      'https://calendar.google.com/calendar/r/settings/addbyurl'
-    )
-    expect(writeText).not.toHaveBeenCalled()
-
-    finishMint()
-
-    for (const line of PANEL_COPY.googlePending) {
-      expect(await within(panel).findByText(line)).toBeInTheDocument()
-    }
-    expect(writeText).toHaveBeenCalledWith(FEED_URL)
-  })
-
-  it('Outlook: a blank tab opens in the click and goes to Microsoft with the webcal address', async () => {
-    const user = setupUser()
-    const panel = await renderPanel()
-
-    await user.click(
-      within(panel).getByRole('button', { name: 'Outlook (work or school)' })
-    )
-
-    expect(await within(panel).findByText(PANEL_COPY.outlookOpened)).toBeInTheDocument()
-    expect(tabs).toHaveLength(1)
-    const sent = new URL(tabs[0].location.href)
-    expect(sent.origin + sent.pathname).toBe(
-      'https://outlook.office.com/calendar/0/addfromweb/'
-    )
-    expect(sent.searchParams.get('url')).toBe(
-      'webcal://api.example.test/calendar/feed/secret-token-abc.ics'
-    )
-  })
-
-  it('Apple: hands the webcal address to the calendar app', async () => {
-    const user = setupUser()
-    const panel = await renderPanel()
-
-    await user.click(within(panel).getByRole('button', { name: 'Apple Calendar' }))
-
-    expect(await within(panel).findByText(PANEL_COPY.appleOpened)).toBeInTheDocument()
-    expect(openInCalendarApp).toHaveBeenCalledWith(
-      'webcal://api.example.test/calendar/feed/secret-token-abc.ics'
-    )
-  })
-
-  it('G: a failed create says so under the chosen row and closes the tab it opened', async () => {
-    const user = setupUser()
-    server.mint = async () => {
-      throw new Error('500')
-    }
-    const panel = await renderPanel()
-
-    await user.click(within(panel).getByRole('button', { name: 'Google Calendar' }))
-
-    expect(await within(panel).findByRole('alert')).toHaveTextContent(
-      PANEL_COPY.createFailed
-    )
-    expect(tabs[0].closed).toBe(true)
-    expect(writeText).not.toHaveBeenCalled()
-  })
-
-  it('a failed load says so under the chosen row', async () => {
-    const user = setupUser()
-    server.status = { has_token: true, reads: [] }
-    server.token = new Error('500')
-    const panel = await renderPanel()
-
-    await user.click(within(panel).getByRole('button', { name: 'Copy link' }))
-
-    expect(await within(panel).findByRole('alert')).toHaveTextContent(
-      PANEL_COPY.loadFailed
-    )
-  })
-
-  it('a refused copy points to Settings', async () => {
-    const user = setupUser()
-    writeText.mockRejectedValue(new Error('NotAllowedError'))
-    const panel = await renderPanel()
-
-    await user.click(within(panel).getByRole('button', { name: 'Copy link' }))
-
-    expect(await within(panel).findByRole('alert')).toHaveTextContent(
-      PANEL_COPY.copyFailed
-    )
-    expect(
-      within(panel).getByRole('link', { name: PANEL_COPY.manageInSettings })
-    ).toBeInTheDocument()
-  })
-
-  it('H: a link that cannot be shown again turns the panel to Settings', async () => {
-    const user = setupUser()
-    server.status = { has_token: true, reads: [google(2 * HOUR)] }
-    server.token = { has_token: true, url_recoverable: false }
-    const panel = await renderPanel()
-
-    await user.click(within(panel).getByRole('button', { name: 'Copy link' }))
-
-    expect(await within(panel).findByText(PANEL_COPY.unrecoverable)).toBeInTheDocument()
-    expect(rowNames(panel)).toEqual([])
-    expect(
-      within(panel).getByText('Checked 2h ago, since your last save.')
-    ).toBeInTheDocument()
-    expect(
-      within(panel).getByRole('link', { name: PANEL_COPY.manageInSettings })
-    ).toBeInTheDocument()
-    expect(within(panel).queryByRole('alert')).not.toBeInTheDocument()
   })
 })
 
@@ -829,7 +855,7 @@ describe('SavedShowsCalendarPanel: phones', () => {
 
   it('a stopped Google calendar on a phone keeps the Google block as the way back', async () => {
     useDevice(UA.iphoneSafari, false)
-    server.status = { has_token: true, reads: [google(12 * DAY)] }
+    withLink([google(12 * DAY)])
     const panel = await renderPanel()
     expect(within(panel).queryByText(/^Add to .* again$/)).not.toBeInTheDocument()
     expect(rowNames(panel)).toEqual([
@@ -842,7 +868,7 @@ describe('SavedShowsCalendarPanel: phones', () => {
 
   it('iPhone, connected: the Apple row gives way to its status block', async () => {
     useDevice(UA.iphoneSafari, false)
-    server.status = { has_token: true, reads: [readOf('apple_ios', 20 * MINUTE)] }
+    withLink([readOf('apple_ios', 20 * MINUTE)])
     server.newestSavedAt = ago(HOUR)
     const panel = await renderPanel()
     expect(
@@ -903,7 +929,7 @@ describe('SavedShowsCalendarPanel: Email me the steps', () => {
     )
   })
 
-  it('email unavailable (503) gets the generic line, and a later failure takes the sent line down', async () => {
+  it('a 503 gets the generic line with its retry, and a later failure takes the sent line down', async () => {
     const user = setupUser()
     const panel = await renderPanel()
     await user.click(within(panel).getByRole('button', { name: 'Email me the steps' }))
@@ -914,10 +940,14 @@ describe('SavedShowsCalendarPanel: Email me the steps', () => {
     }
     await user.click(within(panel).getByRole('button', { name: 'Send again' }))
 
-    expect(await within(panel).findByRole('alert')).toHaveTextContent(
-      PANEL_COPY.emailFailed
-    )
+    const alert = await within(panel).findByRole('alert')
+    expect(alert).toHaveTextContent(PANEL_COPY.emailFailed)
     expect(within(panel).queryByText(/^Sent to /)).not.toBeInTheDocument()
+
+    await user.click(within(alert).getByRole('button', { name: 'Try again.' }))
+    await waitFor(() =>
+      expect(calls('/calendar/token/email-steps', 'POST')).toHaveLength(3)
+    )
   })
 })
 

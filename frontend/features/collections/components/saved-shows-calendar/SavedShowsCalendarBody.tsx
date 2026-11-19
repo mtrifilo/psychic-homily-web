@@ -19,7 +19,8 @@ import { cn } from '@/lib/utils'
 interface SavedShowsCalendarBodyProps {
   model: SavedShowsCalendarModel
   device: CalendarDevice
-  hasToken: boolean
+  /** The private address; null when it cannot be shown, where no row acts. */
+  feedUrl: string | null
   /** Called when a link leaves the panel for another page. */
   onNavigate: () => void
 }
@@ -32,11 +33,11 @@ interface SavedShowsCalendarBodyProps {
 export function SavedShowsCalendarBody({
   model,
   device,
-  hasToken,
+  feedUrl,
   onNavigate,
 }: SavedShowsCalendarBodyProps) {
   const layout = useCalendarPanelLayout()
-  const actions = useSavedShowsCalendarActions(hasToken)
+  const actions = useSavedShowsCalendarActions(feedUrl ?? '')
   const hasDownload = model.downloadCount > 0
 
   return (
@@ -48,12 +49,13 @@ export function SavedShowsCalendarBody({
         <CalendarStoppedApp
           key={view.app.client}
           view={view}
+          feedUrl={feedUrl}
           actions={actions}
           onNavigate={onNavigate}
         />
       ))}
       {model.unrecoverable ? <PanelNote>{PANEL_COPY.unrecoverable}</PanelNote> : null}
-      {model.rows.length > 0 ? (
+      {feedUrl && model.rows.length > 0 ? (
         <div
           className={cn(
             'flex flex-col',
@@ -66,6 +68,7 @@ export function SavedShowsCalendarBody({
           <CalendarAddRows
             rows={model.rows}
             device={device}
+            feedUrl={feedUrl}
             actions={actions}
             onNavigate={onNavigate}
           />

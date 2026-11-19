@@ -10,6 +10,7 @@ import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { useMediaQuery } from '@/lib/hooks/common/useMediaQuery'
 import {
   CalendarPanelLayoutContext,
+  PanelErrorWithRetry,
   PanelNote,
   type CalendarPanelLayout,
 } from './CalendarPanelParts'
@@ -44,8 +45,9 @@ interface SavedShowsCalendarPanelProps {
  * rather than by CSS alone because the panel has no trigger of its own to
  * swap: rendering both and hiding one would leave a modal sheet trapping focus
  * behind a hidden overlay. Everything inside mounts only while open, so the
- * server never renders a row, and no row is offered until the status has been
- * read again since this open (see useSavedShowsCalendar).
+ * server never renders a row. Opening prepares the link (loads it, or
+ * creates one when the account has none) before any row is offered, so every
+ * row acts inside its own click.
  */
 export function SavedShowsCalendarPanel({
   open,
@@ -159,9 +161,15 @@ function PanelContents({
           <SavedShowsCalendarBody
             model={state.model}
             device={state.device}
-            hasToken={state.hasToken}
+            feedUrl={state.feedUrl}
             onNavigate={onNavigate}
           />
+        ) : state.kind === 'link_failed' ? (
+          <PanelErrorWithRetry onRetry={state.retry}>
+            {state.failure === 'create'
+              ? PANEL_COPY.createFailed
+              : PANEL_COPY.loadFailed}
+          </PanelErrorWithRetry>
         ) : (
           <PanelNote>{PANEL_COPY.loading}</PanelNote>
         )}
@@ -174,7 +182,7 @@ function headingFor(state: SavedShowsCalendarState): {
   title: string
   sub: string | null
 } {
-  if (state.kind === 'loading') {
+  if (state.kind !== 'ready') {
     return { title: PANEL_COPY.headingStatus, sub: null }
   }
   const { heading, resetReason } = state.model

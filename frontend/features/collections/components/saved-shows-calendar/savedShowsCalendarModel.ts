@@ -59,13 +59,13 @@ export interface SavedShowsCalendarModel {
 
 export interface SavedShowsCalendarInputs {
   status: CalendarFeedStatusResponse
+  /** A link exists whose address cannot be shown, so no row can act. */
+  unrecoverable: boolean
   /**
-   * Whether the link's address can be shown again, once the token status has
-   * been read; undefined before that. Only the token status knows it, and that
-   * response carries the address, so it is read when a row needs the address
-   * rather than when the panel opens.
+   * The reset marker as it stood before this open created a link, which
+   * clears it on the server.
    */
-  urlRecoverable: boolean | undefined
+  resetReasonBeforeCreate: CalendarLinkResetReason | null
   newestSavedAt: string | null
   upcomingCount: number
   device: CalendarDevice
@@ -96,14 +96,14 @@ function deviceRows(device: CalendarDevice): CalendarRow[] {
  */
 export function buildSavedShowsCalendarModel({
   status,
-  urlRecoverable,
+  unrecoverable,
+  resetReasonBeforeCreate,
   newestSavedAt,
   upcomingCount,
   device,
   now,
 }: SavedShowsCalendarInputs): SavedShowsCalendarModel {
   const apps = classifyCalendarApps(status, now)
-  const unrecoverable = status.has_token && urlRecoverable === false
 
   const connected = apps.connected.map(app => ({
     app,
@@ -147,7 +147,7 @@ export function buildSavedShowsCalendarModel({
 
   return {
     heading: known ? 'status' : 'add',
-    resetReason: calendarResetReason(status),
+    resetReason: calendarResetReason(status) ?? resetReasonBeforeCreate,
     connected,
     stopped,
     unrecoverable,
