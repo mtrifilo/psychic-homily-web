@@ -87,6 +87,9 @@ type EmailServiceInterface interface {
 	SendMagicLinkEmail(toEmail, token string) error
 	SendAccountRecoveryEmail(toEmail, token string, daysRemaining int) error
 	SendPasswordResetEmail(toEmail, token string) error
+	// SendCalendarStepsEmail is transactional and sent only on the account's
+	// own request, so it takes no unsubscribe URL.
+	SendCalendarStepsEmail(toEmail string) error
 	SendShowReminderEmail(toEmail, showTitle, showURL, unsubscribeURL string, eventTime LocalizedEventTime, venues []string) error
 	SendFilterNotificationEmail(toEmail, subject, htmlBody, unsubscribeURL string) error
 	// Each takes an HMAC-signed unsubscribeURL (RFC 8058 one-click).

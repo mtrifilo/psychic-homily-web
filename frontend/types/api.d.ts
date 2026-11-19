@@ -3433,6 +3433,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/calendar/token/email-steps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post calendar token email steps */
+        post: operations["post-calendar-token-email-steps"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/calendar/token/feed-status": {
         parameters: {
             query?: never;
@@ -24567,6 +24584,33 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DeleteCalendarTokenResponseBody"];
                 };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "post-calendar-token-email-steps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Error */
             default: {

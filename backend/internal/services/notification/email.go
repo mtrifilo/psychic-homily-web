@@ -254,6 +254,48 @@ func (s *EmailService) SendPasswordResetEmailContext(ctx context.Context, toEmai
 	})
 }
 
+// calendarStepsPagePath is the frontend page the calendar steps email links
+// to. The page requires sign-in, so the email carries no credential.
+const calendarStepsPagePath = "/library/calendar"
+
+// SendCalendarStepsEmail sends the email that walks the account through
+// adding its saved shows to Google Calendar on a computer.
+func (s *EmailService) SendCalendarStepsEmail(toEmail string) error {
+	return s.SendCalendarStepsEmailContext(context.Background(), toEmail)
+}
+
+// SendCalendarStepsEmailContext is SendCalendarStepsEmail reporting a provider
+// error on the Sentry hub ctx carries (send).
+//
+// The account asked for this email itself, so it is transactional: no alert
+// preference governs it and it carries no unsubscribe link.
+func (s *EmailService) SendCalendarStepsEmailContext(ctx context.Context, toEmail string) error {
+	return s.send(ctx, outboundEmail{
+		kind:    "calendar_steps",
+		to:      toEmail,
+		subject: calendarStepsEmailSubject,
+		html:    calendarStepsEmailHTML(s.frontendURL + calendarStepsPagePath),
+	})
+}
+
+const calendarStepsEmailSubject = "Add your saved shows to Google Calendar"
+
+// calendarStepsEmailHTML builds the body of the calendar steps email. Its one
+// link is pageURL; it names no feed address and no token, because an inbox is
+// not a place a credential to the account's feeds may sit.
+func calendarStepsEmailHTML(pageURL string) string {
+	body := emailHeadline("Add your saved shows to Google Calendar.") +
+		emailParagraph("This step needs a computer, because Google's phone app "+
+			"can't add a calendar. Open this email on one and choose the "+
+			"button. The page walks you through it.") +
+		emailButton(pageURL, "Add to Google Calendar") +
+		emailFineprint([]string{
+			"You asked for this email from Psychic Homily. If that wasn't you, change your password.",
+		})
+
+	return emailShell("CALENDAR · YOUR SAVED SHOWS", body)
+}
+
 // The two date registers of the show reminder. They differ only in the trailing
 // clause, so a reader comparing a withheld line against a normal one sees the
 // same date in the same shape with nothing substituted for the hour.

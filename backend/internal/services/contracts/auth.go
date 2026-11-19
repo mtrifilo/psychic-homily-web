@@ -580,9 +580,9 @@ type PasswordValidatorInterface interface {
 // Auth Email Outbox Interface
 // ──────────────────────────────────────────────
 
-// AuthEmailOutboxInterface queues a magic-link, account-recovery or
-// verification email for an account. A background poller sends it, so a request handler that calls
-// Enqueue never waits on the email provider.
+// AuthEmailOutboxInterface queues an email of an authm.AuthEmailKind for an
+// account. A background poller sends it, so a request handler that queues one
+// never waits on the email provider.
 type AuthEmailOutboxInterface interface {
 	// Enqueue queues one email of kind for userID. A call while one is still
 	// queued for the same account and kind is a no-op that returns nil. It
@@ -594,4 +594,11 @@ type AuthEmailOutboxInterface interface {
 	// terms: one queued per account, and an error means no email for this
 	// call.
 	EnqueueOAuthLink(ctx context.Context, userID uint, ref string) error
+	// EnqueueCalendarSteps queues the calendar steps email for user, the
+	// signed-in account that asked for it, to its own address, on Enqueue's
+	// terms. It refuses an address that is not verified
+	// (apperrors.ErrCalendarStepsAddressUnverified, an *AuthError) and a
+	// request over the account's hourly cap
+	// (*apperrors.CalendarStepsRateLimitedError), queueing nothing.
+	EnqueueCalendarSteps(ctx context.Context, user *authm.User) error
 }

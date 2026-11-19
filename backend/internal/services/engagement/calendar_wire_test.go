@@ -218,6 +218,15 @@ func TestICSWire_SceneFeed(t *testing.T) {
 	assertRFC5545Wire(t, []byte(out), 2)
 }
 
+// The saved-shows feed names itself as the site names the list, in both the
+// RFC 7986 NAME and the X-WR-CALNAME calendar apps read.
+func TestICSWire_SavedShowsFeedName(t *testing.T) {
+	out := string(buildSavedShowsCalendar(nil, "https://psychichomily.com"))
+	assert.Contains(t, out, "\r\nNAME:Psychic Homily saved shows\r\n")
+	assert.Contains(t, out, "\r\nX-WR-CALNAME:Psychic Homily saved shows\r\n")
+	assert.NotContains(t, out, "My Shows")
+}
+
 func TestBuildSavedShowsCalendar_RendersGivenShows(t *testing.T) {
 	created := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 	shows := []*contracts.SavedShowResponse{

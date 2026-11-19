@@ -506,6 +506,11 @@ func (s *CalendarService) upcomingSavedShows(userID uint) ([]*contracts.SavedSho
 	return shows, nil
 }
 
+// savedShowsFeedName is the name the saved-shows feed gives itself (NAME and
+// X-WR-CALNAME), in the words the site uses for the list. A calendar app may
+// keep the name it read when it subscribed.
+const savedShowsFeedName = "Psychic Homily saved shows"
+
 // buildSavedShowsCalendar renders shows as the wire bytes of a saved-shows
 // calendar. It reads no cache and writes none.
 //
@@ -521,9 +526,9 @@ func buildSavedShowsCalendar(shows []*contracts.SavedShowResponse, frontendURL s
 	cal := ics.NewCalendar()
 	cal.SetMethod(ics.MethodPublish)
 	cal.SetProductId("-//Psychic Homily//Calendar Feed//EN")
-	cal.SetName("Psychic Homily - My Shows")
+	cal.SetName(savedShowsFeedName)
 	cal.SetDescription("Your saved shows from Psychic Homily")
-	cal.SetXWRCalName("Psychic Homily - My Shows")
+	cal.SetXWRCalName(savedShowsFeedName)
 
 	for _, show := range shows {
 		if show.Status != "approved" {
