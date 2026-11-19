@@ -657,7 +657,13 @@ describe('no schema the module builds carries an organizer', () => {
 
   it.each(builders)('%s emits no organizer on any node, for any sweep input', (name, build) => {
     for (const input of inputsFor(name)) {
-      expect(nodesWithOrganizer(build(input))).toEqual([])
+      const output = build(input)
+      // The walk reads plain objects and arrays only; any other result (a
+      // serialized string, a Promise) fails here instead of passing unread.
+      expect(output).toBeTypeOf('object')
+      expect(output).not.toBeNull()
+      expect(output).not.toBeInstanceOf(Promise)
+      expect(nodesWithOrganizer(output)).toEqual([])
     }
   })
 })
