@@ -1,6 +1,12 @@
 import type { ReactElement } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { HydrationBoundary, hashKey } from '@tanstack/react-query'
+import { renderToString } from 'react-dom/server'
+import {
+  HydrationBoundary,
+  QueryClient,
+  QueryClientProvider,
+  hashKey,
+} from '@tanstack/react-query'
 import {
   boundaryStateOf as stateOf,
   registeredQueryHashes,
@@ -225,6 +231,27 @@ describe('/radio dial fallback', () => {
 
   it('is the markup the dial renders before its reads answer', () => {
     expect(serverRender(<RadioDialLoading />)).toBe(serverRender(<RadioDial />))
+  })
+
+  // A client-side navigation back to the hub renders the fallback on the
+  // browser's warm client: it shows the cached dial instead of the loader.
+  it('draws the cached stations from a warm client', () => {
+    const client = new QueryClient()
+    client.setQueryData(RADIO_DIAL_FIRST_SCREEN_KEY, stationsPayload)
+
+    const html = renderToString(
+      <QueryClientProvider client={client}>
+        <RadioDialLoading />
+      </QueryClientProvider>
+    )
+
+    expect(html).toContain('href="/radio/kexp"')
+    expect(html.match(/<article/g)).toHaveLength(2)
+    expect(html).not.toContain(DIAL_LOADER)
+    // Read, not registered: the guide entry the dial's hook would create.
+    expect(
+      client.getQueryCache().find({ queryKey: ['radio', 'guide'], exact: true })
+    ).toBeUndefined()
   })
 
   // The seeded key must be registered by nothing that renders before the

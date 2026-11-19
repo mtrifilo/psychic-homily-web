@@ -17,12 +17,14 @@ import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
  * How long a first-screen payload stays warm in Next's Data Cache.
  *
  * Matches every other list/entity fetch in `app/` (see `app/artists/[slug]`,
- * `app/venues/[slug]`, `lib/seo/fetchSeoList.ts`). An hour of drift is not the
- * exposure it looks like: `lib/proxy-revalidation.ts` calls `revalidatePath`
- * on `/shows`, `/venues` and `/scenes` after every mutation that changes them
- * — `/scenes` was added there for exactly this reason — so the window bounds
- * changes made OUTSIDE the app, not the latency of a submission made through
- * it. Verify that list rather than trusting this sentence if you change it.
+ * `app/venues/[slug]`, `lib/seo/fetchSeoList.ts`). For `/shows`, `/venues` and
+ * `/scenes`, `lib/proxy-revalidation.ts` calls `revalidatePath` after every
+ * mutation that changes them, so there the window bounds changes made OUTSIDE
+ * the app. The other seeded indexes (`/releases`, `/labels`, `/tags`,
+ * `/festivals`, `/radio`) have no such rule, so an in-app edit can sit in
+ * their server HTML for the whole window; the browser corrects it on its
+ * first-commit revalidation. Verify those rules rather than trusting this
+ * sentence if you change it.
  */
 export const FIRST_SCREEN_REVALIDATE_SECONDS = 3600
 

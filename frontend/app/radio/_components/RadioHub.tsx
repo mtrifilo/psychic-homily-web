@@ -1,6 +1,7 @@
 'use client'
 
 import type { ReactNode } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Loader2, Radio } from 'lucide-react'
 import { BracketLink } from '@/components/shared/BracketLink'
 import {
@@ -12,7 +13,12 @@ import {
   isStationVisibleOnIndex,
   sortDialStations,
 } from '@/features/radio'
-import type { RadioStationListItem } from '@/features/radio'
+import { radioQueryKeys } from '@/features/radio/api'
+import type {
+  RadioGuideResponse,
+  RadioStationListItem,
+  RadioStationsListResponse,
+} from '@/features/radio/types'
 import { DialStationStrip } from './DialStationStrip'
 import { LatestPlaylistsTable } from './LatestPlaylistsTable'
 import { NewReleaseRadarBox, DialStatsBox } from './DialSidebarBoxes'
@@ -108,11 +114,56 @@ export default function RadioHub({ dial = <RadioDial /> }: { dial?: ReactNode })
  */
 export function RadioDial() {
   const stationsQuery = useRadioStations()
+  const guideQuery = useRadioGuide()
+  return <DialView stationsQuery={stationsQuery} guideQuery={guideQuery} />
+}
+
+/** A station list read that has not answered yet. */
+const PENDING_STATIONS = { data: undefined, isLoading: true, error: null } as const
+
+/**
+ * `RadioDial` drawn from what the browser's query cache already holds, with
+ * no query behind it, so it can stand as the fallback above a seeded dial
+ * (see `seedFirstScreen`). `getQueryData` reads an entry without creating
+ * one.
+ *
+ * On the server, and on a first load, the cache is empty and this is the dial
+ * as it renders before its reads answer (the guide renders nothing while
+ * loading). On a client-side navigation back to the hub, the cache holds the
+ * stations, and the dial shows them while the route's server render streams.
+ */
+export function RadioDialLoading() {
+  const queryClient = useQueryClient()
+  const stations = queryClient.getQueryData<RadioStationsListResponse>(
+    radioQueryKeys.stations()
+  )
+  const guide = queryClient.getQueryData<RadioGuideResponse>(
+    radioQueryKeys.guide()
+  )
+
+  return (
+    <DialView
+      stationsQuery={
+        stations ? { data: stations, isLoading: false, error: null } : PENDING_STATIONS
+      }
+      guideQuery={{ data: guide, isError: false }}
+    />
+  )
+}
+
+function DialView({
+  stationsQuery,
   // On a refetch error React Query RETAINS the previous data (the PSY-1136
   // stale-retained-data class) while the hook's interval stops — so an
   // errored guide must render nothing, not yesterday's ON NOW forever.
-  const { data: guideData, isError: guideError } = useRadioGuide()
-
+  guideQuery: { data: guideData, isError: guideError },
+}: {
+  stationsQuery: Pick<
+    ReturnType<typeof useRadioStations>,
+    'data' | 'isLoading' | 'error'
+  >
+  guideQuery: Pick<ReturnType<typeof useRadioGuide>, 'data' | 'isError'>
+}) {
   const allStations = stationsQuery.data?.stations ?? []
   const stations = sortDialStations(allStations.filter(isStationVisibleOnIndex))
   // Every station, sub-streams included: the guide schedules sub-streams the
@@ -141,25 +192,13 @@ export function RadioDial() {
 }
 
 /**
- * `RadioDial` as it renders before its reads answer, with no query behind it,
- * so it can stand as the fallback above a seeded dial (see `seedFirstScreen`).
- * The guide renders nothing while loading, so the dial section is all of it.
- */
-export function RadioDialLoading() {
-  return <DialSection isLoading notice={null} stations={[]} />
-}
-
-/**
  * The notice the dial shows in place of strips, or null when it shows strips
  * or its loader. The error is for a dial with nothing to show: a failed
  * refetch of stations already on screen keeps the strips and says nothing,
  * since a server-seeded dial refetches on its first client commit.
  */
 function dialNoticeFor(
-  stationsQuery: Pick<
-    ReturnType<typeof useRadioStations>,
-    'data' | 'isLoading' | 'error'
-  >,
+  stationsQuery: Parameters<typeof DialView>[0]['stationsQuery'],
   visibleStationCount: number
 ): string | null {
   if (stationsQuery.isLoading) return null
