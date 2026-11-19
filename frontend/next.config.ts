@@ -64,16 +64,16 @@ function selfCanonicalRoute(
 }
 
 /**
- * Entity routes whose page declares its own path on the apex host as its
- * canonical, for every request the route's `source` matches.
+ * Routes that get a canonical `Link` header. Each one holds both of these for
+ * every request its `source` matches:
  *
- * Routes whose canonical comes from loaded data rather than from the request
- * path are absent on purpose: `/radio/{station}` (a network sub-station's
- * canonical is its `/channel/` URL) and every scene window and period route
- * under `/scenes/{slug}/` (the canonical names the scene slug the backend
- * returns, which differs for a metro member). `next.config.canonical-link.test.ts`
- * checks each entry against its page's `generateMetadata` and accounts for
- * every dynamic page route.
+ * - The page declares the request's own path on the apex host as canonical.
+ * - A request the page treats as not found gets a real HTTP 404 from
+ *   `proxy.ts` before anything streams, so no soft-404 page at HTTP 200 is
+ *   told it is canonical.
+ *
+ * `next.config.canonical-link.test.ts` checks both against the pages and the
+ * proxy, and records why every other dynamic page route is left out.
  */
 export const SELF_CANONICAL_ROUTES = [
   selfCanonicalRoute('/artists/:slug'),
@@ -82,24 +82,30 @@ export const SELF_CANONICAL_ROUTES = [
   selfCanonicalRoute('/labels/:slug'),
   selfCanonicalRoute('/festivals/:slug'),
   selfCanonicalRoute('/tags/:slug'),
-  selfCanonicalRoute('/collections/:slug'),
   // `submit` is a static page beside the show route and `saved` a config
   // redirect; neither is a show.
   selfCanonicalRoute('/shows/:slug', {
     slug: `(?!(?:submit|saved)(?:/|$))${ENTITY_SLUG_SEGMENT}`,
   }),
-  selfCanonicalRoute('/scenes/:slug'),
-  selfCanonicalRoute('/radio/:station/:show'),
-  selfCanonicalRoute('/radio/:station/:show/:date', { date: '\\d{4}-\\d{2}-\\d{2}' }),
-  selfCanonicalRoute('/radio/:station/channel/:channel'),
-  selfCanonicalRoute('/blog/:slug'),
-  selfCanonicalRoute('/dj-sets/:slug'),
-  selfCanonicalRoute('/categories/:category'),
+  // The calendar's own segment grammar: a year in 2000-2100, a two-digit month
+  // and day. Every request it admits is spelled the way the page writes its
+  // canonical.
+  selfCanonicalRoute('/shows/:year/:month', {
+    year: '20\\d{2}|2100',
+    month: '0[1-9]|1[0-2]',
+  }),
+  selfCanonicalRoute('/shows/:year/:month/:day', {
+    year: '20\\d{2}|2100',
+    month: '0[1-9]|1[0-2]',
+    day: '0[1-9]|[12]\\d|3[01]',
+  }),
+  // A year without a leading zero, the only spelling the archive writes.
+  selfCanonicalRoute('/venues/:slug/shows/:year', { year: '[1-9]\\d{3}' }),
 ]
 
 /**
- * Declares each self-canonical entity route's canonical in an HTTP `Link`
- * header. On these routes Next streams `<link rel="canonical">` after `</head>`
+ * Declares each self-canonical route's canonical in an HTTP `Link` header. On
+ * these routes Next streams `<link rel="canonical">` after `</head>`
  * to Googlebot, and Google accepts that element only inside `<head>`; the
  * header carries the same URL. The render's own `Link` preload entries arrive
  * as a separate `Link` field line.

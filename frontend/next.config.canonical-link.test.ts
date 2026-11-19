@@ -2,11 +2,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { existsSync, readdirSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 import type { Metadata } from 'next'
+import type { NextRequest } from 'next/server'
 import { PHASE_PRODUCTION_SERVER } from 'next/constants'
 import { getPathMatch } from 'next/dist/shared/lib/router/utils/path-match'
 import { compileNonPath } from 'next/dist/shared/lib/router/utils/prepare-destination'
 import { modifyRouteRegex } from 'next/dist/lib/redirect-status'
 import nextConfigForPhase, { SELF_CANONICAL_ROUTES } from './next.config'
+import { clearExistenceVerdictsForTests, proxy } from './proxy'
 import { SITE_URL } from './lib/seo/siteMetadata'
 import { jsonBodyResponse } from './lib/seo/test-helpers'
 
@@ -17,32 +19,18 @@ vi.mock('next/navigation', () => ({
   redirect: vi.fn(),
 }))
 
-// The collection page reads the session cookie before its fetch; an anonymous
-// request is the crawler's view.
-vi.mock('next/headers', () => ({
-  cookies: vi.fn(async () => ({ get: () => undefined })),
-  headers: vi.fn(async () => new Headers()),
-}))
-
 import { generateMetadata as artistMetadata } from './app/artists/[slug]/page'
 import { generateMetadata as releaseMetadata } from './app/releases/[slug]/page'
 import { generateMetadata as venueMetadata } from './app/venues/[slug]/page'
 import { generateMetadata as labelMetadata } from './app/labels/[slug]/page'
 import { generateMetadata as festivalMetadata } from './app/festivals/[slug]/page'
 import { generateMetadata as tagMetadata } from './app/tags/[slug]/page'
-import { generateMetadata as collectionMetadata } from './app/collections/[slug]/page'
 import { generateMetadata as showMetadata } from './app/shows/[slug]/page'
-import { generateMetadata as sceneMetadata } from './app/scenes/[slug]/page'
+import { generateMetadata as showsMonthMetadata } from './app/shows/[slug]/[month]/page'
+import { generateMetadata as showsDayMetadata } from './app/shows/[slug]/[month]/[day]/page'
+import { generateMetadata as venueYearMetadata } from './app/venues/[slug]/shows/[year]/page'
 import { generateMetadata as sceneTonightMetadata } from './app/scenes/[slug]/tonight/page'
 import { generateMetadata as radioStationMetadata } from './app/radio/[station-slug]/page'
-import { generateMetadata as radioShowMetadata } from './app/radio/[station-slug]/[show-slug]/page'
-import { generateMetadata as radioEpisodeMetadata } from './app/radio/[station-slug]/[show-slug]/[date]/page'
-import { generateMetadata as radioChannelMetadata } from './app/radio/[station-slug]/channel/[sub-slug]/page'
-import { generateMetadata as blogMetadata } from './app/blog/[slug]/page'
-import { generateMetadata as mixMetadata } from './app/dj-sets/[slug]/page'
-import { generateMetadata as categoryMetadata } from './app/categories/[category]/page'
-import { getAllCategories, getBlogSlugs, getCategorySlug } from './features/blog/utils/blog'
-import { getMixSlugs } from './features/blog/utils/mixes'
 
 type HeaderRule = { source: string; headers: { key: string; value: string }[] }
 
@@ -50,19 +38,17 @@ async function loadHeaderRules(): Promise<HeaderRule[]> {
   return (await nextConfigForPhase(PHASE_PRODUCTION_SERVER).headers!()) as HeaderRule[]
 }
 
-/**
- * The loaded config's `headers()` rules, compiled with the options
- * `server/lib/router-utils/filesystem.js` uses.
- */
+/** A route `source` compiled with the options `server/lib/router-utils/filesystem.js` uses. */
+function compileSource(source: string) {
+  return getPathMatch(source, {
+    strict: true,
+    removeUnnamedParams: true,
+    regexModifier: (regex: string) => modifyRouteRegex(regex),
+  })
+}
+
 const compiledRules = loadHeaderRules().then(rules =>
-  rules.map(rule => ({
-    headers: rule.headers,
-    match: getPathMatch(rule.source, {
-      strict: true,
-      removeUnnamedParams: true,
-      regexModifier: (regex: string) => modifyRouteRegex(regex),
-    }),
-  })),
+  rules.map(rule => ({ headers: rule.headers, match: compileSource(rule.source) })),
 )
 
 /**
@@ -117,12 +103,9 @@ function entityRecord(overrides: Record<string, unknown> = {}): Record<string, u
     venues: [{ id: 2, name: 'Sample Room', slug: 'sample-room', city: 'Chicago', state: 'IL' }],
     event_date: '2026-12-01T03:00:00Z',
     shows: [],
+    years: [{ year: 2025, count: 3 }],
+    total: 3,
     usage_count: 0,
-    is_public: true,
-    show_name: 'Sample Show',
-    station_name: 'Sample Station',
-    air_date: '2026-07-24',
-    play_count: 0,
     network: null,
     ...overrides,
   }
@@ -130,8 +113,13 @@ function entityRecord(overrides: Record<string, unknown> = {}): Record<string, u
 
 const fetchMock = vi.fn()
 
+/** Every backend read answers with `entityRecord(overrides)` until the next call. */
+function backendAnswers(overrides: Record<string, unknown> = {}) {
+  fetchMock.mockImplementation(async () => jsonBodyResponse(entityRecord(overrides)))
+}
+
 beforeEach(() => {
-  fetchMock.mockImplementation(async () => jsonBodyResponse(entityRecord()))
+  backendAnswers()
   vi.stubGlobal('fetch', fetchMock)
 })
 
@@ -140,73 +128,158 @@ afterEach(() => {
 })
 
 const params = <T,>(value: T) => ({ params: Promise.resolve(value) })
+const noSearch = { searchParams: Promise.resolve({}) }
 
 type CoveredCase = [pathname: string, pageMetadata: () => Promise<Metadata>]
 
-const blogSlugs = getBlogSlugs()
-const mixSlugs = getMixSlugs()
-const categorySlugs = getAllCategories().map(getCategorySlug)
+/**
+ * The covered dynamic page routes, keyed by route directory under app/, each
+ * with the self-canonical route that covers it and sample requests paired with
+ * the metadata its page declares for them.
+ *
+ * `calendar` marks a list window rather than an entity: every well-formed
+ * window inside the addressable span is a real page at HTTP 200 (an empty one
+ * is noindexed, not missing), and the proxy 404s one outside the span, which
+ * proxy.shows-calendar.test.ts pins.
+ */
+const COVERED: Record<string, { route: string; cases: CoveredCase[]; calendar?: true }> = {
+  'artists/[slug]': {
+    route: '/artists/:slug',
+    cases: [['/artists/the-hoyle-brothers', () => artistMetadata(params({ slug: 'the-hoyle-brothers' }))]],
+  },
+  'releases/[slug]': {
+    route: '/releases/:slug',
+    cases: [
+      ['/releases/a-long-way-from-kansas', () => releaseMetadata(params({ slug: 'a-long-way-from-kansas' }))],
+    ],
+  },
+  'venues/[slug]': {
+    route: '/venues/:slug',
+    cases: [
+      ['/venues/thalia-hall-chicago-il', () => venueMetadata(params({ slug: 'thalia-hall-chicago-il' }))],
+    ],
+  },
+  'labels/[slug]': {
+    route: '/labels/:slug',
+    cases: [['/labels/12xu', () => labelMetadata(params({ slug: '12xu' }))]],
+  },
+  'festivals/[slug]': {
+    route: '/festivals/:slug',
+    cases: [['/festivals/levitation-2026', () => festivalMetadata(params({ slug: 'levitation-2026' }))]],
+  },
+  'tags/[slug]': {
+    route: '/tags/:slug',
+    cases: [['/tags/post-punk', () => tagMetadata(params({ slug: 'post-punk' }))]],
+  },
+  // The show page and the venue year archive canonicalize to the LOADED
+  // entity's slug. A non-numeric slug is looked up by exact match, so the
+  // loaded slug is the requested one; that backend contract is what makes
+  // these two coverable, and the stubs below stand for it.
+  'shows/[slug]': {
+    route: '/shows/:slug',
+    cases: [
+      [
+        '/shows/dev-lemons-2026-02-13',
+        () => {
+          backendAnswers({ slug: 'dev-lemons-2026-02-13' })
+          return showMetadata(params({ slug: 'dev-lemons-2026-02-13' }))
+        },
+      ],
+    ],
+  },
+  'venues/[slug]/shows/[year]': {
+    route: '/venues/:slug/shows/:year',
+    cases: [
+      [
+        '/venues/thalia-hall-chicago-il/shows/2025',
+        () => {
+          backendAnswers({ slug: 'thalia-hall-chicago-il' })
+          return venueYearMetadata(params({ slug: 'thalia-hall-chicago-il', year: '2025' }))
+        },
+      ],
+    ],
+  },
+  'shows/[slug]/[month]': {
+    route: '/shows/:year/:month',
+    calendar: true,
+    cases: [
+      ['/shows/2026/11', () => showsMonthMetadata(params({ slug: '2026', month: '11' }))],
+      ['/shows/2100/01', () => showsMonthMetadata(params({ slug: '2100', month: '01' }))],
+    ],
+  },
+  'shows/[slug]/[month]/[day]': {
+    route: '/shows/:year/:month/:day',
+    calendar: true,
+    cases: [
+      [
+        '/shows/2026/11/14',
+        () => showsDayMetadata({ ...params({ slug: '2026', month: '11', day: '14' }), ...noSearch }),
+      ],
+      [
+        '/shows/2026/11/14',
+        () =>
+          showsDayMetadata({
+            ...params({ slug: '2026', month: '11', day: '14' }),
+            searchParams: Promise.resolve({ days: '3' }),
+          }),
+      ],
+    ],
+  },
+}
 
 /**
- * One sample request per covered family, with the metadata its page declares
- * for that request. Content-backed families run over everything they publish.
+ * Every other dynamic page route, with the reason it sends no canonical header.
+ * A new dynamic page fails the inventory test until it is placed here or in
+ * `COVERED`.
  */
-const COVERED_CASES: CoveredCase[] = [
-  ['/artists/the-hoyle-brothers', () => artistMetadata(params({ slug: 'the-hoyle-brothers' }))],
-  ['/releases/a-long-way-from-kansas', () => releaseMetadata(params({ slug: 'a-long-way-from-kansas' }))],
-  ['/venues/thalia-hall-chicago-il', () => venueMetadata(params({ slug: 'thalia-hall-chicago-il' }))],
-  ['/labels/12xu', () => labelMetadata(params({ slug: '12xu' }))],
-  ['/festivals/levitation-2026', () => festivalMetadata(params({ slug: 'levitation-2026' }))],
-  ['/tags/post-punk', () => tagMetadata(params({ slug: 'post-punk' }))],
-  ['/collections/desert-noise', () => collectionMetadata(params({ slug: 'desert-noise' }))],
-  // The show page canonicalizes to the LOADED show's slug. A non-numeric
-  // segment is looked up by exact slug match, so the loaded slug is the
-  // requested one; that backend contract is what makes this family coverable.
-  [
-    '/shows/dev-lemons-2026-02-13',
-    () => {
-      fetchMock.mockImplementation(async () =>
-        jsonBodyResponse(entityRecord({ slug: 'dev-lemons-2026-02-13' })),
-      )
-      return showMetadata(params({ slug: 'dev-lemons-2026-02-13' }))
-    },
-  ],
-  ['/scenes/chicago-il', () => sceneMetadata(params({ slug: 'chicago-il' }))],
-  ['/scenes/st.-louis-mo', () => sceneMetadata(params({ slug: 'st.-louis-mo' }))],
-  [
-    '/radio/kexp/drive-time',
-    () => radioShowMetadata(params({ 'station-slug': 'kexp', 'show-slug': 'drive-time' })),
-  ],
-  [
-    '/radio/kexp/drive-time/2026-07-24',
-    () =>
-      radioEpisodeMetadata(
-        params({ 'station-slug': 'kexp', 'show-slug': 'drive-time', date: '2026-07-24' }),
-      ),
-  ],
-  [
-    '/radio/wfmu/channel/drummer',
-    () => radioChannelMetadata(params({ 'station-slug': 'wfmu', 'sub-slug': 'drummer' })),
-  ],
-  ...blogSlugs.map((slug): CoveredCase => [`/blog/${slug}`, () => blogMetadata(params({ slug }))]),
-  ...mixSlugs.map((slug): CoveredCase => [`/dj-sets/${slug}`, () => mixMetadata(params({ slug }))]),
-  ...categorySlugs.map(
-    (category): CoveredCase => [`/categories/${category}`, () => categoryMetadata(params({ category }))],
-  ),
-]
+const EXCLUDED: Record<string, string> = {
+  'scenes/[slug]':
+    'a metro member city (`/scenes/tempe-az`) and any case variant render the metro under their own URL; whether those are canonical is undecided',
+  'scenes/[slug]/tonight': 'canonical names the scene slug the backend returns',
+  'scenes/[slug]/week': 'canonical names the scene slug the backend returns',
+  'scenes/[slug]/this-weekend': 'canonical names the scene slug the backend returns',
+  'scenes/[slug]/next-4-weeks': 'canonical names the scene slug the backend returns',
+  'scenes/[slug]/[period]': 'canonical names the scene slug and date the backend returns',
+  'collections/[slug]': 'outside the proxy existence checks: a missing or private collection answers HTTP 200',
+  'radio/[station-slug]': "canonical follows the station's network",
+  'radio/[station-slug]/[show-slug]':
+    'outside the proxy existence checks (a missing show answers HTTP 200), and the station segment is not checked',
+  'radio/[station-slug]/[show-slug]/[date]':
+    'outside the proxy existence checks (a missing episode answers HTTP 200), and the station segment is not checked',
+  'radio/[station-slug]/channel/[sub-slug]': 'outside the proxy existence checks: a missing station answers HTTP 200',
+  'blog/[slug]': 'prerendered with the canonical inside <head>; unknown slugs are outside the proxy existence checks',
+  'dj-sets/[slug]': 'prerendered with the canonical inside <head>; unknown slugs are outside the proxy existence checks',
+  'categories/[category]':
+    'prerendered with the canonical inside <head>; unknown slugs are outside the proxy existence checks',
+  'charts/[module]': 'not covered: chart lists',
+  'charts/[module]/[period]': 'not covered: chart archives',
+  'requests/[id]': 'declares no canonical',
+  'users/[username]': 'declares no canonical',
+}
 
-describe('canonical Link header on self-canonical entity routes', () => {
-  it('samples published content in every content-backed family', () => {
-    expect(blogSlugs.length).toBeGreaterThan(0)
-    expect(mixSlugs.length).toBeGreaterThan(0)
-    expect(categorySlugs.length).toBeGreaterThan(0)
-  })
+const COVERED_CASES = Object.values(COVERED).flatMap(family => family.cases)
 
+describe('canonical Link header on self-canonical routes', () => {
   it.each(COVERED_CASES)('declares the page canonical for %s', async (pathname, pageMetadata) => {
     const pageCanonical = canonicalOf(await pageMetadata())
 
     expect(pageCanonical).toBe(`${SITE_URL}${pathname}`)
     expect(await headerCanonicalFor(pathname)).toBe(pageCanonical)
+  })
+
+  it('samples every self-canonical route through exactly its own rule', () => {
+    expect(Object.values(COVERED).map(family => family.route).sort()).toEqual(
+      SELF_CANONICAL_ROUTES.map(route => route.path).sort(),
+    )
+    for (const [dir, { route, cases }] of Object.entries(COVERED)) {
+      expect(cases.length, `${dir} has no sample request`).toBeGreaterThan(0)
+      for (const [pathname] of cases) {
+        const matching = SELF_CANONICAL_ROUTES.filter(
+          candidate => compileSource(candidate.source)(pathname) !== false,
+        ).map(candidate => candidate.path)
+        expect(matching, pathname).toEqual([route])
+      }
+    }
   })
 
   it('has one header rule per self-canonical route', async () => {
@@ -218,11 +291,38 @@ describe('canonical Link header on self-canonical entity routes', () => {
   })
 })
 
+/** A proxy-shaped request, as the proxy tests build one. */
+function proxyRequestFor(pathname: string): NextRequest {
+  return {
+    nextUrl: new URL(`http://localhost:3000${pathname}`),
+    url: `http://localhost:3000${pathname}`,
+  } as unknown as NextRequest
+}
+
+describe('the proxy turns a missing covered entity into a real 404', () => {
+  afterEach(() => {
+    clearExistenceVerdictsForTests()
+  })
+
+  // A soft 404 (a not-found page at HTTP 200) told by this header that it is
+  // canonical would be a canonical claim the page itself withholds.
+  const entityFamilies = Object.entries(COVERED).filter(([, family]) => !family.calendar)
+
+  it.each(entityFamilies)('%s', async (_dir, { cases }) => {
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(null, { status: 404, headers: { 'content-type': 'application/problem+json' } }),
+    )
+    for (const [pathname] of cases) {
+      clearExistenceVerdictsForTests()
+      expect((await proxy(proxyRequestFor(pathname))).status, pathname).toBe(404)
+    }
+  })
+})
+
 describe('no canonical Link header where the page declares a different URL', () => {
   it('leaves a numeric show URL alone, whose page canonical is the slug URL', async () => {
-    fetchMock.mockImplementation(async () =>
-      jsonBodyResponse(entityRecord({ slug: 'dev-lemons-2026-02-13' })),
-    )
+    backendAnswers({ slug: 'dev-lemons-2026-02-13' })
     const pageCanonical = canonicalOf(await showMetadata(params({ slug: '2044' })))
 
     expect(pageCanonical).toBe(`${SITE_URL}/shows/dev-lemons-2026-02-13`)
@@ -230,59 +330,46 @@ describe('no canonical Link header where the page declares a different URL', () 
   })
 
   it('leaves a radio station alone, whose page canonical can be its channel URL', async () => {
-    fetchMock.mockImplementation(async () =>
-      jsonBodyResponse(
-        entityRecord({
-          slug: 'wfmu-drummer',
-          network: { slug: 'wfmu', name: 'WFMU', is_flagship: false },
-        }),
-      ),
-    )
+    backendAnswers({
+      slug: 'wfmu-drummer',
+      network: { slug: 'wfmu', name: 'WFMU', is_flagship: false },
+    })
     const pageCanonical = canonicalOf(
       await radioStationMetadata(params({ 'station-slug': 'wfmu-drummer' })),
     )
 
     expect(pageCanonical).toBe(`${SITE_URL}/radio/wfmu/channel/drummer`)
     expect(await headerCanonicalFor('/radio/wfmu-drummer')).toBeNull()
-    expect(await headerCanonicalFor('/radio/kexp')).toBeNull()
   })
 
   it('leaves scene windows alone, whose page canonical names the slug the backend returns', async () => {
-    fetchMock.mockImplementation(async () =>
-      jsonBodyResponse(
-        entityRecord({
-          slug: 'phoenix-az',
-          date: '2026-11-19',
-          iso_week: '2026-W47',
-          prev_date: '2026-11-18',
-          next_date: '2026-11-20',
-          is_tonight: true,
-        }),
-      ),
-    )
+    backendAnswers({
+      slug: 'phoenix-az',
+      date: '2026-11-19',
+      iso_week: '2026-W47',
+      prev_date: '2026-11-18',
+      next_date: '2026-11-20',
+      is_tonight: true,
+    })
     const pageCanonical = canonicalOf(await sceneTonightMetadata(params({ slug: 'mesa-az' })))
 
     expect(pageCanonical).toBe(`${SITE_URL}/scenes/phoenix-az/tonight`)
-    for (const pathname of [
-      '/scenes/mesa-az/tonight',
-      '/scenes/mesa-az/week',
-      '/scenes/mesa-az/this-weekend',
-      '/scenes/mesa-az/next-4-weeks',
-      '/scenes/mesa-az/2026-W31',
-      '/scenes/mesa-az/2026-07-31',
-    ]) {
-      expect(await headerCanonicalFor(pathname), pathname).toBeNull()
-    }
+    expect(await headerCanonicalFor('/scenes/mesa-az/tonight')).toBeNull()
   })
 
   it.each([
     '/shows/saved',
     '/shows/2026',
+    '/shows/1999/11',
+    '/shows/2026/13',
+    '/shows/2026/11/32',
+    '/shows/2026/1/14',
     '/artists/42',
-    '/radio/kexp/drive-time/24-07-2026',
-    '/scenes/espa%C3%B1ola-nm',
-    '/artists',
-    '/venues/thalia-hall-chicago-il/shows/2025',
+    '/artists/espa%C3%B1ola',
+    '/venues/thalia-hall-chicago-il/shows/0999',
+    '/venues/thalia-hall-chicago-il/shows/25',
+    '/scenes/chicago-il',
+    '/scenes/mesa-az/2026-07-31',
   ])('sends no canonical Link header for %s', async pathname => {
     expect(await headerCanonicalFor(pathname)).toBeNull()
   })
@@ -302,74 +389,22 @@ function pageRouteDirs(dir = APP_DIR): string[] {
   return found
 }
 
-/**
- * Every dynamic page route, mapped to the self-canonical route that covers it
- * or to the reason it sends no canonical header. A new dynamic page fails the
- * inventory test until it is placed here.
- */
-const DYNAMIC_PAGE_DISPOSITIONS: Record<string, { covered: string } | { excluded: string }> = {
-  'artists/[slug]': { covered: '/artists/:slug' },
-  'releases/[slug]': { covered: '/releases/:slug' },
-  'venues/[slug]': { covered: '/venues/:slug' },
-  'labels/[slug]': { covered: '/labels/:slug' },
-  'festivals/[slug]': { covered: '/festivals/:slug' },
-  'tags/[slug]': { covered: '/tags/:slug' },
-  'collections/[slug]': { covered: '/collections/:slug' },
-  'shows/[slug]': { covered: '/shows/:slug' },
-  'scenes/[slug]': { covered: '/scenes/:slug' },
-  'radio/[station-slug]/[show-slug]': { covered: '/radio/:station/:show' },
-  'radio/[station-slug]/[show-slug]/[date]': { covered: '/radio/:station/:show/:date' },
-  'radio/[station-slug]/channel/[sub-slug]': { covered: '/radio/:station/channel/:channel' },
-  'blog/[slug]': { covered: '/blog/:slug' },
-  'dj-sets/[slug]': { covered: '/dj-sets/:slug' },
-  'categories/[category]': { covered: '/categories/:category' },
-  'radio/[station-slug]': { excluded: "canonical follows the station's network" },
-  'scenes/[slug]/tonight': { excluded: 'canonical names the scene slug the backend returns' },
-  'scenes/[slug]/week': { excluded: 'canonical names the scene slug the backend returns' },
-  'scenes/[slug]/this-weekend': { excluded: 'canonical names the scene slug the backend returns' },
-  'scenes/[slug]/next-4-weeks': { excluded: 'canonical names the scene slug the backend returns' },
-  'scenes/[slug]/[period]': { excluded: 'canonical names the scene slug and date the backend returns' },
-  'shows/[slug]/[month]': { excluded: 'calendar list; canonical comes from the parsed window' },
-  'shows/[slug]/[month]/[day]': { excluded: 'calendar list; canonical comes from the parsed window' },
-  'venues/[slug]/shows/[year]': { excluded: 'year archive; canonical comes from the parsed year' },
-  'charts/[module]': { excluded: 'chart list; canonical depends on module and window validation' },
-  'charts/[module]/[period]': { excluded: 'chart archive; canonical depends on period validation' },
-  'requests/[id]': { excluded: 'declares no canonical' },
-  'users/[username]': { excluded: 'declares no canonical' },
-}
-
 describe('route inventory', () => {
   const pageDirs = pageRouteDirs()
 
   it('places every dynamic page route', () => {
     expect(pageDirs.filter(dir => dir.includes('[')).sort()).toEqual(
-      Object.keys(DYNAMIC_PAGE_DISPOSITIONS).sort(),
+      [...Object.keys(COVERED), ...Object.keys(EXCLUDED)].sort(),
     )
   })
 
-  it('covers exactly the self-canonical routes the config declares', () => {
-    const covered = Object.values(DYNAMIC_PAGE_DISPOSITIONS).flatMap(disposition =>
-      'covered' in disposition ? [disposition.covered] : [],
-    )
-    expect(covered.sort()).toEqual(SELF_CANONICAL_ROUTES.map(route => route.path).sort())
-  })
-
-  // A fixed-path page that sits beside a covered dynamic segment (`shows/submit`
-  // beside `shows/[slug]`) is not that entity, so it must not match the rule.
-  it('sends no canonical Link header to a fixed-path page beside a covered route', async () => {
-    const parentOf = (dir: string) => dir.split('/').slice(0, -1).join('/')
-    const coveredParents = new Set(
-      Object.entries(DYNAMIC_PAGE_DISPOSITIONS)
-        .filter(([, disposition]) => 'covered' in disposition)
-        .map(([dir]) => parentOf(dir)),
-    )
-    const fixedSiblings = pageDirs.filter(
-      dir => coveredParents.has(parentOf(dir)) && !dir.split('/').pop()!.startsWith('['),
-    )
-
-    expect(fixedSiblings).toContain('shows/submit')
-    for (const dir of fixedSiblings) {
-      expect(await headerCanonicalFor(`/${dir}`), dir).toBeNull()
+  // Any other page, fixed-path or dynamic, reached with a plausible slug in each
+  // dynamic segment. A match means a rule claims a page it was not written for:
+  // narrow the rule (as `/shows/:slug` excludes `submit`), or cover the page.
+  it('sends no canonical Link header to a page route that is not covered', async () => {
+    for (const dir of pageDirs.filter(candidate => !(candidate in COVERED))) {
+      const pathname = `/${dir.replace(/\[[^\]]+\]/g, 'sample-slug')}`
+      expect(await headerCanonicalFor(pathname), `${dir} (${pathname})`).toBeNull()
     }
   })
 })
