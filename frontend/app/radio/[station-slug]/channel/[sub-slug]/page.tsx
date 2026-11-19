@@ -6,6 +6,7 @@ import StationDetail from '../../_components/StationDetail'
 import { API_BASE_URL } from '@/lib/api-base'
 import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
 import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
+import { channelStationSlug } from '@/lib/radio/channelStationSlug'
 
 interface SubStationPageProps {
   params: Promise<{ 'station-slug': string; 'sub-slug': string }>
@@ -24,12 +25,7 @@ interface StationData {
 // station's slug with the "{network-slug}-" prefix stripped (e.g.
 // /radio/wfmu/channel/drummer resolves to the wfmu-drummer station). The
 // literal "channel" segment disambiguates from show pages, which live at
-// /radio/{station-slug}/{show-slug}. Reconstruction mirrors the stripping
-// done by getStationDetailUrl.
-function reconstructStationSlug(networkSlug: string, subSlug: string): string {
-  const expectedPrefix = `${networkSlug}-`
-  return subSlug.startsWith(expectedPrefix) ? subSlug : `${networkSlug}-${subSlug}`
-}
+// /radio/{station-slug}/{show-slug}.
 
 // Wrapped with `React.cache()` so `generateMetadata` and the page body
 // share ONE backend fetch per request.
@@ -61,7 +57,7 @@ const getStation = cache(async (slug: string): Promise<StationData | null> => {
 
 export async function generateMetadata({ params }: SubStationPageProps): Promise<Metadata> {
   const { 'station-slug': networkSlug, 'sub-slug': subSlug } = await params
-  const fullSlug = reconstructStationSlug(networkSlug, subSlug)
+  const fullSlug = channelStationSlug(networkSlug, subSlug)
   const station = await getStation(fullSlug)
   const canonical = `https://psychichomily.com/radio/${networkSlug}/channel/${subSlug}`
 
@@ -93,7 +89,7 @@ export async function generateMetadata({ params }: SubStationPageProps): Promise
 
 export default async function SubStationPage({ params }: SubStationPageProps) {
   const { 'station-slug': networkSlug, 'sub-slug': subSlug } = await params
-  const fullSlug = reconstructStationSlug(networkSlug, subSlug)
+  const fullSlug = channelStationSlug(networkSlug, subSlug)
   if (!(await getStation(fullSlug))) {
     notFound()
   }

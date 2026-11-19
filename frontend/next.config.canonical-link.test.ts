@@ -24,6 +24,16 @@ vi.mock('next/navigation', () => ({
   redirect: vi.fn(),
 }))
 
+// The collection page reads the session cookie to read as the viewer; these
+// samples are requests without one, the only kind the proxy probes.
+vi.mock('next/headers', () => ({
+  cookies: vi.fn(async () => ({ get: vi.fn(() => undefined) })),
+}))
+
+vi.mock('@/features/collections/components/CollectionDetail', () => ({
+  CollectionDetail: (): null => null,
+}))
+
 import { generateMetadata as artistMetadata } from './app/artists/[slug]/page'
 import { generateMetadata as releaseMetadata } from './app/releases/[slug]/page'
 import { generateMetadata as venueMetadata } from './app/venues/[slug]/page'
@@ -36,6 +46,10 @@ import { generateMetadata as showsDayMetadata } from './app/shows/[slug]/[month]
 import { generateMetadata as venueYearMetadata } from './app/venues/[slug]/shows/[year]/page'
 import { generateMetadata as sceneTonightMetadata } from './app/scenes/[slug]/tonight/page'
 import { generateMetadata as radioStationMetadata } from './app/radio/[station-slug]/page'
+import { generateMetadata as radioShowMetadata } from './app/radio/[station-slug]/[show-slug]/page'
+import { generateMetadata as radioEpisodeMetadata } from './app/radio/[station-slug]/[show-slug]/[date]/page'
+import { generateMetadata as radioChannelMetadata } from './app/radio/[station-slug]/channel/[sub-slug]/page'
+import { generateMetadata as collectionMetadata } from './app/collections/[slug]/page'
 
 type HeaderRule = {
   source: string
@@ -70,7 +84,10 @@ const pathOf = (target: string) => target.split('?')[0]
  * substituted with `compileNonPath`, as `resolve-routes.js` does, later rules
  * overwriting earlier ones key by key.
  */
-async function configHeadersFor(target: string): Promise<Record<string, string>> {
+async function configHeadersFor(
+  target: string,
+  requestHeaders: Record<string, string> = {},
+): Promise<Record<string, string>> {
   const [pathname, search = ''] = target.split('?')
   const query = parseQuery(search)
   const out: Record<string, string> = {}
@@ -78,7 +95,7 @@ async function configHeadersFor(target: string): Promise<Record<string, string>>
     const pathParams = match(pathname)
     if (pathParams === false) continue
     const conditionParams = matchHas(
-      { headers: {} } as unknown as Parameters<typeof matchHas>[0],
+      { headers: requestHeaders } as unknown as Parameters<typeof matchHas>[0],
       query,
       has,
       missing,
@@ -96,8 +113,11 @@ async function configHeadersFor(target: string): Promise<Record<string, string>>
 }
 
 /** The URL a `Link: <url>; rel="canonical"` response header declares, or null. */
-async function headerCanonicalFor(pathname: string): Promise<string | null> {
-  const link = (await configHeadersFor(pathname)).Link
+async function headerCanonicalFor(
+  pathname: string,
+  requestHeaders: Record<string, string> = {},
+): Promise<string | null> {
+  const link = (await configHeadersFor(pathname, requestHeaders)).Link
   const match = link?.match(/^<([^>]+)>; rel="canonical"$/)
   return match ? match[1] : null
 }
@@ -241,6 +261,41 @@ const COVERED: Record<string, { route: string; cases: CoveredCase[]; calendar?: 
       ],
     ],
   },
+  // Both name the request's own station and show segments, and the proxy
+  // 404s a show under any station segment but its own.
+  'radio/[station-slug]/[show-slug]': {
+    route: '/radio/:station/:show',
+    cases: [
+      [
+        '/radio/kexp/the-morning-show',
+        () => radioShowMetadata(params({ 'station-slug': 'kexp', 'show-slug': 'the-morning-show' })),
+      ],
+      [
+        '/radio/kexp/channel',
+        () => radioShowMetadata(params({ 'station-slug': 'kexp', 'show-slug': 'channel' })),
+      ],
+    ],
+  },
+  'radio/[station-slug]/[show-slug]/[date]': {
+    route: '/radio/:station/:show/:date',
+    cases: [
+      [
+        '/radio/kexp/the-morning-show/2025-01-15',
+        () => {
+          backendAnswers({ air_date: '2025-01-15', play_count: 12 })
+          return radioEpisodeMetadata(
+            params({ 'station-slug': 'kexp', 'show-slug': 'the-morning-show', date: '2025-01-15' }),
+          )
+        },
+      ],
+    ],
+  },
+  'collections/[slug]': {
+    route: '/collections/:slug',
+    cases: [
+      ['/collections/essential-shoegaze', () => collectionMetadata(params({ slug: 'essential-shoegaze' }))],
+    ],
+  },
 }
 
 /**
@@ -256,15 +311,11 @@ const EXCLUDED: Record<string, string> = {
   'scenes/[slug]/this-weekend': 'canonical names the scene slug the backend returns',
   'scenes/[slug]/next-4-weeks': 'canonical names the scene slug the backend returns',
   'scenes/[slug]/[period]': 'canonical names the scene slug and date the backend returns',
-  'collections/[slug]': 'outside the proxy existence checks: a missing or private collection answers HTTP 200',
   'radio/[station-slug]': "canonical follows the station's network",
-  'radio/[station-slug]/[show-slug]':
-    'outside the proxy existence checks (a missing show answers HTTP 200), and the station segment is not checked',
-  'radio/[station-slug]/[show-slug]/[date]':
-    'outside the proxy existence checks (a missing episode answers HTTP 200), and the station segment is not checked',
-  'radio/[station-slug]/channel/[sub-slug]': 'outside the proxy existence checks: a missing station answers HTTP 200',
-  'blog/[slug]': 'prerendered with the canonical inside <head>; unknown slugs are outside the proxy existence checks',
-  'dj-sets/[slug]': 'prerendered with the canonical inside <head>; unknown slugs are outside the proxy existence checks',
+  'radio/[station-slug]/channel/[sub-slug]':
+    'a local segment that keeps the network prefix (`/radio/wfmu/channel/wfmu-drummer`) renders the station under a second URL that declares itself canonical, and the network segment is not checked against the station',
+  'blog/[slug]': 'prerendered with the canonical inside <head>',
+  'dj-sets/[slug]': 'prerendered with the canonical inside <head>',
   'categories/[category]':
     'prerendered with the canonical inside <head>; unknown slugs are outside the proxy existence checks',
   'charts/[module]':
@@ -309,11 +360,12 @@ describe('canonical Link header on self-canonical routes', () => {
   })
 })
 
-/** A proxy-shaped request, as the proxy tests build one. */
+/** A proxy-shaped request without a session, as the proxy tests build one. */
 function proxyRequestFor(pathname: string): NextRequest {
   return {
     nextUrl: new URL(`http://localhost:3000${pathname}`),
     url: `http://localhost:3000${pathname}`,
+    cookies: { has: () => false },
   } as unknown as NextRequest
 }
 
@@ -382,6 +434,26 @@ describe('no canonical Link header where the page declares a different URL', () 
     expect(await headerCanonicalFor('/radio/wfmu-drummer')).toBeNull()
   })
 
+  // The proxy does not probe a request that carries a session, so for one a
+  // missing or hidden collection is a not-found body at HTTP 200.
+  it('leaves a collection request with a session alone', async () => {
+    expect(await headerCanonicalFor('/collections/essential-shoegaze', { cookie: 'auth_token=abc' })).toBeNull()
+    expect(await headerCanonicalFor('/collections/essential-shoegaze', { cookie: 'theme=dark' })).toBe(
+      `${SITE_URL}/collections/essential-shoegaze`,
+    )
+  })
+
+  it('leaves channel routes alone, where two URLs render one station', async () => {
+    backendAnswers({ slug: 'wfmu-drummer' })
+    for (const sub of ['drummer', 'wfmu-drummer']) {
+      const meta = await radioChannelMetadata(params({ 'station-slug': 'wfmu', 'sub-slug': sub }))
+      expect(canonicalOf(meta)).toBe(`${SITE_URL}/radio/wfmu/channel/${sub}`)
+      expect(await headerCanonicalFor(`/radio/wfmu/channel/${sub}`)).toBeNull()
+    }
+    // Date-shaped, so the episode rule would match it if `channel` were a show.
+    expect(await headerCanonicalFor('/radio/wfmu/channel/2025-01-15')).toBeNull()
+  })
+
   it('leaves scene windows alone, whose page canonical names the slug the backend returns', async () => {
     backendAnswers({
       slug: 'phoenix-az',
@@ -440,6 +512,12 @@ describe('no canonical Link header where the page declares a different URL', () 
     '/venues/thalia-hall-chicago-il/shows/25',
     '/scenes/chicago-il',
     '/scenes/mesa-az/2026-07-31',
+    '/radio/kexp',
+    '/radio/1/the-morning-show',
+    '/radio/kexp/42',
+    '/radio/kexp/the-morning-show/2025-1-15',
+    '/radio/kexp/the-morning-show/2025-01-15/x',
+    '/collections/42',
   ])('sends no canonical Link header for %s', async pathname => {
     expect(await headerCanonicalFor(pathname)).toBeNull()
   })

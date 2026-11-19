@@ -38,10 +38,11 @@ import { expect } from '@playwright/test'
  * `/scenes/<slug>` backend call 404s for an unresolvable or below-threshold
  * slug. All eight are covered below.
  *
+ * Radio routes and collections have proxy branches of their own, each covered
+ * in its own describe block below.
+ *
  * Intentionally EXCLUDED (still soft-404 / 200 — asserting 404 would FAIL):
- *   - collections (auth-gated soft-404)
  *   - blog, dj-sets (local MDX soft-404)
- * These get coverage when their fixes land.
  *
  * The `error-detection` fixture (no auth — these are public, read-only routes)
  * auto-fails on console.error / failed browser request / 5xx. A clean 404 page
@@ -472,6 +473,72 @@ test.describe('Not-found pages — HTTP 404 status', () => {
         response?.status(),
         '/scenes/nowhere-zz/tonight must return 404 — the scene itself does not resolve'
       ).toBe(404)
+    })
+  })
+
+  /**
+   * Radio station, show, episode and channel routes. Seeded rows come from
+   * backend/internal/seeddata/radio.go: KEXP carries The Morning Show, which
+   * has an episode on 2025-01-15, and WFMU's Give the Drummer Radio stream is
+   * `wfmu-drummer`. A show is a 404 under any station segment but its own.
+   */
+  test.describe('Radio routes', () => {
+    const missing = [
+      `/radio/nonexistent-${NONCE}`,
+      `/radio/kexp/nonexistent-${NONCE}`,
+      `/radio/nonexistent-${NONCE}/the-morning-show`,
+      '/radio/wfmu/the-morning-show',
+      `/radio/kexp/nonexistent-${NONCE}/2025-01-15`,
+      '/radio/kexp/the-morning-show/2025-01-16',
+      '/radio/kexp/the-morning-show/2025-02-30',
+      `/radio/wfmu/channel/nonexistent-${NONCE}`,
+      `/radio/playlists/nonexistent-${NONCE}`,
+    ]
+    for (const pathname of missing) {
+      test(`${pathname} returns HTTP 404`, async ({ page }) => {
+        const response = await page.goto(pathname)
+        expect(response?.status(), `${pathname} must return 404, not a not-found body at 200`).toBe(404)
+      })
+    }
+
+    const present = [
+      '/radio',
+      '/radio/kexp',
+      '/radio/kexp/the-morning-show',
+      '/radio/kexp/the-morning-show/2025-01-15',
+      '/radio/wfmu/channel/drummer',
+      '/radio/new-releases',
+      '/radio/playlists',
+    ]
+    for (const pathname of present) {
+      test(`${pathname} returns HTTP 200 (proxy does not over-404)`, async ({ page }) => {
+        const response = await page.goto(pathname)
+        expect(response?.status(), `${pathname} must return 200`).toBe(200)
+        await expect(page.getByRole('main').getByRole('heading', { level: 1 })).toBeVisible({
+          timeout: 10_000,
+        })
+      })
+    }
+  })
+
+  /**
+   * Collections, as a visitor without a session sees them. A private
+   * collection answers exactly as a missing one; the backend existence suite
+   * pins that, since no private collection is seeded here.
+   */
+  test.describe('Collections', () => {
+    test('an unknown collection returns HTTP 404', async ({ page }) => {
+      const response = await page.goto(`/collections/nonexistent-${NONCE}`)
+      expect(response?.status()).toBe(404)
+    })
+
+    test('a public collection returns HTTP 200 (proxy does not over-404)', async ({ page }) => {
+      // Reserved per-worker collection from setup-db.sh; its slug is stable.
+      const response = await page.goto('/collections/e2e-worker-collection-1')
+      expect(response?.status()).toBe(200)
+      await expect(page.getByRole('main').getByRole('heading', { level: 1 })).toBeVisible({
+        timeout: 10_000,
+      })
     })
   })
 })

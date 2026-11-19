@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { API_BASE_URL } from '@/lib/api-base'
 import { createPositiveVerdictCache } from '@/lib/positive-verdict-cache'
+import { channelStationSlug } from '@/lib/radio/channelStationSlug'
 import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import {
   isNumericShowSegment,
@@ -41,8 +42,8 @@ import {
  * not a stored entity, whose `GET /scenes/<slug>` already 404s for an
  * unresolvable slug or a location below the scene threshold. Adding an entity
  * is a single `ENTITY_CHECKS` entry + a single `config.matcher` source.
- * Collections (auth-gated) and blog/dj-sets (local MDX) remain out of scope and
- * have distinct semantics.
+ * Radio and collections have branches of their own (`radioCheck`,
+ * `collectionCheck`). Blog and DJ-set posts (local MDX) remain out of scope.
  *
  * How the 404 is produced
  * ------------------------
@@ -134,9 +135,9 @@ function isRealCalendarDate(segment: string): boolean {
  * The backend probe centralizes the historical non-uniform cases: tags still
  * resolve by tag ID/slug without loading `/tags/<slug>/detail`, and scenes still
  * resolve derived city/state slugs against the same qualifying venue threshold
- * without loading the full computed scene detail. Collections (auth-gated) and
- * blog/dj-sets (local MDX, no backend existence endpoint) are deliberately
- * absent — they have distinct semantics.
+ * without loading the full computed scene detail. Radio and collections are
+ * absent: their probes have paths of their own and different 404 readings (see
+ * `radioCheck` and `collectionCheck`).
  */
 const ENTITY_CHECKS: Record<string, (slug: string) => string> = {
   shows: slug =>
@@ -166,15 +167,35 @@ const ENTITY_CHECKS: Record<string, (slug: string) => string> = {
  * the real page to a 404 (PSY-913, regressed by PSY-897's shows phase).
  * Excluding these segments lets the genuine page render.
  *
- * Today only `shows` has static sub-routes; the other six proxied prefixes
- * (venues/artists/releases/labels/festivals/tags) have only `[slug]`. When
- * adding a NEW static route under ANY proxied prefix, add its segment here. A
- * path answered by a `redirects()` entry in `next.config.ts` never reaches the
- * proxy, so it needs no entry.
+ * `shows` and `radio` have static sub-routes; the other proxied prefixes have
+ * only `[slug]` one level down. When adding a NEW static route under ANY
+ * proxied prefix, add its segment here (`proxy.radio-collections.test.ts`
+ * holds the radio entry to `app/radio/`). A path answered by a `redirects()`
+ * entry in `next.config.ts` never reaches the proxy, so it needs no entry.
+ *
+ * A segment here is the static page only at exactly `/<entity>/<segment>`. A
+ * deeper path under it is not that page: the router resolves
+ * `/radio/playlists/x` to the station and show routes with `playlists` as the
+ * station, so it is checked like any other.
  */
-const RESERVED_SEGMENTS: Record<string, ReadonlySet<string>> = {
+export const RESERVED_SEGMENTS: Record<string, ReadonlySet<string>> = {
   shows: new Set(['submit']),
+  radio: new Set(['new-releases', 'playlists']),
 }
+
+/**
+ * The literal segment of `/radio/{network}/channel/{local}`, a station inside a
+ * network. A static segment outranks the `[show-slug]` route only at that
+ * depth: `/radio/{station}/channel` is the show route with `channel` as the
+ * show slug.
+ */
+const RADIO_CHANNEL_SEGMENT = 'channel'
+
+/**
+ * The cookie that carries a session; the collection page forwards it to read
+ * the collection as the viewer.
+ */
+const SESSION_COOKIE = 'auth_token'
 
 /**
  * Shape of the date segments under `/shows/`: `/shows/2026/11` and
@@ -563,6 +584,14 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     return venueArchiveYearCheck(request, slug, Number(year))
   }
 
+  if (entityType === 'radio' && slug) {
+    return radioCheck(request, segments)
+  }
+
+  if (entityType === 'collections' && slug && segments.length === 3) {
+    return collectionCheck(request, slug)
+  }
+
   const buildCheckUrl = ENTITY_CHECKS[entityType]
 
   // Not a mapped entity, or a sub-route like `/<entity>/<slug>/edit`, or the
@@ -904,6 +933,95 @@ function venueArchiveYearCheck(
 }
 
 /**
+ * The radio station, show, episode and channel routes, one probe per request.
+ *
+ * - `/radio/{station}`: the station, by slug or id, unless the segment is a
+ *   static radio page.
+ * - `/radio/{station}/{show}`: the show, carried by THAT station. A real show
+ *   under any other station segment is a 404, not a second address for it.
+ * - `/radio/{station}/{show}/{date}`: the same, plus an episode aired on that
+ *   day. A date that is not a real `YYYY-MM-DD` day is settled here with no
+ *   round trip.
+ * - `/radio/{network}/channel/{local}`: the station the channel page resolves.
+ *
+ * Anything deeper matches no route, and the router answers it with its own 404.
+ *
+ * Every probe is a route of its own, so each reads a 404 strictly (see
+ * `failedProbeResponse`): during a deploy, a frontend that reaches an API
+ * without these routes renders the page rather than 404ing every radio page.
+ */
+function radioCheck(
+  request: NextRequest,
+  segments: string[]
+): Promise<NextResponse> | NextResponse {
+  const [, , station, second, third] = segments
+  const stationUrl = `${API_BASE_URL}/radio-stations/${encodeURIComponent(station)}`
+  const strict = { requireApiAuthoredNotFound: true }
+
+  if (segments.length === 3) {
+    if (RESERVED_SEGMENTS.radio.has(station)) {
+      return NextResponse.next()
+    }
+    return existenceCheck(request, `${stationUrl}/exists`, strict)
+  }
+
+  const showUrl = `${stationUrl}/radio-shows/${encodeURIComponent(second)}`
+  if (segments.length === 4) {
+    return existenceCheck(request, `${showUrl}/exists`, strict)
+  }
+
+  if (segments.length === 5) {
+    if (second === RADIO_CHANNEL_SEGMENT) {
+      const channel = channelStationSlug(station, third)
+      return existenceCheck(
+        request,
+        `${API_BASE_URL}/radio-stations/${encodeURIComponent(channel)}/exists`,
+        strict
+      )
+    }
+    if (!CALENDAR_DATE_SEGMENT.test(third) || !isRealCalendarDate(third)) {
+      return notFoundResponse(request)
+    }
+    return existenceCheck(
+      request,
+      `${showUrl}/episodes/${encodeURIComponent(third)}/exists`,
+      strict
+    )
+  }
+
+  return NextResponse.next()
+}
+
+/**
+ * `/collections/{slug}`, probed as a visitor WITHOUT a session sees it.
+ *
+ * The probe answers 404 for a private collection exactly as for an unused slug,
+ * which is the collection page's own rule for anyone but the creator, so a
+ * signed-out request learns nothing from the status that the page would not
+ * tell it. A request that carries a session is not probed: the creator of a
+ * private collection must reach it, and the probe cannot ask on their behalf.
+ * Such a request gets the page's own answer, a not-found body at HTTP 200 for a
+ * collection it may not see, the same for a missing one and a hidden one.
+ *
+ * A positive verdict is a PUBLIC collection's, so reusing it across visitors
+ * discloses nothing. A collection made private inside the verdict window
+ * passes until the entry expires and renders its not-found body at 200.
+ */
+function collectionCheck(
+  request: NextRequest,
+  slug: string
+): Promise<NextResponse> | NextResponse {
+  if (request.cookies.has(SESSION_COOKIE)) {
+    return NextResponse.next()
+  }
+  return existenceCheck(
+    request,
+    `${API_BASE_URL}/collections/${encodeURIComponent(slug)}/exists`,
+    { requireApiAuthoredNotFound: true }
+  )
+}
+
+/**
  * The addressable month span, reduced to the only thing this file asks of it:
  * two comparable months.
  */
@@ -1131,16 +1249,18 @@ export const config = {
   /**
    * Intercept ONLY the enumerated entity prefixes (`/shows/...`, `/venues/...`,
    * `/artists/...`, `/releases/...`, `/labels/...`, `/festivals/...`,
-   * `/tags/...`, `/scenes/...`, `/charts/...`). Each prefix scopes its match away from
-   * everything else — the homepage, out-of-scope routes (`/collections/...`,
-   * `/blog/...`, `/dj-sets/...`), `api`, `_next/static`, `_next/image`,
+   * `/tags/...`, `/scenes/...`, `/charts/...`, `/radio/...`,
+   * `/collections/...`). Each prefix scopes its match away from everything else
+   * — the homepage, out-of-scope routes (`/blog/...`, `/dj-sets/...`), `api`,
+   * `_next/static`, `_next/image`,
    * metadata files, and the `/_psy-not-found` rewrite target — so none of those
    * can be blocked or re-intercepted. (A root-level matcher would need a
    * negative-lookahead to exclude `api`/`_next`/metadata; enumerating exact
    * prefixes makes that unnecessary.) The `proxy()` body further narrows each
    * to the exact `/<entity>/<slug>` detail shape — bare `/<entity>` list pages
-   * and `/<entity>/<slug>/<sub>` routes pass through untouched. Charts is an
-   * allowlist check (no backend probe), not an `ENTITY_CHECKS` entry.
+   * and `/<entity>/<slug>/<sub>` routes pass through untouched unless a branch
+   * above claims them. Charts is an allowlist check (no backend probe), not an
+   * `ENTITY_CHECKS` entry.
    *
    * Each entry's `missing` excludes RSC prefetch requests (`next-router-
    * prefetch` / `purpose: prefetch` headers) so client-side route prefetches
@@ -1149,7 +1269,8 @@ export const config = {
    * Keep entity sources in lockstep with `ENTITY_CHECKS` above: a source here with
    * no matching `ENTITY_CHECKS` entry would intercept the route only to fall
    * through `NextResponse.next()` (wasted match), and an `ENTITY_CHECKS` entry
-   * with no source here would never run. Charts is the intentional exception.
+   * with no source here would never run. Charts, radio and collections are the
+   * intentional exceptions: each is a branch of its own in `proxy()`.
    */
   matcher: [
     {
@@ -1210,6 +1331,20 @@ export const config = {
     },
     {
       source: '/charts/:path*',
+      missing: [
+        { type: 'header', key: 'next-router-prefetch' },
+        { type: 'header', key: 'purpose', value: 'prefetch' },
+      ],
+    },
+    {
+      source: '/radio/:path*',
+      missing: [
+        { type: 'header', key: 'next-router-prefetch' },
+        { type: 'header', key: 'purpose', value: 'prefetch' },
+      ],
+    },
+    {
+      source: '/collections/:path*',
       missing: [
         { type: 'header', key: 'next-router-prefetch' },
         { type: 'header', key: 'purpose', value: 'prefetch' },

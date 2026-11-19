@@ -46,20 +46,24 @@ export function assertBuildApiOriginConfigured(
  */
 const ENTITY_SLUG_SEGMENT = '[0-9]*[a-z-][a-z0-9.-]*'
 
-/** A query key whose presence, with any non-empty value, withholds the header. */
-type MissingQueryKey = { type: 'query'; key: string }
+/**
+ * A query key or cookie whose presence, with any non-empty value, withholds the
+ * header.
+ */
+type MissingCondition = { type: 'query' | 'cookie'; key: string }
 
 /**
  * A self-canonical route: `path` is the route with `:name` parameters, which is
  * what the `Link` header names, and `source` is the same route with each
  * parameter constrained to `ENTITY_SLUG_SEGMENT` unless `paramPatterns` gives
- * it another pattern. `missing` lists query keys the header requires absent.
+ * it another pattern. `missing` lists query keys or cookies the header requires
+ * absent.
  */
 function selfCanonicalRoute(
   path: string,
   paramPatterns: Readonly<Record<string, string>> = {},
-  missing: MissingQueryKey[] = [],
-): { source: string; path: string; missing: MissingQueryKey[] } {
+  missing: MissingCondition[] = [],
+): { source: string; path: string; missing: MissingCondition[] } {
   const source = path.replace(
     /:(\w+)/g,
     (_, name: string) => `:${name}(${paramPatterns[name] ?? ENTITY_SLUG_SEGMENT})`,
@@ -117,6 +121,18 @@ export const SELF_CANONICAL_ROUTES = [
   ),
   // A year without a leading zero, the only spelling the archive writes.
   selfCanonicalRoute('/venues/:slug/shows/:year', { year: '[1-9]\\d{3}' }),
+  // A show under the station that carries it; the proxy 404s it under any
+  // other station segment.
+  selfCanonicalRoute('/radio/:station/:show'),
+  // `channel` there is the channel route, a station rather than a show.
+  selfCanonicalRoute('/radio/:station/:show/:date', {
+    show: `(?!channel(?:/|$))${ENTITY_SLUG_SEGMENT}`,
+    date: '\\d{4}-\\d{2}-\\d{2}',
+  }),
+  // The proxy probes only a request without a session: one with a session gets
+  // the page's own answer, a not-found body at HTTP 200 for a collection it may
+  // not see.
+  selfCanonicalRoute('/collections/:slug', {}, [{ type: 'cookie', key: 'auth_token' }]),
 ]
 
 /**
