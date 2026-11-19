@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { submitLabels, parseInput } from "../src/commands/submit-label";
 import type { APIClient } from "../src/lib/api";
 
@@ -16,19 +16,15 @@ function createMockClient(overrides: {
 }
 
 describe("submitLabels", () => {
+  // Display output goes to stderr. Silence the stream, not the display module:
+  // a module mock outlives this file and blanks display output in later files.
+  let originalWrite: typeof process.stderr.write;
   beforeEach(() => {
-    // Silence display output during tests
-    mock.module("../src/lib/display", () => ({
-      header: () => {},
-      success: () => {},
-      warn: () => {},
-      error: () => {},
-      info: () => {},
-      kv: () => {},
-      table: () => {},
-      fieldDiff: () => {},
-      summary: () => {},
-    }));
+    originalWrite = process.stderr.write;
+    process.stderr.write = (() => true) as typeof process.stderr.write;
+  });
+  afterEach(() => {
+    process.stderr.write = originalWrite;
   });
 
   test("creates a single new label (dry-run)", async () => {
