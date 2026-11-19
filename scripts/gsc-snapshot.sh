@@ -607,6 +607,12 @@ PAGE_SHOWN="$(min "$PAGE_TABLE_LIMIT" "$PAGE_ROW_COUNT")"
 # average position $maxpos or better, then every other row. Each group carries
 # its row count, distinct page URLs, impressions and clicks. Only counts leave
 # this definition, so no query cell reaches the doc. ctr_cell is a group's CTR.
+#
+# pct2 is a 0-1 fraction as a two-decimal percentage, for every CTR cell.
+#
+# week_opening($daily; $ws; $we): the heading of one week's subsection, and a
+# flag when the daily series holds fewer than seven of its days (the API omits
+# unserved days, so a short week reads as a fall).
 JQ_DEFS='
   def esc: tostring
     | gsub("[[:cntrl:]\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]"; " ")
@@ -619,11 +625,12 @@ JQ_DEFS='
     | (if $n > 1 then " " else "" end) as $pad
     | $fence + $pad + $s + $pad + $fence;
   def pos1: (. * 10 | round) / 10;
+  def pct2: (. * 10000 | round) / 100;
   def page_cell: sub($ENV.STRIP_RE; ""; "i") | code;
   def metrics(r):
     if r.clicks == 0 and r.impressions == 0
     then "0 | 0 | — | —"
-    else "\(r.clicks) | \(r.impressions) | \((r.ctr * 10000 | round) / 100)% | \(r.position | pos1)"
+    else "\(r.clicks) | \(r.impressions) | \(r.ctr | pct2)% | \(r.position | pos1)"
     end;
   def key_of($query; $page): $query + "\t" + $page;
   def pair_key: key_of(.keys[0] | esc; .keys[1] | esc);
@@ -674,12 +681,17 @@ JQ_DEFS='
   def query_row_split($maxpos):
     [(.rows // [])[] | select(.impressions > 0)
       | {page: .keys[1], clicks, impressions,
-         first_group: ((.keys[1] | page_path | slug_date) != null and .position <= $maxpos)}] as $rows
+         first_group: (.position <= $maxpos and (.keys[1] | page_path | slug_date) != null)}] as $rows
     | [true, false]
     | map(. as $group | [$rows[] | select(.first_group == $group)]
         | {rows: length, pages: (map(.page) | unique | length),
            impressions: (map(.impressions) | add // 0), clicks: (map(.clicks) | add // 0)});
-  def ctr_cell: if .impressions == 0 then "—" else "\((.clicks / .impressions * 10000 | round) / 100)%" end;
+  def ctr_cell: if .impressions == 0 then "—" else "\(.clicks / .impressions | pct2)%" end;
+  def week_opening($daily; $ws; $we):
+    ([($daily[0].rows // [])[] | select(.keys[0] >= $ws and .keys[0] <= $we)] | length) as $served
+    | "### Week of \($ws) (Monday \($ws) to Sunday \($we))",
+      "",
+      (if $served < 7 then "**Only \($served) of the 7 days in this week were served (see the Coverage line); do not compare it with a full week.**", "" else empty end);
 '
 
 render_metric_table() {
@@ -711,13 +723,10 @@ render_metric_table() {
 render_breadth_week() {
   jq -r --slurpfile daily "$2" --arg ws "$3" --arg we "$4" "$JQ_DEFS"'
     breadth_by_family($ws; $we) as $families
-    | ([($daily[0].rows // [])[] | select(.keys[0] >= $ws and .keys[0] <= $we)] | length) as $served
     | ($families | reduce .[] as $f ({pages: 0, clicks: 0, impressions: 0, weighted_position: 0};
         .pages += $f.pages | .clicks += $f.clicks | .impressions += $f.impressions
         | .weighted_position += $f.weighted_position)) as $total
-    | "### Week of \($ws) (Monday \($ws) to Sunday \($we))",
-      "",
-      (if $served < 7 then "**Only \($served) of the 7 days in this week were served (see the Coverage line); do not compare it with a full week.**", "" else empty end),
+    | week_opening($daily; $ws; $we),
       "\($total.pages) pages with impressions · \($total.clicks) clicks · \($total.impressions) impressions"
         + (if $total.impressions > 0 then " · impression-weighted position \($total | weighted_position_cell)" else "" end),
       "",
@@ -731,17 +740,14 @@ render_breadth_week() {
 
 # render_query_split_week <file> <daily-file> <monday> <sunday>
 #
-# One week's query-row split subsection: the two groups of query_row_split,
-# with the same short-week flag as render_breadth_week.
+# One week's query-row split subsection: the two groups of query_row_split
+# under the same week_opening as render_breadth_week.
 render_query_split_week() {
   jq -r --slurpfile daily "$2" --arg ws "$3" --arg we "$4" \
     --argjson maxpos "$EVENTS_BOX_MAX_POSITION" "$JQ_DEFS"'
     query_row_split($maxpos) as [$first, $rest]
-    | ([($daily[0].rows // [])[] | select(.keys[0] >= $ws and .keys[0] <= $we)] | length) as $served
     | def group_row($label): "| \($label) | \(.rows) | \(.pages) | \(.impressions) | \(.clicks) | \(ctr_cell) |";
-      "### Week of \($ws) (Monday \($ws) to Sunday \($we))",
-      "",
-      (if $served < 7 then "**Only \($served) of the 7 days in this week were served (see the Coverage line); do not compare it with a full week.**", "" else empty end),
+      week_opening($daily; $ws; $we),
       "| Query rows | Rows | Pages | Impressions | Clicks | CTR |",
       "| --- | ---: | ---: | ---: | ---: | ---: |",
       ($first | group_row("Dated show pages at average position \($maxpos) or better")),
@@ -993,27 +999,27 @@ TBL_SITEMAPS="$(jq -r "$JQ_DEFS"'
   end
 ' "$WORK_DIR/sitemaps.json")" || die "failed to render the sitemap table"
 
-BREADTH_SECTIONS="$(
-  while IFS=$'\t' read -r week_start week_end <&3; do
-    render_breadth_week "$WORK_DIR/breadth-${week_start}.json" "$WORK_DIR/daily.json" "$week_start" "$week_end" \
-      || exit 1
-    printf '\n'
-  done 3<"$WORK_DIR/weeks.tsv"
-)" || die "failed to render the breadth tables"
-if [ -z "$BREADTH_SECTIONS" ]; then
-  BREADTH_SECTIONS="_No complete Monday-to-Sunday week lies inside this window, so there is no breadth table._"
-fi
+# render_weekly_sections <render-function> <file-prefix> <what>
+#
+# Every complete week's subsection from <render-function>, reading
+# WORK_DIR/<file-prefix>-<monday>.json, or a line saying there is no <what>
+# when the window holds no complete week.
+render_weekly_sections() {
+  local sections
+  sections="$(
+    while IFS=$'\t' read -r week_start week_end <&3; do
+      "$1" "$WORK_DIR/$2-${week_start}.json" "$WORK_DIR/daily.json" "$week_start" "$week_end" \
+        || exit 1
+      printf '\n'
+    done 3<"$WORK_DIR/weeks.tsv"
+  )" || return 1
+  printf '%s\n' "${sections:-_No complete Monday-to-Sunday week lies inside this window, so there is no $3._}"
+}
 
-QUERY_SPLIT_SECTIONS="$(
-  while IFS=$'\t' read -r week_start week_end <&3; do
-    render_query_split_week "$WORK_DIR/query-split-${week_start}.json" "$WORK_DIR/daily.json" "$week_start" "$week_end" \
-      || exit 1
-    printf '\n'
-  done 3<"$WORK_DIR/weeks.tsv"
-)" || die "failed to render the query-row split tables"
-if [ -z "$QUERY_SPLIT_SECTIONS" ]; then
-  QUERY_SPLIT_SECTIONS="_No complete Monday-to-Sunday week lies inside this window, so there is no query-row split._"
-fi
+BREADTH_SECTIONS="$(render_weekly_sections render_breadth_week breadth "breadth table")" \
+  || die "failed to render the breadth tables"
+QUERY_SPLIT_SECTIONS="$(render_weekly_sections render_query_split_week query-split "query-row split")" \
+  || die "failed to render the query-row split tables"
 
 DOC_PATH="$WORK_DIR/$DOC_NAME"
 

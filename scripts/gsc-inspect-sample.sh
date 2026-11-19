@@ -407,7 +407,7 @@ expected = set()
 stats = {}
 for name in families:
     stats[name] = {"sampled": 0, "inspected": 0, "failed": [], "fields": {f: collections.Counter() for f in FIELDS},
-                   "both_canonical": 0, "canonical_differs": 0, "indexed": 0, "indexed_user_canonical": 0,
+                   "both_canonical": 0, "canonical_differs": 0, "indexed_user_canonical": 0,
                    "crawl": collections.Counter()}
 for name, url, digest in rows:
     family = stats[name]
@@ -437,10 +437,8 @@ for name, url, digest in rows:
         value = result.get(field)
         family["fields"][field]["(absent)" if value in (None, "") else str(value)] += 1
     google, user = result.get("googleCanonical"), result.get("userCanonical")
-    if result.get("verdict") == INDEXED_VERDICT:
-        family["indexed"] += 1
-        if user:
-            family["indexed_user_canonical"] += 1
+    if user and result.get("verdict") == INDEXED_VERDICT:
+        family["indexed_user_canonical"] += 1
     if google and user:
         family["both_canonical"] += 1
         if google != user:
@@ -495,35 +493,40 @@ emit("6. **Last crawl.** `lastCrawlTime` is bucketed by UTC month; `never` means
 emit("")
 emit("## Roll-up")
 emit("")
-emit("| Family | Advertised | Sampled | Inspected | Failed | Not inspected | PASS | PARTIAL | FAIL | NEUTRAL | Other verdict | Canonical differs | Indexed with userCanonical |")
-emit("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
+# Roll-up columns after Family and Advertised, each a header and the value of
+# one family's stats: a count, or a (part, whole) pair rendered "part of whole".
+ROLLUP_COLUMNS = (
+    [("Sampled", lambda s: s["sampled"]), ("Inspected", lambda s: s["inspected"]),
+     ("Failed", lambda s: s["failed_count"]), ("Not inspected", lambda s: s["missing"])]
+    + [(v, lambda s, v=v: s["fields"]["verdict"][v]) for v in VERDICTS]
+    + [("Other verdict", lambda s: s["inspected"] - sum(s["fields"]["verdict"][v] for v in VERDICTS)),
+       ("Canonical differs", lambda s: (s["canonical_differs"], s["both_canonical"])),
+       ("Indexed with userCanonical", lambda s: (s["indexed_user_canonical"], s["indexed"]))])
 
-# The last PAIRED_COUNTS entries of a roll-up row's counts are (part, whole)
-# pairs, rendered "part of whole".
-PAIRED_COUNTS = 2
+emit("| Family | Advertised | " + " | ".join(header for header, _ in ROLLUP_COLUMNS) + " |")
+emit("| --- | ---: | " + " | ".join("---:" for _ in ROLLUP_COLUMNS) + " |")
 
-def rollup_row(label, advertised_cell, counts):
-    # counts: sampled, inspected, failed, not inspected, the VERDICTS, other,
-    # canonical differs, canonical both set, indexed with userCanonical,
-    # indexed.
-    plain, paired = counts[:-2 * PAIRED_COUNTS], counts[-2 * PAIRED_COUNTS:]
-    cells = ([label, advertised_cell] + [str(c) for c in plain]
-             + [f"{paired[i]} of {paired[i + 1]}" for i in range(0, len(paired), 2)])
-    return "| " + " | ".join(cells) + " |"
+def cell(value):
+    return f"{value[0]} of {value[1]}" if isinstance(value, tuple) else str(value)
 
-family_counts = []
+def total(values):
+    return tuple(map(sum, zip(*values))) if isinstance(values[0], tuple) else sum(values)
+
+family_values = []
 for name in families:
     s = stats[name]
-    verdicts = s["fields"]["verdict"]
     s["failed_count"] = len(s["failed"])
     s["missing"] = s["sampled"] - s["inspected"] - s["failed_count"]
-    other = s["inspected"] - sum(verdicts[v] for v in VERDICTS)
-    counts = ([s["sampled"], s["inspected"], s["failed_count"], s["missing"]] + [verdicts[v] for v in VERDICTS]
-              + [other, s["canonical_differs"], s["both_canonical"], s["indexed_user_canonical"], s["indexed"]])
-    family_counts.append(counts)
-    emit(rollup_row(name, advertised(name), counts))
+    s["indexed"] = s["fields"]["verdict"][INDEXED_VERDICT]
+    family_values.append([value(s) for _, value in ROLLUP_COLUMNS])
+    emit("| " + " | ".join([name, advertised(name)] + [cell(v) for v in family_values[-1]]) + " |")
 total_population = str(sum(population[n] for n in families)) if all(n in population for n in families) else "unknown"
-emit(rollup_row("**All families**", total_population, [sum(column) for column in zip(*family_counts)] or [0] * (len(VERDICTS) + 9)))
+if family_values:
+    totals = [total(column) for column in zip(*family_values)]
+else:
+    no_family = collections.defaultdict(int, fields=collections.defaultdict(collections.Counter))
+    totals = [value(no_family) for _, value in ROLLUP_COLUMNS]
+emit("| " + " | ".join(["**All families**", total_population] + [cell(v) for v in totals]) + " |")
 undeclared = [name for name in families if stats[name]["indexed"] > 0 and stats[name]["indexed_user_canonical"] == 0]
 if undeclared:
     emit("")
