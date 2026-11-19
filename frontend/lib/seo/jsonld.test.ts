@@ -622,7 +622,7 @@ describe('no schema the module builds carries an organizer', () => {
       },
     ],
     listItems: [{ url: `${SITE_URL}/shows/test-show`, name: 'Test Show' }],
-    release_year: 2019,
+    year: 2019,
     release_type: 'ep',
     cover_art_url: 'https://coverartarchive.org/release-group/abc/front.jpg',
   }
@@ -878,7 +878,7 @@ describe('generateMusicAlbumSchema', () => {
   const fullRelease = {
     title: 'Eyes Shut',
     slug: 'eyes-shut',
-    release_year: 2019,
+    year: 2019,
     release_type: 'ep',
     cover_art_url: 'https://coverartarchive.org/release-group/abc/front.jpg',
     artists: [
@@ -911,8 +911,8 @@ describe('generateMusicAlbumSchema', () => {
     })
   })
 
-  it('omits byArtist when no artist is credited or named', () => {
-    for (const artists of [[], null, [{ name: ' ', slug: 'blank' }]]) {
+  it('omits byArtist when no artist is credited', () => {
+    for (const artists of [[], null, undefined]) {
       expect(generateMusicAlbumSchema({ ...fullRelease, artists })).not.toHaveProperty(
         'byArtist'
       )
@@ -927,11 +927,11 @@ describe('generateMusicAlbumSchema', () => {
     expect(schema.byArtist).toEqual([{ '@type': 'MusicGroup', name: 'Slugless' }])
   })
 
-  it('omits datePublished when the year is unknown or unusable', () => {
-    for (const release_year of [null, undefined, 0, 2019.5]) {
-      expect(
-        generateMusicAlbumSchema({ ...fullRelease, release_year })
-      ).not.toHaveProperty('datePublished')
+  it('omits datePublished when the year is unknown', () => {
+    for (const year of [null, undefined]) {
+      expect(generateMusicAlbumSchema({ ...fullRelease, year })).not.toHaveProperty(
+        'datePublished'
+      )
     }
   })
 

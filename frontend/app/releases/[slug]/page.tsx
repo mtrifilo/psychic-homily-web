@@ -9,6 +9,7 @@ import type { ReleaseDetail as ReleaseDetailData } from '@/features/releases/typ
 import {
   creditedReleaseArtists,
   knownReleaseYear,
+  releaseLabelName,
   releaseListenServiceNames,
   releaseTypeLabel,
 } from '@/features/releases/releaseSearchFacts'
@@ -81,7 +82,7 @@ export async function generateMetadata({
       artists: creditedReleaseArtists(release.artists).map(artist => artist.name),
       typeLabel: releaseTypeLabel(release.release_type),
       year: knownReleaseYear(release.release_year),
-      label: release.labels?.find(label => label.name?.trim())?.name,
+      label: releaseLabelName(release.labels),
       listenServices: releaseListenServiceNames(release.external_links),
     })
     return {
@@ -136,7 +137,7 @@ export default async function ReleasePage({ params }: ReleasePageProps) {
       <JsonLd data={generateMusicAlbumSchema({
         title: releaseData.title,
         slug: releaseData.slug || slug,
-        release_year: releaseData.release_year,
+        year: knownReleaseYear(releaseData.release_year),
         release_type: releaseData.release_type,
         cover_art_url: releaseData.cover_art_url,
         artists: creditedReleaseArtists(releaseData.artists),

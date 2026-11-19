@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   creditedReleaseArtists,
   knownReleaseYear,
+  releaseLabelName,
   releaseListenServiceNames,
   releaseTypeLabel,
 } from './releaseSearchFacts'
@@ -105,6 +106,18 @@ describe('releaseTypeLabel', () => {
     expect(releaseTypeLabel('')).toBeNull()
     expect(releaseTypeLabel('  ')).toBeNull()
     expect(releaseTypeLabel(null)).toBeNull()
+  })
+})
+
+describe('releaseLabelName', () => {
+  it('is the first label with a name, in page order', () => {
+    expect(releaseLabelName([{ name: 'Nettwerk' }, { name: 'Second' }])).toBe('Nettwerk')
+    expect(releaseLabelName([{ name: ' ' }, { name: 'Named' }])).toBe('Named')
+  })
+
+  it('is null for no labels, including a null list', () => {
+    expect(releaseLabelName([])).toBeNull()
+    expect(releaseLabelName(null)).toBeNull()
   })
 })
 

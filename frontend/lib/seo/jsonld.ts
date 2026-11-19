@@ -13,7 +13,6 @@ import { toZonedDateOnly, toZonedISOString } from '@/lib/utils/timeUtils'
 import { SITE_DESCRIPTION, SITE_URL } from '@/lib/seo/siteMetadata'
 import { resolveTicketVendor } from '@/lib/tickets/ticketVendors'
 import { renderableSocialLinks } from '@/lib/socialLinks'
-import { knownReleaseYear } from '@/features/releases/releaseSearchFacts'
 
 export interface OrganizationSchema {
   '@context': 'https://schema.org'
@@ -604,24 +603,26 @@ export function generateMusicRecordingSchema(mix: {
  * names one. Compilation, live, remix and demo describe how an album was made
  * (`albumProductionType`) or nothing schema.org defines, so they map to none.
  */
-const ALBUM_RELEASE_TYPES: Readonly<Record<string, string>> = {
-  lp: 'https://schema.org/AlbumRelease',
-  ep: 'https://schema.org/EPRelease',
-  single: 'https://schema.org/SingleRelease',
-}
+const ALBUM_RELEASE_TYPES: ReadonlyMap<string, string> = new Map([
+  ['lp', 'https://schema.org/AlbumRelease'],
+  ['ep', 'https://schema.org/EPRelease'],
+  ['single', 'https://schema.org/SingleRelease'],
+])
 
 /**
  * Generate MusicAlbum schema for a release.
  *
  * Every optional property is emitted only when a stored value backs it:
  * `byArtist` from the credited artists the caller passes, `datePublished` from
- * a {@link knownReleaseYear}, `albumReleaseType` from a type in
+ * the year the caller passes, `albumReleaseType` from a type in
  * {@link ALBUM_RELEASE_TYPES}, and `image` from a cover URL the page shows.
+ * The caller passes only artists with a name and a year that is a calendar
+ * year.
  */
 export function generateMusicAlbumSchema(release: {
   title: string
   slug?: string
-  release_year?: number | null
+  year?: number | null
   release_type?: string | null
   cover_art_url?: string | null
   /** The artists the release is by, in credit order. */
@@ -633,26 +634,21 @@ export function generateMusicAlbumSchema(release: {
     name: release.title,
   }
 
-  const artists = (release.artists ?? []).filter(artist => artist.name?.trim())
-  if (artists.length > 0) {
-    schema.byArtist = artists.map(artist => ({
+  if (release.artists && release.artists.length > 0) {
+    schema.byArtist = release.artists.map(artist => ({
       '@type': 'MusicGroup' as const,
       name: artist.name,
       ...(artist.slug ? { url: `${SITE_URL}/artists/${artist.slug}` } : {}),
     }))
   }
 
-  const year = knownReleaseYear(release.release_year)
-  if (year !== null) {
-    schema.datePublished = String(year)
+  if (release.year != null) {
+    schema.datePublished = String(release.year)
   }
 
-  const releaseType = release.release_type
-  if (
-    releaseType &&
-    Object.prototype.hasOwnProperty.call(ALBUM_RELEASE_TYPES, releaseType)
-  ) {
-    schema.albumReleaseType = ALBUM_RELEASE_TYPES[releaseType]
+  const releaseType = ALBUM_RELEASE_TYPES.get(release.release_type ?? '')
+  if (releaseType) {
+    schema.albumReleaseType = releaseType
   }
 
   const cover = absoluteHttpUrl(release.cover_art_url)

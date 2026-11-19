@@ -311,7 +311,7 @@ export interface ReleaseSnippetInput {
   /** The type label the page shows. */
   typeLabel?: string | null
   year?: number | null
-  /** The first label the page lists. */
+  /** The label to name: the first one the page lists with a name. */
   label?: string | null
   /** Services the release can be played or bought on, as the page names them. */
   listenServices?: ReadonlyArray<string> | null

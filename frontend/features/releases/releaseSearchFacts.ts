@@ -23,8 +23,8 @@ interface CreditedArtistLike {
 /**
  * The artists a release is "by": those with the `main` role, in payload order
  * (the backend's credit position). A release with no `main` credit is by its
- * first credited artist, the same fallback the page's player uses. Blank names
- * are skipped. Empty when the release credits no one.
+ * first credited artist. Blank names are skipped. Empty when the release
+ * credits no one.
  */
 export function creditedReleaseArtists<T extends CreditedArtistLike>(
   artists: ReadonlyArray<T> | null | undefined
@@ -55,6 +55,16 @@ export function releaseListenServiceNames(
     .filter(link => !NOT_LISTENABLE_PLATFORMS.has(link.platform.toLowerCase()))
     .map(link => releaseLinkPlatformLabel(link.platform))
   return [...new Set(names)]
+}
+
+/**
+ * The first label the page lists that has a name, or null. The page lists
+ * labels in payload order.
+ */
+export function releaseLabelName(
+  labels: ReadonlyArray<{ name: string }> | null | undefined
+): string | null {
+  return labels?.find(label => label.name?.trim())?.name ?? null
 }
 
 /** The type label the page shows, or null when the stored type is empty. */
