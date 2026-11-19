@@ -47,66 +47,69 @@ export function assertBuildApiOriginConfigured(
 const ENTITY_SLUG_SEGMENT = '[0-9]*[a-z-][a-z0-9.-]*'
 
 /**
+ * A self-canonical route: `path` is the route with `:name` parameters, which is
+ * what the `Link` header names, and `source` is the same route with each
+ * parameter constrained to `ENTITY_SLUG_SEGMENT` unless `paramPatterns` gives
+ * it another pattern.
+ */
+function selfCanonicalRoute(
+  path: string,
+  paramPatterns: Readonly<Record<string, string>> = {},
+): { source: string; path: string } {
+  const source = path.replace(
+    /:(\w+)/g,
+    (_, name: string) => `:${name}(${paramPatterns[name] ?? ENTITY_SLUG_SEGMENT})`,
+  )
+  return { source, path }
+}
+
+/**
  * Entity routes whose page declares its own path on the apex host as its
- * canonical, for every request this source matches. Each entry pairs the
- * match `source` with `path`, the same route with the patterns removed, which
- * is what the `Link` header names.
+ * canonical, for every request the route's `source` matches.
  *
  * Routes whose canonical comes from loaded data rather than from the request
  * path are absent on purpose: `/radio/{station}` (a network sub-station's
  * canonical is its `/channel/` URL) and every scene window and period route
  * under `/scenes/{slug}/` (the canonical names the scene slug the backend
  * returns, which differs for a metro member). `next.config.canonical-link.test.ts`
- * checks each entry against its page's `generateMetadata`.
+ * checks each entry against its page's `generateMetadata` and accounts for
+ * every dynamic page route.
  */
-export const SELF_CANONICAL_ROUTES: ReadonlyArray<{ source: string; path: string }> = [
-  { source: `/artists/:slug(${ENTITY_SLUG_SEGMENT})`, path: '/artists/:slug' },
-  { source: `/releases/:slug(${ENTITY_SLUG_SEGMENT})`, path: '/releases/:slug' },
-  { source: `/venues/:slug(${ENTITY_SLUG_SEGMENT})`, path: '/venues/:slug' },
-  { source: `/labels/:slug(${ENTITY_SLUG_SEGMENT})`, path: '/labels/:slug' },
-  { source: `/festivals/:slug(${ENTITY_SLUG_SEGMENT})`, path: '/festivals/:slug' },
-  { source: `/tags/:slug(${ENTITY_SLUG_SEGMENT})`, path: '/tags/:slug' },
-  { source: `/collections/:slug(${ENTITY_SLUG_SEGMENT})`, path: '/collections/:slug' },
+export const SELF_CANONICAL_ROUTES = [
+  selfCanonicalRoute('/artists/:slug'),
+  selfCanonicalRoute('/releases/:slug'),
+  selfCanonicalRoute('/venues/:slug'),
+  selfCanonicalRoute('/labels/:slug'),
+  selfCanonicalRoute('/festivals/:slug'),
+  selfCanonicalRoute('/tags/:slug'),
+  selfCanonicalRoute('/collections/:slug'),
   // `submit` is a static page beside the show route and `saved` a config
   // redirect; neither is a show.
-  {
-    source: `/shows/:slug((?!(?:submit|saved)(?:/|$))${ENTITY_SLUG_SEGMENT})`,
-    path: '/shows/:slug',
-  },
-  { source: `/scenes/:slug(${ENTITY_SLUG_SEGMENT})`, path: '/scenes/:slug' },
-  {
-    source: `/radio/:station(${ENTITY_SLUG_SEGMENT})/:show(${ENTITY_SLUG_SEGMENT})`,
-    path: '/radio/:station/:show',
-  },
-  {
-    source: `/radio/:station(${ENTITY_SLUG_SEGMENT})/:show(${ENTITY_SLUG_SEGMENT})/:date(\\d{4}-\\d{2}-\\d{2})`,
-    path: '/radio/:station/:show/:date',
-  },
-  {
-    source: `/radio/:station(${ENTITY_SLUG_SEGMENT})/channel/:channel(${ENTITY_SLUG_SEGMENT})`,
-    path: '/radio/:station/channel/:channel',
-  },
-  { source: `/blog/:slug(${ENTITY_SLUG_SEGMENT})`, path: '/blog/:slug' },
-  { source: `/dj-sets/:slug(${ENTITY_SLUG_SEGMENT})`, path: '/dj-sets/:slug' },
-  { source: `/categories/:category(${ENTITY_SLUG_SEGMENT})`, path: '/categories/:category' },
+  selfCanonicalRoute('/shows/:slug', {
+    slug: `(?!(?:submit|saved)(?:/|$))${ENTITY_SLUG_SEGMENT}`,
+  }),
+  selfCanonicalRoute('/scenes/:slug'),
+  selfCanonicalRoute('/radio/:station/:show'),
+  selfCanonicalRoute('/radio/:station/:show/:date', { date: '\\d{4}-\\d{2}-\\d{2}' }),
+  selfCanonicalRoute('/radio/:station/channel/:channel'),
+  selfCanonicalRoute('/blog/:slug'),
+  selfCanonicalRoute('/dj-sets/:slug'),
+  selfCanonicalRoute('/categories/:category'),
 ]
 
 /**
  * Declares each self-canonical entity route's canonical in an HTTP `Link`
  * header. On these routes Next streams `<link rel="canonical">` after `</head>`
  * to Googlebot, and Google accepts that element only inside `<head>`; the
- * header carries the same URL. Next appends the render's own `Link` preload
- * entries to the response, so both reach the client.
+ * header carries the same URL. The render's own `Link` preload entries arrive
+ * as a separate `Link` field line.
  */
-export const CANONICAL_LINK_HEADER_RULES = SELF_CANONICAL_ROUTES.map(({ source, path }) => ({
+const CANONICAL_LINK_HEADER_RULES = SELF_CANONICAL_ROUTES.map(({ source, path }) => ({
   source,
   headers: [{ key: 'Link', value: `<https://psychichomily.com${path}>; rel="canonical"` }],
 }))
 
-// `htmlLimitedBots` stays unset. Adding a script-running crawler such as
-// Googlebot to it routes that crawler past the cached shell on Vercel to a
-// static-generation render that answers HTTP 500 on the entity routes.
-// `next.config.canonical-link.test.ts` fails if it is set.
+// `htmlLimitedBots` stays unset; next.config.canonical-link.test.ts says why.
 const nextConfig: NextConfig = {
   // Cache Components is Next 16's successor to `experimental.ppr` and
   // the supported way to enable Partial Prerendering. The legacy
