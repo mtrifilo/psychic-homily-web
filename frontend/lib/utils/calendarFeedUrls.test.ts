@@ -3,6 +3,9 @@ import {
   webcalUrl,
   googleCalendarSubscribeUrl,
   googleCalendarEventUrl,
+  outlookComSubscribeUrl,
+  outlookWorkSubscribeUrl,
+  GOOGLE_CALENDAR_ADD_BY_URL_PAGE,
 } from './calendarFeedUrls'
 
 describe('webcalUrl', () => {
@@ -22,6 +25,35 @@ describe('googleCalendarSubscribeUrl', () => {
       `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(
         'webcal://example.com/feed.ics'
       )}`
+    )
+  })
+})
+
+describe('Outlook subscribe URLs', () => {
+  it.each([
+    ['Outlook.com', outlookComSubscribeUrl, 'https://outlook.live.com'],
+    ['work or school', outlookWorkSubscribeUrl, 'https://outlook.office.com'],
+  ])(
+    '%s: addfromweb page with the webcal address and the name, encoded',
+    (_label, build, origin) => {
+      const url = new URL(
+        build('https://example.com/feed.ics?a=1&b=2', 'Psychic Homily saved shows')
+      )
+      expect(url.origin + url.pathname).toBe(
+        `${origin}/calendar/0/addfromweb/`
+      )
+      expect(url.searchParams.get('url')).toBe(
+        'webcal://example.com/feed.ics?a=1&b=2'
+      )
+      expect(url.searchParams.get('name')).toBe('Psychic Homily saved shows')
+    }
+  )
+})
+
+describe('GOOGLE_CALENDAR_ADD_BY_URL_PAGE', () => {
+  it("is Google's Add from URL settings page and carries no address", () => {
+    expect(GOOGLE_CALENDAR_ADD_BY_URL_PAGE).toBe(
+      'https://calendar.google.com/calendar/r/settings/addbyurl'
     )
   })
 })

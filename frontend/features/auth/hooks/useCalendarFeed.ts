@@ -9,8 +9,11 @@ import {
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys, createInvalidateQueries } from '@/lib/queryClient'
 import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
+import { AuthError } from '@/lib/errors'
+import type { CalendarFeedClient } from '@/features/shows/types'
 import type {
   CalendarFeedStatusResponse,
+  ForgetCalendarFeedReadResponse,
   CalendarLinkResetReason,
   CalendarTokenStatusResponse,
   CalendarTokenCreateResponse,
@@ -19,20 +22,26 @@ import type {
 import { PERSONAL_FEED_TOKEN_REVOKED_EVENT } from '@/features/collections/components/personalFeedTokenEvents'
 
 /**
+ * The token status query, for a caller that reads it imperatively at the
+ * moment it needs the address (`queryClient.fetchQuery`) and shares the cache
+ * entry with `useCalendarTokenStatus`.
+ */
+export const calendarTokenStatusQuery = {
+  queryKey: queryKeys.calendar.tokenStatus,
+  queryFn: async (): Promise<CalendarTokenStatusResponse> => {
+    return apiRequest<CalendarTokenStatusResponse>(
+      API_ENDPOINTS.CALENDAR.TOKEN,
+      { method: 'GET' }
+    )
+  },
+  staleTime: 5 * 60 * 1000, // 5 minutes
+}
+
+/**
  * Hook to check if the user has a calendar feed token
  */
 export const useCalendarTokenStatus = (enabled: boolean = true) => {
-  return useQuery({
-    queryKey: queryKeys.calendar.tokenStatus,
-    queryFn: async (): Promise<CalendarTokenStatusResponse> => {
-      return apiRequest<CalendarTokenStatusResponse>(
-        API_ENDPOINTS.CALENDAR.TOKEN,
-        { method: 'GET' }
-      )
-    },
-    enabled,
-    staleTime: 5 * 60 * 1000, // 5 minutes
-  })
+  return useQuery({ ...calendarTokenStatusQuery, enabled })
 }
 
 /**
@@ -41,7 +50,17 @@ export const useCalendarTokenStatus = (enabled: boolean = true) => {
  * leaves when it reset a link an app had been reading. For surfaces that talk
  * about the calendar without showing its address.
  */
-export const useCalendarFeedStatus = (enabled: boolean = true) => {
+export const useCalendarFeedStatus = (
+  enabled: boolean = true,
+  options: {
+    /**
+     * Refetch whenever an observer mounts and whenever the window regains
+     * focus, for a surface opened to watch a calendar app's first check: the
+     * person adds the calendar in another tab or app and comes back.
+     */
+    live?: boolean
+  } = {}
+) => {
   return useQuery({
     queryKey: queryKeys.calendar.feedStatus,
     queryFn: async (): Promise<CalendarFeedStatusResponse> => {
@@ -52,7 +71,67 @@ export const useCalendarFeedStatus = (enabled: boolean = true) => {
     },
     enabled,
     staleTime: 5 * 60 * 1000, // 5 minutes
+    ...(options.live
+      ? { refetchOnMount: 'always', refetchOnWindowFocus: 'always' }
+      : {}),
   })
+}
+
+/**
+ * Forgets one calendar client family on the current link: the person removed
+ * that calendar, so it stops being reported as stopped. It reappears if it
+ * checks the link again.
+ */
+export const useForgetCalendarClient = () => {
+  const queryClient = useQueryClient()
+  const invalidateQueries = createInvalidateQueries(queryClient)
+
+  return useMutation({
+    mutationFn: async (
+      client: CalendarFeedClient
+    ): Promise<ForgetCalendarFeedReadResponse> => {
+      return apiRequest<ForgetCalendarFeedReadResponse>(
+        API_ENDPOINTS.CALENDAR.FORGET_READS(client),
+        { method: 'DELETE' }
+      )
+    },
+    onSuccess: () => {
+      invalidateQueries.calendar()
+    },
+  })
+}
+
+/**
+ * Asks the server to email the signed-in person the steps for adding the
+ * calendar to Google on a computer. Resolves on the 204; rejects with the
+ * request's error, which `emailCalendarStepsFailure` sorts.
+ */
+export function sendCalendarStepsEmail(): Promise<void> {
+  return apiRequest<void>(API_ENDPOINTS.CALENDAR.EMAIL_STEPS, {
+    method: 'POST',
+  })
+}
+
+export const useEmailCalendarSteps = () =>
+  useMutation({ mutationFn: sendCalendarStepsEmail })
+
+/**
+ * Why sending the steps failed, as far as the reader is concerned: the address
+ * is not verified (or the account has none), the hourly allowance is used up,
+ * or anything else, including email being unavailable on the server.
+ */
+export type EmailCalendarStepsFailure = 'unverified' | 'rate_limited' | 'failed'
+
+export function emailCalendarStepsFailure(
+  error: unknown
+): EmailCalendarStepsFailure {
+  const code =
+    error instanceof AuthError
+      ? error.code
+      : (error as { errorCode?: unknown } | null)?.errorCode
+  if (code === 'EMAIL_VERIFICATION_REQUIRED') return 'unverified'
+  if (code === 'CALENDAR_STEPS_RATE_LIMITED_HOURLY') return 'rate_limited'
+  return 'failed'
 }
 
 /**
