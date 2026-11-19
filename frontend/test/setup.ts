@@ -39,7 +39,8 @@ vi.mock('@sentry/nextjs', () => ({
   flush: vi.fn(() => Promise.resolve(true)),
   // next.config wraps its config at module scope; identity keeps the config
   // object as written for tests that import it, and the recorded call carries
-  // the Sentry build options it passed.
+  // the Sentry build options it passed (app/robots.test.ts reads tunnelRoute
+  // from it).
   withSentryConfig: vi.fn(<T,>(config: T): T => config),
 }))
 

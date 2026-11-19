@@ -76,15 +76,17 @@ const RSC_PAYLOAD_PATTERNS = ['/*?_rsc=', '/*&_rsc=']
 const SENTRY_TUNNEL_ROUTE = '/monitoring'
 
 /**
- * Endpoints a page calls while it renders: the Sentry tunnel, the Vercel Web
- * Analytics script and beacon, and the Bandcamp album-id lookup behind the
+ * Three endpoints a page calls while it renders: the Sentry tunnel, the Vercel
+ * Web Analytics script and beacons, and the Bandcamp album-id lookup behind the
  * embed. A crawler's renderer requests them like a browser does; they answer
  * with nothing indexable, and every fetch counts against the host's crawl
  * capacity. Browsers ignore robots.txt, so this changes nothing for visitors.
+ * A crawler's render therefore sends no Sentry events and shows no Bandcamp
+ * embed. This list names these three only; other render-time requests, such
+ * as Speed Insights under `/_vercel/speed-insights/`, stay allowed.
  *
  * Each pattern is a prefix of the path plus query string. One ending in `/`
- * covers only the paths below it, which is why `/_vercel/insights/` leaves
- * `/_vercel/speed-insights/` allowed. The tunnel pattern has no trailing slash
+ * covers only the paths below it. The tunnel pattern has no trailing slash
  * because the tunnel is requested as `/monitoring?o=...`, where the query
  * follows the path directly and a `/monitoring/` pattern would not match. It
  * therefore covers every path that begins with `/monitoring`, so no page may

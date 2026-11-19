@@ -2,15 +2,20 @@ import { readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { withSentryConfig } from '@sentry/nextjs'
+import { PHASE_DEVELOPMENT_SERVER } from 'next/constants'
 import { resolveRouteData } from 'next/dist/build/webpack/loaders/metadata/resolve-route-data'
 import { describe, expect, it, vi } from 'vitest'
 
-import '../next.config'
+import nextConfigForPhase from '../next.config'
 import robots from './robots'
 
 // test/setup.ts stubs withSentryConfig; next.config calls it once at module
 // scope. Read here, before any afterEach clears the recorded calls.
 const sentryBuildOptions = vi.mocked(withSentryConfig).mock.calls[0]?.[1]
+
+const SENTRY_OPTIONS_MISSING =
+  'next.config.ts must call withSentryConfig at module scope with a string tunnelRoute; ' +
+  'this test reads the options from the test/setup.ts stub'
 
 // Deliberate copies of the source values, not imports. A change to the policy
 // in robots.ts must be re-approved here rather than silently followed — that is
@@ -122,7 +127,7 @@ describe('robots.txt rules', () => {
   it('disallows the Sentry tunnel route next.config.ts sets, in every allowing group', () => {
     const tunnelRoute = sentryBuildOptions?.tunnelRoute
 
-    expect(typeof tunnelRoute).toBe('string')
+    expect(typeof tunnelRoute, SENTRY_OPTIONS_MISSING).toBe('string')
     const allowing = rulesOf().filter(rule => rule.allow)
     expect(allowing.length).toBeGreaterThan(0)
     for (const rule of allowing) {
@@ -320,9 +325,10 @@ const RENDER_HELPER_URLS = [
   '/api/bandcamp/album-id?url=https%3A%2F%2Fslift.bandcamp.com%2Falbum%2Fituri',
 ]
 
-// Near misses of the render-helper patterns that must stay fetchable: the
-// Speed Insights paths share the `/_vercel/` prefix, and the pages merely
-// contain the words.
+// URLs the render-helper patterns must not over-match: the Speed Insights
+// paths share the `/_vercel/` prefix but not `/_vercel/insights/`, and the
+// pages merely contain the words. Speed Insights is outside the render-helper
+// list by its own scope (robots.ts); this list checks the matching only.
 const RENDER_HELPER_NEAR_MISSES = [
   '/_vercel/speed-insights/script.js',
   '/_vercel/speed-insights/vitals',
@@ -355,7 +361,7 @@ describe('rendered robots.txt', () => {
 
   it.each([
     ['pages and assets', MUST_STAY_FETCHABLE],
-    ['render-helper near misses', RENDER_HELPER_NEAR_MISSES],
+    ['URLs the render-helper patterns must not over-match', RENDER_HELPER_NEAR_MISSES],
   ])('keeps %s fetchable', (_, urls) => {
     const { rules } = renderedGroupFor('*')
     for (const url of urls) {
@@ -363,11 +369,38 @@ describe('rendered robots.txt', () => {
     }
   })
 
-  // The tunnel pattern is a bare prefix, so a page route or public file whose
-  // first segment starts with the same letters would be disallowed with it.
-  it('has no route or public file under the tunnel prefix', () => {
+  // The tunnel pattern is a bare prefix, so any URL whose path starts with the
+  // tunnel route is disallowed with it. This checks the static top-level app
+  // entries and public files, refuses a dynamic root segment (which could
+  // resolve to such a path), and checks the literal start of every rewrite and
+  // redirect source in next.config.ts. A source that opens with a parameter is
+  // not inspected.
+  it('leaves no static route, public file or config source under the tunnel prefix', async () => {
+    const tunnelRoute = sentryBuildOptions?.tunnelRoute
+    expect(typeof tunnelRoute, SENTRY_OPTIONS_MISSING).toBe('string')
+    const prefix = String(tunnelRoute)
+    const firstSegment = prefix.slice(1)
+
     const segments = [...firstUrlSegments('app'), ...firstUrlSegments('public')]
-    expect(segments.filter(segment => segment.startsWith('monitoring'))).toEqual([])
+    expect(segments.filter(segment => segment.startsWith(firstSegment))).toEqual([])
+    expect(
+      firstUrlSegments('app').filter(segment => segment.startsWith('[')),
+      'a dynamic root segment can serve paths under the bare tunnel prefix'
+    ).toEqual([])
+
+    const config = nextConfigForPhase(PHASE_DEVELOPMENT_SERVER)
+    const rewrites = (await config.rewrites?.()) ?? []
+    const rewriteRules = Array.isArray(rewrites)
+      ? rewrites
+      : [
+          ...(rewrites.beforeFiles ?? []),
+          ...(rewrites.afterFiles ?? []),
+          ...(rewrites.fallback ?? []),
+        ]
+    const redirectRules = (await config.redirects?.()) ?? []
+    const sources = [...rewriteRules, ...redirectRules].map(rule => rule.source)
+    expect(sources.length).toBeGreaterThan(0)
+    expect(sources.filter(source => source.startsWith(prefix))).toEqual([])
   })
 
   // Guards the matcher itself, so a broken helper cannot pass the checks above
