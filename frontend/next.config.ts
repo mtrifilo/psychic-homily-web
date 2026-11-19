@@ -36,6 +36,77 @@ export function assertBuildApiOriginConfigured(
   );
 }
 
+/**
+ * One entity URL segment that addresses a slug, not a numeric id: lowercase
+ * letters, digits, `-` and `.`, with at least one letter or `-`. Config route
+ * matching is case-insensitive, so uppercase also matches and is substituted
+ * as requested. A segment of digits alone gets no header: `/shows/{id}`
+ * declares the show's slug URL as canonical, and the other families read such
+ * a segment as an id alias.
+ */
+const ENTITY_SLUG_SEGMENT = '[0-9]*[a-z-][a-z0-9.-]*'
+
+/**
+ * Entity routes whose page declares its own path on the apex host as its
+ * canonical, for every request this source matches. Each entry pairs the
+ * match `source` with `path`, the same route with the patterns removed, which
+ * is what the `Link` header names.
+ *
+ * Routes whose canonical comes from loaded data rather than from the request
+ * path are absent on purpose: `/radio/{station}` (a network sub-station's
+ * canonical is its `/channel/` URL) and every scene window and period route
+ * under `/scenes/{slug}/` (the canonical names the scene slug the backend
+ * returns, which differs for a metro member). `next.config.canonical-link.test.ts`
+ * checks each entry against its page's `generateMetadata`.
+ */
+export const SELF_CANONICAL_ROUTES: ReadonlyArray<{ source: string; path: string }> = [
+  { source: `/artists/:slug(${ENTITY_SLUG_SEGMENT})`, path: '/artists/:slug' },
+  { source: `/releases/:slug(${ENTITY_SLUG_SEGMENT})`, path: '/releases/:slug' },
+  { source: `/venues/:slug(${ENTITY_SLUG_SEGMENT})`, path: '/venues/:slug' },
+  { source: `/labels/:slug(${ENTITY_SLUG_SEGMENT})`, path: '/labels/:slug' },
+  { source: `/festivals/:slug(${ENTITY_SLUG_SEGMENT})`, path: '/festivals/:slug' },
+  { source: `/tags/:slug(${ENTITY_SLUG_SEGMENT})`, path: '/tags/:slug' },
+  { source: `/collections/:slug(${ENTITY_SLUG_SEGMENT})`, path: '/collections/:slug' },
+  // `submit` is a static page beside the show route and `saved` a config
+  // redirect; neither is a show.
+  {
+    source: `/shows/:slug((?!(?:submit|saved)(?:/|$))${ENTITY_SLUG_SEGMENT})`,
+    path: '/shows/:slug',
+  },
+  { source: `/scenes/:slug(${ENTITY_SLUG_SEGMENT})`, path: '/scenes/:slug' },
+  {
+    source: `/radio/:station(${ENTITY_SLUG_SEGMENT})/:show(${ENTITY_SLUG_SEGMENT})`,
+    path: '/radio/:station/:show',
+  },
+  {
+    source: `/radio/:station(${ENTITY_SLUG_SEGMENT})/:show(${ENTITY_SLUG_SEGMENT})/:date(\\d{4}-\\d{2}-\\d{2})`,
+    path: '/radio/:station/:show/:date',
+  },
+  {
+    source: `/radio/:station(${ENTITY_SLUG_SEGMENT})/channel/:channel(${ENTITY_SLUG_SEGMENT})`,
+    path: '/radio/:station/channel/:channel',
+  },
+  { source: `/blog/:slug(${ENTITY_SLUG_SEGMENT})`, path: '/blog/:slug' },
+  { source: `/dj-sets/:slug(${ENTITY_SLUG_SEGMENT})`, path: '/dj-sets/:slug' },
+  { source: `/categories/:category(${ENTITY_SLUG_SEGMENT})`, path: '/categories/:category' },
+]
+
+/**
+ * Declares each self-canonical entity route's canonical in an HTTP `Link`
+ * header. On these routes Next streams `<link rel="canonical">` after `</head>`
+ * to Googlebot, and Google accepts that element only inside `<head>`; the
+ * header carries the same URL. Next appends the render's own `Link` preload
+ * entries to the response, so both reach the client.
+ */
+export const CANONICAL_LINK_HEADER_RULES = SELF_CANONICAL_ROUTES.map(({ source, path }) => ({
+  source,
+  headers: [{ key: 'Link', value: `<https://psychichomily.com${path}>; rel="canonical"` }],
+}))
+
+// `htmlLimitedBots` stays unset. Adding a script-running crawler such as
+// Googlebot to it routes that crawler past the cached shell on Vercel to a
+// static-generation render that answers HTTP 500 on the entity routes.
+// `next.config.canonical-link.test.ts` fails if it is set.
 const nextConfig: NextConfig = {
   // Cache Components is Next 16's successor to `experimental.ppr` and
   // the supported way to enable Partial Prerendering. The legacy
@@ -258,6 +329,7 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     return [
+      ...CANONICAL_LINK_HEADER_RULES,
       // The TopBar logo is `priority`-preloaded on every route, so it is worth
       // pinning (PSY-1771). Files under `public/` are served
       // `max-age=0, must-revalidate` by default, which is why the logo used to
