@@ -91,7 +91,7 @@ function deviceRows(device: CalendarDevice): CalendarRow[] {
  * - A connected app is a status block and never an add row.
  * - A stopped app gets "Add to ... again" in place of its row when this device
  *   can add it; otherwise its row (if this device has one) stays as it is,
- *   since that row is then the way to add it again.
+ *   since that row is then the way to add it again. One such link per app.
  * - The reset heading shows only while the status carries the reset marker.
  */
 export function buildSavedShowsCalendarModel({
@@ -110,17 +110,25 @@ export function buildSavedShowsCalendarModel({
     checkedLine: calendarCheckedLine(app.lastReadAt, newestSavedAt, now),
   }))
 
-  const hiddenTargets = new Set<CalendarAddTarget>()
+  const connectedTargets = new Set<CalendarAddTarget>()
   for (const { client } of apps.connected) {
     const target = CALENDAR_CLIENT_ADD_TARGET[client]
-    if (target) hiddenTargets.add(target)
+    if (target) connectedTargets.add(target)
   }
 
+  // At most one "again" link per app, on its most recent stopped block (both
+  // Apple families add through one Apple row), and none while that app is
+  // connected through the other family.
+  const againTargets = new Set<CalendarAddTarget>()
   const stopped = apps.stopped.map(app => {
     const target = CALENDAR_CLIENT_ADD_TARGET[app.client]
     const canAddAgain =
-      !unrecoverable && target !== null && canAddOnDevice(target, device)
-    if (canAddAgain) hiddenTargets.add(target)
+      !unrecoverable &&
+      target !== null &&
+      !connectedTargets.has(target) &&
+      !againTargets.has(target) &&
+      canAddOnDevice(target, device)
+    if (canAddAgain) againTargets.add(target)
     return {
       app,
       stoppedLine: calendarStoppedLine(app, now),
@@ -128,6 +136,7 @@ export function buildSavedShowsCalendarModel({
     }
   })
 
+  const hiddenTargets = new Set([...connectedTargets, ...againTargets])
   const rows = unrecoverable
     ? []
     : deviceRows(device).filter(

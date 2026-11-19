@@ -1,10 +1,9 @@
 /**
  * The browser side effects a calendar row performs: opening a tab, handing a
- * webcal address to the calendar app, copying the link. Each must start inside
- * the click that asked for it, because a browser refuses a popup or a
- * clipboard write that arrives after an await; the address itself may still
- * be on its way (the link is created or loaded on demand), so each takes the
- * address as a promise.
+ * webcal address to the calendar app, copying the link. A browser refuses a
+ * popup or a clipboard write that arrives after an await, so the tab and the
+ * copy start inside the click while the address (created or loaded on
+ * demand) is still on its way.
  */
 
 export interface PendingTab {
@@ -36,8 +35,9 @@ export function openPendingTab(): PendingTab {
 }
 
 /**
- * Opens `url` in a new tab now. For a page whose address does not wait on the
- * link, so it never needs a pending tab.
+ * Opens `url` in a new tab now, for a page whose address does not wait on the
+ * link. Built on the pending tab rather than a `noopener` open, which returns
+ * no handle, so the caller can still close the tab if the link then fails.
  */
 export function openTabNow(url: string): PendingTab {
   const pending = openPendingTab()

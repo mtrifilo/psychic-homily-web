@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useId, type RefObject } from 'react'
+import { useCallback, useId, useRef, type RefObject } from 'react'
 import {
   Popover,
   PopoverAnchor,
@@ -44,7 +44,8 @@ interface SavedShowsCalendarPanelProps {
  * rather than by CSS alone because the panel has no trigger of its own to
  * swap: rendering both and hiding one would leave a modal sheet trapping focus
  * behind a hidden overlay. Everything inside mounts only while open, so the
- * server never renders a row and the status is read fresh on every open.
+ * server never renders a row, and no row is offered until the status has been
+ * read again since this open (see useSavedShowsCalendar).
  */
 export function SavedShowsCalendarPanel({
   open,
@@ -56,11 +57,27 @@ export function SavedShowsCalendarPanel({
   const headingId = useId()
   const close = useCallback(() => onOpenChange(false), [onOpenChange])
 
-  // The panel has no trigger for the primitives to return focus to.
+  // The panel has no trigger for the primitives to return focus to, so it
+  // returns focus to the Save control itself, except after a click or focus
+  // move outside: that put focus where the person wanted it, and taking it
+  // back would also scroll the page to Save. The same rule Radix applies to a
+  // non-modal popover with a trigger.
+  const interactedOutside = useRef(false)
+  const noteOutsideInteraction = useCallback(() => {
+    interactedOutside.current = true
+  }, [])
+  const forgetOutsideInteraction = useCallback(() => {
+    interactedOutside.current = false
+  }, [])
   const returnFocusToAnchor = useCallback(
     (event: Event) => {
       event.preventDefault()
-      anchorRef.current?.querySelector<HTMLElement>('button, a')?.focus()
+      if (!interactedOutside.current) {
+        anchorRef.current
+          ?.querySelector<HTMLElement>('button, a')
+          ?.focus({ preventScroll: true })
+      }
+      interactedOutside.current = false
     },
     [anchorRef]
   )
@@ -74,6 +91,8 @@ export function SavedShowsCalendarPanel({
         <PopoverContent
           align={align}
           aria-labelledby={headingId}
+          onOpenAutoFocus={forgetOutsideInteraction}
+          onInteractOutside={noteOutsideInteraction}
           onCloseAutoFocus={returnFocusToAnchor}
           className="w-72 p-4 shadow-md"
           data-testid="saved-shows-calendar-panel"

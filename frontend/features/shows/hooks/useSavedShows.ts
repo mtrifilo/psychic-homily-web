@@ -30,6 +30,11 @@ interface UseSavedShowsOptions {
   // the same reader and the prefix invalidations below stop matching it.
   userId?: string
   timeFilter?: 'upcoming' | 'past'
+  /**
+   * Refetch when the window regains focus, for a surface that has no other
+   * way to recover from a failed read while it stays open.
+   */
+  retryOnFocus?: boolean
 }
 
 /**
@@ -43,7 +48,14 @@ interface UseSavedShowsOptions {
  * siblings and the optimistic mutations share.
  */
 export const useSavedShows = (options: UseSavedShowsOptions = {}) => {
-  const { limit = 50, offset = 0, enabled = true, userId, timeFilter } = options
+  const {
+    limit = 50,
+    offset = 0,
+    enabled = true,
+    userId,
+    timeFilter,
+    retryOnFocus = false,
+  } = options
   const { authStatus } = useAuthContext()
 
   const params = new URLSearchParams()
@@ -62,6 +74,7 @@ export const useSavedShows = (options: UseSavedShowsOptions = {}) => {
     },
     enabled: enabled && authStatus !== 'pending' && !!userId,
     staleTime: 5 * 60 * 1000, // 5 minutes
+    ...(retryOnFocus ? { refetchOnWindowFocus: true } : {}),
   })
 }
 

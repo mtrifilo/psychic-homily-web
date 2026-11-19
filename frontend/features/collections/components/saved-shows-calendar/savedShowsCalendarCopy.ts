@@ -2,10 +2,12 @@ import type { CalendarLinkResetReason } from '@/features/shows/types'
 import type { CalendarAddTarget } from '@/features/collections/lib/calendarFeedStatus'
 
 /**
- * Every string the saved-shows calendar panel shows, verbatim from the
- * owner-approved board spec (docs/research/calendar-subscribe-v4.1-board-spec).
- * Kept in one place so a wording change is one edit and the tests can check
- * the whole set for banned words and characters.
+ * The panel's own strings, verbatim from the owner-approved board spec
+ * (docs/research/calendar-subscribe-v4.1-board-spec). The app names and the
+ * checked and stopped lines are in lib/calendarFeedStatus, which other
+ * calendar surfaces share; the panel's copy test covers both sets. The one
+ * other sentence, the expired-session line under Verify email, is the
+ * submission desk's existing wording.
  */
 export const PANEL_COPY = {
   headingAdd: 'Add your saved shows to your calendar',

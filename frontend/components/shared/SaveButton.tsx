@@ -21,14 +21,22 @@ import { useShouldOpenFirstSaveHint } from '@/features/shows/hooks/useFirstSaveH
 import { FirstSaveHint } from './FirstSaveHint'
 
 // Loaded on first open: the panel is reached only from the one-time hint, and
-// every list row renders a SaveButton.
+// every list row renders a SaveButton. A chunk that fails to load renders
+// nothing rather than throwing into the page's error boundary and replacing
+// the page the person is on.
 const SavedShowsCalendarPanel = dynamic(
   () =>
     import(
       '@/features/collections/components/saved-shows-calendar/SavedShowsCalendarPanel'
-    ).then(m => m.SavedShowsCalendarPanel),
+    )
+      .then(m => m.SavedShowsCalendarPanel)
+      .catch(() => NoCalendarPanel),
   { ssr: false }
 )
+
+function NoCalendarPanel() {
+  return null
+}
 
 // How long a save failure stays on screen before auto-hiding.
 const ERROR_DISMISS_MS = 3000

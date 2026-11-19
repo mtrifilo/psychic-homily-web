@@ -10,7 +10,18 @@ import type {
   CalendarTokenStatusResponse,
 } from '@/features/shows/types'
 import { SavedShowsCalendarPanel } from './SavedShowsCalendarPanel'
-import { PANEL_COPY, RESET_SUB } from './savedShowsCalendarCopy'
+import {
+  PANEL_COPY,
+  RESET_SUB,
+  addAgainLabel,
+  downloadLabel,
+  emailSentLine,
+} from './savedShowsCalendarCopy'
+import {
+  CALENDAR_CLIENT_NAMES,
+  calendarCheckedLine,
+  calendarStoppedLine,
+} from '@/features/collections/lib/calendarFeedStatus'
 
 // The panel against stubbed endpoints: the real hooks, model and rows, with
 // the network, the viewer, the device and the browser's side effects faked.
@@ -489,6 +500,32 @@ describe('SavedShowsCalendarPanel: states from the status payload', () => {
     expect(rowNames(panel)).toContain('Copy link')
   })
 
+  it('offers one Apple "again" link when both Apple families stopped', async () => {
+    server.status = {
+      has_token: true,
+      reads: [readOf('apple_ios', 10 * DAY), readOf('apple_mac', 12 * DAY)],
+    }
+    const panel = await renderPanel()
+    expect(
+      within(panel).getAllByRole('button', { name: 'Add to Apple Calendar again' })
+    ).toHaveLength(1)
+    expect(
+      within(panel).getAllByRole('button', { name: 'I removed it' })
+    ).toHaveLength(2)
+  })
+
+  it('offers no Apple "again" link while the other Apple family is connected', async () => {
+    server.status = {
+      has_token: true,
+      reads: [readOf('apple_mac', HOUR), readOf('apple_ios', 12 * DAY)],
+    }
+    const panel = await renderPanel()
+    expect(
+      within(panel).queryByRole('button', { name: 'Add to Apple Calendar again' })
+    ).not.toBeInTheDocument()
+    expect(rowNames(panel)).not.toContain('Apple Calendar')
+  })
+
   it.each([
     ['sign_out_everywhere', RESET_SUB.sign_out_everywhere],
     ['password_reset', RESET_SUB.password_reset],
@@ -510,6 +547,86 @@ describe('SavedShowsCalendarPanel: states from the status payload', () => {
       'Outlook (work or school)',
       'Copy link',
     ])
+  })
+})
+
+describe('SavedShowsCalendarPanel: never acts on a status it has not just read', () => {
+  it('offers no row from a cached status while the fresh read is in flight', async () => {
+    const client = createTestQueryClient()
+    // Another surface cached "no link" earlier; meanwhile one was made elsewhere.
+    client.setQueryData(['calendar', 'feedStatus'], { has_token: false })
+    let finish!: () => void
+    const fresh = new Promise<void>(resolve => {
+      finish = resolve
+    })
+    server.status = { has_token: true, reads: [] }
+    const base = apiRequest.getMockImplementation()!
+    apiRequest.mockImplementation(async (endpoint: string, options: unknown) => {
+      if (String(endpoint).endsWith('/calendar/token/feed-status')) await fresh
+      return base(endpoint, options)
+    })
+    render(<Harness />, { wrapper: createWrapperWithClient(client) })
+    const panel = await screen.findByTestId('saved-shows-calendar-panel')
+
+    expect(within(panel).getByText(PANEL_COPY.loading)).toBeInTheDocument()
+    expect(rowNames(panel)).toEqual([])
+
+    finish()
+    await waitFor(() => expect(rowNames(panel)).toContain('Copy link'))
+    const user = setupUser()
+    await user.click(within(panel).getByRole('button', { name: 'Copy link' }))
+    await within(panel).findByText(PANEL_COPY.copied)
+    expect(calls('/calendar/token', 'POST')).toHaveLength(0)
+  })
+
+  it('reads the address from the server, not a cached token status', async () => {
+    const user = setupUser()
+    const client = createTestQueryClient()
+    client.setQueryData(['calendar', 'tokenStatus'], {
+      has_token: true,
+      url_recoverable: true,
+      feed_url: 'https://api.example.test/calendar/feed/replaced-token.ics',
+    })
+    server.status = { has_token: true, reads: [] }
+    render(<Harness />, { wrapper: createWrapperWithClient(client) })
+    const panel = await screen.findByTestId('saved-shows-calendar-panel')
+    await waitFor(() => expect(rowNames(panel)).toContain('Copy link'))
+
+    await user.click(within(panel).getByRole('button', { name: 'Copy link' }))
+
+    await within(panel).findByText(PANEL_COPY.copied)
+    expect(writeText).toHaveBeenCalledWith(FEED_URL)
+  })
+})
+
+describe('SavedShowsCalendarPanel: focus', () => {
+  it('returns focus to the Save control on Escape', async () => {
+    const user = setupUser()
+    await renderPanel()
+    await user.keyboard('{Escape}')
+    await waitFor(() =>
+      expect(screen.queryByTestId('saved-shows-calendar-panel')).not.toBeInTheDocument()
+    )
+    expect(screen.getByRole('button', { name: 'Saved' })).toHaveFocus()
+  })
+
+  it('leaves focus where the person clicked when they dismiss it outside', async () => {
+    const user = setupUser()
+    render(
+      <>
+        <Harness />
+        <input aria-label="search" />
+      </>,
+      { wrapper: createWrapperWithClient(createTestQueryClient()) }
+    )
+    await screen.findByTestId('saved-shows-calendar-panel')
+
+    await user.click(screen.getByRole('textbox', { name: 'search' }))
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('saved-shows-calendar-panel')).not.toBeInTheDocument()
+    )
+    expect(screen.getByRole('textbox', { name: 'search' })).toHaveFocus()
   })
 })
 
@@ -805,9 +922,27 @@ describe('SavedShowsCalendarPanel: Email me the steps', () => {
 })
 
 describe('SavedShowsCalendarPanel: copy rules', () => {
+  const now = new Date('2026-11-19T12:00:00Z')
   const strings = [
     ...Object.values(PANEL_COPY).flat(),
     ...Object.values(RESET_SUB),
+    ...Object.values(CALENDAR_CLIENT_NAMES),
+    downloadLabel(1),
+    downloadLabel(8),
+    addAgainLabel('google'),
+    addAgainLabel('apple'),
+    emailSentLine('fan@example.com'),
+    calendarCheckedLine('2026-11-19T10:00:00Z', null, now),
+    calendarCheckedLine('2026-11-19T10:00:00Z', '2026-11-19T09:00:00Z', now),
+    calendarCheckedLine('2026-11-19T03:00:00Z', '2026-11-19T09:00:00Z', now),
+    calendarStoppedLine(
+      {
+        client: 'other',
+        name: CALENDAR_CLIENT_NAMES.other,
+        lastReadAt: '2026-11-07T12:00:00Z',
+      },
+      now
+    ),
   ]
 
   it('has no em or en dashes', () => {

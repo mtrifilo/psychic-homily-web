@@ -52,10 +52,12 @@ function noteForFailure(error: unknown): CalendarRowNote | null {
  *
  * Every row needs the link's address, which this panel never holds until a
  * row is chosen: with no link it creates one (the "mint on pick"), otherwise
- * it reads the token status. Each action starts its browser side effect in the
- * click itself (a tab opened blank, a clipboard write whose content is still a
- * promise) and completes it when the address arrives, so neither a popup
- * blocker nor Safari's clipboard rule sees an action that came after an await.
+ * it reads the token status. The tab-opening and copying rows start their
+ * browser side effect in the click itself (a tab opened blank, a clipboard
+ * write whose content is still a promise) and complete it when the address
+ * arrives, so a popup blocker or Safari's clipboard rule never sees them come
+ * after an await. The Apple row cannot: a webcal hand-off has no blank form to
+ * open early, so it navigates once the address arrives.
  */
 export function useSavedShowsCalendarActions(hasToken: boolean) {
   const queryClient = useQueryClient()
@@ -69,7 +71,12 @@ export function useSavedShowsCalendarActions(hasToken: boolean) {
   const loadAddress = useCallback(async (): Promise<string> => {
     let status
     try {
-      status = await queryClient.fetchQuery(calendarTokenStatusQuery)
+      // Never from cache: a link replaced elsewhere minutes ago must not be
+      // handed out as this one.
+      status = await queryClient.fetchQuery({
+        ...calendarTokenStatusQuery,
+        staleTime: 0,
+      })
     } catch (error) {
       throw new LinkLoadError(String(error))
     }

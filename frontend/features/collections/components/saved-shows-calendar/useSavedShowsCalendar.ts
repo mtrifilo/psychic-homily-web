@@ -30,10 +30,13 @@ export type SavedShowsCalendarState =
  * whenever the window regains focus: that is how a first check made while the
  * person was in their calendar app shows up when they come back.
  *
- * Loading until the status, the newest save, the upcoming count and the
- * device are all known, since every row and line depends on one of them. A
- * failed read stays loading and is retried on the next focus or open; the
- * panel has no wording for a status it could not read, and never guesses one.
+ * Loading until the status has been read since this mount, and the newest
+ * save, the upcoming count and the device are known, since every row and line
+ * depends on one of them. A status cached by another surface is never acted
+ * on: whether a row creates a link or loads the existing one is decided by
+ * it, and creating one replaces any link a calendar already uses. A failed
+ * read stays loading and is retried on the next focus; the panel has no
+ * wording for a status it could not read, and never guesses one.
  */
 export function useSavedShowsCalendar(): SavedShowsCalendarState {
   const { user } = useAuthContext()
@@ -42,31 +45,38 @@ export function useSavedShowsCalendar(): SavedShowsCalendarState {
   // Read from the cache only; it is filled when a row loads the address.
   const tokenStatus = useCalendarTokenStatus(false)
   // Sorted newest save first when no time filter is given.
-  const newest = useSavedShows({ limit: 1, userId })
-  const upcoming = useSavedShows({ limit: 1, userId, timeFilter: 'upcoming' })
+  const newest = useSavedShows({ limit: 1, userId, retryOnFocus: true })
+  const upcoming = useSavedShows({
+    limit: 1,
+    userId,
+    timeFilter: 'upcoming',
+    retryOnFocus: true,
+  })
   const device = useCalendarDevice()
 
-  if (!status.data || !newest.data || !upcoming.data || !device) {
+  const currentStatus =
+    status.isFetchedAfterMount && !status.isError ? status.data : undefined
+  if (!currentStatus || !newest.data || !upcoming.data || !device) {
     return { kind: 'loading' }
   }
 
   const newestSavedAt = newest.data.shows[0]?.saved_at ?? null
   const model = buildSavedShowsCalendarModel({
-    status: status.data,
+    status: currentStatus,
     urlRecoverable: tokenStatus.data?.has_token
       ? tokenStatus.data.url_recoverable
       : undefined,
     newestSavedAt,
     upcomingCount: upcoming.data.total,
     device,
-    // Read at render: every render follows a query update or a focus
-    // refetch, which is when the ages are worth recomputing.
+    // Read at render, so an age is as fresh as the panel's last render; the
+    // lines do not tick while the panel sits open.
     now: new Date(),
   })
   return {
     kind: 'ready',
     model,
     device,
-    hasToken: status.data.has_token,
+    hasToken: currentStatus.has_token,
   }
 }
