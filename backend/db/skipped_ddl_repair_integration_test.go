@@ -18,9 +18,17 @@ const skippedDDLRepairName = "repair_skipped_notification_filter_source_and_coll
 
 func readSkippedDDLRepair(t *testing.T, direction string) string {
 	t.Helper()
-	matches, err := filepath.Glob(filepath.Join("migrations", "*_"+skippedDDLRepairName+"."+direction+".sql"))
+	return readMigrationByName(t, skippedDDLRepairName, direction)
+}
+
+// readMigrationByName returns the SQL of the one migration whose name, without
+// its version, is name, in direction ("up" or "down"). Matching on the name
+// keeps a test valid when the migration is re-stamped.
+func readMigrationByName(t *testing.T, name, direction string) string {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join("migrations", "*_"+name+"."+direction+".sql"))
 	require.NoError(t, err)
-	require.Len(t, matches, 1, "exactly one %s migration named %s", direction, skippedDDLRepairName)
+	require.Len(t, matches, 1, "exactly one %s migration named %s", direction, name)
 	body, err := os.ReadFile(matches[0])
 	require.NoError(t, err)
 	return string(body)
