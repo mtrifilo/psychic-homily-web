@@ -69,11 +69,6 @@ export interface MusicEventSchema {
     url?: string
     sameAs?: string[]
   }>
-  organizer?: {
-    '@type': 'Organization'
-    name: string
-    url: string
-  }
   offers?: {
     '@type': 'Offer'
     price?: number
@@ -304,6 +299,9 @@ export function generateMusicEventSchema(show: {
   const headliner = show.artists?.find(a => a.is_headliner)?.name || show.artists?.[0]?.name || 'Live Music'
   const eventName = show.name || `${headliner} at ${show.venue?.name || 'TBA'}`
 
+  // No `organizer`. Schema.org and Google define it as whoever hosts the
+  // event; the site hosts none of these shows, and the input carries no
+  // promoter to name instead.
   const schema: MusicEventSchema = {
     '@context': 'https://schema.org',
     '@type': 'MusicEvent',
@@ -316,11 +314,6 @@ export function generateMusicEventSchema(show: {
     location: {
       '@type': 'MusicVenue',
       name: show.venue?.name || 'TBA',
-    },
-    organizer: {
-      '@type': 'Organization',
-      name: 'Psychic Homily',
-      url: SITE_URL,
     },
   }
 

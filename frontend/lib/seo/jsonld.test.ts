@@ -11,6 +11,7 @@ import {
   generateItemListSchema,
   renderJsonLd,
 } from './jsonld'
+import * as jsonld from './jsonld'
 
 describe('generateOrganizationSchema', () => {
   it('returns correct static fields', () => {
@@ -563,14 +564,96 @@ describe('generateMusicEventSchema', () => {
     })
   })
 
-  it('always includes organizer', () => {
-    const schema = generateMusicEventSchema(baseShow)
-    expect(schema.organizer).toEqual({
-      '@type': 'Organization',
-      name: 'Psychic Homily',
-      url: 'https://psychichomily.com',
+  it('emits no organizer, since the site hosts none of these shows', () => {
+    const schema = generateMusicEventSchema({
+      ...baseShow,
+      slug: 'test-show',
+      price: 25,
+      ticket_url: 'https://dice.fm/event/abc',
+      venue: { ...baseShow.venue, slug: 'the-rebel-lounge', address: '2303 E Indian School Rd', city: 'Phoenix' },
     })
+    expect(schema).not.toHaveProperty('organizer')
   })
+})
+
+// Every exported `generate*Schema` builder is swept, so a builder added to the
+// module is covered as soon as it is exported. Each builder takes at most one
+// argument: `sweepInput` carries every field the object-input builders read,
+// and a builder whose input is not an object is given its own in
+// `sweepInputOverrides`. A builder that throws on its input fails the sweep
+// rather than dropping out of it.
+describe('no schema the module builds names the site as an organizer', () => {
+  const sweepInput = {
+    name: 'Test Show',
+    title: 'Test Title',
+    artist: 'Test Artist',
+    date: '2026-03-15T20:00:00Z',
+    description: 'A show.',
+    slug: 'test-show',
+    price: 25,
+    ticket_url: 'https://dice.fm/event/abc',
+    image_url: 'https://cdn.example.com/flyer.jpg',
+    city: 'Phoenix',
+    state: 'AZ',
+    venue: {
+      name: 'The Rebel Lounge',
+      slug: 'the-rebel-lounge',
+      address: '2303 E Indian School Rd',
+      city: 'Phoenix',
+      state: 'AZ',
+      zip_code: '85016',
+    },
+    artists: [{ name: 'Test Band', slug: 'test-band', is_headliner: true }],
+    listItems: [{ url: 'https://psychichomily.com/shows/test-show', name: 'Test Show' }],
+  }
+  const sweepInputOverrides: Record<string, unknown> = {
+    generateBreadcrumbSchema: [{ name: 'Home', url: 'https://psychichomily.com' }],
+  }
+
+  // The builders' input types differ, so each is called through one loose
+  // signature; the sweep inputs are runtime fixtures, not typed per builder.
+  type SweptBuilder = (input: unknown) => unknown
+  const builders = Object.entries(jsonld)
+    .filter(([name, value]) => typeof value === 'function' && /^generate\w*Schema$/.test(name))
+    .map(([name, value]) => [name, value as SweptBuilder] as const)
+
+  const nodesOf = (value: unknown): Array<Record<string, unknown>> => {
+    if (Array.isArray(value)) return value.flatMap(nodesOf)
+    if (value === null || typeof value !== 'object') return []
+    const node = value as Record<string, unknown>
+    return [node, ...Object.values(node).flatMap(nodesOf)]
+  }
+
+  const inputFor = (name: string): unknown =>
+    name in sweepInputOverrides ? sweepInputOverrides[name] : sweepInput
+
+  const isSiteUrl = (value: unknown): boolean => {
+    if (typeof value !== 'string') return false
+    try {
+      return /(^|\.)psychichomily\.com$/.test(new URL(value).hostname)
+    } catch {
+      return false
+    }
+  }
+
+  const namesTheSite = (organizer: unknown): boolean =>
+    nodesOf(organizer).some(node => node.name === 'Psychic Homily' || isSiteUrl(node.url))
+
+  it('sweeps the event builder, so the check below is not vacuous', () => {
+    expect(builders.map(([name]) => name)).toContain('generateMusicEventSchema')
+    const swept = builders.flatMap(([name, build]) => nodesOf(build(inputFor(name))))
+    expect(swept.some(node => node['@type'] === 'MusicEvent')).toBe(true)
+  })
+
+  it.each(builders)(
+    '%s names no organizer that is the site',
+    (name, build) => {
+      const organizers = nodesOf(build(inputFor(name)))
+        .filter(node => 'organizer' in node)
+        .map(node => node.organizer)
+      expect(organizers.filter(namesTheSite)).toEqual([])
+    }
+  )
 })
 
 describe('generateBlogPostingSchema', () => {
