@@ -134,6 +134,9 @@ beforeEach(() => {
       if (String(endpoint).includes('/saved-shows?')) {
         return { shows: [], total: savedTotal, limit: 1, offset: 0 }
       }
+      if (String(endpoint).endsWith('/calendar/token/feed-status')) {
+        return { has_token: false }
+      }
       if (
         String(endpoint).endsWith('/auth/preferences/first-save-hint') &&
         options.method === 'PUT'
@@ -233,6 +236,11 @@ describe('SaveButton first-save hint', () => {
     }],
     ['the Library link', async (user: ReturnType<typeof userEvent.setup>) => {
       await user.click(screen.getByRole('link', { name: 'Library' }))
+    }],
+    ['the calendar link', async (user: ReturnType<typeof userEvent.setup>) => {
+      await user.click(
+        screen.getByRole('button', { name: 'Add saved shows to your calendar' })
+      )
     }],
   ])('closing with %s stamps the account again', async (_label, close) => {
     const user = userEvent.setup()
@@ -335,6 +343,10 @@ describe('SaveButton first-save hint', () => {
 
       await user.tab()
       expect(screen.getByRole('link', { name: 'Library' })).toHaveFocus()
+      await user.tab()
+      expect(
+        screen.getByRole('button', { name: 'Add saved shows to your calendar' })
+      ).toHaveFocus()
       await user.tab()
       expect(screen.getByRole('button', { name: 'Dismiss' })).toHaveFocus()
 
@@ -554,6 +566,43 @@ describe('SaveButton first-save hint', () => {
       expect(hint.getAttribute('data-placement')).toMatch(
         new RegExp(`-${align}$`)
       )
+    }
+  )
+
+  // The hint's calendar line closes the hint and opens the saved-shows
+  // calendar panel against the Save control; closing the panel puts focus
+  // back on Save.
+  it.each(['bracket', 'ghost'] as const)(
+    'opens the calendar panel from the %s control and returns focus to Save',
+    async variant => {
+      const user = userEvent.setup()
+      renderSave(createClient(null), 1, 'end', variant)
+
+      await clickSave(user)
+      await screen.findByRole('status')
+      await user.click(
+        screen.getByRole('button', { name: 'Add saved shows to your calendar' })
+      )
+
+      expect(hintElement()).not.toBeInTheDocument()
+      // The panel's code loads on first open.
+      const panel = await screen.findByRole(
+        'dialog',
+        { name: 'Add your saved shows to your calendar' },
+        { timeout: 5000 }
+      )
+      expect(panel).toHaveTextContent(
+        'Add it once. New saves show up the next time your calendar checks.'
+      )
+
+      await user.keyboard('{Escape}')
+
+      await waitFor(() =>
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      )
+      expect(
+        screen.getByRole('button', { name: /Remove from saved shows/ })
+      ).toHaveFocus()
     }
   )
 })

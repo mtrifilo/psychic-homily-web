@@ -120,8 +120,8 @@ function PanelContents({
       <div className="flex flex-col gap-3">
         <div className="flex flex-col gap-0.5">
           {layout === 'sheet' ? (
+            // Radix names the sheet from its own title id.
             <SheetTitle
-              id={headingId}
               className="pr-8 font-sans text-base leading-[22px]"
             >
               {title}
