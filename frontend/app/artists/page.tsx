@@ -12,10 +12,15 @@ import type {
   ArtistCitiesResponse,
   ArtistsListResponse,
 } from '@/features/artists/types'
+import { CachedListFallback } from '@/components/shared/CachedListFallback'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { seedFirstScreen } from '@/lib/query-hydration'
 import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
+import {
+  isFirstScreenRequest,
+  type RouteSearchParams,
+} from '@/lib/ssr/firstScreenParams'
 import { getArtistsForMetadata, type ArtistListItem } from './artistsMetadata'
 
 export const metadata = {
@@ -68,23 +73,11 @@ const FIRST_SCREEN_DEFEATING_PARAMS = [
 ] as const
 
 /**
- * Whether a URL's params keep it on the seeded first screen.
- *
- * Empty values (`?tags=`, `?page=`) read as absent, because that is how the
- * client parses them — `parseTagsParam('')` is `[]` and an unparseable page is
- * page 1 — so treating them as present would skip a seed that would have hit.
+ * Whether a URL's params keep it on the seeded first screen. The same rule the
+ * page's `CachedListFallback` applies to the browser URL.
  */
-function isFirstScreenRequest(
-  params: Record<string, string | string[] | undefined>
-): boolean {
-  return !FIRST_SCREEN_DEFEATING_PARAMS.some(key => {
-    const value = params[key]
-    // An array means the param was repeated; the client reads the first one,
-    // and a repeated filter param is never the bare first screen either way.
-    if (Array.isArray(value)) return value.some(v => v !== '')
-    return value !== undefined && value !== ''
-  })
-}
+const isArtistsFirstScreen = (params: RouteSearchParams): boolean =>
+  isFirstScreenRequest(params, FIRST_SCREEN_DEFEATING_PARAMS)
 
 /**
  * Seed the two cache entries `ArtistList` blocks its first paint on — the first
@@ -142,7 +135,7 @@ export async function HydratedArtistList({
 async function dehydratedFirstScreen(
   params: Record<string, string | string[] | undefined>
 ): Promise<DehydratedState> {
-  if (!isFirstScreenRequest(params)) {
+  if (!isArtistsFirstScreen(params)) {
     return EMPTY_DEHYDRATED_STATE
   }
 
@@ -204,7 +197,7 @@ export async function FirstScreenItemList({
   searchParams: Promise<Record<string, string | string[] | undefined>>
   artists: Array<ArtistListItem & { slug: string }>
 }) {
-  if (!isFirstScreenRequest(await searchParams)) return null
+  if (!isArtistsFirstScreen(await searchParams)) return null
 
   return (
     <JsonLd
@@ -257,7 +250,17 @@ export default async function ArtistsPage({
       <div className="flex min-h-screen items-start justify-center">
         <main className="w-full max-w-6xl px-4 py-8 md:px-8">
           <h1 className="text-3xl font-bold text-center mb-8">Artists</h1>
-          <Suspense fallback={<ArtistListSkeleton />}>
+          <Suspense
+            fallback={
+              <CachedListFallback
+                seededKeys={[ARTIST_LIST_FIRST_SCREEN_KEY, artistQueryKeys.cities]}
+                defeatingParams={FIRST_SCREEN_DEFEATING_PARAMS}
+                loader={<ArtistListSkeleton />}
+              >
+                <ArtistList />
+              </CachedListFallback>
+            }
+          >
             <HydratedArtistList searchParams={searchParams} />
           </Suspense>
         </main>

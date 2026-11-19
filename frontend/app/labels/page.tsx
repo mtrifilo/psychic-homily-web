@@ -7,6 +7,7 @@ import {
   LABEL_LIST_FIRST_SCREEN_URL,
 } from '@/features/labels/listFirstScreen'
 import { LoadingSpinner } from '@/components/shared'
+import { CachedListFallback } from '@/components/shared/CachedListFallback'
 import {
   dehydrateListFirstScreen,
   type RouteSearchParams,
@@ -74,9 +75,17 @@ export default function LabelsPage({
         <h1 className="text-3xl font-bold text-center mb-8">Labels</h1>
         <Suspense
           fallback={
-            <div className="flex justify-center items-center py-12">
-              <LoadingSpinner />
-            </div>
+            <CachedListFallback
+              seededKeys={[LABEL_LIST_FIRST_SCREEN_KEY]}
+              defeatingParams={LABEL_LIST_FIRST_SCREEN_DEFEATING_PARAMS}
+              loader={
+                <div className="flex justify-center items-center py-12">
+                  <LoadingSpinner />
+                </div>
+              }
+            >
+              <LabelList />
+            </CachedListFallback>
           }
         >
           <HydratedLabelList searchParams={searchParams} />

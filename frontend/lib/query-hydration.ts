@@ -132,7 +132,8 @@ export async function prefetchEntities(
  * seed stamped 0 never is. So a Suspense fallback that runs the same hook as
  * the seeded list (for instance the unseeded list itself) creates a pending
  * entry first, and the server HTML renders the list's loader over a good seed.
- * A fallback must render without the seeded queries.
+ * A fallback may run the seeded list's hooks only where no seeded key can be
+ * created: `CachedListFallback` is that fallback.
  *
  * **`await connection()` is load-bearing, not defensive.** `dehydrate()` reads
  * the clock too — it stamps its own `dehydratedAt` — and that one is TanStack's

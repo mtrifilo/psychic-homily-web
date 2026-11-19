@@ -1,17 +1,15 @@
 import type { ReactElement } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { renderToString } from 'react-dom/server'
-import {
-  HydrationBoundary,
-  QueryClient,
-  QueryClientProvider,
-  hashKey,
-} from '@tanstack/react-query'
+import { HydrationBoundary, hashKey } from '@tanstack/react-query'
 import {
   boundaryStateOf as stateOf,
+  entriesFor,
   registeredQueryHashes,
+  renderOnNavigation,
   serverRenderFirstScreen as serverRender,
+  warmClient,
 } from '@/test/firstScreenRender'
+import { describeCachedListFallback } from '@/test/cachedListFallbackSuite'
 
 const { fetchListPayload } = vi.hoisted(() => ({ fetchListPayload: vi.fn() }))
 vi.mock('@/lib/ssr/fetchListPayload', () => ({ fetchListPayload }))
@@ -48,8 +46,9 @@ vi.mock('next/navigation', () => ({
 import RadioPage, { HydratedRadioDial } from './page'
 import RadioHub, {
   RadioDial,
-  CachedRadioDial,
+  RadioDialLoader,
 } from './_components/RadioHub'
+import { CachedListFallback } from '@/components/shared/CachedListFallback'
 import {
   RADIO_DIAL_FIRST_SCREEN_KEY,
   RADIO_DIAL_FIRST_SCREEN_URL,
@@ -221,37 +220,46 @@ describe('/radio dial fallback', () => {
     apiRequest.mockReturnValue(new Promise(() => {}))
   })
 
-  it('is the cached dial and registers no query', () => {
-    const fallback = pageDialSlot().props.fallback
+  it('is the shared cached fallback over the dial, and registers no query on a cold cache', () => {
+    const fallback = pageDialSlot().props.fallback as ReactElement<{
+      loader: ReactElement
+      children: ReactElement
+    }>
 
-    expect(fallback.type).toBe(CachedRadioDial)
+    expect(fallback.type).toBe(CachedListFallback)
+    expect(fallback.props.loader.type).toBe(RadioDialLoader)
+    expect(fallback.props.children.type).toBe(RadioDial)
     expect(registeredQueryHashes(fallback)).toEqual([])
     expect(apiRequest).not.toHaveBeenCalled()
   })
 
   it('on a cold cache, is the markup the dial renders before its reads answer', () => {
-    expect(serverRender(<CachedRadioDial />)).toBe(serverRender(<RadioDial />))
+    const fallback = pageDialSlot().props.fallback
+
+    expect(serverRender(fallback)).toBe(serverRender(<RadioDial />))
+    expect(serverRender(<RadioDialLoader />)).toBe(serverRender(<RadioDial />))
   })
 
   // A client-side navigation back to the hub renders the fallback on the
   // browser's warm client: it shows the cached dial instead of the loader.
-  it('draws the cached stations from a warm client', () => {
-    const client = new QueryClient()
-    client.setQueryData(RADIO_DIAL_FIRST_SCREEN_KEY, stationsPayload)
+  // The dial's own hooks run: they reuse the cached stations entry and create
+  // the guide and per-strip entries, none of which the route seeds.
+  it('draws the cached stations from a warm client, creating no seeded entry', () => {
+    const client = warmClient([[RADIO_DIAL_FIRST_SCREEN_KEY, stationsPayload]])
+    const [stationsEntry] = entriesFor(client, [RADIO_DIAL_FIRST_SCREEN_KEY])
 
-    const html = renderToString(
-      <QueryClientProvider client={client}>
-        <CachedRadioDial />
-      </QueryClientProvider>
-    )
+    const { container } = renderOnNavigation(pageDialSlot().props.fallback, client)
 
-    expect(html).toContain('href="/radio/kexp"')
-    expect(html.match(/<article/g)).toHaveLength(2)
-    expect(html).not.toContain(DIAL_LOADER)
-    // Read, not registered: the guide entry the dial's hook would create.
-    expect(
-      client.getQueryCache().find({ queryKey: ['radio', 'guide'], exact: true })
-    ).toBeUndefined()
+    expect(container.innerHTML).toContain('href="/radio/kexp"')
+    expect(container.querySelectorAll('article')).toHaveLength(2)
+    expect(container.innerHTML).not.toContain(DIAL_LOADER)
+    expect(entriesFor(client, [RADIO_DIAL_FIRST_SCREEN_KEY])).toEqual([stationsEntry])
+    const created = client
+      .getQueryCache()
+      .getAll()
+      .map(q => q.queryHash)
+      .filter(hash => hash !== hashKey(RADIO_DIAL_FIRST_SCREEN_KEY))
+    expect(created).toContain(hashKey(['radio', 'guide']))
   })
 
   // A failed guide refetch keeps its old data; the dial shows no guide then.
@@ -259,21 +267,25 @@ describe('/radio dial fallback', () => {
     ['shows a cached guide', 'success', true],
     ['hides a cached guide whose last refetch failed', 'error', false],
   ] as const)('%s', (_name, status, shown) => {
-    const client = new QueryClient()
-    client.setQueryData(RADIO_DIAL_FIRST_SCREEN_KEY, stationsPayload)
-    client.setQueryData(['radio', 'guide'], {
-      on_now: [
+    const client = warmClient([
+      [RADIO_DIAL_FIRST_SCREEN_KEY, stationsPayload],
+      [
+        ['radio', 'guide'],
         {
-          station: { slug: 'wfmu', name: 'WFMU' },
-          show: { id: 1, slug: 'wake', name: 'Wake', host_name: null },
-          starts_at: new Date().toISOString(),
-          ends_at: new Date(Date.now() + 2 * 3600e3).toISOString(),
-          station_timezone: 'America/New_York',
+          on_now: [
+            {
+              station: { slug: 'wfmu', name: 'WFMU' },
+              show: { id: 1, slug: 'wake', name: 'Wake', host_name: null },
+              starts_at: new Date().toISOString(),
+              ends_at: new Date(Date.now() + 2 * 3600e3).toISOString(),
+              station_timezone: 'America/New_York',
+            },
+          ],
+          up_next: [],
+          generated_at: new Date().toISOString(),
         },
       ],
-      up_next: [],
-      generated_at: new Date().toISOString(),
-    })
+    ])
     if (status === 'error') {
       client
         .getQueryCache()
@@ -281,13 +293,9 @@ describe('/radio dial fallback', () => {
         .setState({ status: 'error', error: new Error('refetch failed') })
     }
 
-    const html = renderToString(
-      <QueryClientProvider client={client}>
-        <CachedRadioDial />
-      </QueryClientProvider>
-    )
+    const { container } = renderOnNavigation(pageDialSlot().props.fallback, client)
 
-    expect(html.includes('aria-label="Program guide"')).toBe(shown)
+    expect(container.innerHTML.includes('aria-label="Program guide"')).toBe(shown)
   })
 
   // The seeded key must be registered by nothing that renders before the
@@ -318,4 +326,20 @@ describe('/radio dial request pairing', () => {
       RADIO_DIAL_FIRST_SCREEN_URL
     )
   })
+})
+
+describeCachedListFallback({
+  route: '/radio',
+  fallback: () => pageDialSlot().props.fallback,
+  list: RadioDial,
+  seeded: [[RADIO_DIAL_FIRST_SCREEN_KEY, stationsPayload]],
+  defeatingParams: [],
+  seededRow: 'href="/radio/kexp"',
+  loaders: [DIAL_LOADER],
+  // The hub reads no URL params: there is no other filter, sort or page.
+  setSearch: () => {},
+  reset: () => {
+    vi.clearAllMocks()
+    apiRequest.mockReturnValue(new Promise(() => {}))
+  },
 })

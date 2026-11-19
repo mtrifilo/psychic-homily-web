@@ -7,7 +7,9 @@ import {
   RecordingSearchParams,
   registeredQueryHashes,
   serverRenderFirstScreen as serverRender,
+  suspenseFallbackOf,
 } from '@/test/firstScreenRender'
+import { describeCachedListFallback } from '@/test/cachedListFallbackSuite'
 
 const { fetchListPayload } = vi.hoisted(() => ({ fetchListPayload: vi.fn() }))
 vi.mock('@/lib/ssr/fetchListPayload', () => ({ fetchListPayload }))
@@ -47,6 +49,7 @@ import {
   LABEL_LIST_FIRST_SCREEN_KEY,
   LABEL_LIST_FIRST_SCREEN_URL,
 } from '@/features/labels/listFirstScreen'
+import { labelQueryKeys } from '@/features/labels/api'
 
 
 const labelsPayload = {
@@ -181,4 +184,38 @@ describe('/labels first-screen request pairing', () => {
       name => !(LABEL_LIST_FIRST_SCREEN_DEFEATING_PARAMS as readonly string[]).includes(name)
     )).toEqual([])
   })
+})
+
+describeCachedListFallback({
+  route: '/labels',
+  fallback: () => suspenseFallbackOf(LabelsPage({ searchParams: Promise.resolve({}) })),
+  list: LabelList,
+  seeded: [[LABEL_LIST_FIRST_SCREEN_KEY, labelsPayload]],
+  defeatingParams: LABEL_LIST_FIRST_SCREEN_DEFEATING_PARAMS,
+  seededRow: 'href="/labels/sub-pop"',
+  loaders: [LOADER],
+  otherQuery: {
+    entry: [
+      labelQueryKeys.list({
+        status: 'defunct',
+        city: undefined,
+        state: undefined,
+        tags: undefined,
+        tagMatch: 'all',
+      }),
+      {
+        labels: [{ ...labelsPayload.labels[0], id: 9, name: 'Gone', slug: 'gone-records', status: 'defunct' }],
+        count: 1,
+      },
+    ],
+    row: 'href="/labels/gone-records"',
+    search: 'status=defunct',
+  },
+  setSearch: search => {
+    nav.params = new URLSearchParams(search)
+  },
+  reset: () => {
+    vi.clearAllMocks()
+    apiRequest.mockReturnValue(new Promise(() => {}))
+  },
 })

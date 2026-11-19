@@ -8,7 +8,9 @@ import {
   RecordingSearchParams,
   registeredQueryHashes,
   serverRenderFirstScreen as serverRender,
+  suspenseFallbackOf,
 } from '@/test/firstScreenRender'
+import { describeCachedListFallback } from '@/test/cachedListFallbackSuite'
 
 const { fetchListPayload } = vi.hoisted(() => ({ fetchListPayload: vi.fn() }))
 vi.mock('@/lib/ssr/fetchListPayload', () => ({ fetchListPayload }))
@@ -48,6 +50,7 @@ import {
   TAG_BROWSE_FIRST_SCREEN_READS,
 } from '@/features/tags/browseFirstScreen'
 import { TAG_CATEGORIES } from '@/features/tags/types'
+import { queryKeys } from '@/lib/queryClient'
 
 
 const tag = (id: number, name: string, category: string) => ({
@@ -192,4 +195,36 @@ describe('/tags first-screen request pairing', () => {
       name => !(TAG_BROWSE_FIRST_SCREEN_DEFEATING_PARAMS as readonly string[]).includes(name)
     )).toEqual([])
   })
+})
+
+describeCachedListFallback({
+  route: '/tags',
+  fallback: () => suspenseFallbackOf(TagsPage({ searchParams: Promise.resolve({}) })),
+  list: TagBrowse,
+  // The directory's first page and the four chip counts.
+  seeded: TAG_BROWSE_FIRST_SCREEN_READS.map(
+    ({ url, queryKey }) => [queryKey, answerReads(url)] as const
+  ),
+  defeatingParams: TAG_BROWSE_FIRST_SCREEN_DEFEATING_PARAMS,
+  seededRow: 'href="/tags/shoegaze"',
+  loaders: [LOADER],
+  otherQuery: {
+    // The alphabetical sort: the first page's key with the other backend sort.
+    entry: [
+      queryKeys.tags.list({
+        ...(TAG_BROWSE_FIRST_SCREEN_READS[0].queryKey[2] as Record<string, unknown>),
+        sort: 'name',
+      }),
+      { tags: [tag(3, 'ambient', 'genre')], total: 1 },
+    ],
+    row: 'href="/tags/ambient"',
+    search: 'sort=alphabetical',
+  },
+  setSearch: search => {
+    nav.params = new URLSearchParams(search)
+  },
+  reset: () => {
+    vi.clearAllMocks()
+    apiRequest.mockReturnValue(new Promise(() => {}))
+  },
 })

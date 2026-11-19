@@ -7,6 +7,7 @@ import {
   RELEASE_LIST_FIRST_SCREEN_URL,
 } from '@/features/releases/listFirstScreen'
 import { LoadingSpinner } from '@/components/shared'
+import { CachedListFallback } from '@/components/shared/CachedListFallback'
 import { listRootCanonical } from '@/lib/seo/siteMetadata'
 import {
   dehydrateListFirstScreen,
@@ -81,9 +82,17 @@ export default function ReleasesPage({
         <h1 className="text-3xl font-bold text-center mb-8">Releases</h1>
         <Suspense
           fallback={
-            <div className="flex justify-center items-center py-12">
-              <LoadingSpinner />
-            </div>
+            <CachedListFallback
+              seededKeys={[RELEASE_LIST_FIRST_SCREEN_KEY]}
+              defeatingParams={RELEASE_LIST_FIRST_SCREEN_DEFEATING_PARAMS}
+              loader={
+                <div className="flex justify-center items-center py-12">
+                  <LoadingSpinner />
+                </div>
+              }
+            >
+              <ReleaseList />
+            </CachedListFallback>
           }
         >
           <HydratedReleaseList searchParams={searchParams} />

@@ -6,6 +6,7 @@ import {
   TAG_BROWSE_FIRST_SCREEN_READS,
 } from '@/features/tags/browseFirstScreen'
 import { LoadingSpinner } from '@/components/shared'
+import { CachedListFallback } from '@/components/shared/CachedListFallback'
 import {
   dehydrateListFirstScreen,
   type RouteSearchParams,
@@ -69,9 +70,17 @@ export default function TagsPage({
         <h1 className="text-3xl font-bold text-center mb-8">Tags</h1>
         <Suspense
           fallback={
-            <div className="flex justify-center items-center py-12">
-              <LoadingSpinner />
-            </div>
+            <CachedListFallback
+              seededKeys={TAG_BROWSE_FIRST_SCREEN_READS.map(read => read.queryKey)}
+              defeatingParams={TAG_BROWSE_FIRST_SCREEN_DEFEATING_PARAMS}
+              loader={
+                <div className="flex justify-center items-center py-12">
+                  <LoadingSpinner />
+                </div>
+              }
+            >
+              <TagBrowse />
+            </CachedListFallback>
           }
         >
           <HydratedTagBrowse searchParams={searchParams} />
