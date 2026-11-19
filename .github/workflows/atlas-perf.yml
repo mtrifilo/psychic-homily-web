@@ -77,15 +77,15 @@ concurrency:
 permissions:
   contents: read
 
-# Must equal BUN_VERSION in ci.yml, where the reason for the pin is stated;
-# nothing checks that the two copies match.
+# The runner image (`runs-on` below) and BUN_VERSION must equal ci.yml's, where
+# the reason for both pins is stated; nothing checks that the copies match.
 env:
   BUN_VERSION: 1.4.4
 
 jobs:
   atlas-perf:
     name: Atlas perf (preview)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Step caps: Playwright deps 10 + browsers 4 + preview wait 12 +
     # reachability 6 + measurement 20 = 52, plus about 4 for checkout, bun and
     # the install. 65 leaves slack so a step cap fires before the job cap.

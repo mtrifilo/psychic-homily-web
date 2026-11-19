@@ -88,7 +88,9 @@ permissions:
 jobs:
   check:
     name: Sitemap vs API
-    runs-on: ubuntu-latest
+    # Pinned for the reason the Bun pin below gives: an unattended monitor must
+    # not change environment on a day nobody touched the repo.
+    runs-on: ubuntu-24.04
     # Walking every shard means tens of thousands of URLs across 33 documents
     # (the index, 32 shards), plus one projection-feed request per entity shard
     # and per sub-sharded family, and the sampled probes; a couple of minutes is

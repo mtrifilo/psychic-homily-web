@@ -30,18 +30,19 @@ concurrency:
   group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# Every setup-bun step reads this one value, so CI runs the Bun version the
-# suite was last verified on. Raise it in a PR whose own CI shows the suite
-# passing on the new version, and raise BUN_VERSION in atlas-perf.yml with it:
-# a floating version lets a Bun release turn main red with no change in the
-# repository.
+# CI runs on the runner image and the Bun version the suite was last verified
+# on, so the environment changes only when a commit changes it. Every job's
+# `runs-on` names ubuntu-24.04 (a literal per job, because `runs-on` cannot
+# read `env`), and every setup-bun step reads BUN_VERSION below. Moving either
+# is a deliberate change: make it in a PR whose own CI shows the suite passing
+# on the new image or version, and move atlas-perf.yml with it.
 env:
   BUN_VERSION: 1.4.4
 
 jobs:
   migration-lint:
     name: Migration Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -170,7 +171,7 @@ jobs:
 
   migration-reversibility:
     name: Migration Reversibility
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:18
@@ -263,7 +264,7 @@ jobs:
 
   backend-tests:
     name: Backend Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Outer safety net for the steps that carry no timeout of their own:
     # checkout, the two Node-pin gates, Docker login, setup-go, setup-node,
     # the graph-layout step (`npm ci` plus `node --test`, a second test
@@ -391,7 +392,7 @@ jobs:
   # cache, independent of the test job's setup-go cache.
   backend-lint:
     name: Backend Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -418,7 +419,7 @@ jobs:
   # single source of truth (no separate gofmt step).
   mocks-gen-check:
     name: Mocks Generator Drift
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -455,7 +456,7 @@ jobs:
   # up — so this cannot become the flaky job everyone disables.
   api-types-check:
     name: API Types Drift
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -516,7 +517,7 @@ jobs:
   # blocking merges.
   frontend-unit-shards:
     name: Frontend Unit Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       # One shard's failure must not cancel the others: a green sibling is how
       # you tell "this shard's tests broke" from "the whole suite is broken".
@@ -571,7 +572,7 @@ jobs:
   # taking a runner, and a cancelled required check blocks the merge.
   frontend-unit-tests:
     name: Frontend Unit Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [frontend-unit-shards]
     if: ${{ !cancelled() }}
     # No checkout, no install, no API call, so no scope. Safe on a required
@@ -595,7 +596,7 @@ jobs:
   # Branch-protection / required-check config is handled outside this workflow.
   frontend-lint:
     name: Frontend Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -625,7 +626,7 @@ jobs:
 
   cli-tests:
     name: CLI Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # ALWAYS-RUN, NOT PATH-FILTERED, and that is deliberate. `backend-image.yml`
     # argues the general case at length: a path-filtered workflow reports NOTHING
     # on a PR that misses the filter rather than a neutral status, so it can
@@ -681,7 +682,7 @@ jobs:
     # migrations, seed, backend). Branch-protection / required-check config is
     # handled outside this workflow.
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Outer safety net only; the step-level timeouts below name the phase that
     # dies. Arithmetic, kept explicit because the cap must exceed the SUM of
     # the step budgets PLUS setup or the job cap fires first and un-names the
@@ -785,7 +786,7 @@ jobs:
   e2e-tests:
     name: E2E Tests (shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Push-to-main runs unwatched; without a job cap a stalled step pinned
     # shards for the full 6h default (observed three times on 2026-08-19).
     # Outer net of last resort: every stall-prone step below carries its own
@@ -906,7 +907,7 @@ jobs:
     # merged report artifact for triage.
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     needs: [e2e-tests]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Every step here is network-bound; without a cap this job carries the
     # same 6h-hang exposure the shard caps above just closed. Step-level
     # naming is deliberately skipped here (unlike the e2e jobs): the job is
@@ -1073,7 +1074,7 @@ jobs:
       - frontend-lint
       - e2e-tests
       - e2e-report
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     # `contents: read` is for repos.getCommit; `issues: write` for
     # issues.listForRepo and issues.create. This block replaces the
