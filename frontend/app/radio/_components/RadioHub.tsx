@@ -58,16 +58,18 @@ interface RadioHubViewProps {
 }
 
 /** A read that has not answered yet, as a pending query reports it. */
-const PENDING_READ = { data: undefined, isLoading: true, error: null } as const
+const PENDING_READ = {
+  data: undefined,
+  isLoading: true,
+  error: null,
+  isError: false,
+} as const
 
 /**
  * The hub as it renders before any read has answered, with no query behind
- * it: the same markup `RadioHub` renders while every read is pending.
- *
- * It registers nothing in the query cache. A boundary fallback that called the
- * hub's hooks would create the stations entry on the request's client before a
- * seeded `HydrationBoundary` below it renders, and the boundary leaves an
- * existing entry alone, so the seeded dial would render its loader.
+ * it: the same markup `RadioHub` renders while every read is pending. It
+ * registers nothing in the query cache, which is what lets it stand as the
+ * fallback above a seeded boundary (see `seedFirstScreen`).
  */
 export function RadioHubLoading() {
   return (
@@ -76,9 +78,27 @@ export function RadioHubLoading() {
       stationsQuery={PENDING_READ}
       recent={PENDING_READ}
       radar={PENDING_READ}
-      guide={{ data: undefined, isError: false }}
+      guide={PENDING_READ}
     />
   )
+}
+
+/**
+ * The notice the dial shows in place of strips, or null when it shows strips
+ * or its loader. The error is for a dial with nothing to show: a failed
+ * refetch of stations already on screen keeps the strips and says nothing,
+ * since a server-seeded dial refetches on its first client commit.
+ */
+function dialNoticeFor(
+  stationsQuery: RadioHubViewProps['stationsQuery'],
+  visibleStationCount: number
+): string | null {
+  if (stationsQuery.isLoading) return null
+  if (stationsQuery.error && !stationsQuery.data) {
+    return "Couldn't load radio stations."
+  }
+  if (visibleStationCount === 0) return 'No radio stations yet.'
+  return null
 }
 
 function RadioHubView({
@@ -93,17 +113,7 @@ function RadioHubView({
 }: RadioHubViewProps) {
   const allStations = stationsQuery.data?.stations ?? []
   const stations = sortDialStations(allStations.filter(isStationVisibleOnIndex))
-  // The error notice is for a dial with nothing to show: a failed refetch of
-  // stations already on screen keeps the strips and says nothing. A
-  // server-seeded dial refetches on its first client commit, so that refetch
-  // failing is an expected case, not an outage.
-  const dialNotice = stationsQuery.isLoading
-    ? null
-    : stationsQuery.error && !stationsQuery.data
-      ? "Couldn't load radio stations."
-      : stations.length === 0
-        ? 'No radio stations yet.'
-        : null
+  const dialNotice = dialNoticeFor(stationsQuery, stations.length)
   // Every station, sub-streams included: the guide schedules sub-streams the
   // dial hides.
   const stationNetworks = new Map(

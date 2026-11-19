@@ -1,4 +1,5 @@
 import type { DehydratedState } from '@tanstack/react-query'
+import { connection } from 'next/server'
 import { seedFirstScreen } from '@/lib/query-hydration'
 import {
   fetchListPayload,
@@ -52,16 +53,10 @@ export interface FirstScreenRead {
 }
 
 /**
- * The dehydrated first screen of a list, or an empty state when there is none
- * to give.
+ * The dehydrated first screen of a list on a URL that has one, or an empty
+ * state when the URL's params move the list off it (see `isFirstScreenRequest`).
  *
- * All or nothing: when any read returns `null`, nothing is seeded and the
- * client fetches every entry itself, so the server HTML is either the whole
- * first screen or the list's own loader, never a mixture of seeded rows and
- * placeholder facets.
- *
- * `seedFirstScreen` is reached only on the path that has something to seed, so
- * a URL off the first screen does not pay for its `connection()`.
+ * A URL off the first screen neither reads nor pays for `connection()`.
  */
 export async function dehydrateListFirstScreen(
   params: RouteSearchParams,
@@ -71,7 +66,27 @@ export async function dehydrateListFirstScreen(
   if (!isFirstScreenRequest(params, defeatingParams)) {
     return EMPTY_DEHYDRATED_STATE
   }
+  return dehydrateFirstScreen(reads)
+}
 
+/**
+ * The dehydrated first screen of a list, or an empty state when there is none
+ * to give. For a route whose every request is the first screen; a route with
+ * URL params that move the list goes through `dehydrateListFirstScreen`.
+ *
+ * `connection()` comes before the reads, so they run per request and never in
+ * a prerender: a read failing at build would otherwise bake the unseeded list
+ * into the shell.
+ *
+ * All or nothing: when any read returns `null`, nothing is seeded and the
+ * client fetches every entry itself, so the server HTML is either the whole
+ * first screen or the list's own loader, never a mixture of seeded rows and
+ * placeholder facets.
+ */
+export async function dehydrateFirstScreen(
+  reads: readonly FirstScreenRead[],
+): Promise<DehydratedState> {
+  await connection()
   const payloads = await Promise.all(
     reads.map(({ url, collection, service }) =>
       fetchListPayload<unknown>({ url, collection, service }),

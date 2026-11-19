@@ -126,6 +126,14 @@ export async function prefetchEntities(
  * and a failed revalidation leaves `error` set while `data` is still the
  * server payload (gate error states on `!data`).
  *
+ * **Nothing may register a seeded key on the request's client before the
+ * boundary renders.** `<HydrationBoundary>` writes only keys the cache does not
+ * hold yet; an existing entry is hydrated only by a seed newer than it, and a
+ * seed stamped 0 never is. So a Suspense fallback that runs the same hook as
+ * the seeded list (for instance the unseeded list itself) creates a pending
+ * entry first, and the server HTML renders the list's loader over a good seed.
+ * A fallback must render without the seeded queries.
+ *
  * **`await connection()` is load-bearing, not defensive.** `dehydrate()` reads
  * the clock too — it stamps its own `dehydratedAt` — and that one is TanStack's
  * to spend, not ours to zero out, so the seed can only be produced where
