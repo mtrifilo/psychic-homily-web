@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { submitVenues } from "../src/commands/submit-venue";
 import type { APIClient } from "../src/lib/api";
 
@@ -27,10 +27,10 @@ describe("submitVenues", () => {
     process.stderr.write = mock(() => true) as unknown as typeof process.stderr.write;
   });
 
-  // Restore after each test
-  const restoreStderr = () => {
+  // In afterEach so a test that throws before its assertions still restores.
+  afterEach(() => {
     process.stderr.write = originalWrite;
-  };
+  });
 
   test("single venue create — no duplicates found", async () => {
     const client = createMockClient({
@@ -42,7 +42,6 @@ describe("submitVenues", () => {
     ];
 
     const result = await submitVenues(client, venues, false);
-    restoreStderr();
 
     expect(result.creates).toBe(1);
     expect(result.updates).toBe(0);
@@ -66,7 +65,6 @@ describe("submitVenues", () => {
     ];
 
     const result = await submitVenues(client, venues, true);
-    restoreStderr();
 
     expect(result.creates).toBe(1);
     expect(result.errors).toBe(0);
@@ -108,7 +106,6 @@ describe("submitVenues", () => {
     ];
 
     const result = await submitVenues(client, venues, true);
-    restoreStderr();
 
     expect(result.creates).toBe(1);
     expect(result.errors).toBe(0);
@@ -150,7 +147,6 @@ describe("submitVenues", () => {
     ];
 
     const result = await submitVenues(client, venues, true);
-    restoreStderr();
 
     expect(result.creates).toBe(1);
     expect(postMock).toHaveBeenCalledTimes(1);
@@ -195,7 +191,6 @@ describe("submitVenues", () => {
     ];
 
     const result = await submitVenues(client, venues, false);
-    restoreStderr();
 
     expect(result.updates).toBe(1);
     expect(result.creates).toBe(0);
@@ -239,7 +234,6 @@ describe("submitVenues", () => {
     ];
 
     const result = await submitVenues(client, venues, true);
-    restoreStderr();
 
     expect(result.updates).toBe(1);
     expect(putMock).toHaveBeenCalledTimes(1);
@@ -282,7 +276,6 @@ describe("submitVenues", () => {
     ];
 
     const result = await submitVenues(client, venues, true);
-    restoreStderr();
 
     expect(result.updates).toBe(1);
     expect(putMock).toHaveBeenCalledTimes(1);
@@ -318,7 +311,6 @@ describe("submitVenues", () => {
     ];
 
     const result = await submitVenues(client, venues, false);
-    restoreStderr();
 
     expect(result.skips).toBe(1);
     expect(result.creates).toBe(0);
@@ -335,7 +327,6 @@ describe("submitVenues", () => {
     ];
 
     const result = await submitVenues(client, venues, false);
-    restoreStderr();
 
     expect(result.errors).toBe(1);
     expect(result.creates).toBe(0);
@@ -351,7 +342,6 @@ describe("submitVenues", () => {
     ];
 
     const result = await submitVenues(client, venues, false);
-    restoreStderr();
 
     expect(result.errors).toBe(1);
     expect(result.results[0].action).toBe("error");
@@ -366,7 +356,6 @@ describe("submitVenues", () => {
     ];
 
     const result = await submitVenues(client, venues, false);
-    restoreStderr();
 
     expect(result.errors).toBe(1);
     expect(result.results[0].message).toContain("name");
@@ -378,7 +367,6 @@ describe("submitVenues", () => {
     const venues = ["not an object" as unknown as Record<string, unknown>];
 
     const result = await submitVenues(client, venues, false);
-    restoreStderr();
 
     expect(result.errors).toBe(1);
     expect(result.results[0].action).toBe("error");
@@ -399,7 +387,6 @@ describe("submitVenues", () => {
     ];
 
     const result = await submitVenues(client, venues, false);
-    restoreStderr();
 
     expect(result.creates).toBe(1);
     expect(postMock).not.toHaveBeenCalled();
@@ -422,7 +409,6 @@ describe("submitVenues", () => {
     ];
 
     const result = await submitVenues(client, venues, true);
-    restoreStderr();
 
     expect(result.creates).toBe(1);
     expect(postMock).toHaveBeenCalledTimes(1);
@@ -462,7 +448,6 @@ describe("submitVenues", () => {
     ];
 
     const result = await submitVenues(client, venues, false);
-    restoreStderr();
 
     expect(result.creates).toBe(1);
     expect(result.skips).toBe(1);
@@ -481,7 +466,6 @@ describe("submitVenues", () => {
     ];
 
     const result = await submitVenues(client, venues, true);
-    restoreStderr();
 
     expect(result.errors).toBe(1);
     expect(result.creates).toBe(0);
@@ -519,7 +503,6 @@ describe("submitVenues", () => {
     ];
 
     const result = await submitVenues(client, venues, true);
-    restoreStderr();
 
     expect(result.skips).toBe(1);
     expect(postMock).not.toHaveBeenCalled();
