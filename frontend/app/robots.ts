@@ -69,8 +69,31 @@ const NON_PUBLIC_PATHS = [
  */
 const RSC_PAYLOAD_PATTERNS = ['/*?_rsc=', '/*&_rsc=']
 
+/**
+ * The Sentry tunnel. Equal to `tunnelRoute` in next.config.ts, which
+ * next.config.sentry-tunnel.test.ts asserts.
+ */
+const SENTRY_TUNNEL_ROUTE = '/monitoring'
+
+/**
+ * Endpoints a page calls while it renders: the Sentry tunnel, the Vercel Web
+ * Analytics script and beacon, and the Bandcamp album-id lookup behind the
+ * embed. A crawler's renderer requests them like a browser does; they answer
+ * with nothing indexable, and every fetch counts against the host's crawl
+ * capacity. Browsers ignore robots.txt, so this changes nothing for visitors.
+ *
+ * Each pattern is a prefix of the path plus query string. One ending in `/`
+ * covers only the paths below it, which is why `/_vercel/insights/` leaves
+ * `/_vercel/speed-insights/` allowed. The tunnel pattern has no trailing slash
+ * because the tunnel is requested as `/monitoring?o=...`, where the query
+ * follows the path directly and a `/monitoring/` pattern would not match. It
+ * therefore covers every path that begins with `/monitoring`, so no page may
+ * live under that prefix.
+ */
+const RENDER_HELPER_ENDPOINTS = [SENTRY_TUNNEL_ROUTE, '/_vercel/insights/', '/api/bandcamp/']
+
 /** The complete disallow list for every group that is allowed to crawl. */
-const PUBLIC_DISALLOW = [...NON_PUBLIC_PATHS, ...RSC_PAYLOAD_PATTERNS]
+const PUBLIC_DISALLOW = [...NON_PUBLIC_PATHS, ...RSC_PAYLOAD_PATTERNS, ...RENDER_HELPER_ENDPOINTS]
 
 /**
  * The access every allowed group gets.

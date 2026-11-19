@@ -1,3 +1,6 @@
+import { readdirSync } from 'node:fs'
+import { resolve } from 'node:path'
+
 import { resolveRouteData } from 'next/dist/build/webpack/loaders/metadata/resolve-route-data'
 import { describe, expect, it } from 'vitest'
 
@@ -19,7 +22,9 @@ const NON_PUBLIC_PATHS = [
 
 const RSC_PAYLOAD_PATTERNS = ['/*?_rsc=', '/*&_rsc=']
 
-const PUBLIC_DISALLOW = [...NON_PUBLIC_PATHS, ...RSC_PAYLOAD_PATTERNS]
+const RENDER_HELPER_ENDPOINTS = ['/monitoring', '/_vercel/insights/', '/api/bandcamp/']
+
+const PUBLIC_DISALLOW = [...NON_PUBLIC_PATHS, ...RSC_PAYLOAD_PATTERNS, ...RENDER_HELPER_ENDPOINTS]
 
 // Every one of these answers with a citation and a link back. Moving any of
 // them into the disallow list is the most likely wrong edit to this file: they
@@ -80,7 +85,7 @@ function isGovernedByWildcard(agent: string) {
 }
 
 describe('robots.txt rules', () => {
-  it('keeps exactly one wildcard group, allowing everything but the non-public paths and RSC payloads', () => {
+  it('keeps exactly one wildcard group, allowing everything but the non-public paths, RSC payloads and render helpers', () => {
     const wildcards = rulesOf().filter(rule => agentsOf(rule).includes('*'))
 
     // Two '*' groups would silently merge under RFC 9309 and change the
@@ -234,6 +239,17 @@ function groupAllows(rules: string[], pathAndQuery: string) {
   return best ? best.allow : true
 }
 
+/**
+ * The names that can appear as a URL's first path segment under a directory:
+ * its entries, with App Router route groups `(name)` opened, since a group
+ * adds no segment of its own.
+ */
+function firstUrlSegments(dir: string): string[] {
+  return readdirSync(resolve(process.cwd(), dir)).flatMap(entry =>
+    entry.startsWith('(') && entry.endsWith(')') ? firstUrlSegments(`${dir}/${entry}`) : [entry]
+  )
+}
+
 const PUBLIC_RULE_LINES = [
   'Allow: /',
   ...PUBLIC_DISALLOW.map(path => `Disallow: ${path}`),
@@ -272,6 +288,31 @@ const MUST_STAY_FETCHABLE = [
   '/artists/_rsc=band',
 ]
 
+// The shapes a renderer requests: the Sentry tunnel with its query string and
+// with the trailing slash its rewrite also accepts, the Web Analytics script
+// and beacons, and the Bandcamp album-id lookup.
+const RENDER_HELPER_URLS = [
+  '/monitoring?o=4508000000000000&p=4508000000000001',
+  '/monitoring?o=4508000000000000&p=4508000000000001&r=us',
+  '/monitoring/?o=4508000000000000&p=4508000000000001',
+  '/_vercel/insights/script.js',
+  '/_vercel/insights/view',
+  '/_vercel/insights/event',
+  '/api/bandcamp/album-id?url=https%3A%2F%2Fslift.bandcamp.com%2Falbum%2Fituri',
+]
+
+// Near misses of the render-helper patterns that must stay fetchable: the
+// Speed Insights paths share the `/_vercel/` prefix, and the pages merely
+// contain the words.
+const RENDER_HELPER_NEAR_MISSES = [
+  '/_vercel/speed-insights/script.js',
+  '/_vercel/speed-insights/vitals',
+  '/artists/monitoring',
+  '/search?q=/monitoring',
+  '/tags/bandcamp',
+  '/search?q=/api/bandcamp/',
+]
+
 describe('rendered robots.txt', () => {
   it.each(['*', 'OAI-SearchBot'])('renders the full public rule body verbatim for %s', agent => {
     expect(renderedGroupFor(agent).rules).toEqual(PUBLIC_RULE_LINES)
@@ -295,6 +336,27 @@ describe('rendered robots.txt', () => {
     for (const url of MUST_STAY_FETCHABLE) {
       expect(groupAllows(rules, url), `${url} must stay allowed`).toBe(true)
     }
+  })
+
+  it('blocks every render-helper endpoint URL', () => {
+    const { rules } = renderedGroupFor('*')
+    for (const url of RENDER_HELPER_URLS) {
+      expect(groupAllows(rules, url), `${url} must be disallowed`).toBe(false)
+    }
+  })
+
+  it('keeps the render-helper near misses fetchable', () => {
+    const { rules } = renderedGroupFor('*')
+    for (const url of RENDER_HELPER_NEAR_MISSES) {
+      expect(groupAllows(rules, url), `${url} must stay allowed`).toBe(true)
+    }
+  })
+
+  // The tunnel pattern is a bare prefix, so a page route or public file whose
+  // first segment starts with the same letters would be disallowed with it.
+  it('has no route or public file under the tunnel prefix', () => {
+    expect(firstUrlSegments('app').filter(s => s.startsWith('monitoring'))).toEqual([])
+    expect(firstUrlSegments('public').filter(s => s.startsWith('monitoring'))).toEqual([])
   })
 
   // Guards the matcher itself, so a broken helper cannot pass the checks above
