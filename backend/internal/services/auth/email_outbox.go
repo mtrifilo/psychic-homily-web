@@ -345,14 +345,15 @@ func (o *AuthEmailOutbox) EnqueueOAuthLink(ctx context.Context, userID uint, ref
 //     row of the kind counts, whatever became of it, so the cap holds across
 //     restarts and failed sends.
 //
-// The count and the insert run in one transaction holding a per-account
-// advisory lock, so concurrent requests cannot each read a count under the
-// cap and each insert. The lock is tried, never waited for, so a burst of
-// requests from one account holds no database connection waiting on it: a
-// request that finds the lock held still answers the cap from its own count,
-// and under the cap returns nil without inserting, because the request
-// holding the lock is queueing the account's email (as Enqueue's no-op does
-// for a request while one is queued).
+// The cap is checked twice. First without a transaction, so an account
+// already at the cap is refused without one. Then after this request's insert,
+// in the insert's transaction, counting the row it just wrote: a count over
+// the cap rolls the insert back. Concurrent requests of one account are
+// serialized by uq_auth_email_outbox_active: an insert that meets another
+// request's uncommitted pending row waits for that transaction, and then
+// inserts if it rolled back or adds nothing if it committed. So every nil
+// answer stands on a committed row, and no two inserts can each count under
+// the cap.
 //
 // Every row of the kind is written here (Enqueue refuses the kind), and only
 // under the cap, so the window never holds more than calendarStepsPerWindow
@@ -365,80 +366,75 @@ func (o *AuthEmailOutbox) EnqueueCalendarSteps(ctx context.Context, user *authm.
 		return apperrors.ErrCalendarStepsAddressUnverified()
 	}
 
-	const kind = authm.AuthEmailKindCalendarSteps
-	item := authm.AuthEmailOutboxItem{Kind: kind, UserID: user.ID}
-	err := o.enqueue(ctx, item, func(tx *gorm.DB) error {
-		var locked bool
-		if err := tx.Raw("SELECT pg_try_advisory_xact_lock(hashtextextended(?, 0))", calendarStepsLockKey(user.ID)).
-			Scan(&locked).Error; err != nil {
-			return err
-		}
-
-		// created_at is written from this process's clock (GORM's
-		// autoCreateTime), so the window is measured on the same clock.
-		now := time.Now()
-		var window struct {
-			Count  int
-			Oldest *time.Time
-		}
-		if err := tx.Model(&authm.AuthEmailOutboxItem{}).
-			Select("COUNT(*) AS count, MIN(created_at) AS oldest").
-			Where("user_id = ? AND kind = ? AND created_at > ?", user.ID, kind, now.Add(-calendarStepsWindow)).
-			Scan(&window).Error; err != nil {
-			return err
-		}
-		// A non-zero COUNT has a non-NULL MIN over the same rows.
-		if window.Count >= calendarStepsPerWindow {
-			return &apperrors.CalendarStepsRateLimitedError{
-				Limit:      calendarStepsPerWindow,
-				RetryAfter: window.Oldest.Add(calendarStepsWindow).Sub(now),
-			}
-		}
-		if !locked {
-			return errCalendarStepsInFlight
-		}
-		return nil
-	})
-	if errors.Is(err, errCalendarStepsInFlight) {
-		return nil
+	cctx, cancel := context.WithTimeout(ctx, authEmailEnqueueTimeout)
+	defer cancel()
+	if err := calendarStepsCapRefusal(o.db.WithContext(cctx), user.ID, calendarStepsPerWindow-1); err != nil {
+		return err
 	}
-	return err
+
+	item := authm.AuthEmailOutboxItem{Kind: authm.AuthEmailKindCalendarSteps, UserID: user.ID}
+	return o.enqueue(ctx, item, func(tx *gorm.DB, inserted bool) error {
+		if !inserted {
+			return nil
+		}
+		return calendarStepsCapRefusal(tx, user.ID, calendarStepsPerWindow)
+	})
 }
 
-// errCalendarStepsInFlight is the admit step's refusal for a request that found
-// another request of the same account holding the lock.
-var errCalendarStepsInFlight = errors.New("auth email outbox: a calendar steps request for this account is in flight")
-
-// calendarStepsLockKey names the advisory lock EnqueueCalendarSteps tries for
-// userID.
-func calendarStepsLockKey(userID uint) string {
-	return fmt.Sprintf("auth_email_outbox:%s:%d", authm.AuthEmailKindCalendarSteps, userID)
+// calendarStepsCapRefusal returns the hourly cap's refusal when db sees more
+// than allowed rows of the calendar steps kind for userID within
+// calendarStepsWindow, and nil otherwise.
+func calendarStepsCapRefusal(db *gorm.DB, userID uint, allowed int) error {
+	// created_at is written from this process's clock (GORM's
+	// autoCreateTime), so the window is measured on the same clock.
+	now := time.Now()
+	var window struct {
+		Count  int
+		Oldest *time.Time
+	}
+	if err := db.Model(&authm.AuthEmailOutboxItem{}).
+		Select("COUNT(*) AS count, MIN(created_at) AS oldest").
+		Where("user_id = ? AND kind = ? AND created_at > ?", userID, authm.AuthEmailKindCalendarSteps, now.Add(-calendarStepsWindow)).
+		Scan(&window).Error; err != nil {
+		return err
+	}
+	// A non-zero COUNT has a non-NULL MIN over the same rows.
+	if window.Count > allowed {
+		return &apperrors.CalendarStepsRateLimitedError{
+			Limit:      calendarStepsPerWindow,
+			RetryAfter: window.Oldest.Add(calendarStepsWindow).Sub(now),
+		}
+	}
+	return nil
 }
 
 // enqueue inserts item as pending, a no-op while one is already queued for its
 // account and kind, on the detached, bounded context Enqueue describes. With
-// admit set, the insert runs in a transaction after admit, and an error from
-// admit refuses it.
-func (o *AuthEmailOutbox) enqueue(ctx context.Context, item authm.AuthEmailOutboxItem, admit func(tx *gorm.DB) error) error {
+// check set, the insert runs in a transaction and check runs after it, told
+// whether a row was inserted; an error from check rolls the insert back.
+func (o *AuthEmailOutbox) enqueue(ctx context.Context, item authm.AuthEmailOutboxItem, check func(tx *gorm.DB, inserted bool) error) error {
 	if AuthEmailOutboxDisabled() {
 		return ErrAuthEmailOutboxDisabled
 	}
 	ictx, cancel := context.WithTimeout(context.WithoutCancel(ctx), authEmailEnqueueTimeout)
 	defer cancel()
 	item.Status = authm.AuthEmailStatusPending
-	insert := func(db *gorm.DB) error {
-		return db.Clauses(clause.OnConflict{DoNothing: true}).Create(&item).Error
+	insert := func(db *gorm.DB) (bool, error) {
+		res := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&item)
+		return res.RowsAffected == 1, res.Error
 	}
 
 	db := o.db.WithContext(ictx)
-	if admit == nil {
-		return insert(db)
+	if check == nil {
+		_, err := insert(db)
+		return err
 	}
 	return db.Transaction(func(tx *gorm.DB) error {
-		if err := admit(tx); err != nil {
+		inserted, err := insert(tx)
+		if err != nil {
 			return err
 		}
-		return insert(tx)
+		return check(tx, inserted)
 	})
 }
 
@@ -864,8 +860,7 @@ func (o *AuthEmailOutbox) markFailed(ctx context.Context, item authm.AuthEmailOu
 }
 
 // reportDroppedUnsent reports to Sentry that n requests aged out unsent: each
-// is a person who asked for a sign-in, recovery or verification link and got
-// none. One event per reap pass and one per tick, so a backlog is a few alerts
+// is a person who asked for an email of an AuthEmailKind and got none. One event per reap pass and one per tick, so a backlog is a few alerts
 // rather than thousands.
 func (o *AuthEmailOutbox) reportDroppedUnsent(n int64) {
 	hub := o.newReportHub()

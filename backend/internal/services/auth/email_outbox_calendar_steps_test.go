@@ -163,37 +163,69 @@ func (s *AuthEmailOutboxSuite) TestCalendarSteps_GenericEnqueueRefusesTheKind() 
 	s.Empty(s.rows())
 }
 
-// holdCalendarStepsLock holds the account's calendar steps lock in another
-// transaction until the returned release is called, as a concurrent request
-// mid-enqueue would.
-func (s *AuthEmailOutboxSuite) holdCalendarStepsLock(userID uint) (release func()) {
-	tx := s.db.Begin()
-	s.Require().NoError(tx.Error)
-	s.Require().NoError(tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", calendarStepsLockKey(userID)).Error)
-	return func() { s.Require().NoError(tx.Rollback().Error) }
+// A request that meets another request's uncommitted row for the same account
+// answers by that transaction's outcome, never ahead of it: when the other
+// commits, the request adds nothing and its nil stands on the committed row;
+// when the other rolls back, the request writes the account's row itself.
+func (s *AuthEmailOutboxSuite) TestCalendarSteps_ConcurrentRequestAnswersByTheOtherOutcome() {
+	for name, commit := range map[string]bool{"other commits": true, "other rolls back": false} {
+		s.Run(name, func() {
+			defer s.TearDownTest()
+			s.SetupTest()
+			user := s.verifiedUser("concurrent@example.com")
+
+			// The other request, its row written and not yet committed.
+			other := s.db.Begin()
+			s.Require().NoError(other.Error)
+			s.Require().NoError(other.Create(&authm.AuthEmailOutboxItem{
+				Kind: authm.AuthEmailKindCalendarSteps, UserID: user.ID, Status: authm.AuthEmailStatusPending,
+			}).Error)
+
+			result := make(chan error, 1)
+			go func() { result <- s.outbox.EnqueueCalendarSteps(context.Background(), user) }()
+			select {
+			case err := <-result:
+				s.Failf("answered before the other transaction finished", "err = %v", err)
+			case <-time.After(300 * time.Millisecond):
+			}
+
+			if commit {
+				s.Require().NoError(other.Commit().Error)
+			} else {
+				s.Require().NoError(other.Rollback().Error)
+			}
+			select {
+			case err := <-result:
+				s.Require().NoError(err)
+			case <-time.After(5 * time.Second):
+				s.FailNow("the request never answered")
+			}
+			s.EqualValues(1, s.calendarStepsRows(user.ID), "exactly one queued row either way")
+		})
+	}
 }
 
-// A request that finds another of the same account mid-enqueue does not wait
-// for it: under the cap it returns at once without a row of its own (the other
-// request queues the email), and at the cap it is refused like any other.
-func (s *AuthEmailOutboxSuite) TestCalendarSteps_ConcurrentRequestDoesNotWait() {
-	user := s.verifiedUser("burst@example.com")
-	release := s.holdCalendarStepsLock(user.ID)
-
-	start := time.Now()
-	s.Require().NoError(s.enqueueCalendarSteps(user))
-	s.Less(time.Since(start), 2*time.Second, "the request did not wait on the held lock")
-	s.Zero(s.calendarStepsRows(user.ID), "the request holding the lock is the one that queues")
-	release()
-
+// At the cap the request is refused before it opens a transaction, so a
+// request held behind another of the account's uncommitted rows is not where
+// a capped account's requests go.
+func (s *AuthEmailOutboxSuite) TestCalendarSteps_AtTheCapRefusedWithoutWaiting() {
+	user := s.verifiedUser("capped@example.com")
 	for range calendarStepsPerWindow {
 		s.Require().NoError(s.enqueueCalendarSteps(user))
 		s.markAllSent()
 	}
-	release = s.holdCalendarStepsLock(user.ID)
-	defer release()
+
+	other := s.db.Begin()
+	s.Require().NoError(other.Error)
+	defer other.Rollback()
+	s.Require().NoError(other.Create(&authm.AuthEmailOutboxItem{
+		Kind: authm.AuthEmailKindCalendarSteps, UserID: user.ID, Status: authm.AuthEmailStatusPending,
+	}).Error)
+
+	start := time.Now()
 	var limited *apperrors.CalendarStepsRateLimitedError
-	s.Require().ErrorAs(s.enqueueCalendarSteps(user), &limited, "at the cap, a request that finds the lock held is still refused")
+	s.Require().ErrorAs(s.enqueueCalendarSteps(user), &limited)
+	s.Less(time.Since(start), 2*time.Second, "refused without waiting on the uncommitted row")
 }
 
 // runMigrationFile applies one migration file in a transaction, as the

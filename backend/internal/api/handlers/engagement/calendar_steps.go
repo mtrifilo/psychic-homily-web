@@ -49,8 +49,8 @@ type SendCalendarStepsEmailResponse struct{}
 //   - the outbox switched off, no email provider, or a failed queue write:
 //     503 SERVICE_UNAVAILABLE.
 //
-// 204 means the account's email is queued, by this request or by one of the
-// account's still queued or in flight; repeats add no second email.
+// 204 means a committed row queues the account's email: this request's, or
+// one already queued for the account, so a repeat adds no second email.
 func (h *CalendarStepsHandler) SendCalendarStepsEmailHandler(ctx context.Context, _ *SendCalendarStepsEmailRequest) (*SendCalendarStepsEmailResponse, error) {
 	user := middleware.GetUserFromContext(ctx)
 	if user == nil {
