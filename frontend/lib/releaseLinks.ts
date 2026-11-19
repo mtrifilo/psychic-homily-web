@@ -27,6 +27,11 @@ import { hostIsAnchored, parseHttpUrl, stripUrlWhitespace } from './urlAnchor'
  *
  * Key order is the order the pickers offer.
  *
+ * A platform that is a reference database rather than a place to play or buy
+ * the music is also listed in `NOT_LISTENABLE_PLATFORMS` in
+ * features/releases/releaseSearchFacts.ts, which keeps it out of the release
+ * search snippet's "Listen:" clause.
+ *
  * CROSS-LANGUAGE MIRROR: releaseLinkPlatformHosts in
  * backend/internal/utils/release_link.go, where the reasoning behind each host
  * choice lives. Both sides assert this table against

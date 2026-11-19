@@ -135,6 +135,16 @@ describe('releases/[slug] generateMetadata', () => {
     expect(meta.description).toBe('Comp, Compilation by Band A and others (2021).')
   })
 
+  it('drops the type clause, without throwing, for a stored type that is an inherited object key', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse(buildRelease({ release_type: 'constructor' })))
+
+    const meta = await metadataFor('eyes-shut')
+
+    expect(meta.description).toBe(
+      'Eyes Shut by Tim Atlas (2019). Label: Nettwerk. Listen: Bandcamp, Spotify.'
+    )
+  })
+
   it('falls back to generic metadata when the release is not found', async () => {
     fetchMock.mockResolvedValueOnce(errorResponse(404))
 
@@ -197,7 +207,7 @@ describe('releases/[slug] page JSON-LD', () => {
     ])
   })
 
-  it('emits nothing when the release is not found', async () => {
+  it('halts with notFound() before any JSON-LD when the release is not found', async () => {
     fetchMock.mockResolvedValueOnce(errorResponse(404))
 
     await expect(

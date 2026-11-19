@@ -107,6 +107,13 @@ describe('releaseTypeLabel', () => {
     expect(releaseTypeLabel('  ')).toBeNull()
     expect(releaseTypeLabel(null)).toBeNull()
   })
+
+  it.each(['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__'])(
+    'is null, without throwing, for the stored type %s, an inherited object key',
+    releaseType => {
+      expect(releaseTypeLabel(releaseType)).toBeNull()
+    }
+  )
 })
 
 describe('releaseLabelName', () => {

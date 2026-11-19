@@ -2,6 +2,7 @@ import {
   releaseLinkPlatformLabel,
   renderableReleaseLinks,
   type ReleaseLinkLike,
+  type ReleaseLinkPlatform,
 } from '@/lib/releaseLinks'
 import { getReleaseTypeLabel } from './types'
 
@@ -39,9 +40,12 @@ export function creditedReleaseArtists<T extends CreditedArtistLike>(
  * Platforms the page lists under "Listen / Buy" that are reference databases,
  * not places to play or buy the music, so a "Listen:" clause never names them.
  * The link registry in `lib/releaseLinks` records no such distinction, so the
- * keys are listed here.
+ * keys are listed here, typed against the registry so a renamed key fails the
+ * typecheck.
  */
-const NOT_LISTENABLE_PLATFORMS: ReadonlySet<string> = new Set(['discogs'])
+const NOT_LISTENABLE_PLATFORMS: ReadonlySet<string> = new Set<ReleaseLinkPlatform>([
+  'discogs',
+])
 
 /**
  * The names of the services where the release can be played or bought, under
@@ -59,7 +63,9 @@ export function releaseListenServiceNames(
 
 /**
  * The first label the page lists that has a name, or null. The page lists
- * labels in payload order.
+ * labels in payload order, and the release detail endpoint does not sort them,
+ * so on a release with several labels the one named here is whichever the
+ * backend returns first.
  */
 export function releaseLabelName(
   labels: ReadonlyArray<{ name: string }> | null | undefined
@@ -67,11 +73,18 @@ export function releaseLabelName(
   return labels?.find(label => label.name?.trim())?.name ?? null
 }
 
-/** The type label the page shows, or null when the stored type is empty. */
+/**
+ * The type label the page shows, or null when the stored type is empty or has
+ * no text label. The stored type is free text, and `getReleaseTypeLabel` reads
+ * a plain object, so a type such as `constructor` resolves to an inherited
+ * function rather than a string; that is treated as no label.
+ */
 export function releaseTypeLabel(
   releaseType: string | null | undefined
 ): string | null {
-  return releaseType?.trim() ? getReleaseTypeLabel(releaseType).trim() : null
+  if (!releaseType?.trim()) return null
+  const label: unknown = getReleaseTypeLabel(releaseType)
+  return typeof label === 'string' && label.trim() ? label.trim() : null
 }
 
 /**
