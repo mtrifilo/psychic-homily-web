@@ -586,8 +586,9 @@ type PasswordValidatorInterface interface {
 type AuthEmailOutboxInterface interface {
 	// Enqueue queues one email of kind for userID. A call while one is still
 	// queued for the same account and kind is a no-op that returns nil. It
-	// returns an error when the row could not be written or the outbox is
-	// switched off; in both cases no email is sent for this call.
+	// returns an error when the row could not be written, the outbox is
+	// switched off, or kind is the calendar steps kind, which has its own
+	// method; in each case no email is sent for this call.
 	Enqueue(ctx context.Context, kind authm.AuthEmailKind, userID uint) error
 	// EnqueueOAuthLink queues the sign-in link that proves userID's mailbox
 	// for the pending link ref names (OAuthPendingLink.Ref), on Enqueue's
@@ -596,6 +597,7 @@ type AuthEmailOutboxInterface interface {
 	EnqueueOAuthLink(ctx context.Context, userID uint, ref string) error
 	// EnqueueCalendarSteps queues the calendar steps email for user, the
 	// signed-in account that asked for it, to its own address, on Enqueue's
-	// terms. Its refusals are listed on the outbox's implementation.
+	// terms. It is the only way to queue that kind; Enqueue refuses it. Its
+	// refusals are listed on the outbox's implementation.
 	EnqueueCalendarSteps(ctx context.Context, user *authm.User) error
 }

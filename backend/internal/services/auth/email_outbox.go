@@ -128,6 +128,10 @@ var ErrAuthEmailOutboxDisabled = errors.New("auth email outbox is switched off (
 // process has no email provider: its poller would leave the row unsent.
 var ErrAuthEmailSenderNotConfigured = errors.New("auth email outbox: no email provider is configured")
 
+// ErrCalendarStepsNeedsItsOwnEnqueue is Enqueue's error for
+// AuthEmailKindCalendarSteps, which only EnqueueCalendarSteps queues.
+var ErrCalendarStepsNeedsItsOwnEnqueue = errors.New("auth email outbox: calendar_steps is queued only by EnqueueCalendarSteps")
+
 // AuthEmailOutboxDisabled reports whether the kill switch is set. Enqueue and
 // the poller both read it through this function, so the two ends cannot
 // disagree about its spelling or parse.
@@ -309,7 +313,14 @@ func capped[T int | time.Duration](key string, v, limit T) T {
 // The insert runs on a context detached from the request's cancellation and
 // bounded by authEmailEnqueueTimeout: a client that disconnects after asking
 // still gets its email, and a stalled database cannot hold the request open.
+//
+// It refuses AuthEmailKindCalendarSteps (ErrCalendarStepsNeedsItsOwnEnqueue):
+// that kind's cap holds only while every row of it is written by
+// EnqueueCalendarSteps.
 func (o *AuthEmailOutbox) Enqueue(ctx context.Context, kind authm.AuthEmailKind, userID uint) error {
+	if kind == authm.AuthEmailKindCalendarSteps {
+		return ErrCalendarStepsNeedsItsOwnEnqueue
+	}
 	return o.enqueue(ctx, authm.AuthEmailOutboxItem{Kind: kind, UserID: userID}, nil)
 }
 
@@ -336,10 +347,16 @@ func (o *AuthEmailOutbox) EnqueueOAuthLink(ctx context.Context, userID uint, ref
 //
 // The count and the insert run in one transaction holding a per-account
 // advisory lock, so concurrent requests cannot each read a count under the
-// cap and each insert. Only this method writes rows of the kind, and it
-// inserts only under the cap, so the window never holds more than
-// calendarStepsPerWindow rows and the oldest of them leaving it is what frees
-// the next request.
+// cap and each insert. The lock is tried, never waited for, so a burst of
+// requests from one account holds no database connection waiting on it: a
+// request that finds the lock held still answers the cap from its own count,
+// and under the cap returns nil without inserting, because the request
+// holding the lock is queueing the account's email (as Enqueue's no-op does
+// for a request while one is queued).
+//
+// Every row of the kind is written here (Enqueue refuses the kind), and only
+// under the cap, so the window never holds more than calendarStepsPerWindow
+// rows and the oldest of them leaving it is what frees the next request.
 func (o *AuthEmailOutbox) EnqueueCalendarSteps(ctx context.Context, user *authm.User) error {
 	if !o.sender.IsConfigured() {
 		return ErrAuthEmailSenderNotConfigured
@@ -350,9 +367,10 @@ func (o *AuthEmailOutbox) EnqueueCalendarSteps(ctx context.Context, user *authm.
 
 	const kind = authm.AuthEmailKindCalendarSteps
 	item := authm.AuthEmailOutboxItem{Kind: kind, UserID: user.ID}
-	return o.enqueue(ctx, item, func(tx *gorm.DB) error {
-		lockKey := fmt.Sprintf("auth_email_outbox:%s:%d", kind, user.ID)
-		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", lockKey).Error; err != nil {
+	err := o.enqueue(ctx, item, func(tx *gorm.DB) error {
+		var locked bool
+		if err := tx.Raw("SELECT pg_try_advisory_xact_lock(hashtextextended(?, 0))", calendarStepsLockKey(user.ID)).
+			Scan(&locked).Error; err != nil {
 			return err
 		}
 
@@ -376,8 +394,25 @@ func (o *AuthEmailOutbox) EnqueueCalendarSteps(ctx context.Context, user *authm.
 				RetryAfter: window.Oldest.Add(calendarStepsWindow).Sub(now),
 			}
 		}
+		if !locked {
+			return errCalendarStepsInFlight
+		}
 		return nil
 	})
+	if errors.Is(err, errCalendarStepsInFlight) {
+		return nil
+	}
+	return err
+}
+
+// errCalendarStepsInFlight is the admit step's refusal for a request that found
+// another request of the same account holding the lock.
+var errCalendarStepsInFlight = errors.New("auth email outbox: a calendar steps request for this account is in flight")
+
+// calendarStepsLockKey names the advisory lock EnqueueCalendarSteps tries for
+// userID.
+func calendarStepsLockKey(userID uint) string {
+	return fmt.Sprintf("auth_email_outbox:%s:%d", authm.AuthEmailKindCalendarSteps, userID)
 }
 
 // enqueue inserts item as pending, a no-op while one is already queued for its

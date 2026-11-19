@@ -42,7 +42,11 @@ func (s *AuthEmailOutboxSuite) TestClosedAccount_GetsNoOpenAccountEmail() {
 				if kind == authm.AuthEmailKindVerification {
 					s.Require().NoError(s.db.Model(user).Update("email_verified", false).Error)
 				}
-				s.enqueue(kind, user.ID)
+				if kind == authm.AuthEmailKindCalendarSteps {
+					s.Require().NoError(s.enqueueCalendarSteps(user))
+				} else {
+					s.enqueue(kind, user.ID)
+				}
 				s.closeAccount(user, how)
 
 				s.outbox.RunNow(context.Background())

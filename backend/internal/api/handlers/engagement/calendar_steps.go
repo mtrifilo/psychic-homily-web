@@ -46,7 +46,11 @@ type SendCalendarStepsEmailResponse struct{}
 //   - an address that is not verified, or none: 403 EMAIL_VERIFICATION_REQUIRED;
 //   - the account's hourly cap reached: 429 CALENDAR_STEPS_RATE_LIMITED_HOURLY
 //     with Retry-After;
-//   - the outbox switched off or no email provider: 503 SERVICE_UNAVAILABLE.
+//   - the outbox switched off, no email provider, or a failed queue write:
+//     503 SERVICE_UNAVAILABLE.
+//
+// 204 means the account's email is queued, by this request or by one of the
+// account's still queued or in flight; repeats add no second email.
 func (h *CalendarStepsHandler) SendCalendarStepsEmailHandler(ctx context.Context, _ *SendCalendarStepsEmailRequest) (*SendCalendarStepsEmailResponse, error) {
 	user := middleware.GetUserFromContext(ctx)
 	if user == nil {
@@ -62,7 +66,9 @@ func (h *CalendarStepsHandler) SendCalendarStepsEmailHandler(ctx context.Context
 	var limited *apperrors.CalendarStepsRateLimitedError
 	switch {
 	case err == nil:
-		logger.FromContext(ctx).Info("calendar_steps_email_queued", "user_id", user.ID)
+		// Accepted, not necessarily a new row: a repeat while one is queued
+		// is absorbed (EnqueueCalendarSteps).
+		logger.FromContext(ctx).Info("calendar_steps_email_accepted", "user_id", user.ID)
 		return &SendCalendarStepsEmailResponse{}, nil
 	case errors.As(err, &limited):
 		logger.FromContext(ctx).Warn("calendar_steps_email_rate_limited",

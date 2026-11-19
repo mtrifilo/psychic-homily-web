@@ -155,6 +155,47 @@ func (s *AuthEmailOutboxSuite) TestCalendarSteps_RefusedWhenTheOutboxCannotSend(
 	s.Empty(s.rows())
 }
 
+// The generic Enqueue refuses the kind, so no row of it skips the cap.
+func (s *AuthEmailOutboxSuite) TestCalendarSteps_GenericEnqueueRefusesTheKind() {
+	user := s.verifiedUser("generic@example.com")
+	err := s.outbox.Enqueue(context.Background(), authm.AuthEmailKindCalendarSteps, user.ID)
+	s.Require().ErrorIs(err, ErrCalendarStepsNeedsItsOwnEnqueue)
+	s.Empty(s.rows())
+}
+
+// holdCalendarStepsLock holds the account's calendar steps lock in another
+// transaction until the returned release is called, as a concurrent request
+// mid-enqueue would.
+func (s *AuthEmailOutboxSuite) holdCalendarStepsLock(userID uint) (release func()) {
+	tx := s.db.Begin()
+	s.Require().NoError(tx.Error)
+	s.Require().NoError(tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", calendarStepsLockKey(userID)).Error)
+	return func() { s.Require().NoError(tx.Rollback().Error) }
+}
+
+// A request that finds another of the same account mid-enqueue does not wait
+// for it: under the cap it returns at once without a row of its own (the other
+// request queues the email), and at the cap it is refused like any other.
+func (s *AuthEmailOutboxSuite) TestCalendarSteps_ConcurrentRequestDoesNotWait() {
+	user := s.verifiedUser("burst@example.com")
+	release := s.holdCalendarStepsLock(user.ID)
+
+	start := time.Now()
+	s.Require().NoError(s.enqueueCalendarSteps(user))
+	s.Less(time.Since(start), 2*time.Second, "the request did not wait on the held lock")
+	s.Zero(s.calendarStepsRows(user.ID), "the request holding the lock is the one that queues")
+	release()
+
+	for range calendarStepsPerWindow {
+		s.Require().NoError(s.enqueueCalendarSteps(user))
+		s.markAllSent()
+	}
+	release = s.holdCalendarStepsLock(user.ID)
+	defer release()
+	var limited *apperrors.CalendarStepsRateLimitedError
+	s.Require().ErrorAs(s.enqueueCalendarSteps(user), &limited, "at the cap, a request that finds the lock held is still refused")
+}
+
 // runMigrationFile applies one migration file in a transaction, as the
 // migrator does (its SET LOCAL needs one).
 func (s *AuthEmailOutboxSuite) runMigrationFile(name string) {
