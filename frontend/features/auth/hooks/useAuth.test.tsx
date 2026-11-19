@@ -72,6 +72,14 @@ vi.mock('@/lib/utils/authLogger', () => ({
 
 const mockReleaseExpiredSessionLatch = vi.fn()
 const mockRefetchSignedInProfile = vi.fn()
+const mockForgetRevokedCalendarLink = vi.fn()
+
+// The calendar caches' own refresh is covered in useCalendarFeed.test.tsx;
+// here it is a spy so these tests can assert which actions fire it.
+vi.mock('./useCalendarFeed', () => ({
+  forgetRevokedCalendarLink: (...args: unknown[]) =>
+    mockForgetRevokedCalendarLink(...args),
+}))
 
 // Mock queryClient module
 vi.mock('@/lib/queryClient', () => ({
@@ -1200,7 +1208,11 @@ describe('useAuth hooks', () => {
   })
 
   describe('useSignOutEverywhereElse', () => {
-    it('posts with the session cookie and refetches nothing on success', async () => {
+    beforeEach(() => {
+      mockForgetRevokedCalendarLink.mockReset()
+    })
+
+    it('posts with the session cookie and refreshes only the calendar caches on success', async () => {
       mockApiRequest.mockResolvedValueOnce({ success: true })
 
       const { result } = renderHook(() => useSignOutEverywhereElse(), {
@@ -1216,6 +1228,8 @@ describe('useAuth hooks', () => {
         { method: 'POST', credentials: 'include' }
       )
       expect(mockRefetchSignedInProfile).not.toHaveBeenCalled()
+      // The same step deletes the calendar link.
+      expect(mockForgetRevokedCalendarLink).toHaveBeenCalledTimes(1)
     })
 
     it('rejects a 200 that does not report success', async () => {
@@ -1231,6 +1245,7 @@ describe('useAuth hooks', () => {
 
       await waitFor(() => expect(result.current.isError).toBe(true))
       expect(result.current.error).toBeInstanceOf(AuthError)
+      expect(mockForgetRevokedCalendarLink).not.toHaveBeenCalled()
     })
   })
 

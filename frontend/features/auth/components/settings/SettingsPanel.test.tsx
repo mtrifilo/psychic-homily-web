@@ -3,6 +3,7 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { SettingsPanel } from './SettingsPanel'
+import { CALENDAR_FEED_SETTINGS_ANCHOR } from './calendar-feed-anchor'
 import {
   AuthError,
   AuthErrorCode,
@@ -237,6 +238,16 @@ describe('SettingsPanel', () => {
     const feed = screen.getByTestId('calendar-feed-section')
     expect(feed).toBeInTheDocument()
     expect(feed).toHaveAttribute('data-variant', 'settings')
+  })
+
+  // The Sessions card's and the password reset's "add it again" links land here.
+  it('anchors the calendar feed card for its Settings fragment', () => {
+    renderWithProviders(<SettingsPanel />)
+    const card = document.getElementById(CALENDAR_FEED_SETTINGS_ANCHOR)
+    expect(card).not.toBeNull()
+    expect(card).toHaveAttribute('tabindex', '-1')
+    expect(card).toHaveTextContent('Calendar feed')
+    expect(card).toContainElement(screen.getByTestId('calendar-feed-section'))
   })
 
   it('renders FollowsActivityFeedSection', () => {

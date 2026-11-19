@@ -71,6 +71,8 @@ export {
 // Hooks — Calendar Feed
 export {
   useCalendarTokenStatus,
+  useCalendarFeedStatus,
+  calendarLinkWasResetBy,
   useCreateCalendarToken,
   useDeleteCalendarToken,
 } from './hooks'

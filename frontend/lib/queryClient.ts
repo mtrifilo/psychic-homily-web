@@ -456,6 +456,7 @@ export const queryKeys = {
   calendar: {
     all: ['calendar'] as const,
     tokenStatus: ['calendar', 'tokenStatus'] as const,
+    feedStatus: ['calendar', 'feedStatus'] as const,
   },
 
   // Saved shows queries
