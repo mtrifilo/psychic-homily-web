@@ -13,6 +13,7 @@ import { toZonedDateOnly, toZonedISOString } from '@/lib/utils/timeUtils'
 import { SITE_DESCRIPTION, SITE_URL } from '@/lib/seo/siteMetadata'
 import { resolveTicketVendor } from '@/lib/tickets/ticketVendors'
 import { renderableSocialLinks } from '@/lib/socialLinks'
+import { knownReleaseYear } from '@/features/releases/releaseSearchFacts'
 
 export interface OrganizationSchema {
   '@context': 'https://schema.org'
@@ -140,6 +141,21 @@ export interface MusicRecordingSchema {
     name: string
   }
   datePublished?: string
+  url?: string
+}
+
+export interface MusicAlbumSchema {
+  '@context': 'https://schema.org'
+  '@type': 'MusicAlbum'
+  name: string
+  byArtist?: Array<{
+    '@type': 'MusicGroup'
+    name: string
+    url?: string
+  }>
+  datePublished?: string
+  albumReleaseType?: string
+  image?: string
   url?: string
 }
 
@@ -581,6 +597,74 @@ export function generateMusicRecordingSchema(mix: {
     datePublished: mix.date,
     url: `${SITE_URL}/dj-sets/${mix.slug}`,
   }
+}
+
+/**
+ * The schema.org `MusicAlbumReleaseType` for each stored release type that
+ * names one. Compilation, live, remix and demo describe how an album was made
+ * (`albumProductionType`) or nothing schema.org defines, so they map to none.
+ */
+const ALBUM_RELEASE_TYPES: Readonly<Record<string, string>> = {
+  lp: 'https://schema.org/AlbumRelease',
+  ep: 'https://schema.org/EPRelease',
+  single: 'https://schema.org/SingleRelease',
+}
+
+/**
+ * Generate MusicAlbum schema for a release.
+ *
+ * Every optional property is emitted only when a stored value backs it:
+ * `byArtist` from the credited artists the caller passes, `datePublished` from
+ * a {@link knownReleaseYear}, `albumReleaseType` from a type in
+ * {@link ALBUM_RELEASE_TYPES}, and `image` from a cover URL the page shows.
+ */
+export function generateMusicAlbumSchema(release: {
+  title: string
+  slug?: string
+  release_year?: number | null
+  release_type?: string | null
+  cover_art_url?: string | null
+  /** The artists the release is by, in credit order. */
+  artists?: ReadonlyArray<{ name: string; slug?: string | null }> | null
+}): MusicAlbumSchema {
+  const schema: MusicAlbumSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'MusicAlbum',
+    name: release.title,
+  }
+
+  const artists = (release.artists ?? []).filter(artist => artist.name?.trim())
+  if (artists.length > 0) {
+    schema.byArtist = artists.map(artist => ({
+      '@type': 'MusicGroup' as const,
+      name: artist.name,
+      ...(artist.slug ? { url: `${SITE_URL}/artists/${artist.slug}` } : {}),
+    }))
+  }
+
+  const year = knownReleaseYear(release.release_year)
+  if (year !== null) {
+    schema.datePublished = String(year)
+  }
+
+  const releaseType = release.release_type
+  if (
+    releaseType &&
+    Object.prototype.hasOwnProperty.call(ALBUM_RELEASE_TYPES, releaseType)
+  ) {
+    schema.albumReleaseType = ALBUM_RELEASE_TYPES[releaseType]
+  }
+
+  const cover = absoluteHttpUrl(release.cover_art_url)
+  if (cover) {
+    schema.image = cover
+  }
+
+  if (release.slug) {
+    schema.url = `${SITE_URL}/releases/${release.slug}`
+  }
+
+  return schema
 }
 
 /**

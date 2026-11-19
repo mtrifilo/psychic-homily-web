@@ -8,6 +8,7 @@ import {
   generateMusicVenueSchema,
   generateMusicGroupSchema,
   generateMusicRecordingSchema,
+  generateMusicAlbumSchema,
   generateItemListSchema,
   renderJsonLd,
 } from './jsonld'
@@ -621,6 +622,9 @@ describe('no schema the module builds carries an organizer', () => {
       },
     ],
     listItems: [{ url: `${SITE_URL}/shows/test-show`, name: 'Test Show' }],
+    release_year: 2019,
+    release_type: 'ep',
+    cover_art_url: 'https://coverartarchive.org/release-group/abc/front.jpg',
   }
   const objectInputs = [
     fullInput,
@@ -867,6 +871,99 @@ describe('generateMusicRecordingSchema', () => {
       '@type': 'MusicGroup',
       name: 'DJ Test',
     })
+  })
+})
+
+describe('generateMusicAlbumSchema', () => {
+  const fullRelease = {
+    title: 'Eyes Shut',
+    slug: 'eyes-shut',
+    release_year: 2019,
+    release_type: 'ep',
+    cover_art_url: 'https://coverartarchive.org/release-group/abc/front.jpg',
+    artists: [
+      { name: 'Tim Atlas', slug: 'tim-atlas' },
+      { name: 'Band B', slug: 'band-b' },
+    ],
+  }
+
+  it('emits every property a full release backs', () => {
+    expect(generateMusicAlbumSchema(fullRelease)).toEqual({
+      '@context': 'https://schema.org',
+      '@type': 'MusicAlbum',
+      name: 'Eyes Shut',
+      byArtist: [
+        { '@type': 'MusicGroup', name: 'Tim Atlas', url: `${SITE_URL}/artists/tim-atlas` },
+        { '@type': 'MusicGroup', name: 'Band B', url: `${SITE_URL}/artists/band-b` },
+      ],
+      datePublished: '2019',
+      albumReleaseType: 'https://schema.org/EPRelease',
+      image: 'https://coverartarchive.org/release-group/abc/front.jpg',
+      url: `${SITE_URL}/releases/eyes-shut`,
+    })
+  })
+
+  it('emits only the name for the sparsest release', () => {
+    expect(generateMusicAlbumSchema({ title: 'Untitled' })).toEqual({
+      '@context': 'https://schema.org',
+      '@type': 'MusicAlbum',
+      name: 'Untitled',
+    })
+  })
+
+  it('omits byArtist when no artist is credited or named', () => {
+    for (const artists of [[], null, [{ name: ' ', slug: 'blank' }]]) {
+      expect(generateMusicAlbumSchema({ ...fullRelease, artists })).not.toHaveProperty(
+        'byArtist'
+      )
+    }
+  })
+
+  it('names an artist without a page URL when the artist has no slug', () => {
+    const schema = generateMusicAlbumSchema({
+      ...fullRelease,
+      artists: [{ name: 'Slugless', slug: '' }],
+    })
+    expect(schema.byArtist).toEqual([{ '@type': 'MusicGroup', name: 'Slugless' }])
+  })
+
+  it('omits datePublished when the year is unknown or unusable', () => {
+    for (const release_year of [null, undefined, 0, 2019.5]) {
+      expect(
+        generateMusicAlbumSchema({ ...fullRelease, release_year })
+      ).not.toHaveProperty('datePublished')
+    }
+  })
+
+  it.each([
+    ['lp', 'https://schema.org/AlbumRelease'],
+    ['ep', 'https://schema.org/EPRelease'],
+    ['single', 'https://schema.org/SingleRelease'],
+  ])('maps the %s type onto a schema.org release type', (release_type, expected) => {
+    expect(
+      generateMusicAlbumSchema({ ...fullRelease, release_type }).albumReleaseType
+    ).toBe(expected)
+  })
+
+  it.each(['compilation', 'live', 'remix', 'demo', '', null, 'toString'])(
+    'omits albumReleaseType for the %s type, which has no clean mapping',
+    release_type => {
+      expect(
+        generateMusicAlbumSchema({ ...fullRelease, release_type })
+      ).not.toHaveProperty('albumReleaseType')
+    }
+  )
+
+  it('omits image when there is no cover or it is not an absolute http(s) URL', () => {
+    for (const cover_art_url of [null, '', '/covers/a.jpg', 'javascript:alert(1)']) {
+      expect(
+        generateMusicAlbumSchema({ ...fullRelease, cover_art_url })
+      ).not.toHaveProperty('image')
+    }
+  })
+
+  it('omits url when there is no slug', () => {
+    expect(generateMusicAlbumSchema({ ...fullRelease, slug: '' })).not.toHaveProperty('url')
   })
 })
 

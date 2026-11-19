@@ -8,6 +8,8 @@ import {
   artistSnippet,
   fitDescription,
   fitTitle,
+  releaseArtistPhrase,
+  releaseSnippet,
   showSnippet,
   snippetMonthDay,
   snippetPlace,
@@ -437,6 +439,194 @@ describe('venueSnippet', () => {
       nextShow: { ...HELENE, headliner: 'h'.repeat(80) },
     })
     expect(Array.from(description)).toHaveLength(DESCRIPTION_BUDGET)
+  })
+})
+
+describe('releaseArtistPhrase', () => {
+  it('names one artist', () => {
+    expect(releaseArtistPhrase(['Tim Atlas'])).toBe('Tim Atlas')
+  })
+
+  it('joins two artists with "and"', () => {
+    expect(releaseArtistPhrase(['Band A', 'Band B'])).toBe('Band A and Band B')
+  })
+
+  it('names the first of three or more followed by "and others"', () => {
+    expect(releaseArtistPhrase(['Band A', 'Band B', 'Band C'])).toBe(
+      'Band A and others'
+    )
+    expect(releaseArtistPhrase(['A', 'B', 'C', 'D', 'E'])).toBe('A and others')
+  })
+
+  it('skips blank names and trims the rest', () => {
+    expect(releaseArtistPhrase([' ', '  Band A ', ''])).toBe('Band A')
+  })
+
+  it('is null for no artists', () => {
+    expect(releaseArtistPhrase([])).toBeNull()
+    expect(releaseArtistPhrase(null)).toBeNull()
+    expect(releaseArtistPhrase(undefined)).toBeNull()
+  })
+})
+
+describe('releaseSnippet', () => {
+  const EYES_SHUT = {
+    title: 'Eyes Shut',
+    artists: ['Tim Atlas'],
+    typeLabel: 'EP',
+    year: 2019,
+    label: 'Nettwerk',
+    listenServices: ['Bandcamp', 'Spotify'],
+  }
+
+  it('renders the strings the owner approved for one artist', () => {
+    const { title, description } = releaseSnippet(EYES_SHUT)
+    expect(title).toBe('Eyes Shut by Tim Atlas (2019)')
+    expect(title + SITE_TITLE_SUFFIX).toBe(
+      'Eyes Shut by Tim Atlas (2019) | Psychic Homily'
+    )
+    expect(description).toBe(
+      'Eyes Shut, EP by Tim Atlas (2019). Label: Nettwerk. Listen: Bandcamp, Spotify.'
+    )
+  })
+
+  it('joins two artists with "and" in both strings', () => {
+    const { title, description } = releaseSnippet({
+      title: 'Split',
+      artists: ['Band A', 'Band B'],
+      typeLabel: 'LP',
+      year: 2021,
+    })
+    expect(title).toBe('Split by Band A and Band B (2021)')
+    expect(description).toBe('Split, LP by Band A and Band B (2021).')
+  })
+
+  it('names the first of more than two artists with "and others"', () => {
+    const { title, description } = releaseSnippet({
+      title: 'Comp',
+      artists: ['Band A', 'Band B', 'Band C'],
+      typeLabel: 'Compilation',
+      year: 2021,
+    })
+    expect(title).toBe('Comp by Band A and others (2021)')
+    expect(description).toBe('Comp, Compilation by Band A and others (2021).')
+  })
+
+  it('drops the year clause from both strings when there is no year', () => {
+    const { title, description } = releaseSnippet({ ...EYES_SHUT, year: null })
+    expect(title).toBe('Eyes Shut by Tim Atlas')
+    expect(description).toBe(
+      'Eyes Shut, EP by Tim Atlas. Label: Nettwerk. Listen: Bandcamp, Spotify.'
+    )
+  })
+
+  it('drops the year first when the title is over budget', () => {
+    // With the year: 36 + 7 + 17 = 60 fits; one more character does not.
+    const fits = releaseSnippet({ ...EYES_SHUT, title: 'x'.repeat(23) })
+    expect(fits.title).toBe(`${'x'.repeat(23)} by Tim Atlas (2019)`)
+    expect(titleLength(fits.title)).toBe(TITLE_BUDGET)
+    const over = releaseSnippet({ ...EYES_SHUT, title: 'x'.repeat(24) })
+    expect(over.title).toBe(`${'x'.repeat(24)} by Tim Atlas`)
+    // The description keeps the year: only the title has the tighter budget.
+    expect(over.description).toContain('by Tim Atlas (2019).')
+  })
+
+  it('keeps the title and artist whole, without an ellipsis, when they alone are over budget', () => {
+    const longTitle = 'All The Young Droids: Junkshop Synth Pop 1978-1985'
+    const { title } = releaseSnippet({
+      title: longTitle,
+      artists: ['Gerry and the Holograms', 'Peta Lily & Michael Process'],
+      year: 2019,
+    })
+    expect(title).toBe(
+      `${longTitle} by Gerry and the Holograms and Peta Lily & Michael Process`
+    )
+    expect(titleLength(title)).toBeGreaterThan(TITLE_BUDGET)
+    expect(title).not.toContain('...')
+  })
+
+  it('drops the "by" clause from both strings when there is no artist', () => {
+    const { title, description } = releaseSnippet({ ...EYES_SHUT, artists: [] })
+    expect(title).toBe('Eyes Shut (2019)')
+    expect(description).toBe(
+      'Eyes Shut, EP (2019). Label: Nettwerk. Listen: Bandcamp, Spotify.'
+    )
+    expect(releaseSnippet({ ...EYES_SHUT, artists: null }).title).toBe(
+      'Eyes Shut (2019)'
+    )
+  })
+
+  it('drops the type clause when there is no type', () => {
+    for (const typeLabel of [null, '', '  ']) {
+      const { title, description } = releaseSnippet({ ...EYES_SHUT, typeLabel })
+      expect(title).toBe('Eyes Shut by Tim Atlas (2019)')
+      expect(description).toBe(
+        'Eyes Shut by Tim Atlas (2019). Label: Nettwerk. Listen: Bandcamp, Spotify.'
+      )
+    }
+  })
+
+  it('drops the Label clause when there is no label', () => {
+    for (const label of [null, undefined, ' ']) {
+      expect(releaseSnippet({ ...EYES_SHUT, label }).description).toBe(
+        'Eyes Shut, EP by Tim Atlas (2019). Listen: Bandcamp, Spotify.'
+      )
+    }
+  })
+
+  it('drops the Listen clause when there is no service to name', () => {
+    for (const listenServices of [[], null, [' ']]) {
+      expect(releaseSnippet({ ...EYES_SHUT, listenServices }).description).toBe(
+        'Eyes Shut, EP by Tim Atlas (2019). Label: Nettwerk.'
+      )
+    }
+  })
+
+  it('is the bare title when nothing else is known', () => {
+    const { title, description } = releaseSnippet({ title: 'Untitled' })
+    expect(title).toBe('Untitled')
+    expect(description).toBe('Untitled.')
+  })
+
+  it('does not double the full stop after a value that ends in one', () => {
+    const { description } = releaseSnippet({
+      title: 'The Derivative Sounds of...',
+      label: 'Records Inc.',
+    })
+    expect(description).toBe('The Derivative Sounds of... Label: Records Inc.')
+  })
+
+  // `{title}, EP by Tim Atlas (2019).` is the title plus 25 characters,
+  // ` Label: Nettwerk.` is 17 and ` Listen: Bandcamp, Spotify.` is 27.
+  it('drops the Listen sentence whole when it is the one that does not fit', () => {
+    // 100 + 25 + 17 = 142 fits; adding Listen makes 169.
+    const title = 't'.repeat(100)
+    const { description } = releaseSnippet({ ...EYES_SHUT, title })
+    expect(description).toBe(`${title}, EP by Tim Atlas (2019). Label: Nettwerk.`)
+  })
+
+  it('keeps both sentences when they land exactly on the budget', () => {
+    const title = 't'.repeat(DESCRIPTION_BUDGET - 25 - 17 - 27)
+    const { description } = releaseSnippet({ ...EYES_SHUT, title })
+    expect(description).toHaveLength(DESCRIPTION_BUDGET)
+    expect(description.endsWith('Listen: Bandcamp, Spotify.')).toBe(true)
+  })
+
+  it('drops the Label sentence too when only the first sentence fits', () => {
+    // 120 + 25 = 145 fits; adding Label makes 162.
+    const title = 't'.repeat(120)
+    const { description } = releaseSnippet({ ...EYES_SHUT, title })
+    expect(description).toBe(`${title}, EP by Tim Atlas (2019).`)
+  })
+
+  it('cuts the first sentence with an ellipsis when it alone is over budget', () => {
+    const { description } = releaseSnippet({ ...EYES_SHUT, title: 't'.repeat(200) })
+    expect(description).toBe('t'.repeat(DESCRIPTION_BUDGET - 3) + '...')
+  })
+
+  it('has no em dash in any output', () => {
+    const { title, description } = releaseSnippet(EYES_SHUT)
+    expect(title + description).not.toContain('—')
   })
 })
 
