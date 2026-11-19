@@ -48,7 +48,7 @@ vi.mock('next/navigation', () => ({
 import RadioPage, { HydratedRadioDial } from './page'
 import RadioHub, {
   RadioDial,
-  RadioDialLoading,
+  CachedRadioDial,
 } from './_components/RadioHub'
 import {
   RADIO_DIAL_FIRST_SCREEN_KEY,
@@ -221,16 +221,16 @@ describe('/radio dial fallback', () => {
     apiRequest.mockReturnValue(new Promise(() => {}))
   })
 
-  it('is the dial loading view and registers no query', () => {
+  it('is the cached dial and registers no query', () => {
     const fallback = pageDialSlot().props.fallback
 
-    expect(fallback.type).toBe(RadioDialLoading)
+    expect(fallback.type).toBe(CachedRadioDial)
     expect(registeredQueryHashes(fallback)).toEqual([])
     expect(apiRequest).not.toHaveBeenCalled()
   })
 
-  it('is the markup the dial renders before its reads answer', () => {
-    expect(serverRender(<RadioDialLoading />)).toBe(serverRender(<RadioDial />))
+  it('on a cold cache, is the markup the dial renders before its reads answer', () => {
+    expect(serverRender(<CachedRadioDial />)).toBe(serverRender(<RadioDial />))
   })
 
   // A client-side navigation back to the hub renders the fallback on the
@@ -241,7 +241,7 @@ describe('/radio dial fallback', () => {
 
     const html = renderToString(
       <QueryClientProvider client={client}>
-        <RadioDialLoading />
+        <CachedRadioDial />
       </QueryClientProvider>
     )
 
@@ -252,6 +252,42 @@ describe('/radio dial fallback', () => {
     expect(
       client.getQueryCache().find({ queryKey: ['radio', 'guide'], exact: true })
     ).toBeUndefined()
+  })
+
+  // A failed guide refetch keeps its old data; the dial shows no guide then.
+  it.each([
+    ['shows a cached guide', 'success', true],
+    ['hides a cached guide whose last refetch failed', 'error', false],
+  ] as const)('%s', (_name, status, shown) => {
+    const client = new QueryClient()
+    client.setQueryData(RADIO_DIAL_FIRST_SCREEN_KEY, stationsPayload)
+    client.setQueryData(['radio', 'guide'], {
+      on_now: [
+        {
+          station: { slug: 'wfmu', name: 'WFMU' },
+          show: { id: 1, slug: 'wake', name: 'Wake', host_name: null },
+          starts_at: new Date().toISOString(),
+          ends_at: new Date(Date.now() + 2 * 3600e3).toISOString(),
+          station_timezone: 'America/New_York',
+        },
+      ],
+      up_next: [],
+      generated_at: new Date().toISOString(),
+    })
+    if (status === 'error') {
+      client
+        .getQueryCache()
+        .find({ queryKey: ['radio', 'guide'], exact: true })!
+        .setState({ status: 'error', error: new Error('refetch failed') })
+    }
+
+    const html = renderToString(
+      <QueryClientProvider client={client}>
+        <CachedRadioDial />
+      </QueryClientProvider>
+    )
+
+    expect(html.includes('aria-label="Program guide"')).toBe(shown)
   })
 
   // The seeded key must be registered by nothing that renders before the

@@ -1,7 +1,7 @@
 import { Suspense } from 'react'
 import { Metadata } from 'next'
 import { HydrationBoundary } from '@tanstack/react-query'
-import RadioHub, { RadioDial, RadioDialLoading } from './_components/RadioHub'
+import RadioHub, { CachedRadioDial, RadioDial } from './_components/RadioHub'
 import {
   RADIO_DIAL_FIRST_SCREEN_KEY,
   RADIO_DIAL_FIRST_SCREEN_URL,
@@ -50,15 +50,15 @@ export async function HydratedRadioDial() {
 /**
  * Only the dial waits on the server read: the page head, the latest playlists
  * and the sidebar sit outside the boundary and start their own reads at
- * hydration. The fallback is the dial as it renders before its reads answer,
- * drawn without the dial's queries, which a fallback must not run (see
- * `seedFirstScreen`).
+ * hydration. The fallback is the dial drawn from the browser's cache without
+ * the dial's queries, which a fallback must not run (see `seedFirstScreen`):
+ * the loader on a cold cache, the cached strips on a navigation back.
  */
 export default function RadioPage() {
   return (
     <RadioHub
       dial={
-        <Suspense fallback={<RadioDialLoading />}>
+        <Suspense fallback={<CachedRadioDial />}>
           <HydratedRadioDial />
         </Suspense>
       }

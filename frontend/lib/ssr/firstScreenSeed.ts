@@ -74,9 +74,8 @@ export async function dehydrateListFirstScreen(
  * to give. For a route whose every request is the first screen; a route with
  * URL params that move the list goes through `dehydrateListFirstScreen`.
  *
- * `connection()` comes before the reads, so they run per request and never in
- * a prerender: a read failing at build would otherwise bake the unseeded list
- * into the shell.
+ * `connection()` comes before the reads, so they run per request and never
+ * during a prerender, whatever they return (see `seedFirstScreen`).
  *
  * All or nothing: when any read returns `null`, nothing is seeded and the
  * client fetches every entry itself, so the server HTML is either the whole

@@ -154,6 +154,11 @@ export async function prefetchEntities(
  * It lives in here rather than at each call site because a caller that forgot
  * it would fail at BUILD, on a message that names neither this function nor
  * the reason.
+ *
+ * It covers the clock, not the caller's reads. A route with no request data of
+ * its own reaches this only after its reads, and only when they succeed, so
+ * the reads themselves can run during a prerender. Such a route reads through
+ * `dehydrateFirstScreen`, which awaits `connection()` before reading.
  */
 export async function seedFirstScreen(
   seeds: readonly QuerySeed[],

@@ -27,7 +27,8 @@ export function FestivalList() {
   // `ShowList` make the same accepted trade.
   const { density, setDensity } = useDensity('festivals')
 
-  // Parse filters from URL
+  // Parse filters from URL. A param read here belongs in
+  // FESTIVAL_LIST_FIRST_SCREEN_DEFEATING_PARAMS too (see its doc).
   const statusParam = searchParams.get('status') as FestivalStatus | null
   const yearParam = searchParams.get('year')
   const cityParam = searchParams.get('city')

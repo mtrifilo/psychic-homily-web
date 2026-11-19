@@ -124,20 +124,21 @@ const PENDING_STATIONS = { data: undefined, isLoading: true, error: null } as co
 /**
  * `RadioDial` drawn from what the browser's query cache already holds, with
  * no query behind it, so it can stand as the fallback above a seeded dial
- * (see `seedFirstScreen`). `getQueryData` reads an entry without creating
- * one.
+ * (see `seedFirstScreen`). `getQueryData` and `getQueryState` read an entry
+ * without creating one.
  *
  * On the server, and on a first load, the cache is empty and this is the dial
- * as it renders before its reads answer (the guide renders nothing while
- * loading). On a client-side navigation back to the hub, the cache holds the
- * stations, and the dial shows them while the route's server render streams.
+ * as it renders before its reads answer, loader and all (the guide renders
+ * nothing while loading). On a client-side navigation back to the hub, the
+ * cache holds the stations, and the dial shows them while the route's server
+ * render streams.
  */
-export function RadioDialLoading() {
+export function CachedRadioDial() {
   const queryClient = useQueryClient()
   const stations = queryClient.getQueryData<RadioStationsListResponse>(
     radioQueryKeys.stations()
   )
-  const guide = queryClient.getQueryData<RadioGuideResponse>(
+  const guide = queryClient.getQueryState<RadioGuideResponse>(
     radioQueryKeys.guide()
   )
 
@@ -146,7 +147,7 @@ export function RadioDialLoading() {
       stationsQuery={
         stations ? { data: stations, isLoading: false, error: null } : PENDING_STATIONS
       }
-      guideQuery={{ data: guide, isError: false }}
+      guideQuery={{ data: guide?.data, isError: guide?.status === 'error' }}
     />
   )
 }

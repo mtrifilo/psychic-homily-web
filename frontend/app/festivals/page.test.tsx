@@ -20,7 +20,7 @@ vi.mock('@/lib/api', async importOriginal => ({
   apiRequest,
 }))
 
-// `seedFirstScreen` awaits `connection()`, which marks a request-time render and
+// The seed path awaits `connection()`, which marks a request-time render and
 // has nothing to do outside Next.
 vi.mock('next/server', () => ({ connection: async () => {} }))
 
