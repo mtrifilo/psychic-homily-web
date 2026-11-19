@@ -71,7 +71,7 @@ const RSC_PAYLOAD_PATTERNS = ['/*?_rsc=', '/*&_rsc=']
 
 /**
  * The Sentry tunnel. Equal to `tunnelRoute` in next.config.ts, which
- * next.config.sentry-tunnel.test.ts asserts.
+ * robots.test.ts asserts.
  */
 const SENTRY_TUNNEL_ROUTE = '/monitoring'
 

@@ -1,10 +1,16 @@
 import { readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 
+import { withSentryConfig } from '@sentry/nextjs'
 import { resolveRouteData } from 'next/dist/build/webpack/loaders/metadata/resolve-route-data'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
+import '../next.config'
 import robots from './robots'
+
+// test/setup.ts stubs withSentryConfig; next.config calls it once at module
+// scope. Read here, before any afterEach clears the recorded calls.
+const sentryBuildOptions = vi.mocked(withSentryConfig).mock.calls[0]?.[1]
 
 // Deliberate copies of the source values, not imports. A change to the policy
 // in robots.ts must be re-approved here rather than silently followed — that is
@@ -109,6 +115,19 @@ describe('robots.txt rules', () => {
       expect(body).toEqual(bodies[0])
     }
     expect(bodies[0]).toEqual({ allow: '/', disallow: PUBLIC_DISALLOW })
+  })
+
+  // robots.ts holds the tunnel path as its own constant. This pins it to the
+  // `tunnelRoute` next.config.ts gives Sentry, so a change to either fails here.
+  it('disallows the Sentry tunnel route next.config.ts sets, in every allowing group', () => {
+    const tunnelRoute = sentryBuildOptions?.tunnelRoute
+
+    expect(typeof tunnelRoute).toBe('string')
+    const allowing = rulesOf().filter(rule => rule.allow)
+    expect(allowing.length).toBeGreaterThan(0)
+    for (const rule of allowing) {
+      expect(rule.disallow).toContain(tunnelRoute)
+    }
   })
 
   it('disallows the whole site for training crawlers', () => {
@@ -324,30 +343,22 @@ describe('rendered robots.txt', () => {
 
   // Both allowing groups render the same body (pinned above), so matching URLs
   // against the rendered wildcard group covers the retrieval group too.
-  it('blocks every RSC payload URL', () => {
+  it.each([
+    ['RSC payload', RSC_PAYLOAD_URLS],
+    ['render-helper endpoint', RENDER_HELPER_URLS],
+  ])('blocks every %s URL', (_, urls) => {
     const { rules } = renderedGroupFor('*')
-    for (const url of RSC_PAYLOAD_URLS) {
+    for (const url of urls) {
       expect(groupAllows(rules, url), `${url} must be disallowed`).toBe(false)
     }
   })
 
-  it('keeps pages and assets fetchable', () => {
+  it.each([
+    ['pages and assets', MUST_STAY_FETCHABLE],
+    ['render-helper near misses', RENDER_HELPER_NEAR_MISSES],
+  ])('keeps %s fetchable', (_, urls) => {
     const { rules } = renderedGroupFor('*')
-    for (const url of MUST_STAY_FETCHABLE) {
-      expect(groupAllows(rules, url), `${url} must stay allowed`).toBe(true)
-    }
-  })
-
-  it('blocks every render-helper endpoint URL', () => {
-    const { rules } = renderedGroupFor('*')
-    for (const url of RENDER_HELPER_URLS) {
-      expect(groupAllows(rules, url), `${url} must be disallowed`).toBe(false)
-    }
-  })
-
-  it('keeps the render-helper near misses fetchable', () => {
-    const { rules } = renderedGroupFor('*')
-    for (const url of RENDER_HELPER_NEAR_MISSES) {
+    for (const url of urls) {
       expect(groupAllows(rules, url), `${url} must stay allowed`).toBe(true)
     }
   })
@@ -355,8 +366,8 @@ describe('rendered robots.txt', () => {
   // The tunnel pattern is a bare prefix, so a page route or public file whose
   // first segment starts with the same letters would be disallowed with it.
   it('has no route or public file under the tunnel prefix', () => {
-    expect(firstUrlSegments('app').filter(s => s.startsWith('monitoring'))).toEqual([])
-    expect(firstUrlSegments('public').filter(s => s.startsWith('monitoring'))).toEqual([])
+    const segments = [...firstUrlSegments('app'), ...firstUrlSegments('public')]
+    expect(segments.filter(segment => segment.startsWith('monitoring'))).toEqual([])
   })
 
   // Guards the matcher itself, so a broken helper cannot pass the checks above
