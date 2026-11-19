@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
 import {
   submitFestivals,
   parseFestivalInput,
@@ -29,8 +29,13 @@ function resetMocks(): void {
   fetchCalls = [];
 }
 
-// Install global fetch mock
+// Install global fetch mock. Globals are shared across test files, so restore
+// the real fetch after every test.
 const originalFetch = globalThis.fetch;
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+});
 
 beforeEach(() => {
   resetMocks();
@@ -62,9 +67,6 @@ beforeEach(() => {
     );
   }) as typeof fetch;
 });
-
-// Restore original fetch after all tests
-// (Bun test runner handles this via module isolation)
 
 const TEST_ENV = { url: "http://localhost:8080", token: "phk_test_token" };
 
@@ -556,7 +558,6 @@ describe("submitFestivals", () => {
     // Remove the generic mock we just added and handle it in fetch directly
     mockRoutes.pop();
 
-    const savedFetch = globalThis.fetch;
     globalThis.fetch = (async (
       input: string | URL | Request,
       init?: RequestInit,
@@ -608,9 +609,6 @@ describe("submitFestivals", () => {
       action: "already_linked",
       artistId: 10,
     });
-
-    // Restore fetch
-    globalThis.fetch = savedFetch;
   });
 
   test("skipped festival without artists/venues makes no mutation calls", async () => {

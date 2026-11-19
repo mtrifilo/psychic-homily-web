@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import {
   linkArtistsToFestival,
   unlinkArtistFromFestival,
@@ -51,7 +51,14 @@ function resetMocks(): void {
   fetchCalls = [];
 }
 
-// Install global fetch mock
+// Install global fetch mock. Globals are shared across test files, so restore
+// the real fetch after every test.
+const originalFetch = globalThis.fetch;
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+});
+
 beforeEach(() => {
   resetMocks();
 
