@@ -268,7 +268,7 @@ const EXCLUDED: Record<string, string> = {
   'categories/[category]':
     'prerendered with the canonical inside <head>; unknown slugs are outside the proxy existence checks',
   'charts/[module]':
-    'a year archive before launch or in the future passes the proxy and soft-404s at HTTP 200; the module drill-downs are self-canonical and proxy-checked but are not announced in any sitemap, and are left for their own change',
+    'a year archive before launch or in the future passes the proxy and soft-404s at HTTP 200; the module drill-downs are self-canonical and proxy-checked but are not announced in any sitemap',
   'charts/[module]/[period]':
     'a quarter before launch or in the future passes the proxy shape check and soft-404s at HTTP 200',
   'requests/[id]': 'declares no canonical',
