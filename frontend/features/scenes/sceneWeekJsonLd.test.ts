@@ -52,6 +52,15 @@ const AFTER = new Date('2026-09-01T00:00:00Z')
 const build = (shows: SceneWeekShow[], now = BEFORE) => buildSceneWeekJsonLd(week(shows), now)
 
 describe('buildSceneWeekJsonLd — MusicEvent', () => {
+  it('names no organizer on any event: upcoming, past, cancelled or sold out', () => {
+    const shows = [show({ id: 1 }), show({ id: 2, is_cancelled: true }), show({ id: 3, is_sold_out: true })]
+    for (const now of [BEFORE, AFTER]) {
+      const { events } = build(shows, now)
+      expect(events).toHaveLength(3)
+      for (const event of events) expect(event).not.toHaveProperty('organizer')
+    }
+  })
+
   it('emits one event per listed show, across days', () => {
     const data = week([])
     data.days = [

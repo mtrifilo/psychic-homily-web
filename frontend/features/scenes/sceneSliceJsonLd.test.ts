@@ -89,6 +89,12 @@ describe('buildSceneSliceJsonLd', () => {
     expect(jsonLd.events).toHaveLength(3)
   })
 
+  it('names no organizer on any event', () => {
+    const jsonLd = buildSceneSliceJsonLd(twoDaySlice()!, NOW)!
+    expect(jsonLd.events).toHaveLength(3)
+    for (const event of jsonLd.events) expect(event).not.toHaveProperty('organizer')
+  })
+
   it('crosses the day boundary rather than stopping at tonight', () => {
     const jsonLd = buildSceneSliceJsonLd(twoDaySlice()!, NOW)!
 
