@@ -41,14 +41,11 @@ import { expect } from '@playwright/test'
  * the remaining four can be covered the same way.
  *
  * ── JSON-LD NOTE ─────────────────────────────────────────────────────────
- * The release/label *page* components do not emit a page-specific JSON-LD
- * block (unlike artists/shows/venues/blog/dj-sets). However the root layout
- * (app/layout.tsx) renders a global Organization schema
- * `<script type="application/ld+json">` (via generateOrganizationSchema) in
- * <head> on EVERY page. So the presence assertion below is satisfied by that
- * global block — which is the SEO signal these pages actually ship. The test
- * asserts presence + valid JSON + a `@type`, not a release/label-specific
- * schema, to avoid claiming coverage the page doesn't provide.
+ * The root layout (app/layout.tsx) renders a global Organization schema
+ * `<script type="application/ld+json">` on EVERY page, so the presence
+ * assertion below holds for both types. The release page also emits its own
+ * `MusicAlbum` block, which `pageSchemaType` asserts; the label page emits no
+ * page-specific schema, so it asserts only presence + valid JSON + a `@type`.
  *
  * Stable seeded slugs used below (from setup-db.sh):
  *   - release "Futures"               -> /releases/futures
@@ -64,6 +61,8 @@ interface CoveredType {
   heading: string
   /** Absolute canonical href set by the route's generateMetadata. */
   canonical: string
+  /** The `@type` of the page's own JSON-LD block, when it emits one. */
+  pageSchemaType?: string
 }
 
 const COVERED_TYPES: CoveredType[] = [
@@ -72,6 +71,7 @@ const COVERED_TYPES: CoveredType[] = [
     path: '/releases/futures',
     heading: 'Futures',
     canonical: 'https://psychichomily.com/releases/futures',
+    pageSchemaType: 'MusicAlbum',
   },
   {
     label: 'label',
@@ -116,6 +116,14 @@ test.describe('Content detail pages — SEO + render', () => {
       expect(firstLd, 'JSON-LD script should have content').toBeTruthy()
       const parsed = JSON.parse(firstLd ?? '{}')
       expect(parsed['@type'], 'JSON-LD should declare an @type').toBeTruthy()
+
+      // 4. The page's own block, when it has one, parses and names its type.
+      if (ct.pageSchemaType) {
+        const types = (await ldScripts.allTextContents()).map(
+          text => JSON.parse(text)['@type']
+        )
+        expect(types).toContain(ct.pageSchemaType)
+      }
     })
   }
 })
