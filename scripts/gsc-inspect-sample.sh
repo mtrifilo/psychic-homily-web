@@ -10,8 +10,9 @@
 # impressions, not pages Google has indexed. This script draws a fixed sample
 # from each URL family in the live sitemap, inspects every sampled URL, and
 # writes per-family counts of Google's verdict, coverage state, indexing
-# state, fetch state, robots.txt state, canonical agreement, and last crawl
-# month, so an index-state change can be attributed to a family.
+# state, fetch state, robots.txt state, canonical agreement, how many indexed
+# URLs carry a declared canonical, and last crawl month, so an index-state
+# change can be attributed to a family.
 #
 # SAMPLING
 # --------
@@ -372,6 +373,9 @@ IFS= read -r -d '' PY_RENDER <<'PY' || true
 import collections, json, os
 run_dir, doc_date, site, quota_project, mode, source, stop_reason = sys.argv[1:8]
 VERDICTS = ["PASS", "PARTIAL", "FAIL", "NEUTRAL"]
+# The API documents PASS as Search Console's "Valid" (indexed) and PARTIAL as
+# reserved and no longer in use, so indexed means PASS here.
+INDEXED_VERDICT = "PASS"
 FIELDS = ["verdict", "coverageState", "indexingState", "pageFetchState", "robotsTxtState"]
 INVISIBLE = re.compile("[\x00-\x1f\x7f-\x9f\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]")
 
@@ -399,11 +403,20 @@ if os.path.exists(failures_path):
         if len(cells) == 5:
             failures[cells[2]] = {"status": cells[3], "message": cells[4]}
 
+def new_family_stats():
+    return {"sampled": 0, "inspected": 0, "failed": [], "fields": {f: collections.Counter() for f in FIELDS},
+            "both_canonical": 0, "canonical_differs": 0, "indexed_user_canonical": 0,
+            "crawl": collections.Counter()}
+
+def derive(family):
+    # The counts the tables read that follow from the tallies above.
+    family["failed_count"] = len(family["failed"])
+    family["missing"] = family["sampled"] - family["inspected"] - family["failed_count"]
+    family["indexed"] = family["fields"]["verdict"][INDEXED_VERDICT]
+    return family
+
 expected = set()
-stats = {}
-for name in families:
-    stats[name] = {"sampled": 0, "inspected": 0, "failed": [], "fields": {f: collections.Counter() for f in FIELDS},
-                   "both_canonical": 0, "canonical_differs": 0, "crawl": collections.Counter()}
+stats = {name: new_family_stats() for name in families}
 for name, url, digest in rows:
     family = stats[name]
     family["sampled"] += 1
@@ -432,12 +445,16 @@ for name, url, digest in rows:
         value = result.get(field)
         family["fields"][field]["(absent)" if value in (None, "") else str(value)] += 1
     google, user = result.get("googleCanonical"), result.get("userCanonical")
+    if user and result.get("verdict") == INDEXED_VERDICT:
+        family["indexed_user_canonical"] += 1
     if google and user:
         family["both_canonical"] += 1
         if google != user:
             family["canonical_differs"] += 1
     crawl = result.get("lastCrawlTime")
     family["crawl"][crawl[:7] if isinstance(crawl, str) and re.match("[0-9]{4}-[0-9]{2}", crawl) else "never"] += 1
+for family in stats.values():
+    derive(family)
 
 stray = 0
 for directory, _, names in os.walk(os.path.join(run_dir, "raw")):
@@ -481,33 +498,46 @@ emit("1. **A sample, not a census.** Each family table describes the sampled URL
 emit("2. **Membership.** A fresh draw with the same seed over the same sitemap yields the same URLs, but between days it moves at the margin: a new sitemap URL whose hash sorts ahead of the cut enters, a removed URL leaves, and an upcoming show becomes a past show when its date passes. To compare like with like, re-inspect an earlier run's URLs with `--sample <that run>/sample.tsv`, or diff the two `sample.tsv` files before attributing a change in counts.")
 emit("3. **Requested vs served.** Sampled is the requested size or the family's advertised (sitemap) URL count, whichever is smaller. Inspected + Failed + Not inspected = Sampled. Not inspected means no response was recorded (the run stopped first).")
 emit("4. **Field values are Google's own.** `verdict` is the overall index-status verdict; `coverageState` is the reason as the Search Console UI words it, and its wording can change. `(absent)` means the response omitted the field.")
-emit("5. **Canonical.** A canonical difference is counted only where the response carries both `googleCanonical` and `userCanonical`; unindexed URLs often carry neither.")
+emit("5. **Canonical.** A canonical difference is counted only where the response carries both `googleCanonical` and `userCanonical`; unindexed URLs often carry neither. Indexed with userCanonical counts the indexed (verdict PASS) URLs whose response carries a `userCanonical`; the API documents the field as absent when no canonical is declared. Where it is 0, Canonical differs covers no indexed URL, and a 0 there is not agreement.")
 emit("6. **Last crawl.** `lastCrawlTime` is bucketed by UTC month; `never` means the field is absent.")
 emit("")
 emit("## Roll-up")
 emit("")
-emit("| Family | Advertised | Sampled | Inspected | Failed | Not inspected | PASS | PARTIAL | FAIL | NEUTRAL | Other verdict | Canonical differs |")
-emit("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
+# Roll-up columns after Family and Advertised, each a header and the value of
+# one family's stats: a count, or a (part, whole) pair rendered "part of whole".
+ROLLUP_COLUMNS = (
+    [("Sampled", lambda s: s["sampled"]), ("Inspected", lambda s: s["inspected"]),
+     ("Failed", lambda s: s["failed_count"]), ("Not inspected", lambda s: s["missing"])]
+    + [(v, lambda s, v=v: s["fields"]["verdict"][v]) for v in VERDICTS]
+    + [("Other verdict", lambda s: s["inspected"] - sum(s["fields"]["verdict"][v] for v in VERDICTS)),
+       ("Canonical differs", lambda s: (s["canonical_differs"], s["both_canonical"])),
+       ("Indexed with userCanonical", lambda s: (s["indexed_user_canonical"], s["indexed"]))])
 
-def rollup_row(label, advertised_cell, counts):
-    # counts: sampled, inspected, failed, not inspected, the VERDICTS, other,
-    # canonical differs, canonical both set.
-    cells = [label, advertised_cell] + [str(c) for c in counts[:-2]] + [f"{counts[-2]} of {counts[-1]}"]
-    return "| " + " | ".join(cells) + " |"
+emit("| Family | Advertised | " + " | ".join(header for header, _ in ROLLUP_COLUMNS) + " |")
+emit("| --- | ---: | " + " | ".join("---:" for _ in ROLLUP_COLUMNS) + " |")
 
-family_counts = []
+def cell(value):
+    return f"{value[0]} of {value[1]}" if isinstance(value, tuple) else str(value)
+
+def total(values):
+    return tuple(map(sum, zip(*values))) if isinstance(values[0], tuple) else sum(values)
+
+family_values = []
 for name in families:
-    s = stats[name]
-    verdicts = s["fields"]["verdict"]
-    s["failed_count"] = len(s["failed"])
-    s["missing"] = s["sampled"] - s["inspected"] - s["failed_count"]
-    other = s["inspected"] - sum(verdicts[v] for v in VERDICTS)
-    counts = ([s["sampled"], s["inspected"], s["failed_count"], s["missing"]] + [verdicts[v] for v in VERDICTS]
-              + [other, s["canonical_differs"], s["both_canonical"]])
-    family_counts.append(counts)
-    emit(rollup_row(name, advertised(name), counts))
+    family_values.append([value(stats[name]) for _, value in ROLLUP_COLUMNS])
+    emit("| " + " | ".join([name, advertised(name)] + [cell(v) for v in family_values[-1]]) + " |")
 total_population = str(sum(population[n] for n in families)) if all(n in population for n in families) else "unknown"
-emit(rollup_row("**All families**", total_population, [sum(column) for column in zip(*family_counts)] or [0] * (len(VERDICTS) + 7)))
+if family_values:
+    totals = [total(column) for column in zip(*family_values)]
+else:
+    totals = [value(derive(new_family_stats())) for _, value in ROLLUP_COLUMNS]
+emit("| " + " | ".join(["**All families**", total_population] + [cell(v) for v in totals]) + " |")
+families_without_user_canonical = [name for name in families
+                                   if stats[name]["indexed"] > 0 and stats[name]["indexed_user_canonical"] == 0]
+if families_without_user_canonical:
+    emit("")
+    for name in families_without_user_canonical:
+        emit(f"- **{name}: 0 of {stats[name]['indexed']} indexed URLs carry a `userCanonical`.** Google reports no declared canonical for any of them, so Canonical differs covers no indexed URL in this family (trap 5).")
 for name in families:
     s = stats[name]
     emit("")
@@ -524,6 +554,7 @@ for name in families:
             for value, count in ordered(s["fields"][field]):
                 emit(f"| {field} | {code(value)} | {count} |")
         emit(f"| canonical | googleCanonical differs from userCanonical | {s['canonical_differs']} of {s['both_canonical']} with both set |")
+        emit(f"| canonical | indexed (PASS) URLs carrying userCanonical | {s['indexed_user_canonical']} of {s['indexed']} indexed |")
         for month, count in sorted(s["crawl"].items(), key=lambda item: (item[0] == "never", item[0])):
             emit(f"| lastCrawlTime | {code(month)} | {count} |")
     if s["failed"]:

@@ -7,7 +7,9 @@
 # split on today's UTC date, the shapes that belong to no family, and URLs
 # with control characters), deterministic and seed-sensitive sampling pinned
 # against hashes computed independently with shasum, argument validation, the
-# fixture-mode tables over scripts/testdata/gsc-inspect/, re-inspection of an
+# fixture-mode tables over scripts/testdata/gsc-inspect/ (including the count
+# of indexed URLs carrying a userCanonical and the line under the roll-up for
+# a family whose indexed URLs carry none), re-inspection of an
 # earlier sample with --sample, and the inspection loop against a stub gcloud,
 # curl and sleep: request shape, credential kept off argv, the backoff chosen
 # per status, retry once on 429, 5xx and transport errors, a fresh token on
@@ -405,20 +407,29 @@ run --fixture "$SHIPPED_FIXTURE" --out "$OUT"
 expect_status 0
 [ "$STDOUT" = "$DOC" ] || fail "stdout should be the summary path, got: $STDOUT"
 expected_rollup="$(cat <<'ROWS'
-| Family | Advertised | Sampled | Inspected | Failed | Not inspected | PASS | PARTIAL | FAIL | NEUTRAL | Other verdict | Canonical differs |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| upcoming-shows | 2 | 2 | 2 | 0 | 0 | 1 | 0 | 0 | 1 | 0 | 0 of 1 |
-| past-shows | 340 | 3 | 2 | 1 | 0 | 1 | 0 | 1 | 0 | 0 | 0 of 1 |
-| artists | 2 | 2 | 2 | 0 | 0 | 1 | 0 | 0 | 1 | 0 | 1 of 2 |
-| releases | 2 | 2 | 2 | 0 | 0 | 0 | 1 | 0 | 0 | 1 | 0 of 0 |
-| venues | 2 | 2 | 1 | 0 | 1 | 0 | 0 | 1 | 0 | 0 | 0 of 0 |
-| scene-weeks | 2 | 2 | 2 | 0 | 0 | 1 | 0 | 0 | 1 | 0 | 1 of 2 |
-| **All families** | 350 | 13 | 11 | 1 | 1 | 4 | 1 | 2 | 3 | 1 | 2 of 6 |
+| Family | Advertised | Sampled | Inspected | Failed | Not inspected | PASS | PARTIAL | FAIL | NEUTRAL | Other verdict | Canonical differs | Indexed with userCanonical |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| upcoming-shows | 2 | 2 | 2 | 0 | 0 | 1 | 0 | 0 | 1 | 0 | 0 of 1 | 1 of 1 |
+| past-shows | 340 | 3 | 2 | 1 | 0 | 1 | 0 | 1 | 0 | 0 | 0 of 1 | 1 of 1 |
+| artists | 2 | 2 | 2 | 0 | 0 | 1 | 0 | 0 | 1 | 0 | 1 of 2 | 1 of 1 |
+| releases | 3 | 3 | 3 | 0 | 0 | 1 | 1 | 0 | 0 | 1 | 0 of 0 | 0 of 1 |
+| venues | 2 | 2 | 1 | 0 | 1 | 0 | 0 | 1 | 0 | 0 | 0 of 0 | 0 of 0 |
+| scene-weeks | 2 | 2 | 2 | 0 | 0 | 1 | 0 | 0 | 1 | 0 | 1 of 2 | 1 of 1 |
+| **All families** | 351 | 14 | 12 | 1 | 1 | 5 | 1 | 2 | 3 | 1 | 2 of 6 | 4 of 5 |
 ROWS
 )"
 rollup="$(awk '/^## Roll-up/{on=1; next} /^## /{on=0} on && /^\|/' "$DOC")"
 [ "$rollup" = "$expected_rollup" ] \
   || fail "roll-up differs:$(diff <(printf '%s\n' "$expected_rollup") <(printf '%s\n' "$rollup"))"
+# Only releases has indexed URLs and none declaring a canonical: venues has no
+# indexed URL, and every other family's indexed URL carries one.
+callouts="$(awk '/^## Roll-up/{on=1; next} /^## /{on=0} on && /^- /' "$DOC")"
+[ "$callouts" = '- **releases: 0 of 1 indexed URLs carry a `userCanonical`.** Google reports no declared canonical for any of them, so Canonical differs covers no indexed URL in this family (trap 5).' ] \
+  || fail "the no-declared-canonical lines under the roll-up differ: $callouts"
+expect_line "$DOC" '5. **Canonical.** A canonical difference is counted only where the response carries both `googleCanonical` and `userCanonical`; unindexed URLs often carry neither. Indexed with userCanonical counts the indexed (verdict PASS) URLs whose response carries a `userCanonical`; the API documents the field as absent when no canonical is declared. Where it is 0, Canonical differs covers no indexed URL, and a 0 there is not agreement.'
+expect_line "$DOC" "| canonical | indexed (PASS) URLs carrying userCanonical | 0 of 1 indexed |"
+expect_line "$DOC" "| canonical | indexed (PASS) URLs carrying userCanonical | 1 of 1 indexed |"
+expect_line "$DOC" "Sampled 3 of 3 advertised (requested 3): 3 inspected, 0 failed, 0 not inspected."
 expect_line "$DOC" "> **Fixture render.** Built offline from \`$SHIPPED_FIXTURE\`; no API call was made, and these numbers are not production data."
 expect_line "$DOC" "Sampled 3 of 340 advertised (requested 3): 2 inspected, 1 failed, 0 not inspected."
 expect_line "$DOC" "Sampled 2 of 2 advertised (requested 3): 1 inspected, 0 failed, 1 not inspected."
@@ -432,7 +443,7 @@ expect_line "$DOC" "| \`https://psychichomily.com/shows/2020-05-01-fixture-quint
 expect_no_text "$DOC" "INCOMPLETE"
 expect_no_text "$DOC" "Credential:"
 cmp -s "$SHIPPED_FIXTURE/sample.tsv" "$OUT/gsc-inspect-${TODAY}/sample.tsv" || fail "the run directory does not hold a copy of sample.tsv"
-[ "$(find "$OUT/gsc-inspect-${TODAY}/raw" -name '*.json' | wc -l | tr -d ' ')" = "12" ] || fail "expected 12 raw files in the run directory"
+[ "$(find "$OUT/gsc-inspect-${TODAY}/raw" -name '*.json' | wc -l | tr -d ' ')" = "13" ] || fail "expected 13 raw files in the run directory"
 
 CASE="an existing summary is refused without --force"
 run --fixture "$SHIPPED_FIXTURE" --out "$OUT"
@@ -458,7 +469,15 @@ expect_status 0
   || fail "each replaced summary should be kept under its own name"
 [ "$(find "$OUT" -mindepth 2 -maxdepth 2 -name "gsc-inspect-${TODAY}*" | wc -l | tr -d ' ')" = "0" ] \
   || fail "a replaced run directory should never be moved inside another"
-expect_line "$DOC" "| **All families** | 350 | 13 | 11 | 1 | 1 | 4 | 1 | 2 | 3 | 1 | 2 of 6 |"
+expect_line "$DOC" "| **All families** | 351 | 14 | 12 | 1 | 1 | 5 | 1 | 2 | 3 | 1 | 2 of 6 | 4 of 5 |"
+
+CASE="a fixture whose sample lists no family renders an all-zero roll-up"
+mkdir -p "$TMP/empty-fixture"
+printf '# gsc-inspect-sample v1 seed=empty per_family=1 today_utc=%s sitemap=x\nfamily\turl\thash\n' "$TODAY" >"$TMP/empty-fixture/sample.tsv"
+run --fixture "$TMP/empty-fixture" --out "$TMP/empty-out"
+expect_status 0
+expect_line "$TMP/empty-out/gsc-inspect-${TODAY}.md" "| **All families** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 of 0 | 0 of 0 |"
+expect_no_text "$TMP/empty-out/gsc-inspect-${TODAY}.md" "indexed URLs carry a"
 
 CASE="a malformed fixture sample.tsv is refused"
 mkdir -p "$TMP/bad-fixture"
@@ -504,12 +523,13 @@ expect_no_text "$STUB_LOG_DIR/argv.log" "stub-token"
 [ "$(grep -c -- '--proto =https' "$STUB_LOG_DIR/argv.log")" = "5" ] || fail "every request should pin the protocol to https"
 [ "$(grep -cx '0.11' "$STUB_LOG_DIR/sleeps")" = "5" ] || fail "every request should be followed by the pacing pause"
 [ "$(backoffs)" = "5 " ] || fail "a 5xx should back off 5s, got: $(backoffs)"
-expect_line "$LIVE_DOC" "| venues | 2 | 2 | 2 | 0 | 0 | 2 | 0 | 0 | 0 | 0 | 0 of 2 |"
-expect_line "$LIVE_DOC" "| scene-weeks | 2 | 2 | 2 | 0 | 0 | 2 | 0 | 0 | 0 | 0 | 0 of 2 |"
-expect_line "$LIVE_DOC" "| **All families** | 4 | 4 | 4 | 0 | 0 | 4 | 0 | 0 | 0 | 0 | 0 of 4 |"
+expect_line "$LIVE_DOC" "| venues | 2 | 2 | 2 | 0 | 0 | 2 | 0 | 0 | 0 | 0 | 0 of 2 | 2 of 2 |"
+expect_line "$LIVE_DOC" "| scene-weeks | 2 | 2 | 2 | 0 | 0 | 2 | 0 | 0 | 0 | 0 | 0 of 2 | 2 of 2 |"
+expect_line "$LIVE_DOC" "| **All families** | 4 | 4 | 4 | 0 | 0 | 4 | 0 | 0 | 0 | 0 | 0 of 4 | 4 of 4 |"
 [ "$(find "$LIVE_RUN/raw" -name '*.json' | wc -l | tr -d ' ')" = "4" ] || fail "expected 4 raw responses"
 [ "$(wc -l <"$LIVE_RUN/failures.tsv" | tr -d ' ')" = "1" ] || fail "expected a header-only failures.tsv"
 expect_no_text "$LIVE_DOC" "INCOMPLETE"
+expect_no_text "$LIVE_DOC" "indexed URLs carry a \`userCanonical\`"
 expect_stderr "500 on https://psychichomily.com/venues/venue-"
 
 CASE="a 429 backs off 61s and a successful retry carries on"
@@ -517,14 +537,14 @@ live 429 200 200 200 200 --
 expect_status 0
 [ "$(requests)" = "5" ] || fail "expected 5 API requests, got $(requests)"
 [ "$(backoffs)" = "61 " ] || fail "a 429 should back off 61s, got: $(backoffs)"
-expect_line "$LIVE_DOC" "| **All families** | 4 | 4 | 4 | 0 | 0 | 4 | 0 | 0 | 0 | 0 | 0 of 4 |"
+expect_line "$LIVE_DOC" "| **All families** | 4 | 4 | 4 | 0 | 0 | 4 | 0 | 0 | 0 | 0 | 0 of 4 | 4 of 4 |"
 
 CASE="other errors are not retried; a transport error is retried once then recorded"
 live 200 404 transport transport 200 --
 expect_status 0
 [ "$(requests)" = "5" ] || fail "expected 5 API requests, got $(requests)"
-expect_line "$LIVE_DOC" "| venues | 2 | 2 | 1 | 1 | 0 | 1 | 0 | 0 | 0 | 0 | 0 of 1 |"
-expect_line "$LIVE_DOC" "| scene-weeks | 2 | 2 | 1 | 1 | 0 | 1 | 0 | 0 | 0 | 0 | 0 of 1 |"
+expect_line "$LIVE_DOC" "| venues | 2 | 2 | 1 | 1 | 0 | 1 | 0 | 0 | 0 | 0 | 0 of 1 | 1 of 1 |"
+expect_line "$LIVE_DOC" "| scene-weeks | 2 | 2 | 1 | 1 | 0 | 1 | 0 | 0 | 0 | 0 | 0 of 1 | 1 of 1 |"
 [ "$(failure_statuses)" = "404 transport " ] || fail "failures.tsv statuses: $(failure_statuses)"
 grep -Fq "| \`404\` | stub 404 |" "$LIVE_DOC" || fail "the 404 failure row is missing its message"
 
@@ -543,8 +563,8 @@ expect_stderr "STOPPED EARLY: 429 on both attempts for one URL, a minute apart: 
 expect_stderr "429 on https://psychichomily.com/scenes/akron-oh/"
 [ "$STDOUT" = "$LIVE_DOC" ] || fail "stdout should be the summary path, got: $STDOUT"
 expect_line "$LIVE_DOC" "> **INCOMPLETE: the run stopped early (429 on both attempts for one URL, a minute apart: the daily quota is exhausted).** 2 of 4 sampled URLs were inspected; the rest count under Failed or Not inspected. Do not compare these counts with a complete run."
-expect_line "$LIVE_DOC" "| venues | 2 | 2 | 2 | 0 | 0 | 2 | 0 | 0 | 0 | 0 | 0 of 2 |"
-expect_line "$LIVE_DOC" "| scene-weeks | 2 | 2 | 0 | 1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 of 0 |"
+expect_line "$LIVE_DOC" "| venues | 2 | 2 | 2 | 0 | 0 | 2 | 0 | 0 | 0 | 0 | 0 of 2 | 2 of 2 |"
+expect_line "$LIVE_DOC" "| scene-weeks | 2 | 2 | 0 | 1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 of 0 | 0 of 0 |"
 [ "$(failure_statuses)" = "429 " ] || fail "failures.tsv should hold the one 429"
 
 CASE="a 429 after a 5xx is recorded without stopping the run"
@@ -558,13 +578,13 @@ live 200 401 200 200 200 --
 expect_status 0
 [ "$(wc -l <"$STUB_LOG_DIR/gcloud.log" | tr -d ' ')" = "2" ] || fail "expected a second token mint after the 401"
 expect_line "$STUB_LOG_DIR/stdin.log" 'header = "Authorization: Bearer stub-token-2"'
-expect_line "$LIVE_DOC" "| **All families** | 4 | 4 | 4 | 0 | 0 | 4 | 0 | 0 | 0 | 0 | 0 of 4 |"
+expect_line "$LIVE_DOC" "| **All families** | 4 | 4 | 4 | 0 | 0 | 4 | 0 | 0 | 0 | 0 | 0 of 4 | 4 of 4 |"
 
 CASE="a 401 on the retry after a backoff still mints a fresh token"
 live 200 503 401 200 200 200 --
 expect_status 0
 [ "$(wc -l <"$STUB_LOG_DIR/gcloud.log" | tr -d ' ')" = "2" ] || fail "expected a second token mint after the 401"
-expect_line "$LIVE_DOC" "| **All families** | 4 | 4 | 4 | 0 | 0 | 4 | 0 | 0 | 0 | 0 | 0 of 4 |"
+expect_line "$LIVE_DOC" "| **All families** | 4 | 4 | 4 | 0 | 0 | 4 | 0 | 0 | 0 | 0 | 0 of 4 | 4 of 4 |"
 
 CASE="a token that cannot be minted at the start stops before any request"
 STUB_GCLOUD_FAIL_AT=1 live 200 --
@@ -622,25 +642,25 @@ STUB_SIGNAL_AT=2 STUB_SIGNAL=TERM live 200 200 200 200 --
 expect_status 2
 [ "$(requests)" = "2" ] || fail "expected 2 API requests before the stop, got $(requests)"
 expect_stderr "STOPPED EARLY: interrupted by a signal"
-expect_line "$LIVE_DOC" "| **All families** | 4 | 4 | 2 | 0 | 2 | 2 | 0 | 0 | 0 | 0 | 0 of 2 |"
+expect_line "$LIVE_DOC" "| **All families** | 4 | 4 | 2 | 0 | 2 | 2 | 0 | 0 | 0 | 0 | 0 of 2 | 2 of 2 |"
 
 CASE="SIGINT stops the run the same way"
 STUB_SIGNAL_AT=2 STUB_SIGNAL=INT live 200 200 200 200 --
 expect_status 2
 expect_stderr "STOPPED EARLY: interrupted by a signal"
-expect_line "$LIVE_DOC" "| **All families** | 4 | 4 | 2 | 0 | 2 | 2 | 0 | 0 | 0 | 0 | 0 of 2 |"
+expect_line "$LIVE_DOC" "| **All families** | 4 | 4 | 2 | 0 | 2 | 2 | 0 | 0 | 0 | 0 | 0 of 2 | 2 of 2 |"
 
 CASE="SIGHUP stops the run the same way"
 STUB_SIGNAL_AT=2 STUB_SIGNAL=HUP live 200 200 200 200 --
 expect_status 2
 expect_stderr "STOPPED EARLY: interrupted by a signal"
-expect_line "$LIVE_DOC" "| **All families** | 4 | 4 | 2 | 0 | 2 | 2 | 0 | 0 | 0 | 0 | 0 of 2 |"
+expect_line "$LIVE_DOC" "| **All families** | 4 | 4 | 2 | 0 | 2 | 2 | 0 | 0 | 0 | 0 | 0 of 2 | 2 of 2 |"
 
 CASE="a signal during a retry backoff leaves that URL not inspected, not failed"
 STUB_SIGNAL_AT=3 STUB_SIGNAL=TERM live 200 500 --
 expect_status 2
 [ "$(backoffs)" = "5 " ] || fail "the signal should arrive during the 5s backoff, got: $(backoffs)"
-expect_line "$LIVE_DOC" "| venues | 2 | 2 | 1 | 0 | 1 | 1 | 0 | 0 | 0 | 0 | 0 of 1 |"
+expect_line "$LIVE_DOC" "| venues | 2 | 2 | 1 | 0 | 1 | 1 | 0 | 0 | 0 | 0 | 0 of 1 | 1 of 1 |"
 [ "$(wc -l <"$LIVE_RUN/failures.tsv" | tr -d ' ')" = "1" ] || fail "an interrupted URL should not be recorded as a failure"
 [ "$(find "$LIVE_RUN/raw" -type f | wc -l | tr -d ' ')" = "1" ] || fail "only the one inspected URL should have a raw file"
 
@@ -697,7 +717,7 @@ expect_status 0
   || fail "the inspected URLs should be the reused sample's, in its order"
 cmp -s "$REUSE" "$LIVE_RUN/sample.tsv" || fail "the run should keep the reused sample.tsv unchanged"
 expect_line "$LIVE_DOC" "> **Re-inspected sample.** The URLs and family labels are those of \`$REUSE\`, drawn on 2026-09-01, not a fresh draw from today's sitemap; Advertised is that draw's count."
-expect_line "$LIVE_DOC" "| artists | 500 | 12 | 12 | 0 | 0 | 12 | 0 | 0 | 0 | 0 | 0 of 12 |"
+expect_line "$LIVE_DOC" "| artists | 500 | 12 | 12 | 0 | 0 | 12 | 0 | 0 | 0 | 0 | 0 of 12 | 12 of 12 |"
 
 CASE="a malformed --sample is refused before the credential is used"
 printf '# gsc-inspect-sample v1 seed=x\nfamily\turl\thash\nartists\thttps://psychichomily.com/artists/a\tnot-a-hash\n' >"$TMP/bad-sample.tsv"
@@ -732,7 +752,7 @@ live 200 404 404 404 404 404 404 404 404 404 404 -- --sample "$REUSE"
 expect_status 2
 [ "$(requests)" = "11" ] || fail "expected 11 API requests before the stop, got $(requests)"
 expect_stderr "STOPPED EARLY: 10 URLs in a row failed"
-expect_line "$LIVE_DOC" "| artists | 500 | 12 | 1 | 10 | 1 | 1 | 0 | 0 | 0 | 0 | 0 of 1 |"
+expect_line "$LIVE_DOC" "| artists | 500 | 12 | 1 | 10 | 1 | 1 | 0 | 0 | 0 | 0 | 0 of 1 | 1 of 1 |"
 
 # --- Result -----------------------------------------------------------------------------
 
