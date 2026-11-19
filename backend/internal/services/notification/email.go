@@ -287,7 +287,7 @@ func calendarStepsEmailHTML(pageURL string) string {
 			"button. The page walks you through it.") +
 		emailButton(pageURL, "Add to Google Calendar") +
 		emailFineprint([]string{
-			"You asked for this email from Psychic Homily. If that wasn't you, change your password.",
+			"You asked for this email from Psychic Homily. If that wasn't you, sign out everywhere else in Settings, then change your password.",
 		})
 
 	return emailShell("CALENDAR · YOUR SAVED SHOWS", body)

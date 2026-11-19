@@ -11,14 +11,15 @@ import (
 )
 
 // The copy of board E1 (Product Designs, light 2298:1936), as the recipient
-// reads it.
+// reads it. The footer names sign-out-everywhere first because a signed-in
+// password change alone does not end another session.
 const (
 	calendarStepsKicker   = "CALENDAR · YOUR SAVED SHOWS"
 	calendarStepsHeadline = "Add your saved shows to Google Calendar."
 	calendarStepsBody     = "This step needs a computer, because Google's phone app can't add a calendar. " +
 		"Open this email on one and choose the button. The page walks you through it."
 	calendarStepsButton = "Add to Google Calendar"
-	calendarStepsFooter = "You asked for this email from Psychic Homily. If that wasn't you, change your password."
+	calendarStepsFooter = "You asked for this email from Psychic Homily. If that wasn't you, sign out everywhere else in Settings, then change your password."
 )
 
 var hrefPattern = regexp.MustCompile(`href="([^"]*)"`)
