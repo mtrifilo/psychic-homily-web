@@ -1,5 +1,6 @@
 'use client'
 
+import type { ReactNode } from 'react'
 import { Loader2, Radio } from 'lucide-react'
 import { BracketLink } from '@/components/shared/BracketLink'
 import {
@@ -11,6 +12,7 @@ import {
   isStationVisibleOnIndex,
   sortDialStations,
 } from '@/features/radio'
+import type { RadioStationListItem } from '@/features/radio'
 import { DialStationStrip } from './DialStationStrip'
 import { LatestPlaylistsTable } from './LatestPlaylistsTable'
 import { NewReleaseRadarBox, DialStatsBox } from './DialSidebarBoxes'
@@ -24,101 +26,18 @@ import { RadioGuide } from './RadioGuide'
  * latest-playlists feed (PSY-1048) with New Release Radar + lifetime stats in
  * the sidebar. The top-bar Radio item links straight here (PSY-1057 retired
  * the D2 popover once this page became the dial).
+ *
+ * `dial` is the slot between the page head and the latest playlists: the
+ * part of the hub that reads the station list. The route passes a seeded
+ * `RadioDial` there; left out, the hub renders its own.
  */
-export default function RadioHub() {
-  const stats = useRadioStats()
-  const stationsQuery = useRadioStations()
-  const recent = useRecentRadioEpisodes({ limit: 12 })
-  const radar = useNewReleaseRadar({ limit: 5 })
-  const guide = useRadioGuide()
-
-  return (
-    <RadioHubView
-      stats={stats}
-      stationsQuery={stationsQuery}
-      recent={recent}
-      radar={radar}
-      guide={guide}
-    />
-  )
-}
-
-interface RadioHubViewProps {
-  stats: Pick<ReturnType<typeof useRadioStats>, 'data'>
-  stationsQuery: Pick<
-    ReturnType<typeof useRadioStations>,
-    'data' | 'isLoading' | 'error'
-  >
-  recent: Pick<
-    ReturnType<typeof useRecentRadioEpisodes>,
-    'data' | 'isLoading' | 'error'
-  >
-  radar: Pick<ReturnType<typeof useNewReleaseRadar>, 'data' | 'isLoading'>
-  guide: Pick<ReturnType<typeof useRadioGuide>, 'data' | 'isError'>
-}
-
-/** A read that has not answered yet, as a pending query reports it. */
-const PENDING_READ = {
-  data: undefined,
-  isLoading: true,
-  error: null,
-  isError: false,
-} as const
-
-/**
- * The hub as it renders before any read has answered, with no query behind
- * it: the same markup `RadioHub` renders while every read is pending. It
- * registers nothing in the query cache, which is what lets it stand as the
- * fallback above a seeded boundary (see `seedFirstScreen`).
- */
-export function RadioHubLoading() {
-  return (
-    <RadioHubView
-      stats={PENDING_READ}
-      stationsQuery={PENDING_READ}
-      recent={PENDING_READ}
-      radar={PENDING_READ}
-      guide={PENDING_READ}
-    />
-  )
-}
-
-/**
- * The notice the dial shows in place of strips, or null when it shows strips
- * or its loader. The error is for a dial with nothing to show: a failed
- * refetch of stations already on screen keeps the strips and says nothing,
- * since a server-seeded dial refetches on its first client commit.
- */
-function dialNoticeFor(
-  stationsQuery: RadioHubViewProps['stationsQuery'],
-  visibleStationCount: number
-): string | null {
-  if (stationsQuery.isLoading) return null
-  if (stationsQuery.error && !stationsQuery.data) {
-    return "Couldn't load radio stations."
-  }
-  if (visibleStationCount === 0) return 'No radio stations yet.'
-  return null
-}
-
-function RadioHubView({
-  stats: { data: stats },
-  stationsQuery,
-  recent: { data: recentData, isLoading: recentLoading, error: recentError },
-  radar: { data: radarData, isLoading: radarLoading },
-  // On a refetch error React Query RETAINS the previous data (the PSY-1136
-  // stale-retained-data class) while the hook's interval stops — so an
-  // errored guide must render nothing, not yesterday's ON NOW forever.
-  guide: { data: guideData, isError: guideError },
-}: RadioHubViewProps) {
-  const allStations = stationsQuery.data?.stations ?? []
-  const stations = sortDialStations(allStations.filter(isStationVisibleOnIndex))
-  const dialNotice = dialNoticeFor(stationsQuery, stations.length)
-  // Every station, sub-streams included: the guide schedules sub-streams the
-  // dial hides.
-  const stationNetworks = new Map(
-    allStations.map(station => [station.slug, station.network])
-  )
+export default function RadioHub({ dial = <RadioDial /> }: { dial?: ReactNode }) {
+  const { data: stats } = useRadioStats()
+  const { data: recentData, isLoading: recentLoading, error: recentError } =
+    useRecentRadioEpisodes({ limit: 12 })
+  const { data: radarData, isLoading: radarLoading } = useNewReleaseRadar({
+    limit: 5,
+  })
 
   return (
     <div className="flex min-h-screen items-start justify-center">
@@ -146,39 +65,7 @@ function RadioHubView({
           )}
         </header>
 
-        {/* THE DIAL */}
-        {/* This `aria-label` is a TEST LOCATOR, not just an a11y name:
-            e2e/pages/radio.spec.ts scopes its station-link queries to
-            `region "The dial"` to separate these strips from the program
-            guide, which links the same stations by the same bare names.
-            Renaming it (for instance to match the visible heading below)
-            breaks that spec. Rename the constant in the spec too. */}
-        <section className="mb-10" aria-label="The dial">
-          <DialSectionHeading title="The dial — live now" />
-          {stationsQuery.isLoading && (
-            <div className="flex justify-center py-12">
-              <Loader2 className="size-5 animate-spin text-muted-foreground" />
-              <span className="sr-only">Loading stations</span>
-            </div>
-          )}
-          {dialNotice && (
-            <div className="flex flex-col items-center gap-1 py-12 text-center">
-              <Radio className="size-7 text-muted-foreground/30" />
-              <p className="text-sm text-muted-foreground">{dialNotice}</p>
-            </div>
-          )}
-          {stations.map(station => (
-            <DialStationStrip key={station.id} station={station} />
-          ))}
-        </section>
-
-        {/* ON NOW / UP NEXT guide (PSY-1053) — self-hides when the guide is
-            empty, loading, or errored. */}
-        <RadioGuide
-          onNow={guideError ? null : guideData?.on_now}
-          upNext={guideError ? null : guideData?.up_next}
-          stationNetworks={stationNetworks}
-        />
+        {dial}
 
         {/* Latest playlists + sidebar */}
         <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_280px]">
@@ -212,6 +99,111 @@ function RadioHubView({
         </div>
       </main>
     </div>
+  )
+}
+
+/**
+ * The dial strips and the program guide below them: the hub's only readers of
+ * the station list (the guide maps each scheduled slug to its network).
+ */
+export function RadioDial() {
+  const stationsQuery = useRadioStations()
+  // On a refetch error React Query RETAINS the previous data (the PSY-1136
+  // stale-retained-data class) while the hook's interval stops — so an
+  // errored guide must render nothing, not yesterday's ON NOW forever.
+  const { data: guideData, isError: guideError } = useRadioGuide()
+
+  const allStations = stationsQuery.data?.stations ?? []
+  const stations = sortDialStations(allStations.filter(isStationVisibleOnIndex))
+  // Every station, sub-streams included: the guide schedules sub-streams the
+  // dial hides.
+  const stationNetworks = new Map(
+    allStations.map(station => [station.slug, station.network])
+  )
+
+  return (
+    <>
+      <DialSection
+        isLoading={stationsQuery.isLoading}
+        notice={dialNoticeFor(stationsQuery, stations.length)}
+        stations={stations}
+      />
+
+      {/* ON NOW / UP NEXT guide (PSY-1053) — self-hides when the guide is
+          empty, loading, or errored. */}
+      <RadioGuide
+        onNow={guideError ? null : guideData?.on_now}
+        upNext={guideError ? null : guideData?.up_next}
+        stationNetworks={stationNetworks}
+      />
+    </>
+  )
+}
+
+/**
+ * `RadioDial` as it renders before its reads answer, with no query behind it,
+ * so it can stand as the fallback above a seeded dial (see `seedFirstScreen`).
+ * The guide renders nothing while loading, so the dial section is all of it.
+ */
+export function RadioDialLoading() {
+  return <DialSection isLoading notice={null} stations={[]} />
+}
+
+/**
+ * The notice the dial shows in place of strips, or null when it shows strips
+ * or its loader. The error is for a dial with nothing to show: a failed
+ * refetch of stations already on screen keeps the strips and says nothing,
+ * since a server-seeded dial refetches on its first client commit.
+ */
+function dialNoticeFor(
+  stationsQuery: Pick<
+    ReturnType<typeof useRadioStations>,
+    'data' | 'isLoading' | 'error'
+  >,
+  visibleStationCount: number
+): string | null {
+  if (stationsQuery.isLoading) return null
+  if (stationsQuery.error && !stationsQuery.data) {
+    return "Couldn't load radio stations."
+  }
+  if (visibleStationCount === 0) return 'No radio stations yet.'
+  return null
+}
+
+function DialSection({
+  isLoading,
+  notice,
+  stations,
+}: {
+  isLoading: boolean
+  notice: string | null
+  stations: RadioStationListItem[]
+}) {
+  return (
+    // This `aria-label` is a TEST LOCATOR, not just an a11y name:
+    // e2e/pages/radio.spec.ts scopes its station-link queries to
+    // `region "The dial"` to separate these strips from the program
+    // guide, which links the same stations by the same bare names.
+    // Renaming it (for instance to match the visible heading below)
+    // breaks that spec. Rename the constant in the spec too.
+    <section className="mb-10" aria-label="The dial">
+      <DialSectionHeading title="The dial — live now" />
+      {isLoading && (
+        <div className="flex justify-center py-12">
+          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          <span className="sr-only">Loading stations</span>
+        </div>
+      )}
+      {notice && (
+        <div className="flex flex-col items-center gap-1 py-12 text-center">
+          <Radio className="size-7 text-muted-foreground/30" />
+          <p className="text-sm text-muted-foreground">{notice}</p>
+        </div>
+      )}
+      {stations.map(station => (
+        <DialStationStrip key={station.id} station={station} />
+      ))}
+    </section>
   )
 }
 

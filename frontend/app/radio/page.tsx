@@ -1,7 +1,7 @@
 import { Suspense } from 'react'
 import { Metadata } from 'next'
 import { HydrationBoundary } from '@tanstack/react-query'
-import RadioHub, { RadioHubLoading } from './_components/RadioHub'
+import RadioHub, { RadioDial, RadioDialLoading } from './_components/RadioHub'
 import {
   RADIO_DIAL_FIRST_SCREEN_KEY,
   RADIO_DIAL_FIRST_SCREEN_URL,
@@ -20,18 +20,17 @@ export const metadata: Metadata = {
 }
 
 /**
- * `RadioHub` under a boundary seeded with the station list, so every dial
+ * `RadioDial` under a boundary seeded with the station list, so every dial
  * strip and its station link are in the server HTML.
  *
- * Only the stations are seeded. The strips' detail and now-playing reads, the
- * guide, the latest playlists and the stats all fill in after hydration, as
- * they do on an unseeded hub.
+ * Only the stations are seeded. The strips' detail and now-playing reads and
+ * the guide fill in after hydration, as they do on an unseeded dial.
  *
  * The hub reads no URL params, so every request is the first screen. A failed
- * read seeds nothing, and the hub fetches for itself and owns the loading and
+ * read seeds nothing, and the dial fetches for itself and owns the loading and
  * error states. The element is a `HydrationBoundary` on every path.
  */
-export async function HydratedRadioHub() {
+export async function HydratedRadioDial() {
   const dehydratedState = await dehydrateFirstScreen([
     {
       url: RADIO_DIAL_FIRST_SCREEN_URL,
@@ -43,20 +42,26 @@ export async function HydratedRadioHub() {
 
   return (
     <HydrationBoundary state={dehydratedState}>
-      <RadioHub />
+      <RadioDial />
     </HydrationBoundary>
   )
 }
 
 /**
- * The fallback is the hub as it renders before any read has answered (heading,
- * dial loader and all), drawn without the hub's queries: a fallback that ran
- * them would pre-empt the seed (see `seedFirstScreen`).
+ * Only the dial waits on the server read: the page head, the latest playlists
+ * and the sidebar sit outside the boundary and start their own reads at
+ * hydration. The fallback is the dial as it renders before its reads answer,
+ * drawn without the dial's queries, which a fallback must not run (see
+ * `seedFirstScreen`).
  */
 export default function RadioPage() {
   return (
-    <Suspense fallback={<RadioHubLoading />}>
-      <HydratedRadioHub />
-    </Suspense>
+    <RadioHub
+      dial={
+        <Suspense fallback={<RadioDialLoading />}>
+          <HydratedRadioDial />
+        </Suspense>
+      }
+    />
   )
 }

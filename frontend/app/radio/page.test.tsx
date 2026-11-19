@@ -1,3 +1,4 @@
+import type { ReactElement } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HydrationBoundary, hashKey } from '@tanstack/react-query'
 import {
@@ -38,8 +39,11 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/radio',
 }))
 
-import RadioPage, { HydratedRadioHub } from './page'
-import RadioHub, { RadioHubLoading } from './_components/RadioHub'
+import RadioPage, { HydratedRadioDial } from './page'
+import RadioHub, {
+  RadioDial,
+  RadioDialLoading,
+} from './_components/RadioHub'
 import {
   RADIO_DIAL_FIRST_SCREEN_KEY,
   RADIO_DIAL_FIRST_SCREEN_URL,
@@ -117,6 +121,10 @@ const stationsPayload = {
   count: 3,
 }
 
+/** The Suspense element the page puts in the hub's dial slot. */
+const pageDialSlot = () =>
+  (RadioPage().props as { dial: ReactElement<{ fallback: ReactElement }> }).dial
+
 describe('/radio server-seeded dial', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -124,7 +132,7 @@ describe('/radio server-seeded dial', () => {
   })
 
   it('reads the paired stations URL at request time', async () => {
-    await HydratedRadioHub()
+    await HydratedRadioDial()
 
     expect(connection).toHaveBeenCalled()
     expect(fetchListPayload).toHaveBeenCalledTimes(1)
@@ -140,7 +148,7 @@ describe('/radio server-seeded dial', () => {
   })
 
   it('seeds exactly the stations key, stamped stale', async () => {
-    const state = stateOf(await HydratedRadioHub())
+    const state = stateOf(await HydratedRadioDial())
 
     expect(state.queries.map(q => q.queryKey)).toEqual([
       RADIO_DIAL_FIRST_SCREEN_KEY,
@@ -148,10 +156,10 @@ describe('/radio server-seeded dial', () => {
     expect(state.queries[0].state.dataUpdatedAt).toBe(0)
   })
 
-  // The real hub and strips over the seed: a key the hook does not register
+  // The real dial and strips over the seed: a key the hook does not register
   // would leave the dial on its loader.
   it('server-renders a strip per dial station, each linking its station page', async () => {
-    const html = serverRender(await HydratedRadioHub())
+    const html = serverRender(await HydratedRadioDial())
 
     expect(html).not.toContain(DIAL_LOADER)
     expect(html).toContain('href="/radio/wfmu"')
@@ -166,60 +174,71 @@ describe('/radio server-seeded dial', () => {
     )
   })
 
-  it('renders the hub with its dial loader when the read fails, rather than throwing', async () => {
+  it('renders the dial with its loader when the read fails, rather than throwing', async () => {
     fetchListPayload.mockResolvedValue(null)
 
-    const boundary = await HydratedRadioHub()
+    const boundary = await HydratedRadioDial()
 
     expect(boundary.type).toBe(HydrationBoundary)
     expect(stateOf(boundary)).toEqual({ mutations: [], queries: [] })
-    const html = serverRender(boundary)
-    expect(html).toContain(DIAL_LOADER)
-    expect(html).toContain('>Radio</h1>')
+    expect(serverRender(boundary)).toContain(DIAL_LOADER)
   })
 
-  it('renders the pending hub as the boundary fallback', () => {
-    const html = serverRender(RadioPage())
-
-    expect(html).toContain('>Radio</h1>')
-    expect(html).toContain(DIAL_LOADER)
-    expect(fetchListPayload).not.toHaveBeenCalled()
-  })
-
-  // On a request the fallback and the seeded boundary render through ONE
-  // query client, fallback first.
-  it('serves the seeded dial when the fallback rendered first on the same client', async () => {
-    const boundary = await HydratedRadioHub()
+  // On a request the page's fallback and the seeded boundary render through
+  // ONE query client, fallback first. Built from the page's own fallback, so a
+  // fallback that registers the stations key fails here.
+  it("serves the seeded dial after the page's own fallback rendered on the same client", async () => {
+    const fallback = pageDialSlot().props.fallback
     const html = serverRender(
       <>
-        <RadioHubLoading />
-        {boundary}
+        {fallback}
+        {await HydratedRadioDial()}
       </>
     )
 
     expect(html).toContain('href="/radio/kexp"')
     expect(html.match(/<article/g)).toHaveLength(2)
   })
+
+  it('renders the page head and the rest of the hub around the dial fallback', () => {
+    const html = serverRender(RadioPage())
+
+    expect(html).toContain('>Radio</h1>')
+    expect(html).toContain('Latest playlists')
+    expect(html).toContain(DIAL_LOADER)
+  })
 })
 
-describe('/radio boundary fallback', () => {
+describe('/radio dial fallback', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     apiRequest.mockReturnValue(new Promise(() => {}))
   })
 
-  it('registers no query', () => {
-    expect(registeredQueryHashes(<RadioHubLoading />)).toEqual([])
+  it('is the dial loading view and registers no query', () => {
+    const fallback = pageDialSlot().props.fallback
+
+    expect(fallback.type).toBe(RadioDialLoading)
+    expect(registeredQueryHashes(fallback)).toEqual([])
     expect(apiRequest).not.toHaveBeenCalled()
   })
 
-  it('is the markup the hub renders while every read is pending', () => {
-    expect(serverRender(<RadioHubLoading />)).toBe(serverRender(<RadioHub />))
+  it('is the markup the dial renders before its reads answer', () => {
+    expect(serverRender(<RadioDialLoading />)).toBe(serverRender(<RadioDial />))
+  })
+
+  // The seeded key must be registered by nothing that renders before the
+  // boundary: the hub around the slot included.
+  it('the hub outside the dial slot does not register the stations key', () => {
+    const hashes = registeredQueryHashes(<RadioHub dial={null} />)
+
+    expect(hashes.length).toBeGreaterThan(0)
+    expect(hashes).not.toContain(hashKey(RADIO_DIAL_FIRST_SCREEN_KEY))
   })
 })
 
 /**
- * The client half of the pair: mounted on a cold cache, the real hub requests
+ * The client half of the pair: mounted on a cold cache, the real dial requests
  * the URL the server reads and registers the key the server seeds.
  */
 describe('/radio dial request pairing', () => {
@@ -228,8 +247,8 @@ describe('/radio dial request pairing', () => {
     apiRequest.mockReturnValue(new Promise(() => {}))
   })
 
-  it('RadioHub requests the stations URL and keys on the stations key', () => {
-    const hashes = registeredQueryHashes(<RadioHub />)
+  it('RadioDial requests the stations URL and keys on the stations key', () => {
+    const hashes = registeredQueryHashes(<RadioDial />)
 
     expect(hashes).toContain(hashKey(RADIO_DIAL_FIRST_SCREEN_KEY))
     expect(apiRequest.mock.calls.map(([url]) => url)).toContain(

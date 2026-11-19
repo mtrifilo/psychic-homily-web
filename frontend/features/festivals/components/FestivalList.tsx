@@ -20,6 +20,11 @@ export function FestivalList() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
+  // The bare list is server-rendered and `useDensity` reads localStorage
+  // through a server snapshot, so the server HTML and the hydration render are
+  // always 'comfortable'. A viewer who chose compact or expanded gets one
+  // whole-list re-layout on the commit after hydration; `ArtistList` and
+  // `ShowList` make the same accepted trade.
   const { density, setDensity } = useDensity('festivals')
 
   // Parse filters from URL
