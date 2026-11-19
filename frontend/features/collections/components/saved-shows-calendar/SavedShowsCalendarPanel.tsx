@@ -1,6 +1,13 @@
 'use client'
 
-import { useCallback, useId, useRef, type RefObject } from 'react'
+import {
+  useCallback,
+  useId,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type RefObject,
+} from 'react'
 import {
   Popover,
   PopoverAnchor,
@@ -56,6 +63,14 @@ export function SavedShowsCalendarPanel({
   align = 'start',
 }: SavedShowsCalendarPanelProps) {
   const fitsPopover = useMediaQuery(POPOVER_MIN_WIDTH_QUERY)
+  // The shell is chosen as the panel opens and kept until it closes: swapping
+  // popover and sheet mid-open (a phone rotated across the breakpoint) would
+  // remount the contents and lose this open's notes and its reset heading.
+  // Adjusted during render, the house way to follow a prop without an effect.
+  const [openShell, setOpenShell] = useState<CalendarPanelLayout | null>(null)
+  if (open && openShell === null) setOpenShell(fitsPopover ? 'popover' : 'sheet')
+  if (!open && openShell !== null) setOpenShell(null)
+  const shell = openShell ?? (fitsPopover ? 'popover' : 'sheet')
   const headingId = useId()
   const close = useCallback(() => onOpenChange(false), [onOpenChange])
 
@@ -84,7 +99,27 @@ export function SavedShowsCalendarPanel({
     [anchorRef]
   )
 
-  if (fitsPopover) {
+  // The popover is portaled to the end of the page and does not trap focus,
+  // so Tab past its last control (or Shift+Tab before its first) would leave
+  // for the browser chrome. It closes instead, returning focus to Save.
+  const closeOnTabOut = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      if (event.key !== 'Tab') return
+      const controls = Array.from(
+        event.currentTarget.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled])'
+        )
+      )
+      const edge = event.shiftKey ? controls[0] : controls[controls.length - 1]
+      if (controls.length === 0 || document.activeElement === edge) {
+        event.preventDefault()
+        onOpenChange(false)
+      }
+    },
+    [onOpenChange]
+  )
+
+  if (shell === 'popover') {
     return (
       <Popover open={open} onOpenChange={onOpenChange}>
         <PopoverAnchor
@@ -96,6 +131,7 @@ export function SavedShowsCalendarPanel({
           onOpenAutoFocus={forgetOutsideInteraction}
           onInteractOutside={noteOutsideInteraction}
           onCloseAutoFocus={returnFocusToAnchor}
+          onKeyDown={closeOnTabOut}
           className="w-72 p-4 shadow-md"
           data-testid="saved-shows-calendar-panel"
         >

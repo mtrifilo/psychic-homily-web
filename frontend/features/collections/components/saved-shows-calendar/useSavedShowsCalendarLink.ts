@@ -28,8 +28,31 @@ export type PanelLink =
   /** A link exists, but its address was never stored and cannot be shown. */
   | { kind: 'unrecoverable' }
 
-export class LinkLoadError extends Error {}
-export class LinkCreateError extends Error {}
+/** Which step of preparing the link failed. */
+export type PanelLinkFailure = 'load' | 'create'
+
+const FAILED_STEP = Symbol('calendarPanelLinkFailedStep')
+
+/**
+ * Marks the original error with the step that failed rather than wrapping it,
+ * so the query cache still sees an expired session's AuthError and recovers
+ * from it, and the request id and status stay attached.
+ */
+function failedAt(step: PanelLinkFailure, error: unknown): unknown {
+  if (error !== null && typeof error === 'object') {
+    Object.assign(error, { [FAILED_STEP]: step })
+    return error
+  }
+  return Object.assign(new Error(String(error)), { [FAILED_STEP]: step })
+}
+
+export function panelLinkFailure(error: unknown): PanelLinkFailure {
+  const step =
+    error !== null && typeof error === 'object'
+      ? (error as { [FAILED_STEP]?: PanelLinkFailure })[FAILED_STEP]
+      : undefined
+  return step ?? 'load'
+}
 
 /**
  * Reads the link fresh from the server and creates one only when that read
@@ -44,7 +67,7 @@ async function preparePanelLink(queryClient: QueryClient): Promise<PanelLink> {
       { method: 'GET' }
     )
   } catch (error) {
-    throw new LinkLoadError(String(error))
+    throw failedAt('load', error)
   }
 
   if (current.has_token) {
@@ -60,7 +83,7 @@ async function preparePanelLink(queryClient: QueryClient): Promise<PanelLink> {
       { method: 'POST' }
     )
   } catch (error) {
-    throw new LinkCreateError(String(error))
+    throw failedAt('create', error)
   }
   // The Library and Settings cards hold an address they created; they swap
   // it for this one, which replaced it.

@@ -24,27 +24,23 @@ import type {
 import { PERSONAL_FEED_TOKEN_REVOKED_EVENT } from '@/features/collections/components/personalFeedTokenEvents'
 
 /**
- * The token status query, for a caller that reads it imperatively at the
- * moment it needs the address (`queryClient.fetchQuery`) and shares the cache
- * entry with `useCalendarTokenStatus`.
- */
-export const calendarTokenStatusQuery = {
-  queryKey: queryKeys.calendar.tokenStatus,
-  queryFn: async (): Promise<CalendarTokenStatusResponse> => {
-    return apiRequest<CalendarTokenStatusResponse>(
-      API_ENDPOINTS.CALENDAR.TOKEN,
-      { method: 'GET' }
-    )
-  },
-  staleTime: 5 * 60 * 1000, // 5 minutes
-}
-
-/**
  * Hook to check if the user has a calendar feed token
  */
 export const useCalendarTokenStatus = (enabled: boolean = true) => {
-  return useQuery({ ...calendarTokenStatusQuery, enabled })
+  return useQuery({
+    queryKey: queryKeys.calendar.tokenStatus,
+    queryFn: async (): Promise<CalendarTokenStatusResponse> => {
+      return apiRequest<CalendarTokenStatusResponse>(
+        API_ENDPOINTS.CALENDAR.TOKEN,
+        { method: 'GET' }
+      )
+    },
+    enabled,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  })
 }
+
+const FAILED_STATUS_RETRY_MS = 10_000
 
 /**
  * The calendar feed's status with no feed address in it: whether a link
@@ -74,7 +70,16 @@ export const useCalendarFeedStatus = (
     enabled,
     staleTime: 5 * 60 * 1000, // 5 minutes
     ...(options.live
-      ? { refetchOnMount: 'always', refetchOnWindowFocus: 'always' }
+      ? {
+          refetchOnMount: 'always',
+          refetchOnWindowFocus: 'always',
+          // A read that has never succeeded is retried on its own, since the
+          // surface has nothing else to show and nothing to press meanwhile.
+          refetchInterval: query =>
+            query.state.status === 'error' && query.state.data === undefined
+              ? FAILED_STATUS_RETRY_MS
+              : false,
+        }
       : {}),
   })
 }

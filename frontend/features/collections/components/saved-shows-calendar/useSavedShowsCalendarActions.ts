@@ -40,16 +40,17 @@ export function useSavedShowsCalendarActions(feedUrl: string) {
    * Google's Add from URL page to paste it into. The copy starts before the
    * tab opens, while this document still has focus, which a clipboard write
    * needs; a refused copy closes the tab again, since there is nothing to
-   * paste.
+   * paste. When the browser blocked the tab, the note says only that the
+   * link was copied, never that Google is open.
    */
   const addToGoogle = useCallback(() => {
     setNote('google', null)
     const copying = copyText(feedUrl)
     const tab = openTab(GOOGLE_CALENDAR_ADD_BY_URL_PAGE)
     copying.then(
-      () => setNote('google', 'google_pending'),
+      () => setNote('google', tab ? 'google_pending' : 'copied'),
       () => {
-        tab.close()
+        tab?.close()
         setNote('google', 'copy_failed')
       }
     )

@@ -8,9 +8,10 @@ import type {
 
 /**
  * The saved-shows calendar's observed status: which calendar apps are checking
- * the link, which have stopped, and the sentences that report them. Pure, so
- * every surface that talks about the calendar (the panel, the Library header,
- * the home footer, Settings) reads one set of rules.
+ * the link, which have stopped, and the sentences that report them. Pure and
+ * apart from any component, so each surface that talks about the calendar
+ * reads one set of rules; the panel is the first. `summarizeCalendar` is the
+ * spec's rule for the header and footer labels, which have no surface yet.
  *
  * Every status here is an OBSERVED check reported by the server, never a
  * guess from a click: an app the server has not seen is not connected.

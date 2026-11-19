@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useRef, useState } from 'react'
 import { createTestQueryClient, createWrapperWithClient } from '@/test/utils'
@@ -10,6 +10,7 @@ import type {
   CalendarTokenStatusResponse,
 } from '@/features/shows/types'
 import { SavedShowsCalendarPanel } from './SavedShowsCalendarPanel'
+import { endsWithRetry } from './CalendarPanelParts'
 import {
   PANEL_COPY,
   RESET_SUB,
@@ -167,17 +168,33 @@ let tabs: FakeTab[]
 let effects: string[]
 const writeText = vi.fn()
 
+let viewportIsWide = true
+const mediaListeners = new Set<() => void>()
+
 function useDevice(agent: string, wide: boolean) {
   vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(agent)
+  viewportIsWide = wide
   vi.mocked(window.matchMedia).mockImplementation(
     (query: string) =>
       ({
-        matches: wide,
+        get matches() {
+          return viewportIsWide
+        },
         media: query,
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
+        addEventListener: (_type: string, listener: () => void) =>
+          mediaListeners.add(listener),
+        removeEventListener: (_type: string, listener: () => void) =>
+          mediaListeners.delete(listener),
       }) as unknown as MediaQueryList
   )
+}
+
+/** The viewport crosses the popover breakpoint, as a rotated phone does. */
+function crossBreakpoint(wide: boolean) {
+  viewportIsWide = wide
+  act(() => {
+    for (const listener of mediaListeners) listener()
+  })
 }
 
 /** Keeps jsdom from following a link (it cannot); React handlers still run. */
@@ -385,6 +402,30 @@ describe('SavedShowsCalendarPanel: preparing the link as it opens', () => {
       expect(within(panel).queryByRole('alert')).not.toBeInTheDocument()
     }
   )
+
+  it('H with no app listed keeps the status heading, never the add heading', async () => {
+    server.status = { has_token: true, reads: [] }
+    server.token = { has_token: true, url_recoverable: false }
+    const panel = await renderPanel()
+    expect(
+      within(panel).getByRole('heading', { name: PANEL_COPY.headingStatus })
+    ).toBeInTheDocument()
+    expect(within(panel).queryByText(PANEL_COPY.subAdd)).not.toBeInTheDocument()
+    expect(rowNames(panel)).toEqual([])
+  })
+
+  it('an expired session while creating keeps its AuthError and shows the create line', async () => {
+    server.mint = async () => {
+      throw new AuthError('expired', 'UNAUTHORIZED' as never, { status: 401 })
+    }
+    render(<Harness />, {
+      wrapper: createWrapperWithClient(createTestQueryClient()),
+    })
+    const panel = await screen.findByTestId('saved-shows-calendar-panel')
+    expect(await within(panel).findByRole('alert')).toHaveTextContent(
+      PANEL_COPY.createFailed
+    )
+  })
 
   it('H: a link whose address cannot be shown is known on open, with no rows', async () => {
     server.status = { has_token: true, reads: [google(2 * HOUR)] }
@@ -693,7 +734,7 @@ describe('SavedShowsCalendarPanel: rows act inside the click', () => {
     const user = setupUser()
     const panel = await renderPanel()
     const copy = within(panel).getByRole('button', { name: 'Copy link' })
-    expect(copy).toHaveClass('ph-no-capture')
+    expect(copy).toHaveClass('ph-no-capture', 'sentry-block')
 
     await user.click(copy)
 
@@ -710,7 +751,10 @@ describe('SavedShowsCalendarPanel: rows act inside the click', () => {
       element => element.getAttribute('href')?.includes(TOKEN)
     )
     expect(carriers.length).toBeGreaterThan(0)
-    for (const element of carriers) expect(element).toHaveClass('ph-no-capture')
+    for (const element of carriers) {
+      // PostHog skips the first, Sentry Session Replay blanks the second.
+      expect(element).toHaveClass('ph-no-capture', 'sentry-block')
+    }
   })
 
   it("Google: copies, then opens Google's page, both in the click", async () => {
@@ -727,6 +771,17 @@ describe('SavedShowsCalendarPanel: rows act inside the click', () => {
     for (const line of PANEL_COPY.googlePending) {
       expect(await within(panel).findByText(line)).toBeInTheDocument()
     }
+  })
+
+  it('Google: a blocked tab is never reported as open', async () => {
+    const user = setupUser()
+    vi.mocked(window.open).mockReturnValue(null)
+    const panel = await renderPanel()
+
+    await user.click(within(panel).getByRole('button', { name: 'Google Calendar' }))
+
+    expect(await within(panel).findByText(PANEL_COPY.copied)).toBeInTheDocument()
+    expect(within(panel).queryByText(PANEL_COPY.googlePending[0])).not.toBeInTheDocument()
   })
 
   it("Google: a refused copy closes Google's tab and points to Settings", async () => {
@@ -789,7 +844,64 @@ describe('SavedShowsCalendarPanel: rows act inside the click', () => {
   })
 })
 
+describe('SavedShowsCalendarPanel: keeps this open together', () => {
+  it('a status refetch that fails keeps the panel and its notes on screen', async () => {
+    const user = setupUser()
+    const client = createTestQueryClient()
+    const panel = await renderPanel(client)
+    await user.click(within(panel).getByRole('button', { name: 'Copy link' }))
+    await within(panel).findByText(PANEL_COPY.copied)
+
+    const base = apiRequest.getMockImplementation()!
+    apiRequest.mockImplementation(async (endpoint: string, options: unknown) => {
+      if (String(endpoint).endsWith('/calendar/token/feed-status')) {
+        throw new Error('502')
+      }
+      return base(endpoint, options)
+    })
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ['calendar', 'feedStatus'] })
+    })
+
+    await waitFor(() =>
+      expect(client.getQueryState(['calendar', 'feedStatus'])?.status).toBe('error')
+    )
+    expect(within(panel).getByText(PANEL_COPY.copied)).toBeInTheDocument()
+    expect(within(panel).queryByText(PANEL_COPY.loading)).not.toBeInTheDocument()
+  })
+
+  it('crossing the breakpoint while open keeps the same shell and its notes', async () => {
+    const user = setupUser()
+    useDevice(UA.iphoneSafari, false)
+    const panel = await renderPanel()
+    await user.click(within(panel).getByRole('button', { name: 'Copy link' }))
+    await within(panel).findByText(PANEL_COPY.copied)
+    const linkReads = calls('/calendar/token', 'GET').length
+
+    crossBreakpoint(true)
+
+    const after = screen.getByTestId('saved-shows-calendar-panel')
+    expect(after).toBe(panel)
+    expect(within(after).getByText(PANEL_COPY.copied)).toBeInTheDocument()
+    expect(calls('/calendar/token', 'GET')).toHaveLength(linkReads)
+  })
+})
+
 describe('SavedShowsCalendarPanel: focus', () => {
+  it('Tab past the last control closes the popover and returns focus to Save', async () => {
+    const user = setupUser()
+    withLink([google(2 * HOUR)])
+    const panel = await renderPanel()
+    within(panel).getByRole('link', { name: PANEL_COPY.manageInSettings }).focus()
+
+    await user.tab()
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('saved-shows-calendar-panel')).not.toBeInTheDocument()
+    )
+    expect(screen.getByRole('button', { name: 'Saved' })).toHaveFocus()
+  })
+
   it('returns focus to the Save control on Escape', async () => {
     const user = setupUser()
     await renderPanel()
@@ -974,6 +1086,17 @@ describe('SavedShowsCalendarPanel: copy rules', () => {
       now
     ),
   ]
+
+  it('ends every line that retries with the words that are its retry', () => {
+    for (const line of [
+      PANEL_COPY.createFailed,
+      PANEL_COPY.loadFailed,
+      PANEL_COPY.forgetFailed,
+      PANEL_COPY.emailFailed,
+    ]) {
+      expect(endsWithRetry(line)).toBe(true)
+    }
+  })
 
   it('has no em or en dashes', () => {
     for (const s of strings) expect(s).not.toMatch(/[–—]/)

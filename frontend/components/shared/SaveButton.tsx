@@ -20,15 +20,18 @@ import { useAuthGatedAction } from '@/lib/hooks/common/useAuthGatedAction'
 import { useShouldOpenFirstSaveHint } from '@/features/shows/hooks/useFirstSaveHint'
 import { FirstSaveHint } from './FirstSaveHint'
 
-// Loaded on first open: the panel is reached only from the one-time hint, and
-// every list row renders a SaveButton. A chunk that fails to load renders
+// Loaded when the one-time hint opens, the panel's only way in, so it is
+// usually ready by the time the hint's link is chosen; every list row renders
+// a SaveButton, and none pays for it otherwise. A chunk that fails to load renders
 // nothing rather than throwing into the page's error boundary and replacing
 // the page the person is on.
+const loadCalendarPanel = () =>
+  import(
+    '@/features/collections/components/saved-shows-calendar/SavedShowsCalendarPanel'
+  )
 const SavedShowsCalendarPanel = dynamic(
   () =>
-    import(
-      '@/features/collections/components/saved-shows-calendar/SavedShowsCalendarPanel'
-    )
+    loadCalendarPanel()
       .then(m => m.SavedShowsCalendarPanel)
       .catch(() => NoCalendarPanel),
   { ssr: false }
@@ -186,7 +189,10 @@ export function SaveButton({
     // nothing and must not read as a failed save.
     try {
       const isStillCurrent = () => click === latestClick.current
-      if (await shouldOpenFirstSaveHint(isStillCurrent)) setIsHintOpen(true)
+      if (await shouldOpenFirstSaveHint(isStillCurrent)) {
+        setIsHintOpen(true)
+        void loadCalendarPanel().catch(() => {})
+      }
     } catch {}
   })
 

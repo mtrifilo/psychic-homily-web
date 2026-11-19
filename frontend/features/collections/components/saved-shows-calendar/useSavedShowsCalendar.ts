@@ -11,8 +11,9 @@ import {
   buildSavedShowsCalendarModel,
   type SavedShowsCalendarModel,
 } from './savedShowsCalendarModel'
+import { useState } from 'react'
 import {
-  LinkCreateError,
+  panelLinkFailure,
   useSavedShowsCalendarLink,
 } from './useSavedShowsCalendarLink'
 
@@ -39,11 +40,13 @@ export type SavedShowsCalendarState =
  * read again whenever the window regains focus: that is how a first check
  * made while the person was in their calendar app shows up when they return.
  *
- * Loading until the link is ready, the status has been read since this mount,
- * and the newest save, the upcoming count and the device are known, since
- * every row and line depends on one of them. A failed status or saved-shows
- * read stays loading and is retried on the next focus; the panel has no
- * wording for a status it could not read, and never guesses one.
+ * Loading until the link is ready, the status has been read successfully
+ * since this mount, and the newest save, the upcoming count and the device
+ * are known, since every row and line depends on one of them. A status
+ * cached by another surface is never shown. Once read, a later refetch that
+ * fails keeps the last good read on screen; a first read that fails stays
+ * loading and is retried on its own. The panel has no wording for a status it
+ * could not read, and never guesses one.
  */
 export function useSavedShowsCalendar(): SavedShowsCalendarState {
   const { user } = useAuthContext()
@@ -59,17 +62,19 @@ export function useSavedShowsCalendar(): SavedShowsCalendarState {
     retryOnFocus: true,
   })
   const device = useCalendarDevice()
+  // When this open began; a status read before it came from another surface.
+  const [openedAt] = useState(() => Date.now())
 
-  if (link.isError && !link.isFetching) {
+  if (!link.data && link.isError && !link.isFetching) {
     return {
       kind: 'link_failed',
-      failure: link.error instanceof LinkCreateError ? 'create' : 'load',
+      failure: panelLinkFailure(link.error),
       retry: () => void link.refetch(),
     }
   }
 
   const currentStatus =
-    status.isFetchedAfterMount && !status.isError ? status.data : undefined
+    status.data && status.dataUpdatedAt >= openedAt ? status.data : undefined
   if (!link.data || !currentStatus || !newest.data || !upcoming.data || !device) {
     return { kind: 'loading' }
   }

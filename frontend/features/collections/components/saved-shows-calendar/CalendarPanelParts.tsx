@@ -20,6 +20,15 @@ export function useCalendarPanelLayout(): CalendarPanelLayout {
   return useContext(CalendarPanelLayoutContext)
 }
 
+/**
+ * On every element that carries or acts on the private calendar link. The
+ * address must never reach a recorder: PostHog skips `ph-no-capture` in
+ * autocapture and its replay, and Sentry Session Replay blanks `sentry-block`
+ * (it ignores PostHog's class), so an href holding the token is never
+ * uploaded with a replay.
+ */
+export const PRIVATE_LINK_CLASS = 'ph-no-capture sentry-block'
+
 /** The rows' stack: spaced in the popover, edge to edge in the sheet. */
 export function rowStackClass(layout: CalendarPanelLayout): string {
   return layout === 'sheet' ? 'flex flex-col' : 'flex flex-col gap-2.5'
@@ -37,10 +46,7 @@ interface RowButtonProps {
   onClick: () => void
   icon?: LucideIcon
   disabled?: boolean
-  /**
-   * The row acts on the private calendar link. Kept out of analytics
-   * autocapture, which would otherwise record the element and its href.
-   */
+  /** The row acts on the private calendar link; see PRIVATE_LINK_CLASS. */
   handlesLink?: boolean
   testId?: string
 }
@@ -61,7 +67,7 @@ export function PanelRowButton({
       onClick={onClick}
       disabled={disabled}
       data-testid={testId}
-      className={rowClass(layout, handlesLink ? 'ph-no-capture' : undefined)}
+      className={rowClass(layout, handlesLink ? PRIVATE_LINK_CLASS : undefined)}
     >
       {children}
       {Icon ? <Icon className="size-3.5 shrink-0" aria-hidden="true" /> : null}
@@ -86,7 +92,7 @@ export function PanelRowLink({
   icon?: LucideIcon
   onClick?: () => void
   newTab?: boolean
-  /** The href carries the private calendar link; see PanelRowButton. */
+  /** The href carries the private calendar link; see PRIVATE_LINK_CLASS. */
   handlesLink?: boolean
 }) {
   const layout = useCalendarPanelLayout()
@@ -95,7 +101,7 @@ export function PanelRowLink({
       href={href}
       onClick={onClick}
       {...(newTab ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-      className={rowClass(layout, handlesLink ? 'ph-no-capture' : undefined)}
+      className={rowClass(layout, handlesLink ? PRIVATE_LINK_CLASS : undefined)}
     >
       {children}
       {Icon ? <Icon className="size-3.5 shrink-0" aria-hidden="true" /> : null}
@@ -143,9 +149,16 @@ export function PanelError({ children }: { children: ReactNode }) {
 
 const TRY_AGAIN = 'Try again.'
 
+/** Whether a failure line ends with the words that are its own retry. */
+export function endsWithRetry(line: string): boolean {
+  return line.endsWith(TRY_AGAIN)
+}
+
 /**
  * A failure line that ends "Try again.", where those two words are the retry
  * control, a link inside the sentence, so the line reads exactly as written.
+ * A line without those words renders whole, with no retry; the copy test
+ * keeps every retry line ending with them.
  */
 export function PanelErrorWithRetry({
   children,
@@ -154,9 +167,7 @@ export function PanelErrorWithRetry({
   children: string
   onRetry: () => void
 }) {
-  if (!children.endsWith(TRY_AGAIN)) {
-    throw new Error(`A retry line must end "${TRY_AGAIN}": ${children}`)
-  }
+  if (!endsWithRetry(children)) return <PanelError>{children}</PanelError>
   const lead = children.slice(0, -TRY_AGAIN.length)
   return (
     <p role="alert" className="text-xs leading-4 text-destructive">

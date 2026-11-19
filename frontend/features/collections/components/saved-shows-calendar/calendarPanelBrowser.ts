@@ -5,25 +5,19 @@
  * after waiting on the server.
  */
 
-export interface OpenedTab {
-  close: () => void
-}
-
 /**
- * Opens `url` in a new tab. Opened blank and sent on, rather than with
- * `noopener`, which returns no handle: the caller keeps a way to close the
- * tab, and the opener is cut while the blank tab is still same-origin, so the
- * page it lands on cannot reach back into this one.
+ * Opens `url` in a new tab, returning it, or null when the browser blocked
+ * it. Opened blank and sent on, rather than with `noopener`, which returns no
+ * handle even when it succeeds: the caller learns whether a tab opened and
+ * keeps a way to close it, and the opener is cut while the blank tab is still
+ * same-origin, so the page it lands on cannot reach back into this one.
  */
-export function openTab(url: string): OpenedTab {
+export function openTab(url: string): Window | null {
   const tab = window.open('', '_blank')
-  if (!tab) {
-    window.open(url, '_blank', 'noopener,noreferrer')
-    return { close: () => {} }
-  }
+  if (!tab) return null
   tab.opener = null
   tab.location.href = url
-  return { close: () => tab.close() }
+  return tab
 }
 
 /**

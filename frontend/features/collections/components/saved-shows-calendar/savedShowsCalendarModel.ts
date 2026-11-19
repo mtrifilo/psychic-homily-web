@@ -37,7 +37,10 @@ export interface StoppedAppView {
 }
 
 export interface SavedShowsCalendarModel {
-  /** Whether any app has been seen checking the link. */
+  /**
+   * `status` once any app has been seen checking the link, or when the link
+   * exists but cannot be shown (nothing can be added from here then).
+   */
   heading: 'add' | 'status'
   /** Set when a security action reset the link; its heading wins. */
   resetReason: CalendarLinkResetReason | null
@@ -146,7 +149,7 @@ export function buildSavedShowsCalendarModel({
   const known = connected.length + stopped.length > 0
 
   return {
-    heading: known ? 'status' : 'add',
+    heading: known || unrecoverable ? 'status' : 'add',
     resetReason: calendarResetReason(status) ?? resetReasonBeforeCreate,
     connected,
     stopped,
