@@ -68,8 +68,8 @@ API_BASE="${GSC_API:-https://searchconsole.googleapis.com/webmasters/v3}"
 # Fetching at the cap keeps membership complete only while the window stays
 # under 25000 rows per dimension — a cap hit is detected after each fetch and
 # stamped into the doc rather than silently dropping the tail. The
-# full-window fetches are not paginated; the per-week breadth fetches page
-# through every row with startRow (fetch_page_rows).
+# full-window fetches are not paginated; the per-week fetches (breadth and
+# the query-row split) page through every row with startRow (fetch_all_rows).
 QUERY_FETCH_LIMIT=25000
 PAGE_FETCH_LIMIT=25000
 QUERY_TABLE_LIMIT=25
@@ -77,6 +77,10 @@ PAGE_TABLE_LIMIT=25
 ZERO_CLICK_LIMIT=20
 ZERO_CLICK_MIN_IMPRESSIONS=5
 ZERO_CLICK_MAX_POSITION=11
+# Query rows on a dated show page at this average position or better form the
+# first group of the per-week query-row split (trap 9 in the doc says what the
+# group is and why the threshold is a heuristic).
+EVENTS_BOX_MAX_POSITION=1.5
 
 WINDOW_DAYS=28
 SINCE=""
@@ -473,38 +477,42 @@ api_call     "$WORK_DIR/sitemaps.json" GET "sites/${SITE_ENC}/sitemaps"
 
 row_count() { jq -r '(.rows // []) | length' "$1"; }
 
-# fetch_page_rows <outfile> <start-date> <end-date>
+# fetch_all_rows <outfile> <dimensions-json> <row-limit> <start-date> <end-date>
 #
-# Every page row for the date range, however many there are: requests of
-# PAGE_FETCH_LIMIT rows advance startRow until a response comes back short,
-# and the parts are concatenated in request order into one {rows: [...]}.
-fetch_page_rows() {
-  local out_file start end offset part
+# Every row for the dimensions and date range, however many there are:
+# requests of <row-limit> rows advance startRow until a response comes back
+# short, and the parts are concatenated in request order into one {rows: [...]}.
+fetch_all_rows() {
+  local out_file dims limit start end offset part
   local parts=()
   out_file="$1"
-  start="$2"
-  end="$3"
+  dims="$2"
+  limit="$3"
+  start="$4"
+  end="$5"
   offset=0
   while :; do
     part="${out_file%.json}.from-${offset}.json"
-    search_query_range "$part" '["page"]' "$PAGE_FETCH_LIMIT" "$start" "$end" "$offset"
+    search_query_range "$part" "$dims" "$limit" "$start" "$end" "$offset"
     parts+=("$part")
-    if [ "$(row_count "$part")" -lt "$PAGE_FETCH_LIMIT" ]; then
+    if [ "$(row_count "$part")" -lt "$limit" ]; then
       break
     fi
-    offset=$((offset + PAGE_FETCH_LIMIT))
+    offset=$((offset + limit))
   done
   jq -s '{rows: (map(.rows // []) | add)}' "${parts[@]}" >"$out_file" \
-    || die "could not combine the page rows for ${start} to ${end}"
+    || die "could not combine the ${dims} rows for ${start} to ${end}"
 }
 
-# Breadth is measured per complete week so weeks compare like for like; a
-# partial week at either end of the window is left out, not scaled.
+# Breadth and the query-row split are measured per complete week so weeks
+# compare like for like; a partial week at either end of the window is left
+# out, not scaled.
 complete_weeks "$SINCE" "$UNTIL" >"$WORK_DIR/weeks.tsv" \
   || die "could not list the complete weeks in the window"
-echo "gsc-snapshot: breadth: $(wc -l <"$WORK_DIR/weeks.tsv" | tr -d ' ') complete week(s) in the window" >&2
+echo "gsc-snapshot: per-week tables: $(wc -l <"$WORK_DIR/weeks.tsv" | tr -d ' ') complete week(s) in the window" >&2
 while IFS=$'\t' read -r week_start week_end <&3; do
-  fetch_page_rows "$WORK_DIR/breadth-${week_start}.json" "$week_start" "$week_end"
+  fetch_all_rows "$WORK_DIR/breadth-${week_start}.json" '["page"]' "$PAGE_FETCH_LIMIT" "$week_start" "$week_end"
+  fetch_all_rows "$WORK_DIR/query-split-${week_start}.json" '["query","page"]' "$QUERY_FETCH_LIMIT" "$week_start" "$week_end"
 done 3<"$WORK_DIR/weeks.tsv"
 
 # A response exactly at the requested cap means the tail was cut — and because
@@ -581,15 +589,24 @@ PAGE_SHOWN="$(min "$PAGE_TABLE_LIMIT" "$PAGE_ROW_COUNT")"
 # file, and the diff all read this one definition, so they cannot disagree on
 # membership or order. queue_row is the doc-table row for one of them.
 #
+# slug_date: the date of a /shows/YYYY-MM-DD-... path when it is a real
+# calendar day, else null. A page with one is a dated show page.
+#
 # page_family($week_start; $week_end): the breadth family of one page URL,
-# read from its path alone (any host). A /shows/YYYY-MM-DD-... slug carrying a
-# real calendar date is placed before, in, or after the week by that date; a
-# slug whose date is not a real day falls through to the path rules. The
+# read from its path alone (any host). A dated show page is placed before, in,
+# or after the week by its slug_date; a /shows/ slug whose date is not a real
+# day falls through to the path rules. The
 # family labels say "window" for the week; family_prefixes lists the route
 # families matched by path prefix. breadth_by_family groups a page response by
 # page_family, counting only rows with at least one impression, and orders the
 # families by impressions, then label. weighted_position_cell is the Position
 # cell of one family or of a week's total.
+#
+# query_row_split($maxpos): the rows with at least one impression of a
+# query+page response, in two groups: rows whose page is a dated show page at
+# average position $maxpos or better, then every other row. Each group carries
+# its row count, distinct page URLs, impressions and clicks. Only counts leave
+# this definition, so no query cell reaches the doc. ctr_cell is a group's CTR.
 JQ_DEFS='
   def esc: tostring
     | gsub("[[:cntrl:]\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]"; " ")
@@ -625,9 +642,10 @@ JQ_DEFS='
     | (try (strptime("%Y-%m-%d") | mktime | strftime("%Y-%m-%d")) catch null)
     | select(. == $d);
   def family_prefixes: "/artists/", "/venues/", "/releases/", "/labels/", "/scenes/", "/collections/", "/festivals/", "/radio";
+  def slug_date: [capture("^/shows/(?<date>[0-9]{4}-[0-9]{2}-[0-9]{2})-").date | valid_iso_date] | first;
   def page_family($week_start; $week_end):
     page_path as $path
-    | ([$path | capture("^/shows/(?<date>[0-9]{4}-[0-9]{2}-[0-9]{2})-").date | valid_iso_date] | first) as $date
+    | ($path | slug_date) as $date
     | if $date != null then
         if $date < $week_start then "show: dated BEFORE window"
         elif $date <= $week_end then "show: dated IN window"
@@ -653,6 +671,15 @@ JQ_DEFS='
     | sort_by([-.impressions, .family]);
   def weighted_position_cell: .weighted_position / .impressions | pos1;
   def breadth_row: "| \(.family | code) | \(.pages) | \(.clicks) | \(.impressions) | \(weighted_position_cell) |";
+  def query_row_split($maxpos):
+    [(.rows // [])[] | select(.impressions > 0)
+      | {page: .keys[1], clicks, impressions,
+         first_group: ((.keys[1] | page_path | slug_date) != null and .position <= $maxpos)}] as $rows
+    | [true, false]
+    | map(. as $group | [$rows[] | select(.first_group == $group)]
+        | {rows: length, pages: (map(.page) | unique | length),
+           impressions: (map(.impressions) | add // 0), clicks: (map(.clicks) | add // 0)});
+  def ctr_cell: if .impressions == 0 then "—" else "\((.clicks / .impressions * 10000 | round) / 100)%" end;
 '
 
 render_metric_table() {
@@ -699,6 +726,26 @@ render_breadth_week() {
       (if ($families | length) == 0 then "| _no pages with impressions in this week_ | | | | |"
        else ($families[] | breadth_row)
        end)
+  ' "$1"
+}
+
+# render_query_split_week <file> <daily-file> <monday> <sunday>
+#
+# One week's query-row split subsection: the two groups of query_row_split,
+# with the same short-week flag as render_breadth_week.
+render_query_split_week() {
+  jq -r --slurpfile daily "$2" --arg ws "$3" --arg we "$4" \
+    --argjson maxpos "$EVENTS_BOX_MAX_POSITION" "$JQ_DEFS"'
+    query_row_split($maxpos) as [$first, $rest]
+    | ([($daily[0].rows // [])[] | select(.keys[0] >= $ws and .keys[0] <= $we)] | length) as $served
+    | def group_row($label): "| \($label) | \(.rows) | \(.pages) | \(.impressions) | \(.clicks) | \(ctr_cell) |";
+      "### Week of \($ws) (Monday \($ws) to Sunday \($we))",
+      "",
+      (if $served < 7 then "**Only \($served) of the 7 days in this week were served (see the Coverage line); do not compare it with a full week.**", "" else empty end),
+      "| Query rows | Rows | Pages | Impressions | Clicks | CTR |",
+      "| --- | ---: | ---: | ---: | ---: | ---: |",
+      ($first | group_row("Dated show pages at average position \($maxpos) or better")),
+      ($rest | group_row("Everything else"))
   ' "$1"
 }
 
@@ -957,6 +1004,17 @@ if [ -z "$BREADTH_SECTIONS" ]; then
   BREADTH_SECTIONS="_No complete Monday-to-Sunday week lies inside this window, so there is no breadth table._"
 fi
 
+QUERY_SPLIT_SECTIONS="$(
+  while IFS=$'\t' read -r week_start week_end <&3; do
+    render_query_split_week "$WORK_DIR/query-split-${week_start}.json" "$WORK_DIR/daily.json" "$week_start" "$week_end" \
+      || exit 1
+    printf '\n'
+  done 3<"$WORK_DIR/weeks.tsv"
+)" || die "failed to render the query-row split tables"
+if [ -z "$QUERY_SPLIT_SECTIONS" ]; then
+  QUERY_SPLIT_SECTIONS="_No complete Monday-to-Sunday week lies inside this window, so there is no query-row split._"
+fi
+
 DOC_PATH="$WORK_DIR/$DOC_NAME"
 
 {
@@ -1009,6 +1067,18 @@ Source: Google Search Console Search Analytics API, captured by
    counts once for each. A week's impressions in the breadth tables can run
    above the daily series for the same days; quote the daily series and the
    headline totals for site-level impressions and position.
+9. **Dated show pages at average position ${EVENTS_BOX_MAX_POSITION} or better are
+   Google's events box, not ranking.** When an Events card in Google's results
+   lists a show page as a source under "Tickets & information", Search Console
+   counts an impression for that page each time the card is shown, at a
+   position near 1, and a click only when someone picks that source, so CTR
+   runs near 1%. The \`searchAppearance\` dimension does not label these rows.
+   The ${EVENTS_BOX_MAX_POSITION} threshold is a heuristic, not Google's
+   definition: a show page can genuinely rank first, and a listing in the box
+   can average worse than ${EVENTS_BOX_MAX_POSITION}. Read the two groups of the
+   query-row split separately before reading a trend in query rows. Query rows
+   are a floor: Google withholds rare queries, so they cover only part of the
+   impressions in the daily series.
 
 ${TRUNCATION_NOTE}
 ---
@@ -1076,6 +1146,18 @@ calendar are their own rows, and any other path is grouped under
 when it has one segment (\`other: /about\`).
 
 ${BREADTH_SECTIONS}
+
+## Query rows split by population (complete Monday-to-Sunday weeks)
+
+One query+page query per complete week inside the window, paged with startRow
+past the API's ${QUERY_FETCH_LIMIT}-row request cap. A row is one query on one
+page with at least one impression. The first group is rows on a dated show
+page (a \`/shows/YYYY-MM-DD-...\` slug carrying a real date, any host) at
+average position ${EVENTS_BOX_MAX_POSITION} or better; read trap 9 for what
+that group is. Pages is distinct page URLs in the group. Query rows are a
+floor (trap 9), so neither group adds up to the daily series.
+
+${QUERY_SPLIT_SECTIONS}
 
 ## Sitemaps
 
