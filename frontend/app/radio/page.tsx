@@ -2,7 +2,7 @@ import { Suspense } from 'react'
 import { Metadata } from 'next'
 import { connection } from 'next/server'
 import { HydrationBoundary } from '@tanstack/react-query'
-import RadioHub from './_components/RadioHub'
+import RadioHub, { RadioHubLoading } from './_components/RadioHub'
 import {
   RADIO_DIAL_FIRST_SCREEN_KEY,
   RADIO_DIAL_FIRST_SCREEN_URL,
@@ -54,12 +54,13 @@ export async function HydratedRadioHub() {
 }
 
 /**
- * The fallback is the unseeded hub, so the prerendered shell is the page as
- * it renders before any read has answered: heading, dial loader and all.
+ * The fallback is the hub as it renders before any read has answered (heading,
+ * dial loader and all), drawn without the hub's queries so it cannot pre-empt
+ * the seed (see `RadioHubLoading`).
  */
 export default function RadioPage() {
   return (
-    <Suspense fallback={<RadioHub />}>
+    <Suspense fallback={<RadioHubLoading />}>
       <HydratedRadioHub />
     </Suspense>
   )

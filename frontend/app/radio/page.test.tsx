@@ -39,7 +39,7 @@ vi.mock('next/navigation', () => ({
 }))
 
 import RadioPage, { HydratedRadioHub } from './page'
-import RadioHub from './_components/RadioHub'
+import RadioHub, { RadioHubLoading } from './_components/RadioHub'
 import {
   RADIO_DIAL_FIRST_SCREEN_KEY,
   RADIO_DIAL_FIRST_SCREEN_URL,
@@ -178,12 +178,43 @@ describe('/radio server-seeded dial', () => {
     expect(html).toContain('>Radio</h1>')
   })
 
-  it('renders the unseeded hub as the boundary fallback', () => {
+  it('renders the pending hub as the boundary fallback', () => {
     const html = serverRender(RadioPage())
 
     expect(html).toContain('>Radio</h1>')
     expect(html).toContain(DIAL_LOADER)
     expect(fetchListPayload).not.toHaveBeenCalled()
+  })
+
+  // On a request the fallback and the seeded boundary render through ONE
+  // query client, fallback first.
+  it('serves the seeded dial when the fallback rendered first on the same client', async () => {
+    const boundary = await HydratedRadioHub()
+    const html = serverRender(
+      <>
+        <RadioHubLoading />
+        {boundary}
+      </>
+    )
+
+    expect(html).toContain('href="/radio/kexp"')
+    expect(html.match(/<article/g)).toHaveLength(2)
+  })
+})
+
+describe('/radio boundary fallback', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    apiRequest.mockReturnValue(new Promise(() => {}))
+  })
+
+  it('registers no query', () => {
+    expect(registeredQueryHashes(<RadioHubLoading />)).toEqual([])
+    expect(apiRequest).not.toHaveBeenCalled()
+  })
+
+  it('is the markup the hub renders while every read is pending', () => {
+    expect(serverRender(<RadioHubLoading />)).toBe(serverRender(<RadioHub />))
   })
 })
 

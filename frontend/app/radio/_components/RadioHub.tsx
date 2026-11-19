@@ -26,18 +26,71 @@ import { RadioGuide } from './RadioGuide'
  * the D2 popover once this page became the dial).
  */
 export default function RadioHub() {
-  const { data: stats } = useRadioStats()
+  const stats = useRadioStats()
   const stationsQuery = useRadioStations()
-  const { data: recentData, isLoading: recentLoading, error: recentError } =
-    useRecentRadioEpisodes({ limit: 12 })
-  const { data: radarData, isLoading: radarLoading } = useNewReleaseRadar({
-    limit: 5,
-  })
+  const recent = useRecentRadioEpisodes({ limit: 12 })
+  const radar = useNewReleaseRadar({ limit: 5 })
+  const guide = useRadioGuide()
+
+  return (
+    <RadioHubView
+      stats={stats}
+      stationsQuery={stationsQuery}
+      recent={recent}
+      radar={radar}
+      guide={guide}
+    />
+  )
+}
+
+interface RadioHubViewProps {
+  stats: Pick<ReturnType<typeof useRadioStats>, 'data'>
+  stationsQuery: Pick<
+    ReturnType<typeof useRadioStations>,
+    'data' | 'isLoading' | 'error'
+  >
+  recent: Pick<
+    ReturnType<typeof useRecentRadioEpisodes>,
+    'data' | 'isLoading' | 'error'
+  >
+  radar: Pick<ReturnType<typeof useNewReleaseRadar>, 'data' | 'isLoading'>
+  guide: Pick<ReturnType<typeof useRadioGuide>, 'data' | 'isError'>
+}
+
+/** A read that has not answered yet, as a pending query reports it. */
+const PENDING_READ = { data: undefined, isLoading: true, error: null } as const
+
+/**
+ * The hub as it renders before any read has answered, with no query behind
+ * it: the same markup `RadioHub` renders while every read is pending.
+ *
+ * It registers nothing in the query cache. A boundary fallback that called the
+ * hub's hooks would create the stations entry on the request's client before a
+ * seeded `HydrationBoundary` below it renders, and the boundary leaves an
+ * existing entry alone, so the seeded dial would render its loader.
+ */
+export function RadioHubLoading() {
+  return (
+    <RadioHubView
+      stats={PENDING_READ}
+      stationsQuery={PENDING_READ}
+      recent={PENDING_READ}
+      radar={PENDING_READ}
+      guide={{ data: undefined, isError: false }}
+    />
+  )
+}
+
+function RadioHubView({
+  stats: { data: stats },
+  stationsQuery,
+  recent: { data: recentData, isLoading: recentLoading, error: recentError },
+  radar: { data: radarData, isLoading: radarLoading },
   // On a refetch error React Query RETAINS the previous data (the PSY-1136
   // stale-retained-data class) while the hook's interval stops — so an
   // errored guide must render nothing, not yesterday's ON NOW forever.
-  const { data: guideData, isError: guideError } = useRadioGuide()
-
+  guide: { data: guideData, isError: guideError },
+}: RadioHubViewProps) {
   const allStations = stationsQuery.data?.stations ?? []
   const stations = sortDialStations(allStations.filter(isStationVisibleOnIndex))
   // The error notice is for a dial with nothing to show: a failed refetch of
