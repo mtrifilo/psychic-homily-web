@@ -648,7 +648,7 @@ func main() {
 		authEmailOutboxCtx, authEmailOutboxCancel = context.WithCancel(context.Background())
 		sc.AuthEmailOutbox.Start(authEmailOutboxCtx)
 	} else {
-		log.Printf("%s=1: skipping auth email outbox startup; no auth email (sign-in, recovery, verification, provider link or password reset) will be sent", authsvc.DisableAuthEmailOutboxEnvVar)
+		log.Printf("%s=1: skipping auth email outbox startup; no auth email (sign-in, recovery, verification, provider link, password reset or calendar steps) will be sent", authsvc.DisableAuthEmailOutboxEnvVar)
 	}
 
 	// Start the IndexNow pinger: posts the public URLs whose sitemap lastmod

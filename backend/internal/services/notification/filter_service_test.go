@@ -1213,6 +1213,9 @@ func (m *mockEmailService) SendAccountRecoveryEmail(_ string, _ string, _ int) e
 func (m *mockEmailService) SendPasswordResetEmail(_, _ string) error {
 	return nil
 }
+func (m *mockEmailService) SendCalendarStepsEmail(_ string) error {
+	return nil
+}
 func (m *mockEmailService) SendShowReminderEmail(_ string, _ string, _ string, _ string, _ contracts.LocalizedEventTime, _ []string) error {
 	return nil
 }

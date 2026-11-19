@@ -240,6 +240,9 @@ func (m *captureEmailService) SendAccountRecoveryEmail(_, _ string, _ int) error
 func (m *captureEmailService) SendPasswordResetEmail(_, _ string) error {
 	return nil
 }
+func (m *captureEmailService) SendCalendarStepsEmail(_ string) error {
+	return nil
+}
 func (m *captureEmailService) SendShowReminderEmail(_, _, _, _ string, _ contracts.LocalizedEventTime, _ []string) error {
 	return nil
 }

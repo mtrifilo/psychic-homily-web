@@ -42,6 +42,25 @@ func TestRenderEmailArtifact(t *testing.T) {
 	t.Logf("wrote %s", out)
 }
 
+// TestRenderCalendarStepsEmailArtifact does the same for the calendar steps
+// email, to be judged against board E1 (Product Designs, light 2298:1936).
+//
+//	RENDER_OUT=/tmp/calendar-steps.html go test ./internal/services/notification/ \
+//	  -run TestRenderCalendarStepsEmailArtifact
+func TestRenderCalendarStepsEmailArtifact(t *testing.T) {
+	out := os.Getenv("RENDER_OUT")
+	if out == "" {
+		t.Skip("set RENDER_OUT to a file path to capture the rendered email")
+	}
+
+	svc, emails, _ := setupEmailTest(t)
+	svc.frontendURL = "https://www.psychichomily.com"
+
+	require.NoError(t, svc.SendCalendarStepsEmail("someone@example.com"))
+	require.NoError(t, os.WriteFile(out, []byte((<-emails).Html), 0o600))
+	t.Logf("wrote %s", out)
+}
+
 // TestRenderArtistShowAlertArtifact does the same for the PSY-1896 artist
 // new-show alert, so the direction-A frame, the mono details block and the
 // footer links can be judged in a browser against the Figma mock rather than

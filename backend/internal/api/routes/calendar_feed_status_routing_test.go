@@ -32,6 +32,7 @@ func TestCalendarTokenRoutesResolution(t *testing.T) {
 		{http.MethodDelete, "/calendar/token", "/calendar/token"},
 		{http.MethodGet, "/calendar/token/feed-status", calendarFeedStatusRoute},
 		{http.MethodDelete, "/calendar/token/reads", calendarFeedReadsRoute},
+		{http.MethodPost, "/calendar/token/email-steps", calendarStepsEmailRoute},
 		{http.MethodGet, "/calendar/phcal_abc123", legacyCalendarFeedRoute},
 	} {
 		if got := router.Find(chi.NewRouteContext(), c.method, c.path); got != c.want {

@@ -109,6 +109,9 @@ func (m *captureSceneDigestEmailService) SendAccountRecoveryEmail(_, _ string, _
 func (m *captureSceneDigestEmailService) SendPasswordResetEmail(_, _ string) error {
 	return nil
 }
+func (m *captureSceneDigestEmailService) SendCalendarStepsEmail(_ string) error {
+	return nil
+}
 func (m *captureSceneDigestEmailService) SendShowReminderEmail(_, _, _, _ string, _ contracts.LocalizedEventTime, _ []string) error {
 	return nil
 }

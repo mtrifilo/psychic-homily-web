@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
@@ -95,6 +96,14 @@ const (
 
 	// authEmailFinalizeBudget caps the finalize write after a send.
 	authEmailFinalizeBudget = 10 * time.Second
+
+	// calendarStepsPerWindow is how many calendar steps emails one account may
+	// ask for within calendarStepsWindow.
+	calendarStepsPerWindow = 3
+	// calendarStepsWindow is the rolling window calendarStepsPerWindow counts
+	// over. It is far inside authEmailRetention, so no row is pruned while it
+	// still counts.
+	calendarStepsWindow = time.Hour
 )
 
 // Reasons recorded in last_error. They are fixed strings so an operator can
@@ -114,6 +123,14 @@ const (
 // ErrAuthEmailOutboxDisabled is Enqueue's error while
 // DisableAuthEmailOutboxEnvVar is set.
 var ErrAuthEmailOutboxDisabled = errors.New("auth email outbox is switched off (" + DisableAuthEmailOutboxEnvVar + "=1)")
+
+// ErrAuthEmailSenderNotConfigured is EnqueueCalendarSteps' error while the
+// process has no email provider: its poller would leave the row unsent.
+var ErrAuthEmailSenderNotConfigured = errors.New("auth email outbox: no email provider is configured")
+
+// ErrCalendarStepsNeedsItsOwnEnqueue is Enqueue's error for
+// AuthEmailKindCalendarSteps, which only EnqueueCalendarSteps queues.
+var ErrCalendarStepsNeedsItsOwnEnqueue = errors.New("auth email outbox: calendar_steps is queued only by EnqueueCalendarSteps")
 
 // AuthEmailOutboxDisabled reports whether the kill switch is set. Enqueue and
 // the poller both read it through this function, so the two ends cannot
@@ -144,6 +161,7 @@ type (
 		SendAccountRecoveryEmail(toEmail, token string, daysRemaining int) error
 		SendVerificationEmail(toEmail, token string) error
 		SendPasswordResetEmail(toEmail, token string) error
+		SendCalendarStepsEmail(toEmail string) error
 	}
 	// authEmailContextSender is how the poller sends: each send takes the
 	// worker's context, which carries the worker's Sentry hub, so a provider
@@ -154,6 +172,7 @@ type (
 		SendAccountRecoveryEmailContext(ctx context.Context, toEmail, token string, daysRemaining int) error
 		SendVerificationEmailContext(ctx context.Context, toEmail, token string) error
 		SendPasswordResetEmailContext(ctx context.Context, toEmail, token string) error
+		SendCalendarStepsEmailContext(ctx context.Context, toEmail string) error
 	}
 )
 
@@ -178,6 +197,10 @@ func (s contextFreeSender) SendPasswordResetEmailContext(_ context.Context, toEm
 	return s.SendPasswordResetEmail(toEmail, token)
 }
 
+func (s contextFreeSender) SendCalendarStepsEmailContext(_ context.Context, toEmail string) error {
+	return s.SendCalendarStepsEmail(toEmail)
+}
+
 // asContextSender returns sender's context forms when it has them
 // (notification.EmailService does), and sender adapted otherwise.
 func asContextSender(sender authEmailSender) authEmailContextSender {
@@ -187,15 +210,15 @@ func asContextSender(sender authEmailSender) authEmailContextSender {
 	return contextFreeSender{sender}
 }
 
-// AuthEmailOutbox queues and sends magic-link, account-recovery,
-// verification, pending-link and password-reset emails.
+// AuthEmailOutbox queues and sends the emails AuthEmailKind names.
 //
 // The enumeration-safe request handlers call Enqueue for a known account and
 // answer at once; the poller sends. A handler's response time therefore does
 // not depend on the email provider: a known address costs the account
 // lookup's preloads and one indexed insert more than an unknown one.
 //
-// The poller reads the account and mints the token at send time:
+// The poller reads the account, and mints the token of a kind that carries
+// one, at send time:
 //
 //   - no bearer token is stored in the table;
 //   - a link's lifetime starts when it is sent, so a retried send still
@@ -290,25 +313,132 @@ func capped[T int | time.Duration](key string, v, limit T) T {
 // The insert runs on a context detached from the request's cancellation and
 // bounded by authEmailEnqueueTimeout: a client that disconnects after asking
 // still gets its email, and a stalled database cannot hold the request open.
+//
+// It refuses AuthEmailKindCalendarSteps (ErrCalendarStepsNeedsItsOwnEnqueue):
+// that kind's cap holds only while every row of it is written by
+// EnqueueCalendarSteps.
 func (o *AuthEmailOutbox) Enqueue(ctx context.Context, kind authm.AuthEmailKind, userID uint) error {
-	return o.enqueue(ctx, authm.AuthEmailOutboxItem{Kind: kind, UserID: userID})
+	if kind == authm.AuthEmailKindCalendarSteps {
+		return ErrCalendarStepsNeedsItsOwnEnqueue
+	}
+	return o.enqueue(ctx, authm.AuthEmailOutboxItem{Kind: kind, UserID: userID}, nil)
 }
 
 // EnqueueOAuthLink queues the sign-in link that proves userID's mailbox for
 // the pending link ref names, on Enqueue's terms. While one is queued for the
 // account, a call for any pending link is a no-op.
 func (o *AuthEmailOutbox) EnqueueOAuthLink(ctx context.Context, userID uint, ref string) error {
-	return o.enqueue(ctx, authm.AuthEmailOutboxItem{Kind: authm.AuthEmailKindOAuthLink, UserID: userID, OAuthLinkRef: &ref})
+	return o.enqueue(ctx, authm.AuthEmailOutboxItem{Kind: authm.AuthEmailKindOAuthLink, UserID: userID, OAuthLinkRef: &ref}, nil)
 }
 
-func (o *AuthEmailOutbox) enqueue(ctx context.Context, item authm.AuthEmailOutboxItem) error {
+// EnqueueCalendarSteps queues the calendar steps email for user, the signed-in
+// account that asked for it, to the account's own address, on Enqueue's
+// terms. It queues nothing and refuses:
+//
+//   - while no email provider is configured (ErrAuthEmailSenderNotConfigured)
+//     or the kill switch is set (ErrAuthEmailOutboxDisabled);
+//   - an account whose address is not verified, or that has none
+//     (apperrors.ErrCalendarStepsAddressUnverified), which the poller would
+//     skip;
+//   - an account that has already asked calendarStepsPerWindow times within
+//     calendarStepsWindow (*apperrors.CalendarStepsRateLimitedError). Every
+//     row of the kind counts, whatever became of it, so the cap holds across
+//     restarts and failed sends.
+//
+// The cap is checked twice. First without a transaction, so an account
+// already at the cap is refused without one. Then after this request's insert,
+// in the insert's transaction, counting the row it just wrote: a count over
+// the cap rolls the insert back. Concurrent requests of one account are
+// serialized by uq_auth_email_outbox_active: an insert that meets another
+// request's uncommitted pending row waits for that transaction, and then
+// inserts if it rolled back or adds nothing if it committed. So every nil
+// answer stands on a committed row, and no two inserts can each count under
+// the cap.
+//
+// Every row of the kind is written here (Enqueue refuses the kind), and only
+// under the cap, so the window never holds more than calendarStepsPerWindow
+// rows and the oldest of them leaving it is what frees the next request.
+func (o *AuthEmailOutbox) EnqueueCalendarSteps(ctx context.Context, user *authm.User) error {
+	if AuthEmailOutboxDisabled() {
+		return ErrAuthEmailOutboxDisabled
+	}
+	if !o.sender.IsConfigured() {
+		return ErrAuthEmailSenderNotConfigured
+	}
+	if user.Email == nil || *user.Email == "" || !user.EmailVerified {
+		return apperrors.ErrCalendarStepsAddressUnverified()
+	}
+
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), authEmailEnqueueTimeout)
+	defer cancel()
+	if err := calendarStepsCapRefusal(o.db.WithContext(cctx), user.ID, calendarStepsPerWindow-1); err != nil {
+		return err
+	}
+
+	item := authm.AuthEmailOutboxItem{Kind: authm.AuthEmailKindCalendarSteps, UserID: user.ID}
+	return o.enqueue(ctx, item, func(tx *gorm.DB, inserted bool) error {
+		if !inserted {
+			return nil
+		}
+		return calendarStepsCapRefusal(tx, user.ID, calendarStepsPerWindow)
+	})
+}
+
+// calendarStepsCapRefusal returns the hourly cap's refusal when db sees more
+// than allowed rows of the calendar steps kind for userID within
+// calendarStepsWindow, and nil otherwise.
+func calendarStepsCapRefusal(db *gorm.DB, userID uint, allowed int) error {
+	// created_at is written from this process's clock (GORM's
+	// autoCreateTime), so the window is measured on the same clock.
+	now := time.Now()
+	var window struct {
+		Count  int
+		Oldest *time.Time
+	}
+	if err := db.Model(&authm.AuthEmailOutboxItem{}).
+		Select("COUNT(*) AS count, MIN(created_at) AS oldest").
+		Where("user_id = ? AND kind = ? AND created_at > ?", userID, authm.AuthEmailKindCalendarSteps, now.Add(-calendarStepsWindow)).
+		Scan(&window).Error; err != nil {
+		return err
+	}
+	// A non-zero COUNT has a non-NULL MIN over the same rows.
+	if window.Count > allowed {
+		return &apperrors.CalendarStepsRateLimitedError{
+			Limit:      calendarStepsPerWindow,
+			RetryAfter: window.Oldest.Add(calendarStepsWindow).Sub(now),
+		}
+	}
+	return nil
+}
+
+// enqueue inserts item as pending, a no-op while one is already queued for its
+// account and kind, on the detached, bounded context Enqueue describes. With
+// check set, the insert runs in a transaction and check runs after it, told
+// whether a row was inserted; an error from check rolls the insert back.
+func (o *AuthEmailOutbox) enqueue(ctx context.Context, item authm.AuthEmailOutboxItem, check func(tx *gorm.DB, inserted bool) error) error {
 	if AuthEmailOutboxDisabled() {
 		return ErrAuthEmailOutboxDisabled
 	}
 	ictx, cancel := context.WithTimeout(context.WithoutCancel(ctx), authEmailEnqueueTimeout)
 	defer cancel()
 	item.Status = authm.AuthEmailStatusPending
-	return o.db.WithContext(ictx).Clauses(clause.OnConflict{DoNothing: true}).Create(&item).Error
+	insert := func(db *gorm.DB) (bool, error) {
+		res := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&item)
+		return res.RowsAffected == 1, res.Error
+	}
+
+	db := o.db.WithContext(ictx)
+	if check == nil {
+		_, err := insert(db)
+		return err
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		inserted, err := insert(tx)
+		if err != nil {
+			return err
+		}
+		return check(tx, inserted)
+	})
 }
 
 // Start begins the poller. The first tick is at most one interval in.
@@ -519,7 +649,8 @@ var (
 // needs nothing more; a recovery email
 // needs a soft-deleted account still inside its recovery window, the rule
 // the recovery request and confirm handlers apply; a pending-link email
-// needs a row that names a pending link.
+// needs a row that names a pending link; a calendar steps email needs a
+// verified address, the rule its request applied, and mints no token.
 //
 // A kind this function has no rule for fails before anything else is
 // checked, so it is reported whatever state its account is in.
@@ -589,6 +720,12 @@ func (o *AuthEmailOutbox) deliver(ctx context.Context, item authm.AuthEmailOutbo
 		}
 		return "", o.sender.SendPasswordResetEmailContext(ctx, email, token)
 
+	case authm.AuthEmailKindCalendarSteps:
+		if !user.EmailVerified {
+			return authEmailSkipIneligible, nil
+		}
+		return "", o.sender.SendCalendarStepsEmailContext(ctx, email)
+
 	case authm.AuthEmailKindAccountRecovery:
 		if user.IsActive || !o.users.IsAccountRecoverable(user) {
 			return authEmailSkipIneligible, nil
@@ -608,7 +745,7 @@ func knownAuthEmailKind(kind authm.AuthEmailKind) bool {
 	switch kind {
 	case authm.AuthEmailKindMagicLink, authm.AuthEmailKindOAuthLink,
 		authm.AuthEmailKindVerification, authm.AuthEmailKindAccountRecovery,
-		authm.AuthEmailKindPasswordReset:
+		authm.AuthEmailKindPasswordReset, authm.AuthEmailKindCalendarSteps:
 		return true
 	}
 	return false
@@ -726,9 +863,9 @@ func (o *AuthEmailOutbox) markFailed(ctx context.Context, item authm.AuthEmailOu
 }
 
 // reportDroppedUnsent reports to Sentry that n requests aged out unsent: each
-// is a person who asked for a sign-in, recovery or verification link and got
-// none. One event per reap pass and one per tick, so a backlog is a few alerts
-// rather than thousands.
+// is a person who asked for an email of an AuthEmailKind and got none. One
+// event per reap pass and one per tick, so a backlog is a few alerts rather
+// than thousands.
 func (o *AuthEmailOutbox) reportDroppedUnsent(n int64) {
 	hub := o.newReportHub()
 	hub.ConfigureScope(func(scope *sentry.Scope) {

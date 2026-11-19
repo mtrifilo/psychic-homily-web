@@ -19,8 +19,7 @@ import (
 	"psychic-homily-backend/internal/testutil"
 )
 
-// recordingSender records every magic-link, recovery, verification and
-// password-reset send and answers each with err. onSend, when set, runs before the answer, with the
+// recordingSender records every send of every kind and answers each with err. onSend, when set, runs before the answer, with the
 // recipient.
 type recordingSender struct {
 	mu            sync.Mutex
@@ -69,6 +68,10 @@ func (r *recordingSender) SendPasswordResetEmailContext(ctx context.Context, to,
 	return r.record(ctx, recordedSend{kind: authm.AuthEmailKindPasswordReset, to: to, token: token})
 }
 
+func (r *recordingSender) SendCalendarStepsEmailContext(ctx context.Context, to string) error {
+	return r.record(ctx, recordedSend{kind: authm.AuthEmailKindCalendarSteps, to: to})
+}
+
 // The plain forms make recordingSender an authEmailSender, which
 // NewAuthEmailOutbox takes; the poller calls the context forms above.
 func (r *recordingSender) SendMagicLinkEmail(to, token string) error {
@@ -85,6 +88,10 @@ func (r *recordingSender) SendVerificationEmail(to, token string) error {
 
 func (r *recordingSender) SendPasswordResetEmail(to, token string) error {
 	return r.SendPasswordResetEmailContext(context.Background(), to, token)
+}
+
+func (r *recordingSender) SendCalendarStepsEmail(to string) error {
+	return r.SendCalendarStepsEmailContext(context.Background(), to)
 }
 
 func (r *recordingSender) recorded() []recordedSend {

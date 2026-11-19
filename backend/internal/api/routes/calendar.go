@@ -1,6 +1,8 @@
 package routes
 
 import (
+	"net/http"
+
 	"github.com/danielgtaylor/huma/v2"
 
 	engagementh "psychic-homily-backend/internal/api/handlers/engagement"
@@ -34,6 +36,10 @@ func setupCalendarRoutes(rc RouteContext) {
 	huma.Delete(rc.Protected, "/calendar/token", calendarHandler.DeleteCalendarTokenHandler)
 	huma.Get(rc.Protected, calendarFeedStatusRoute, calendarHandler.GetCalendarFeedStatusHandler)
 	huma.Delete(rc.Protected, calendarFeedReadsRoute, calendarHandler.ForgetCalendarFeedReadHandler)
+
+	calendarStepsHandler := engagementh.NewCalendarStepsHandler(rc.SC.AuthEmailOutbox)
+	huma.Post(rc.Protected, calendarStepsEmailRoute, calendarStepsHandler.SendCalendarStepsEmailHandler,
+		func(o *huma.Operation) { o.DefaultStatus = http.StatusNoContent })
 }
 
 // No route under /calendar/ but the legacy alias takes a path parameter
@@ -43,4 +49,5 @@ func setupCalendarRoutes(rc RouteContext) {
 const (
 	calendarFeedStatusRoute = "/calendar/token/feed-status" // feed status with no feed address
 	calendarFeedReadsRoute  = "/calendar/token/reads"       // DELETE ?client= forgets one client family
+	calendarStepsEmailRoute = "/calendar/token/email-steps" // POST emails the caller the Google Calendar steps
 )

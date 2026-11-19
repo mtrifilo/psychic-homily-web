@@ -30,10 +30,10 @@ func (s *AuthEmailOutboxSuite) assertOnlyRowSkipped(reason string) {
 }
 
 // An account closed between the request and the send gets no sign-in,
-// verification or password reset link, and the row is retired with the
-// closed-account reason.
+// verification, password reset or calendar steps email, and the row is
+// retired with the closed-account reason.
 func (s *AuthEmailOutboxSuite) TestClosedAccount_GetsNoOpenAccountEmail() {
-	for _, kind := range []authm.AuthEmailKind{authm.AuthEmailKindMagicLink, authm.AuthEmailKindVerification, authm.AuthEmailKindPasswordReset} {
+	for _, kind := range []authm.AuthEmailKind{authm.AuthEmailKindMagicLink, authm.AuthEmailKindVerification, authm.AuthEmailKindPasswordReset, authm.AuthEmailKindCalendarSteps} {
 		for _, how := range []string{"deactivated", "soft-deleted"} {
 			s.Run(string(kind)+"/"+how, func() {
 				defer s.TearDownTest()
@@ -42,7 +42,11 @@ func (s *AuthEmailOutboxSuite) TestClosedAccount_GetsNoOpenAccountEmail() {
 				if kind == authm.AuthEmailKindVerification {
 					s.Require().NoError(s.db.Model(user).Update("email_verified", false).Error)
 				}
-				s.enqueue(kind, user.ID)
+				if kind == authm.AuthEmailKindCalendarSteps {
+					s.Require().NoError(s.enqueueCalendarSteps(user))
+				} else {
+					s.enqueue(kind, user.ID)
+				}
 				s.closeAccount(user, how)
 
 				s.outbox.RunNow(context.Background())
