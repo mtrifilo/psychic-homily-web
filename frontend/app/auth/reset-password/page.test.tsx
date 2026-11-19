@@ -37,13 +37,25 @@ let completeState: RequestState = { ...idle(), isPending: false }
 const mockCheck = vi.fn()
 const mockCheckRefetch = vi.fn()
 const mockComplete = vi.fn()
+// The calendar feed status State 4A reads; undefined while loading or failed.
+let feedStatus: unknown = undefined
+const mockFeedStatus = vi.fn()
 
-vi.mock('@/features/auth', () => ({
+vi.mock('@/features/auth', async () => ({
   useCheckPasswordReset: (token: string | null) => {
     mockCheck(token)
     return { ...checkState, refetch: mockCheckRefetch }
   },
   useCompletePasswordReset: () => ({ ...completeState, mutate: mockComplete }),
+  useCalendarFeedStatus: () => {
+    mockFeedStatus()
+    return { data: feedStatus }
+  },
+  calendarLinkWasResetBy: (
+    await vi.importActual<typeof import('@/features/auth/hooks/useCalendarFeed')>(
+      '@/features/auth/hooks/useCalendarFeed'
+    )
+  ).calendarLinkWasResetBy,
 }))
 
 function refusal(code: string, message = 'refused') {
@@ -100,6 +112,8 @@ describe('Reset password page', () => {
     mockCheckRefetch.mockReset()
     mockComplete.mockReset()
     mockSetUser.mockReset()
+    mockFeedStatus.mockReset()
+    feedStatus = undefined
   })
 
   it('checks the link on open, waits for the answer and spends nothing', () => {
@@ -193,6 +207,85 @@ describe('Reset password page', () => {
       'href',
       '/profile?tab=settings#sessions'
     )
+    expect(screen.queryByText(/calendar/i)).not.toBeInTheDocument()
+  })
+
+  describe('State 4A and the calendar link', () => {
+    const SIGNED_IN_LINE =
+      "You're signed in on this device. Every other device was signed out. Your passkeys still work."
+    const RESET_LINE = `${SIGNED_IN_LINE} Your calendar link was reset too; add it again in Settings.`
+    const resetBy = (reason: string) => ({
+      has_token: false,
+      link_reset_at: '2026-11-10T12:00:00Z',
+      link_reset_reason: reason,
+    })
+
+    function renderDone() {
+      checkState = checked()
+      completeState = submitted({ isSuccess: true, data: { success: true } })
+      renderWithProviders(<ResetPasswordPage />)
+      return screen.getByRole('heading', { name: 'New password set.' })
+    }
+
+    function signedInParagraph() {
+      return screen.getByText((_, node) =>
+        node?.tagName === 'P' && (node.textContent ?? '').startsWith("You're signed in")
+      )
+    }
+
+    it('appends the reset sentence when the reset left its marker, linking to the calendar card', () => {
+      feedStatus = resetBy('password_reset')
+      renderDone()
+
+      expect(signedInParagraph().textContent).toBe(RESET_LINE)
+      const settings = screen.getByRole('link', { name: 'Settings' })
+      expect(settings).toHaveAttribute('href', '/profile?tab=settings#calendar')
+      expect(settings).toHaveClass('text-link', 'underline')
+    })
+
+    it('reads the status only once the reset has succeeded', () => {
+      checkState = checked()
+      renderWithProviders(<ResetPasswordPage />)
+
+      expect(screen.getByRole('heading', { name: 'Reset your password' })).toBeInTheDocument()
+      expect(mockFeedStatus).not.toHaveBeenCalled()
+
+      renderDone()
+      expect(mockFeedStatus).toHaveBeenCalled()
+    })
+
+    it('leaves the line as shipped while the status is unknown', () => {
+      feedStatus = undefined
+      renderDone()
+
+      expect(signedInParagraph().textContent).toBe(SIGNED_IN_LINE)
+      expect(screen.queryByRole('link', { name: 'Settings' })).not.toBeInTheDocument()
+    })
+
+    it('leaves the line as shipped when no link was reset', () => {
+      feedStatus = { has_token: false }
+      renderDone()
+
+      expect(signedInParagraph().textContent).toBe(SIGNED_IN_LINE)
+    })
+
+    it('ignores a marker another action left', () => {
+      feedStatus = resetBy('sign_out_everywhere')
+      renderDone()
+
+      expect(signedInParagraph().textContent).toBe(SIGNED_IN_LINE)
+    })
+
+    it('leaves the "When you set it" box silent about the calendar', () => {
+      feedStatus = resetBy('password_reset')
+      checkState = checked()
+      renderWithProviders(<ResetPasswordPage />)
+
+      expect(
+        screen.getByText('Every other device signed in to this account is signed out. Your passkeys keep working.')
+      ).toBeInTheDocument()
+      expect(screen.queryByText(/calendar/i)).not.toBeInTheDocument()
+    })
   })
 
   it('shows the validator refusal above the fields and keeps the form', () => {
