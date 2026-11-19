@@ -183,10 +183,11 @@ cat >"$STUB_FIXTURES/query-pages_2026-10-05_2026-10-11_25000.json" <<'JSON'
 ]}
 JSON
 
-# Query rows, week of 2026-10-12: rows, but none qualifying.
+# Query rows, week of 2026-10-12: rows, but none qualifying; 1 click on 3
+# impressions exercises the two-decimal CTR rounding.
 cat >"$STUB_FIXTURES/query-pages_2026-10-12_2026-10-18_0.json" <<'JSON'
 {"rows": [
-  {"keys": ["q9", "https://psychichomily.com/shows/2026-10-13-below-the-line"], "clicks": 0, "impressions": 3, "ctr": 0, "position": 2},
+  {"keys": ["q9", "https://psychichomily.com/shows/2026-10-13-below-the-line"], "clicks": 0, "impressions": 1, "ctr": 0, "position": 2},
   {"keys": ["q10", "https://psychichomily.com/artists/z"], "clicks": 1, "impressions": 2, "ctr": 0.5, "position": 1}
 ]}
 JSON
@@ -319,13 +320,15 @@ expected_split="$(cat <<'ROWS'
 | Query rows | Rows | Pages | Impressions | Clicks | CTR |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Rows on dated show pages at average position 1.5 or better | 0 | 0 | 0 | 0 | n/a |
-| Everything else | 2 | 2 | 5 | 1 | 20% |
+| Everything else | 2 | 2 | 3 | 1 | 33.33% |
 ROWS
 )"
 split_lines="$(query_split_lines)"
 [ "$split_lines" = "$expected_split" ] \
   || fail "query-row split differs:$(diff <(printf '%s\n' "$expected_split") <(printf '%s\n' "$split_lines"))"
 expect_no_text "UNTRUSTED-QUERY-MARKER"
+# The daily series' CTR cell (stub: 1 click, 10 impressions, ctr 0.1).
+expect_line "| 2026-09-26 | 1 | 10 | 10% | 5 |"
 # Each section titles its weeks differently, so no heading appears twice.
 [ "$(grep '^### ' "$DOC" | sort | uniq -d)" = "" ] || fail "a week heading appears twice: $(grep '^### ' "$DOC" | sort | uniq -d)"
 expect_requests 1 '"startDate":"2026-10-05","endDate":"2026-10-11","rowLimit":25000,"dimensions":["query","page"],"startRow":25000'
