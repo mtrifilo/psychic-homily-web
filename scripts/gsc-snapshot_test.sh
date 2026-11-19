@@ -284,26 +284,33 @@ expect_line "**Only 5 of the 7 days in this week were served (see the Coverage l
 expect_line "6. **Page indexing is not machine-captured.** The Page indexing report has"
 expect_line "7. **Breadth counts distinct pages with at least one impression.** A family's"
 expect_line "8. **Breadth totals are not the daily totals.** Rows grouped by page are"
-expect_line "9. **Dated show pages at average position 1.5 or better are"
-expect_line "   are a floor: Google withholds rare queries, so they cover only part of the"
+# Trap 9 names the group as a heuristic reading, not a fact, says query rows
+# are a floor, and points the breadth reader at the split.
+expect_line "9. **Query rows on dated show pages at average position 1.5 or better"
+expect_line "   are most likely Google's events box listing the page as a source, not ranking.**"
+expect_line "   The 1.5 threshold is a heuristic, not Google's definition:"
+expect_line "   dimension does not label these rows. Read the two groups of the query-row"
+expect_line "   the same listings. Query rows are a floor: Google withholds rare queries, so the"
+expect_line "   rows miss part of the demand. They are also counted per page (trap 8), so"
+expect_line "include impressions from Google's events box; read them beside the query-row"
 # The query-row split: the classifier and the 1.5 boundary (week of 09-28),
 # pagination past the cap (10-05), and a week with no qualifying row (10-12).
 expected_split="$(cat <<'ROWS'
-### Week of 2026-09-28 (Monday 2026-09-28 to Sunday 2026-10-04)
+### Query rows, week of 2026-09-28 (Monday 2026-09-28 to Sunday 2026-10-04)
 | Query rows | Rows | Pages | Impressions | Clicks | CTR |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Dated show pages at average position 1.5 or better | 3 | 2 | 100 | 1 | 1% |
+| Rows on dated show pages at average position 1.5 or better | 3 | 2 | 100 | 1 | 1% |
 | Everything else | 5 | 5 | 50 | 3 | 6% |
-### Week of 2026-10-05 (Monday 2026-10-05 to Sunday 2026-10-11)
+### Query rows, week of 2026-10-05 (Monday 2026-10-05 to Sunday 2026-10-11)
 | Query rows | Rows | Pages | Impressions | Clicks | CTR |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Dated show pages at average position 1.5 or better | 1 | 1 | 4 | 0 | 0% |
+| Rows on dated show pages at average position 1.5 or better | 1 | 1 | 4 | 0 | 0% |
 | Everything else | 25000 | 25000 | 25000 | 0 | 0% |
-### Week of 2026-10-12 (Monday 2026-10-12 to Sunday 2026-10-18)
+### Query rows, week of 2026-10-12 (Monday 2026-10-12 to Sunday 2026-10-18)
 **Only 5 of the 7 days in this week were served (see the Coverage line); do not compare it with a full week.**
 | Query rows | Rows | Pages | Impressions | Clicks | CTR |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Dated show pages at average position 1.5 or better | 0 | 0 | 0 | 0 | — |
+| Rows on dated show pages at average position 1.5 or better | 0 | 0 | 0 | 0 | n/a |
 | Everything else | 2 | 2 | 5 | 1 | 20% |
 ROWS
 )"
@@ -311,6 +318,8 @@ split_lines="$(query_split_lines)"
 [ "$split_lines" = "$expected_split" ] \
   || fail "query-row split differs:$(diff <(printf '%s\n' "$expected_split") <(printf '%s\n' "$split_lines"))"
 expect_no_text "UNTRUSTED-QUERY-MARKER"
+# Each section titles its weeks differently, so no heading appears twice.
+[ "$(grep '^### ' "$DOC" | sort | uniq -d)" = "" ] || fail "a week heading appears twice: $(grep '^### ' "$DOC" | sort | uniq -d)"
 expect_requests 1 '"startDate":"2026-10-05","endDate":"2026-10-11","rowLimit":25000,"dimensions":["query","page"],"startRow":25000'
 expect_requests 1 '"startDate":"2026-09-28","endDate":"2026-10-04","rowLimit":25000,"dimensions":["query","page"]}'
 expect_line "### Page indexing (manual read)"
@@ -333,6 +342,7 @@ expect_status 0
 expect_line "_No complete Monday-to-Sunday week lies inside this window, so there is no breadth table._"
 expect_line "_No complete Monday-to-Sunday week lies inside this window, so there is no query-row split._"
 expect_no_text "### Week of"
+expect_no_text "### Query rows, week of"
 # Only the window-wide fetches run, with the request bodies the doc's other
 # tables are built from.
 expect_requests 1 '"dimensions":["page"]'

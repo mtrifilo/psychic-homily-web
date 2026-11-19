@@ -424,8 +424,9 @@ rollup="$(awk '/^## Roll-up/{on=1; next} /^## /{on=0} on && /^\|/' "$DOC")"
 # Only releases has indexed URLs and none declaring a canonical: venues has no
 # indexed URL, and every other family's indexed URL carries one.
 callouts="$(awk '/^## Roll-up/{on=1; next} /^## /{on=0} on && /^- /' "$DOC")"
-[ "$callouts" = '- **releases: 0 of 1 indexed URLs carry a `userCanonical`.** Google registered a declared canonical on none of them, so Canonical differs covers no indexed URL in this family (trap 5).' ] \
+[ "$callouts" = '- **releases: 0 of 1 indexed URLs carry a `userCanonical`.** Google reports no declared canonical for any of them, so Canonical differs covers no indexed URL in this family (trap 5).' ] \
   || fail "the no-declared-canonical lines under the roll-up differ: $callouts"
+expect_line "$DOC" '5. **Canonical.** A canonical difference is counted only where the response carries both `googleCanonical` and `userCanonical`; unindexed URLs often carry neither. Indexed with userCanonical counts the indexed (verdict PASS) URLs whose response carries a `userCanonical`; the API documents the field as absent when no canonical is declared. Where it is 0, Canonical differs covers no indexed URL, and a 0 there is not agreement.'
 expect_line "$DOC" "| canonical | indexed (PASS) URLs carrying userCanonical | 0 of 1 indexed |"
 expect_line "$DOC" "| canonical | indexed (PASS) URLs carrying userCanonical | 1 of 1 indexed |"
 expect_line "$DOC" "Sampled 3 of 3 advertised (requested 3): 3 inspected, 0 failed, 0 not inspected."
@@ -469,6 +470,14 @@ expect_status 0
 [ "$(find "$OUT" -mindepth 2 -maxdepth 2 -name "gsc-inspect-${TODAY}*" | wc -l | tr -d ' ')" = "0" ] \
   || fail "a replaced run directory should never be moved inside another"
 expect_line "$DOC" "| **All families** | 351 | 14 | 12 | 1 | 1 | 5 | 1 | 2 | 3 | 1 | 2 of 6 | 4 of 5 |"
+
+CASE="a fixture whose sample lists no family renders an all-zero roll-up"
+mkdir -p "$TMP/empty-fixture"
+printf '# gsc-inspect-sample v1 seed=empty per_family=1 today_utc=%s sitemap=x\nfamily\turl\thash\n' "$TODAY" >"$TMP/empty-fixture/sample.tsv"
+run --fixture "$TMP/empty-fixture" --out "$TMP/empty-out"
+expect_status 0
+expect_line "$TMP/empty-out/gsc-inspect-${TODAY}.md" "| **All families** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 of 0 | 0 of 0 |"
+expect_no_text "$TMP/empty-out/gsc-inspect-${TODAY}.md" "indexed URLs carry a"
 
 CASE="a malformed fixture sample.tsv is refused"
 mkdir -p "$TMP/bad-fixture"

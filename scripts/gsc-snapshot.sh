@@ -608,11 +608,13 @@ PAGE_SHOWN="$(min "$PAGE_TABLE_LIMIT" "$PAGE_ROW_COUNT")"
 # its row count, distinct page URLs, impressions and clicks. Only counts leave
 # this definition, so no query cell reaches the doc. ctr_cell is a group's CTR.
 #
-# pct2 is a 0-1 fraction as a two-decimal percentage, for every CTR cell.
+# pct2 is a 0-1 fraction as a two-decimal percentage, for the CTR cells of
+# metrics() and ctr_cell.
 #
-# week_opening($daily; $ws; $we): the heading of one week's subsection, and a
-# flag when the daily series holds fewer than seven of its days (the API omits
-# unserved days, so a short week reads as a fall).
+# week_opening($title; $daily; $ws; $we): the "### <title> <monday>" heading
+# of one week's subsection, and a flag when the daily series holds fewer than
+# seven of its days (the API omits unserved days, so a short week reads as a
+# fall). Each per-week section passes its own title so headings stay unique.
 JQ_DEFS='
   def esc: tostring
     | gsub("[[:cntrl:]\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]"; " ")
@@ -686,10 +688,10 @@ JQ_DEFS='
     | map(. as $group | [$rows[] | select(.first_group == $group)]
         | {rows: length, pages: (map(.page) | unique | length),
            impressions: (map(.impressions) | add // 0), clicks: (map(.clicks) | add // 0)});
-  def ctr_cell: if .impressions == 0 then "—" else "\(.clicks / .impressions | pct2)%" end;
-  def week_opening($daily; $ws; $we):
+  def ctr_cell: if .impressions == 0 then "n/a" else "\(.clicks / .impressions | pct2)%" end;
+  def week_opening($title; $daily; $ws; $we):
     ([($daily[0].rows // [])[] | select(.keys[0] >= $ws and .keys[0] <= $we)] | length) as $served
-    | "### Week of \($ws) (Monday \($ws) to Sunday \($we))",
+    | "### \($title) \($ws) (Monday \($ws) to Sunday \($we))",
       "",
       (if $served < 7 then "**Only \($served) of the 7 days in this week were served (see the Coverage line); do not compare it with a full week.**", "" else empty end);
 '
@@ -726,7 +728,7 @@ render_breadth_week() {
     | ($families | reduce .[] as $f ({pages: 0, clicks: 0, impressions: 0, weighted_position: 0};
         .pages += $f.pages | .clicks += $f.clicks | .impressions += $f.impressions
         | .weighted_position += $f.weighted_position)) as $total
-    | week_opening($daily; $ws; $we),
+    | week_opening("Week of"; $daily; $ws; $we),
       "\($total.pages) pages with impressions · \($total.clicks) clicks · \($total.impressions) impressions"
         + (if $total.impressions > 0 then " · impression-weighted position \($total | weighted_position_cell)" else "" end),
       "",
@@ -747,10 +749,10 @@ render_query_split_week() {
     --argjson maxpos "$EVENTS_BOX_MAX_POSITION" "$JQ_DEFS"'
     query_row_split($maxpos) as [$first, $rest]
     | def group_row($label): "| \($label) | \(.rows) | \(.pages) | \(.impressions) | \(.clicks) | \(ctr_cell) |";
-      week_opening($daily; $ws; $we),
+      week_opening("Query rows, week of"; $daily; $ws; $we),
       "| Query rows | Rows | Pages | Impressions | Clicks | CTR |",
       "| --- | ---: | ---: | ---: | ---: | ---: |",
-      ($first | group_row("Dated show pages at average position \($maxpos) or better")),
+      ($first | group_row("Rows on dated show pages at average position \($maxpos) or better")),
       ($rest | group_row("Everything else"))
   ' "$1"
 }
@@ -1073,18 +1075,21 @@ Source: Google Search Console Search Analytics API, captured by
    counts once for each. A week's impressions in the breadth tables can run
    above the daily series for the same days; quote the daily series and the
    headline totals for site-level impressions and position.
-9. **Dated show pages at average position ${EVENTS_BOX_MAX_POSITION} or better are
-   Google's events box, not ranking.** When an Events card in Google's results
-   lists a show page as a source under "Tickets & information", Search Console
-   counts an impression for that page each time the card is shown, at a
-   position near 1, and a click only when someone picks that source, so CTR
-   runs near 1%. The \`searchAppearance\` dimension does not label these rows.
-   The ${EVENTS_BOX_MAX_POSITION} threshold is a heuristic, not Google's
-   definition: a show page can genuinely rank first, and a listing in the box
-   can average worse than ${EVENTS_BOX_MAX_POSITION}. Read the two groups of the
-   query-row split separately before reading a trend in query rows. Query rows
-   are a floor: Google withholds rare queries, so they cover only part of the
-   impressions in the daily series.
+9. **Query rows on dated show pages at average position ${EVENTS_BOX_MAX_POSITION} or better
+   are most likely Google's events box listing the page as a source, not ranking.**
+   The ${EVENTS_BOX_MAX_POSITION} threshold is a heuristic, not Google's definition:
+   it also catches a show page that genuinely ranks first, and misses any
+   listing whose rows average worse. The signature seen in September and
+   October 2026: many broad queries on one show page per venue, position near
+   1, CTR near 1%. An Events card, opened, lists source sites under "Tickets &
+   information"; how Search Console attributes card impressions and clicks to
+   a source page is inferred, not documented. The \`searchAppearance\`
+   dimension does not label these rows. Read the two groups of the query-row
+   split separately before reading a trend in query rows, and read the dated
+   \`show:\` breadth families beside that split, since those families count
+   the same listings. Query rows are a floor: Google withholds rare queries, so the
+   rows miss part of the demand. They are also counted per page (trap 8), so
+   neither group is a share of the daily series, and the first can run above it.
 
 ${TRUNCATION_NOTE}
 ---
@@ -1149,7 +1154,9 @@ with a date is placed against the table's week by that date: in these labels
 "window" means the week. \`/shows/<number>\` and the \`/shows/YYYY/MM(/DD)\`
 calendar are their own rows, and any other path is grouped under
 \`other:\` by its first path segment (\`other: tags\`), or by the whole path
-when it has one segment (\`other: /about\`).
+when it has one segment (\`other: /about\`). The dated \`show:\` families
+include impressions from Google's events box; read them beside the query-row
+split for the same week before reading a trend (trap 9).
 
 ${BREADTH_SECTIONS}
 
@@ -1160,8 +1167,10 @@ past the API's ${QUERY_FETCH_LIMIT}-row request cap. A row is one query on one
 page with at least one impression. The first group is rows on a dated show
 page (a \`/shows/YYYY-MM-DD-...\` slug carrying a real date, any host) at
 average position ${EVENTS_BOX_MAX_POSITION} or better; read trap 9 for what
-that group is. Pages is distinct page URLs in the group. Query rows are a
-floor (trap 9), so neither group adds up to the daily series.
+that group most likely is. Pages is distinct page URLs in the group; rows are
+classified one by one, so a page can sit in both groups and the Pages cells do
+not add up. Query rows omit withheld queries and count per page (trap 9), so
+neither group compares with the daily series.
 
 ${QUERY_SPLIT_SECTIONS}
 
