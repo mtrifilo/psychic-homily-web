@@ -38,8 +38,10 @@ vi.mock('@sentry/nextjs', () => ({
   addBreadcrumb: vi.fn(),
   flush: vi.fn(() => Promise.resolve(true)),
   // next.config wraps its config at module scope; identity keeps the config
-  // object as written for tests that import it.
-  withSentryConfig: <T,>(config: T): T => config,
+  // object as written for tests that import it, and the recorded call carries
+  // the Sentry build options it passed (app/robots.test.ts reads tunnelRoute
+  // from it).
+  withSentryConfig: vi.fn(<T,>(config: T): T => config),
 }))
 
 // Start MSW server before all tests, reset handlers after each test,
