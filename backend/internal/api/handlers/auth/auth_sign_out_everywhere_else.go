@@ -32,8 +32,9 @@ const signOutEverywhereElseNotASession = "Sign out everywhere else from a signed
 type SignOutEverywhereElseResponse struct {
 	SetCookie http.Cookie `header:"Set-Cookie" doc:"Authentication cookie carrying the caller's renewed session"`
 	Body      struct {
-		Success   bool   `json:"success" example:"true" doc:"Every other session is signed out and this one is renewed"`
-		RequestID string `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
+		Success           bool   `json:"success" example:"true" doc:"Every other session is signed out and this one is renewed"`
+		CalendarLinkReset bool   `json:"calendar_link_reset" example:"false" doc:"This call deleted a calendar feed link that a calendar app had been reading, so that calendar stops updating until the link is added again. False when there was no link, nothing had read it, or an earlier action reset it"`
+		RequestID         string `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
 	}
 }
 
@@ -58,7 +59,7 @@ func (h *AuthHandler) SignOutEverywhereElseHandler(ctx context.Context, _ *struc
 		return nil, huma.Error403Forbidden(signOutEverywhereElseNotASession)
 	}
 
-	token, err := h.authService.SignOutOtherSessions(contextUser, middleware.GetSessionAuthTimeFromContext(ctx))
+	signOut, err := h.authService.SignOutOtherSessions(contextUser, middleware.GetSessionAuthTimeFromContext(ctx))
 	if err != nil {
 		if shared.IsSessionRefusal(err) {
 			return nil, middleware.RefuseSession(ctx, signOutEverywhereElseOperation, err, h.config.Session)
@@ -68,8 +69,9 @@ func (h *AuthHandler) SignOutEverywhereElseHandler(ctx context.Context, _ *struc
 	}
 
 	resp := &SignOutEverywhereElseResponse{}
-	resp.SetCookie = h.config.NewSessionCookie(token)
+	resp.SetCookie = h.config.NewSessionCookie(signOut.Token)
 	resp.Body.Success = true
+	resp.Body.CalendarLinkReset = signOut.CalendarLinkReset
 	resp.Body.RequestID = logger.GetRequestID(ctx)
 	logger.AuthInfo(ctx, "sign_out_everywhere_else_success", "user_id", contextUser.ID)
 	return resp, nil

@@ -216,11 +216,12 @@ type CompletePasswordResetResponse struct {
 	// Set-Cookie header that clears nothing (see ChangePasswordResponse).
 	SetCookie http.Cookie `header:"Set-Cookie" doc:"Authentication cookie"`
 	Body      struct {
-		Success   bool        `json:"success" example:"true" doc:"Success status"`
-		Message   string      `json:"message" example:"Password reset" doc:"Response message"`
-		User      *authm.User `json:"user,omitempty" doc:"The account, signed in on this browser"`
-		ErrorCode string      `json:"error_code,omitempty" example:"INVALID_TOKEN" doc:"Error code for programmatic handling"`
-		RequestID string      `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
+		Success           bool        `json:"success" example:"true" doc:"Success status"`
+		Message           string      `json:"message" example:"Password reset" doc:"Response message"`
+		User              *authm.User `json:"user,omitempty" doc:"The account, signed in on this browser"`
+		CalendarLinkReset bool        `json:"calendar_link_reset" example:"false" doc:"This reset deleted a calendar feed link that a calendar app had been reading, so that calendar stops updating until the link is added again. False on a refusal, and when there was no link, nothing had read it, or an earlier action reset it"`
+		ErrorCode         string      `json:"error_code,omitempty" example:"INVALID_TOKEN" doc:"Error code for programmatic handling"`
+		RequestID         string      `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
 	}
 }
 
@@ -280,6 +281,7 @@ func (h *AuthHandler) CompletePasswordResetHandler(ctx context.Context, input *C
 	resp.Body.Success = true
 	resp.Body.Message = "Password reset"
 	resp.Body.User = completion.User
+	resp.Body.CalendarLinkReset = completion.CalendarLinkReset
 	return resp, nil
 }
 

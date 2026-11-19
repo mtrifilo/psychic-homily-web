@@ -222,20 +222,24 @@ func (s *CalendarService) linkResetMarker(userID uint) (*time.Time, *engagementm
 // no calendar app its owner is still told about could stop updating. An
 // account with no token is left as it is, its marker included.
 //
+// It reports whether it recorded a link reset: true only when this call
+// deleted a token a calendar app had read, never for a marker an earlier
+// revocation left.
+//
 // The token row is locked before its reads are counted, so a read being
 // recorded concurrently either commits first and is counted, or waits for
 // this transaction and then fails its foreign-key check and writes nothing.
 // The count runs before the delete, whose cascade removes the reads.
-func RevokeCalendarLinkTx(tx *gorm.DB, userID uint, at time.Time, reason engagementm.CalendarLinkResetReason) error {
+func RevokeCalendarLinkTx(tx *gorm.DB, userID uint, at time.Time, reason engagementm.CalendarLinkResetReason) (bool, error) {
 	var tokenIDs []uint
 	if err := tx.Model(&engagementm.CalendarToken{}).
 		Clauses(clause.Locking{Strength: "UPDATE"}).
 		Where("user_id = ?", userID).
 		Pluck("id", &tokenIDs).Error; err != nil {
-		return fmt.Errorf("failed to lock calendar token: %w", err)
+		return false, fmt.Errorf("failed to lock calendar token: %w", err)
 	}
 	if len(tokenIDs) == 0 {
-		return nil
+		return false, nil
 	}
 
 	var read bool
@@ -243,16 +247,19 @@ func RevokeCalendarLinkTx(tx *gorm.DB, userID uint, at time.Time, reason engagem
 		"SELECT EXISTS (SELECT 1 FROM calendar_feed_reads WHERE token_id IN ? AND last_read_at >= ?)",
 		tokenIDs, feedReadRememberedSince(at),
 	).Scan(&read).Error; err != nil {
-		return fmt.Errorf("failed to check calendar feed reads: %w", err)
+		return false, fmt.Errorf("failed to check calendar feed reads: %w", err)
 	}
 
 	if _, err := DeleteCalendarTokensTx(tx, userID); err != nil {
-		return err
+		return false, err
 	}
 	if !read {
-		return nil
+		return false, nil
 	}
-	return MarkCalendarLinkResetTx(tx, userID, at, reason)
+	if err := MarkCalendarLinkResetTx(tx, userID, at, reason); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // MarkCalendarLinkResetTx records through tx, which the caller commits, that

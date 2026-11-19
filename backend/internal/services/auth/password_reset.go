@@ -81,7 +81,8 @@ func completePasswordReset(
 		account.FailedLoginAttempts = 0
 		account.LockedUntil = nil
 
-		if err := revokeSessionsAndFeedToken(tx, account, time.Now(), engagementm.CalendarLinkResetPasswordReset); err != nil {
+		calendarLinkReset, err := revokeSessionsAndFeedToken(tx, account, time.Now(), engagementm.CalendarLinkResetPasswordReset)
+		if err != nil {
 			return err
 		}
 		// The revocation set account.SessionsValidAfter to the stamp it
@@ -92,7 +93,7 @@ func completePasswordReset(
 		if err != nil {
 			return fmt.Errorf("failed to mint the session: %w", err)
 		}
-		completion = contracts.PasswordResetCompletion{User: account, Token: token}
+		completion = contracts.PasswordResetCompletion{User: account, Token: token, CalendarLinkReset: calendarLinkReset}
 		return nil
 	})
 	if err != nil {

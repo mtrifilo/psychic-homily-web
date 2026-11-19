@@ -6,12 +6,7 @@ import Link from 'next/link'
 import { useForm } from '@tanstack/react-form'
 import type { z } from 'zod'
 import { AlertCircle, Loader2, ServerCrash, User } from 'lucide-react'
-import {
-  calendarLinkWasResetBy,
-  useCalendarFeedStatus,
-  useCheckPasswordReset,
-  useCompletePasswordReset,
-} from '@/features/auth'
+import { useCheckPasswordReset, useCompletePasswordReset } from '@/features/auth'
 import { AccountRecoverableMessage } from '@/app/auth/_components/account-recoverable-message'
 import { PasswordInput } from '@/features/auth/components/settings/password-input'
 import { newPasswordWithConfirmSchema } from '@/features/auth/components/settings/password-rules'
@@ -129,18 +124,11 @@ function LinkNoLongerWorks() {
 /**
  * State 4A: the password is set, this browser is signed in, the rest are not.
  *
- * The reset also deleted the calendar link. The line says so only when the
- * feed status carries the password reset's marker. This card mounts once the
- * reset has succeeded, and that success resets the cached status, so the
- * status read here is one made after the reset. The reader was signed out
- * before the reset, so the page cannot tell this reset's marker from one an
- * earlier reset left on an account with no link added since; the line shows
- * for both.
+ * The reset also deleted the calendar link. The line says so only when
+ * `calendarLinkWasReset`, the reset's own report that it reset a link a
+ * calendar app had been reading.
  */
-function PasswordResetDone() {
-  const { data: feedStatus } = useCalendarFeedStatus()
-  const calendarLinkWasReset = calendarLinkWasResetBy(feedStatus, 'password_reset')
-
+function PasswordResetDone({ calendarLinkWasReset }: { calendarLinkWasReset: boolean }) {
   return (
     <StateCard kicker="Password reset · signed in" title="New password set.">
       <p className="text-sm leading-[22px] text-foreground">
@@ -384,7 +372,9 @@ function ResetPasswordContent() {
   const complete = useCompletePasswordReset()
 
   if (!token) return <LinkNoLongerWorks />
-  if (complete.isSuccess) return <PasswordResetDone />
+  if (complete.isSuccess) {
+    return <PasswordResetDone calendarLinkWasReset={complete.data.calendar_link_reset} />
+  }
 
   // A submit's refusal of the link or the account outranks the check's
   // earlier answer: the link may have been used, or the account closed, since.
