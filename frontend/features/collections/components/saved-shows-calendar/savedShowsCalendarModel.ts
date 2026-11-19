@@ -1,6 +1,7 @@
 import {
   CALENDAR_CLIENT_ADD_TARGET,
   calendarCheckedLine,
+  calendarResetReason,
   calendarStoppedLine,
   classifyCalendarApps,
   type CalendarAddTarget,
@@ -36,8 +37,9 @@ export interface StoppedAppView {
 }
 
 export interface SavedShowsCalendarModel {
-  heading: 'add' | 'status' | 'reset'
-  /** Set exactly when `heading` is `reset`. */
+  /** Whether any app has been seen checking the link. */
+  heading: 'add' | 'status'
+  /** Set when a security action reset the link; its heading wins. */
   resetReason: CalendarLinkResetReason | null
   connected: ConnectedAppView[]
   stopped: StoppedAppView[]
@@ -133,13 +135,10 @@ export function buildSavedShowsCalendarModel({
       )
 
   const known = connected.length + stopped.length > 0
-  const resetReason = status.link_reset_at
-    ? (status.link_reset_reason ?? null)
-    : null
 
   return {
-    heading: resetReason ? 'reset' : known ? 'status' : 'add',
-    resetReason,
+    heading: known ? 'status' : 'add',
+    resetReason: calendarResetReason(status),
     connected,
     stopped,
     unrecoverable,

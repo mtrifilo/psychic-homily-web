@@ -1,4 +1,5 @@
 import type { CalendarLinkResetReason } from '@/features/shows/types'
+import type { CalendarAddTarget } from '@/features/collections/lib/calendarFeedStatus'
 
 /**
  * Every string the saved-shows calendar panel shows, verbatim from the
@@ -73,8 +74,15 @@ export function downloadLabel(upcomingCount: number): string {
     : `Download these ${upcomingCount} shows (.ics)`
 }
 
-export function addAgainLabel(appName: string): string {
-  return `Add to ${appName} again`
+/** The row label of each app with a row of its own. */
+export const ADD_TARGET_ROW: Record<CalendarAddTarget, string> = {
+  google: PANEL_COPY.rowGoogle,
+  apple: PANEL_COPY.rowApple,
+}
+
+/** A stopped app's way back, by the plain name of its row. */
+export function addAgainLabel(target: CalendarAddTarget): string {
+  return `Add to ${ADD_TARGET_ROW[target]} again`
 }
 
 export function emailSentLine(email: string): string {

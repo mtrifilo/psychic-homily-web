@@ -2,7 +2,6 @@
 
 import { Check, ExternalLink } from 'lucide-react'
 import { useForgetCalendarClient } from '@/features/auth/hooks/useCalendarFeed'
-import { CALENDAR_ADD_TARGET_NAMES } from '@/features/collections/lib/calendarFeedStatus'
 import { PanelError, PanelNote, PanelRowButton } from './CalendarPanelParts'
 import { CalendarRowNoteLines } from './CalendarRowNoteLines'
 import { PANEL_COPY, addAgainLabel } from './savedShowsCalendarCopy'
@@ -54,13 +53,11 @@ export function CalendarStoppedApp({
       {againTarget ? (
         <div className="flex flex-col">
           <PanelRowButton
-            onClick={
-              againTarget === 'google' ? actions.addToGoogle : actions.addToApple
-            }
+            onClick={actions.addTo[againTarget]}
             icon={ExternalLink}
             handlesLink
           >
-            {addAgainLabel(CALENDAR_ADD_TARGET_NAMES[againTarget])}
+            {addAgainLabel(againTarget)}
           </PanelRowButton>
           <CalendarRowNoteLines
             note={actions.notes[againTarget]}

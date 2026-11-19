@@ -8,7 +8,6 @@ import {
 } from '@/features/auth/hooks/useCalendarFeed'
 import {
   GOOGLE_CALENDAR_ADD_BY_URL_PAGE,
-  SAVED_SHOWS_CALENDAR_NAME,
   outlookComSubscribeUrl,
   outlookWorkSubscribeUrl,
   webcalUrl,
@@ -22,6 +21,7 @@ import {
   openTabNow,
 } from './calendarPanelBrowser'
 import type { CalendarRow } from './savedShowsCalendarModel'
+import type { CalendarAddTarget } from '@/features/collections/lib/calendarFeedStatus'
 
 /** What a row reports under itself after it was chosen. */
 export type CalendarRowNote =
@@ -33,7 +33,7 @@ export type CalendarRowNote =
   | 'load_failed'
   | 'copy_failed'
 
-export type CalendarRowNotes = Partial<Record<CalendarRow, CalendarRowNote>>
+type CalendarRowNotes = Partial<Record<CalendarRow, CalendarRowNote>>
 
 class LinkCreateError extends Error {}
 class LinkLoadError extends Error {}
@@ -171,7 +171,7 @@ export function useSavedShowsCalendarActions(hasToken: boolean) {
         row,
         'outlook_opened',
         async () => {
-          tab.navigate(build(await resolveAddress(), SAVED_SHOWS_CALENDAR_NAME))
+          tab.navigate(build(await resolveAddress()))
         },
         tab.close
       )
@@ -184,7 +184,16 @@ export function useSavedShowsCalendarActions(hasToken: boolean) {
     [resolveAddress, run]
   )
 
-  return { notes, addToGoogle, addToApple, addToOutlook, copyLink }
+  return {
+    notes,
+    /** The one-step add for each app with a row of its own. */
+    addTo: { google: addToGoogle, apple: addToApple } satisfies Record<
+      CalendarAddTarget,
+      () => void
+    >,
+    addToOutlook,
+    copyLink,
+  }
 }
 
 export type CalendarActions = ReturnType<typeof useSavedShowsCalendarActions>

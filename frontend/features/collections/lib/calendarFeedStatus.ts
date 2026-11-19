@@ -3,6 +3,7 @@ import type {
   CalendarFeedClient,
   CalendarFeedRead,
   CalendarFeedStatusResponse,
+  CalendarLinkResetReason,
 } from '@/features/shows/types'
 
 /**
@@ -23,7 +24,7 @@ const DAY_MS = 24 * HOUR_MS
  * re-checks every few hours, so three days without one means it stopped; a Mac
  * can be set to refresh weekly, so Apple and unnamed apps get eight.
  */
-export const CALENDAR_CONNECTED_WINDOW_MS: Record<CalendarFeedClient, number> = {
+const CALENDAR_CONNECTED_WINDOW_MS: Record<CalendarFeedClient, number> = {
   google: 3 * DAY_MS,
   apple_ios: 8 * DAY_MS,
   apple_mac: 8 * DAY_MS,
@@ -35,7 +36,7 @@ export const CALENDAR_CONNECTED_WINDOW_MS: Record<CalendarFeedClient, number> = 
  * into a chat app triggers a single preview fetch, which must not read as a
  * calendar.
  */
-export const UNNAMED_APP_MIN_CHECK_SPAN_MS = HOUR_MS
+const UNNAMED_APP_MIN_CHECK_SPAN_MS = HOUR_MS
 
 /** What each client family is called wherever the status names it. */
 export const CALENDAR_CLIENT_NAMES: Record<CalendarFeedClient, string> = {
@@ -59,12 +60,6 @@ export const CALENDAR_CLIENT_ADD_TARGET: Record<
   apple_ios: 'apple',
   apple_mac: 'apple',
   other: null,
-}
-
-/** The plain app name an add target goes by in "Add to ... again". */
-export const CALENDAR_ADD_TARGET_NAMES: Record<CalendarAddTarget, string> = {
-  google: 'Google Calendar',
-  apple: 'Apple Calendar',
 }
 
 export interface CalendarApp {
@@ -116,6 +111,17 @@ export function classifyCalendarApps(
 }
 
 /**
+ * Which security action reset a link a calendar app had been checking, or
+ * null. The server sends the reason exactly when it sends the marker; a
+ * marker without one is read as no reset rather than guessed at.
+ */
+export function calendarResetReason(
+  status: CalendarFeedStatusResponse | undefined
+): CalendarLinkResetReason | null {
+  return status?.link_reset_at ? (status.link_reset_reason ?? null) : null
+}
+
+/**
  * The calendar's one-word state, for the header and footer labels: connected
  * when any app is; stopped when every known app stopped, or a security action
  * reset a link an app had been checking; otherwise none.
@@ -128,7 +134,7 @@ export function summarizeCalendar(
 ): CalendarSummary {
   const { connected, stopped } = classifyCalendarApps(status, now)
   if (connected.length > 0) return 'connected'
-  if (stopped.length > 0 || status?.link_reset_at) return 'stopped'
+  if (stopped.length > 0 || calendarResetReason(status)) return 'stopped'
   return 'none'
 }
 

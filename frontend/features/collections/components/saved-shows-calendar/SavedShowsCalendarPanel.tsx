@@ -159,7 +159,7 @@ function headingFor(state: SavedShowsCalendarState): {
     return { title: PANEL_COPY.headingStatus, sub: null }
   }
   const { heading, resetReason } = state.model
-  if (heading === 'reset' && resetReason) {
+  if (resetReason) {
     return { title: PANEL_COPY.headingReset, sub: RESET_SUB[resetReason] }
   }
   if (heading === 'status') {

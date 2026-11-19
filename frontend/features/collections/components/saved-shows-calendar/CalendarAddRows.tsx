@@ -2,7 +2,7 @@
 
 import { Copy, ExternalLink } from 'lucide-react'
 import {
-  isCalendarComputer,
+  canAddOnDevice,
   type CalendarDevice,
 } from '@/features/collections/lib/calendarDevice'
 import {
@@ -14,7 +14,7 @@ import {
 } from './CalendarPanelParts'
 import { CalendarEmailStepsAction } from './CalendarEmailStepsAction'
 import { CalendarRowNoteLines } from './CalendarRowNoteLines'
-import { PANEL_COPY } from './savedShowsCalendarCopy'
+import { ADD_TARGET_ROW, PANEL_COPY } from './savedShowsCalendarCopy'
 import type { CalendarRow } from './savedShowsCalendarModel'
 import type { CalendarActions } from './useSavedShowsCalendarActions'
 
@@ -56,49 +56,22 @@ function CalendarAddRow({
 }) {
   switch (row) {
     case 'google':
-      if (isCalendarComputer(device)) {
-        return (
-          <PanelRowButton
-            onClick={actions.addToGoogle}
-            icon={ExternalLink}
-            handlesLink
-          >
-            {PANEL_COPY.rowGoogle}
-          </PanelRowButton>
-        )
-      }
-      return (
-        <div className="flex flex-col">
-          <PanelBlockTitle>{PANEL_COPY.rowGoogle}</PanelBlockTitle>
-          <PanelNote className="mt-0.5">
-            {device.kind === 'android'
-              ? PANEL_COPY.androidGoogleSub
-              : PANEL_COPY.iphoneGoogleSub}
-          </PanelNote>
-          <CalendarEmailStepsAction />
-        </div>
-      )
     case 'apple':
-      if (device.kind === 'iphone' && !device.isSafari) {
-        return (
-          <div className="flex flex-col">
-            <PanelBlockTitle>{PANEL_COPY.rowApple}</PanelBlockTitle>
-            <PanelNote className="mt-0.5">
-              {PANEL_COPY.iphoneAppleNotSafari}
-            </PanelNote>
-          </div>
-        )
+      // A device that cannot add the app in one step gets its block of
+      // instructions in place of the row.
+      if (!canAddOnDevice(row, device)) {
+        return <PhoneOnlyBlock row={row} device={device} />
       }
       return (
         <>
           <PanelRowButton
-            onClick={actions.addToApple}
+            onClick={actions.addTo[row]}
             icon={ExternalLink}
             handlesLink
           >
-            {PANEL_COPY.rowApple}
+            {ADD_TARGET_ROW[row]}
           </PanelRowButton>
-          {device.kind === 'iphone' ? (
+          {row === 'apple' && device.kind === 'iphone' ? (
             <PanelNote>{PANEL_COPY.iphoneGoogleAppHint}</PanelNote>
           ) : null}
         </>
@@ -128,4 +101,36 @@ function CalendarAddRow({
         </PanelRowButton>
       )
   }
+}
+
+/**
+ * Google on a phone (finish on a computer, or have the steps emailed), and
+ * Apple on an iPhone outside Safari (open the page in Safari).
+ */
+function PhoneOnlyBlock({
+  row,
+  device,
+}: {
+  row: 'google' | 'apple'
+  device: CalendarDevice
+}) {
+  if (row === 'apple') {
+    return (
+      <div className="flex flex-col">
+        <PanelBlockTitle>{PANEL_COPY.rowApple}</PanelBlockTitle>
+        <PanelNote className="mt-0.5">{PANEL_COPY.iphoneAppleNotSafari}</PanelNote>
+      </div>
+    )
+  }
+  return (
+    <div className="flex flex-col">
+      <PanelBlockTitle>{PANEL_COPY.rowGoogle}</PanelBlockTitle>
+      <PanelNote className="mt-0.5">
+        {device.kind === 'android'
+          ? PANEL_COPY.androidGoogleSub
+          : PANEL_COPY.iphoneGoogleSub}
+      </PanelNote>
+      <CalendarEmailStepsAction />
+    </div>
+  )
 }

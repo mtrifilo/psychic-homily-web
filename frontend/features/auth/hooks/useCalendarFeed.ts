@@ -9,7 +9,9 @@ import {
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys, createInvalidateQueries } from '@/lib/queryClient'
 import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
-import { AuthError } from '@/lib/errors'
+import { isAuthError } from '@/lib/errors'
+import type { ApiError } from '@/lib/api'
+import { calendarResetReason } from '@/features/collections/lib/calendarFeedStatus'
 import type { CalendarFeedClient } from '@/features/shows/types'
 import type {
   CalendarFeedStatusResponse,
@@ -125,10 +127,9 @@ export type EmailCalendarStepsFailure = 'unverified' | 'rate_limited' | 'failed'
 export function emailCalendarStepsFailure(
   error: unknown
 ): EmailCalendarStepsFailure {
-  const code =
-    error instanceof AuthError
-      ? error.code
-      : (error as { errorCode?: unknown } | null)?.errorCode
+  const code = isAuthError(error)
+    ? error.code
+    : (error as ApiError | null | undefined)?.errorCode
   if (code === 'EMAIL_VERIFICATION_REQUIRED') return 'unverified'
   if (code === 'CALENDAR_STEPS_RATE_LIMITED_HOURLY') return 'rate_limited'
   return 'failed'
@@ -150,7 +151,7 @@ export function calendarLinkWasResetBy(
   status: CalendarFeedStatusResponse | undefined,
   reason: CalendarLinkResetReason
 ): boolean {
-  return !!status?.link_reset_at && status.link_reset_reason === reason
+  return calendarResetReason(status) === reason
 }
 
 /**

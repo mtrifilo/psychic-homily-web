@@ -37,7 +37,7 @@ describe('Outlook subscribe URLs', () => {
     '%s: addfromweb page with the webcal address and the name, encoded',
     (_label, build, origin) => {
       const url = new URL(
-        build('https://example.com/feed.ics?a=1&b=2', 'Psychic Homily saved shows')
+        build('https://example.com/feed.ics?a=1&b=2')
       )
       expect(url.origin + url.pathname).toBe(
         `${origin}/calendar/0/addfromweb/`

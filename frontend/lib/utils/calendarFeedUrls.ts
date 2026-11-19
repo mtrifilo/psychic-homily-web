@@ -26,30 +26,29 @@ export const GOOGLE_CALENDAR_ADD_BY_URL_PAGE =
   'https://calendar.google.com/calendar/r/settings/addbyurl'
 
 /** The name a calendar app gives the saved-shows calendar when it asks for one. */
-export const SAVED_SHOWS_CALENDAR_NAME = 'Psychic Homily saved shows'
+const SAVED_SHOWS_CALENDAR_NAME = 'Psychic Homily saved shows'
 
 /**
  * Microsoft's "Subscribe from web" page with the address filled in. The url
  * value is the webcal form, the one the owner's device check confirmed on
  * both Outlook.com and Microsoft 365.
  */
-function outlookAddFromWebUrl(
-  origin: string,
-  feedUrl: string,
-  name: string
-): string {
-  const params = new URLSearchParams({ url: webcalUrl(feedUrl), name })
+function outlookAddFromWebUrl(origin: string, feedUrl: string): string {
+  const params = new URLSearchParams({
+    url: webcalUrl(feedUrl),
+    name: SAVED_SHOWS_CALENDAR_NAME,
+  })
   return `${origin}/calendar/0/addfromweb/?${params.toString()}`
 }
 
 /** Outlook.com (personal Microsoft accounts). */
-export function outlookComSubscribeUrl(feedUrl: string, name: string): string {
-  return outlookAddFromWebUrl('https://outlook.live.com', feedUrl, name)
+export function outlookComSubscribeUrl(feedUrl: string): string {
+  return outlookAddFromWebUrl('https://outlook.live.com', feedUrl)
 }
 
 /** Outlook for work or school (Microsoft 365). */
-export function outlookWorkSubscribeUrl(feedUrl: string, name: string): string {
-  return outlookAddFromWebUrl('https://outlook.office.com', feedUrl, name)
+export function outlookWorkSubscribeUrl(feedUrl: string): string {
+  return outlookAddFromWebUrl('https://outlook.office.com', feedUrl)
 }
 
 /** Formats an instant as the compact UTC form Google's template URL expects. */

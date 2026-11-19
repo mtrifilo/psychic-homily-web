@@ -1,4 +1,5 @@
-import { useSyncExternalStore } from 'react'
+import { useMemo } from 'react'
+import { useHydrated } from '@/lib/hooks/common/useHydrated'
 import type { CalendarAddTarget } from './calendarFeedStatus'
 
 /**
@@ -64,21 +65,11 @@ export function canAddOnDevice(
   return device.kind === 'iphone' && device.isSafari
 }
 
-const subscribeNever = () => () => {}
-let cachedUserAgent: string | null = null
-let cachedDevice: CalendarDevice | null = null
-
-function deviceSnapshot(): CalendarDevice {
-  // Cached by user agent so the snapshot is referentially stable, as
-  // useSyncExternalStore requires.
-  if (cachedDevice === null || cachedUserAgent !== navigator.userAgent) {
-    cachedUserAgent = navigator.userAgent
-    cachedDevice = detectCalendarDevice(cachedUserAgent)
-  }
-  return cachedDevice
-}
-
-/** The browser's device; null on the server and during hydration. */
+/** The browser's device; null on the server and through hydration. */
 export function useCalendarDevice(): CalendarDevice | null {
-  return useSyncExternalStore(subscribeNever, deviceSnapshot, () => null)
+  const hydrated = useHydrated()
+  return useMemo(
+    () => (hydrated ? detectCalendarDevice(navigator.userAgent) : null),
+    [hydrated]
+  )
 }

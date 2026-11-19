@@ -184,7 +184,7 @@ export function SaveButton({
 
   // Gated on `isSaved` as well: the hint opens with "Saved.", which stops
   // being true the moment the show is unsaved.
-  const firstSaveHint = (
+  const firstSaveFollowUps = (
     <>
       {isHintOpen && isSaved ? (
         <FirstSaveHint
@@ -243,7 +243,7 @@ export function SaveButton({
             Failed to {isSaved ? 'remove' : 'save'} show
           </div>
         ) : null}
-        {firstSaveHint}
+        {firstSaveFollowUps}
       </div>
     )
   }
@@ -303,7 +303,7 @@ export function SaveButton({
           Failed to {isSaved ? 'remove' : 'save'} show
         </div>
       )}
-      {firstSaveHint}
+      {firstSaveFollowUps}
     </div>
   )
 }
