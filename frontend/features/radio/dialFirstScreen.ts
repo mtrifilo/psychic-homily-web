@@ -8,7 +8,7 @@ import { radioEndpoints, radioQueryKeys } from './api'
  * dial strip, with its `/radio/<slug>` link, is in the server HTML. Each
  * strip's detail and now-playing reads stay in the browser. The two only work
  * as a pair: a seeded key the hook does not ask for leaves the dial on its
- * loader, so `app/radio/page.test.tsx` renders the real hub over the seed.
+ * loader, so `app/radio/page.test.tsx` renders the real dial over the seed.
  *
  * The endpoint takes no query parameters and is unpaginated, so this is every
  * station; the hub filters and orders it for the dial.
