@@ -337,6 +337,7 @@ const RENDER_HELPER_NEAR_MISSES = [
   '/search?q=/monitoring',
   '/tags/bandcamp',
   '/search?q=/api/bandcamp/',
+  '/api/geo',
 ]
 
 describe('rendered robots.txt', () => {
