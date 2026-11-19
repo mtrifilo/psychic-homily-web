@@ -64,7 +64,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_Account
 }
 
 // A repeat connect on an account that may not sign in is refused too, and the
-// stored identity keeps the tokens it held.
+// stored identity keeps the profile it held.
 func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatConnectOnClosedAccount_Refused() {
 	for _, state := range signInAccountStates {
 		if state.maySignIn() {
@@ -77,13 +77,12 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccountToUser_RepeatC
 			state.apply(suite, owner.ID)
 
 			linked, err := suite.userService.LinkOAuthAccountToUser(owner.ID, owner.SessionsValidAfter, goth.User{
-				UserID:      subject,
-				Email:       address,
-				AccessToken: "refused-access",
+				UserID: subject,
+				Email:  "refused-" + address,
 			}, "google")
 
 			suite.assertSignInOutcome(apperrors.ErrAccountInactive(), owner.ID, linked, err)
-			suite.Equal("stored-access", *suite.storedGoogleAccount(owner.ID).AccessToken)
+			suite.Equal(address, *suite.storedGoogleAccount(owner.ID).ProviderEmail)
 		})
 	}
 }
