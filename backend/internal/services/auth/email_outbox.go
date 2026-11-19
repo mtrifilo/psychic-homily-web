@@ -359,6 +359,9 @@ func (o *AuthEmailOutbox) EnqueueOAuthLink(ctx context.Context, userID uint, ref
 // under the cap, so the window never holds more than calendarStepsPerWindow
 // rows and the oldest of them leaving it is what frees the next request.
 func (o *AuthEmailOutbox) EnqueueCalendarSteps(ctx context.Context, user *authm.User) error {
+	if AuthEmailOutboxDisabled() {
+		return ErrAuthEmailOutboxDisabled
+	}
 	if !o.sender.IsConfigured() {
 		return ErrAuthEmailSenderNotConfigured
 	}
@@ -366,7 +369,7 @@ func (o *AuthEmailOutbox) EnqueueCalendarSteps(ctx context.Context, user *authm.
 		return apperrors.ErrCalendarStepsAddressUnverified()
 	}
 
-	cctx, cancel := context.WithTimeout(ctx, authEmailEnqueueTimeout)
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), authEmailEnqueueTimeout)
 	defer cancel()
 	if err := calendarStepsCapRefusal(o.db.WithContext(cctx), user.ID, calendarStepsPerWindow-1); err != nil {
 		return err
@@ -860,8 +863,9 @@ func (o *AuthEmailOutbox) markFailed(ctx context.Context, item authm.AuthEmailOu
 }
 
 // reportDroppedUnsent reports to Sentry that n requests aged out unsent: each
-// is a person who asked for an email of an AuthEmailKind and got none. One event per reap pass and one per tick, so a backlog is a few alerts
-// rather than thousands.
+// is a person who asked for an email of an AuthEmailKind and got none. One
+// event per reap pass and one per tick, so a backlog is a few alerts rather
+// than thousands.
 func (o *AuthEmailOutbox) reportDroppedUnsent(n int64) {
 	hub := o.newReportHub()
 	hub.ConfigureScope(func(scope *sentry.Scope) {
