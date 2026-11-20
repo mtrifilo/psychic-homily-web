@@ -7,11 +7,19 @@ const { seedFirstScreen, fetchListPayload } = vi.hoisted(() => ({
 vi.mock('@/lib/query-hydration', () => ({ seedFirstScreen }))
 vi.mock('@/lib/ssr/fetchListPayload', () => ({ fetchListPayload }))
 
+// `connection()` marks a request-time render and has nothing to do outside
+// Next; the spy records when it is asked for.
+const { connection } = vi.hoisted(() => ({
+  connection: vi.fn(async () => {}),
+}))
+vi.mock('next/server', () => ({ connection }))
+
 import {
   EMPTY_DEHYDRATED_STATE,
+  dehydrateFirstScreen,
   dehydrateListFirstScreen,
-  isFirstScreenRequest,
 } from './firstScreenSeed'
+import { isFirstScreenRequest } from './firstScreenParams'
 
 const DEFEATING = ['page', 'tags'] as const
 
@@ -93,5 +101,52 @@ describe('dehydrateListFirstScreen', () => {
     expect(state).toEqual(EMPTY_DEHYDRATED_STATE)
     expect(fetchListPayload).not.toHaveBeenCalled()
     expect(seedFirstScreen).not.toHaveBeenCalled()
+    expect(connection).not.toHaveBeenCalled()
+  })
+
+  // A read reached in a prerender would bake its outcome into the shell.
+  it('marks the render request-time before any read', async () => {
+    fetchListPayload.mockImplementation(async ({ url }: { url: string }) => ({ url }))
+
+    await dehydrateListFirstScreen({}, DEFEATING, [read('a')])
+
+    expect(connection).toHaveBeenCalled()
+    expect(connection.mock.invocationCallOrder[0]).toBeLessThan(
+      fetchListPayload.mock.invocationCallOrder[0]
+    )
+  })
+})
+
+describe('dehydrateFirstScreen', () => {
+  const seeded = { mutations: [], queries: [{ queryHash: 'seeded' }] }
+  const read = {
+    url: 'https://api.test/a',
+    queryKey: ['a'],
+    collection: 'tags' as const,
+    service: 'a-first-screen',
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    seedFirstScreen.mockResolvedValue(seeded)
+  })
+
+  it('reads and seeds with no params gate', async () => {
+    fetchListPayload.mockResolvedValue({ tags: [] })
+
+    expect(await dehydrateFirstScreen([read])).toBe(seeded)
+    expect(seedFirstScreen).toHaveBeenCalledWith([
+      { queryKey: ['a'], data: { tags: [] } },
+    ])
+  })
+
+  it('marks the render request-time even when the read fails', async () => {
+    fetchListPayload.mockResolvedValue(null)
+
+    expect(await dehydrateFirstScreen([read])).toEqual(EMPTY_DEHYDRATED_STATE)
+    expect(connection).toHaveBeenCalled()
+    expect(connection.mock.invocationCallOrder[0]).toBeLessThan(
+      fetchListPayload.mock.invocationCallOrder[0]
+    )
   })
 })

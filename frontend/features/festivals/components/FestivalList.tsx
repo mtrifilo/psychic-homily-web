@@ -20,9 +20,15 @@ export function FestivalList() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
+  // The bare list is server-rendered and `useDensity` reads localStorage
+  // through a server snapshot, so the server HTML and the hydration render are
+  // always 'comfortable'. A viewer who chose compact or expanded gets one
+  // whole-list re-layout on the commit after hydration; `ArtistList` and
+  // `ShowList` make the same accepted trade.
   const { density, setDensity } = useDensity('festivals')
 
-  // Parse filters from URL
+  // Parse filters from URL. A param read here belongs in
+  // FESTIVAL_LIST_FIRST_SCREEN_DEFEATING_PARAMS too (see its doc).
   const statusParam = searchParams.get('status') as FestivalStatus | null
   const yearParam = searchParams.get('year')
   const cityParam = searchParams.get('city')
@@ -31,7 +37,7 @@ export function FestivalList() {
   const selectedTags = useMemo(() => parseTagsParam(tagsParam), [tagsParam])
   const tagMatch: 'all' | 'any' = tagMatchParam === 'any' ? 'any' : 'all'
 
-  const { data, isLoading, isFetching, error, refetch } = useFestivals({
+  const { data, isLoading, isFetching, isPlaceholderData, error, refetch } = useFestivals({
     status: statusParam ?? undefined,
     year: yearParam ? parseInt(yearParam, 10) : undefined,
     city: cityParam ?? undefined,
@@ -100,9 +106,15 @@ export function FestivalList() {
     )
   }
 
-  const isUpdating = isFetching || isPending
+  // Dim only while the rows on screen answer a DIFFERENT query than the one
+  // being awaited (`keepPreviousData` holding the previous filter's rows).
+  // A server-seeded first screen is stale by construction, so raw `isFetching`
+  // is true on the first client commit and would dim rows that are current.
+  const isUpdating = (isFetching && isPlaceholderData) || isPending
 
-  if (error) {
+  // An error replaces the list only when nothing on screen answers the current
+  // query: a failed revalidation of rows already shown keeps them.
+  if (error && (!data || isPlaceholderData)) {
     return (
       <div className="text-center py-12 text-destructive">
         <p>Failed to load festivals. Please try again later.</p>
