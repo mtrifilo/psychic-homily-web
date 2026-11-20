@@ -19,14 +19,12 @@ import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
  * a JSON-LD block that crawlers read, not anything a human waits on, so an hour
  * of staleness costs nothing.
  *
- * This hint is the only source of the `1h` half of the `1h`/`1y` window on
- * `/artists`, `/shows` and `/venues`. (The `1y` is not from here — Next fills
- * expire from config `expireTime`; see `app/sitemap.ts`.) Unlike that sitemap,
- * whose backend-dependent shards drop to `ƒ` when the build-time fetch fails,
- * these three keep their window in EITHER build condition — measured on
- * 50000af1, backend reachable and backend blackholed: both exit 0, both emit
- * `◐ … 1h 1y` and `initialRevalidateSeconds: 3600` for all three. `fetchSeoList`
- * fails open, so the render always succeeds and the fetch always registers its
+ * On a route that calls this helper, this hint is a source of the `1h` half
+ * of the `1h`/`1y` window. (The `1y` is not from here: Next fills expire from
+ * config `expireTime`; see `app/sitemap.ts`.) Unlike that sitemap, whose
+ * backend-dependent shards drop to `ƒ` when the build-time fetch fails, a
+ * caller keeps its window in EITHER build condition, because `fetchSeoList`
+ * fails open: the render always succeeds and the fetch always registers its
  * hint.
  *
  * A LARGE `Age` ON THESE ROUTES IS NOT EVIDENCE OF A STUCK REVALIDATION.
@@ -92,21 +90,17 @@ interface SeoListOptions {
  * to protect a crawler enrichment. Reporting to Sentry and rendering without
  * the block keeps the failure visible without making it the reader's problem.
  *
- * Read the "and nothing else" literally, because PSY-1624 narrowed it. The
- * human-visible list is now server-rendered on `/shows`, `/venues` and — since
- * PSY-1774 bounded `GET /artists` — `/artists`, but from
- * `lib/ssr/fetchListPayload.ts`, not from here: `/venues` and `/artists` still
- * call this for their `ItemList` alongside that, and `/shows` no longer calls
- * it at all. No browse list is client-only any more.
+ * Read the "and nothing else" literally. `/artists` calls this for its
+ * `ItemList` only; its human-visible rows come from
+ * `lib/ssr/fetchListPayload.ts`, not from here.
  *
  * The opposite call is right whenever the fetch IS the artifact — see
  * `app/sitemap.ts`, where an empty document is a false success, so the fetch
  * throws instead. Load-bearing fetches must not use this helper.
  *
  * Every non-OK status is reported, not just 5xx: a 4xx here is a defect in our
- * own request rather than a backend outage, both ends being ours. Treating one
- * as unremarkable is how `/venues?limit=200` rendered without its `ItemList` in
- * production for months — see `app/venues/venuesMetadata.ts`.
+ * own request rather than a backend outage, both ends being ours. A 4xx treated
+ * as unremarkable renders the page without its `ItemList` and says nothing.
  *
  * A SHORT LIST IS REPORTED TOO, which is the other half of the same lesson: a
  * 200 carrying part of the set looks exactly like a 200 carrying all of it from
@@ -179,27 +173,23 @@ export async function fetchSeoList<T>({
  *
  * One event, two causes, and the message names neither: whatever the reason, an
  * `ItemList` is enumerating less than the set the API says exists. A paginated
- * endpoint reporting a larger `total` means rows were left on the next page; a
- * listing projection reporting one (`/venues/listing`) means rows the browse set
- * contains cannot form a URL. Both are the same defect to a crawler and both
- * want a human. See `app/venues/venuesMetadata.ts` for the history that made
- * this worth generalising rather than fixing at one call site.
+ * endpoint reporting a larger `total` means rows were left on the next page; an
+ * unpaginated projection reporting one means rows the set contains cannot form
+ * a URL. Both are the same defect to a crawler and both want a human.
  *
- * A MISSING `total` MEANS UNKNOWN, NOT ZERO. An endpoint that reports no total
- * is not claiming a larger set, so it must not be read as a shortfall of
- * everything returned. THIS LEAVES `/artists` UNCOVERED: `GET /artists/listing`
- * drops slugless artists exactly as the venue endpoint does but reports no
- * total, so this returns early for it and that ItemList still shortens in
- * silence. Giving it a total is a ~6-line mirror of the venue change and is
- * deliberately not done here — it is a second endpoint's contract, and `/venues`
- * is the one PSY-1764 scoped. Do not read this helper's generality as coverage.
+ * ONLY A RESPONSE CARRYING A `total` CAN FIRE THIS. A MISSING `total` MEANS
+ * UNKNOWN, NOT ZERO: an endpoint that reports no total is not claiming a
+ * larger set, so it must not be read as a shortfall of everything returned.
+ * This returns early for such an endpoint, and an ItemList built from it can
+ * shorten
+ * in silence. Do not read this helper's generality as coverage.
  *
  * It does NOT fail the render, for the reason the whole helper fails open: a
  * partial `ItemList` is worth more to a crawler than none, and a page humans can
  * read is worth more than either. The event is the point.
  *
  * WARNING, NOT ERROR, because of what can actually trigger it. On an endpoint
- * with no limit the reachable cause is a venue whose slug cannot be generated —
+ * with no limit the reachable cause is a row whose slug cannot be generated,
  * a data condition that no deploy clears, on a page that regenerates hourly. At
  * error level that is an unclearable page, and the issue it opens is the same
  * issue a real truncation would land in, so raising the severity would end up

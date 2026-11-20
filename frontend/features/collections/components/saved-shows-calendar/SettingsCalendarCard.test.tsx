@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { focusManager } from '@tanstack/react-query'
 import userEvent from '@testing-library/user-event'
 import { createTestQueryClient, createWrapperWithClient } from '@/test/utils'
 import type {
@@ -195,8 +196,17 @@ beforeEach(() => {
 
 afterEach(() => {
   document.removeEventListener('click', stopNavigation, true)
+  focusManager.setFocused(undefined)
   vi.restoreAllMocks()
 })
+
+/** The page is hidden and shown again, as when the person comes back from a calendar app. */
+function showPageAgain() {
+  act(() => {
+    focusManager.setFocused(false)
+    focusManager.setFocused(true)
+  })
+}
 
 function useDevice(agent: string) {
   vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(agent)
@@ -961,21 +971,21 @@ describe('SettingsCalendarCard', () => {
     apple.focus()
     expect(apple).toHaveFocus()
 
-    // Apple Calendar checks the link; the person comes back to the window.
+    // Apple Calendar checks the link; the person comes back to the page.
     withLink([readOf('apple_mac', MINUTE)])
-    window.dispatchEvent(new Event('focus'))
+    showPageAgain()
     await waitFor(() =>
       expect(screen.queryByRole('link', { name: COPY.addApple })).toBeNull()
     )
     expect(document.getElementById('calendar')).toHaveFocus()
   })
 
-  it('reads the status again when the window regains focus', async () => {
+  it('reads the status again when the page is shown again', async () => {
     withLink()
     await renderReadCard()
     const before = calls('/calendar/token', 'GET').length
     withLink([readOf('apple_mac', MINUTE)])
-    window.dispatchEvent(new Event('focus'))
+    showPageAgain()
     expect(await screen.findByText(CALENDAR_CLIENT_NAMES.apple_mac)).toBeInTheDocument()
     expect(calls('/calendar/token', 'GET').length).toBeGreaterThan(before)
   })

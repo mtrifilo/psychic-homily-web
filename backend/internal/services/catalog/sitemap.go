@@ -56,7 +56,7 @@ var scenePeriodSegments = []string{"tonight", "this-weekend", "week", "next-4-we
 // frontend/app/sitemap-shards.ts SITEMAP_FAMILIES and with
 // contracts.SitemapEntries.
 var sitemapFamilies = []string{
-	"shows", "artists", "venues", "venue_years", "shows_months", "venue_cities",
+	"shows", "artists", "venues", "venue_years", "shows_months",
 	"scenes", "scene_weeks", "scene_periods", "labels", "releases", "festivals", "tags",
 }
 
@@ -137,8 +137,8 @@ type sitemapShard struct {
 // doubling will not be wanted by all three at once.
 //
 // The count is also what the build and the monitor pay per family: 24 sub-shard
-// documents plus the seven single-shard families plus the pages shard is 32
-// documents, against the 39 this scheme replaces.
+// documents plus the nine single-shard families plus the pages shard is 34
+// documents.
 //
 // WHEN TO DOUBLE ONE. The frontend's data-cache budget gate fails the build at
 // 80% of the cap and does not warn first, so the signal to act on is the
@@ -573,14 +573,6 @@ func (s *SitemapService) Entries(ctx context.Context, family string) (*contracts
 		out.ShowsMonths = showsMonths
 	}
 
-	if want("venue_cities") {
-		venueCities, err := s.venueCityEntries(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to collect venue-city sitemap entries: %w", err)
-		}
-		out.VenueCities = venueCities
-	}
-
 	// scenes, scene_weeks and scene_periods are three projections of ONE group
 	// set: the same eligibility decides a scene's root URL, its week permalinks
 	// and its rolling window pages, so the families cannot apply different
@@ -724,7 +716,6 @@ func emptySitemapEntries() *contracts.SitemapEntries {
 		Venues:       []contracts.SitemapEntry{},
 		VenueYears:   []contracts.SitemapEntry{},
 		ShowsMonths:  []contracts.SitemapEntry{},
-		VenueCities:  []contracts.SitemapEntry{},
 		Scenes:       []contracts.SitemapEntry{},
 		SceneWeeks:   []contracts.SitemapEntry{},
 		ScenePeriods: []contracts.SitemapEntry{},
@@ -1047,87 +1038,6 @@ func (s *SitemapService) showsMonthEntries(ctx context.Context) ([]contracts.Sit
 	// plan.
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Slug < entries[j].Slug })
 	return entries, nil
-}
-
-// venueCityEntries projects one SitemapEntry per city that holds at least one
-// verified room: the directory scoped to that city, at /venues?cities=City,ST.
-//
-// THE SLUG IS A QUERY VALUE, NOT A PATH TAIL, and it is emitted RAW. The
-// generator percent-encodes it once on its way into the document; see the
-// query-slug note on contracts.SitemapEntry for why the encoding lives there.
-//
-// THE SET IS THE DIRECTORY'S OWN CITY FACET, and it is drawn through the same
-// applier rather than through a restated predicate: venueListPredicates over
-// venueCitiesScope is what GetVenueCities reads, and venue.go records that the
-// applier is what stops the page, its total and its facet from describing three
-// different sets. Announcing a city the picker does not offer would publish a
-// URL the page answers with noindex. This shares that applier with the facet
-// and the list; the `venues` family above does NOT, so a condition added to the
-// applier reaches these three and not that one.
-//
-// EVERY SLUG MUST SURVIVE THE PAGE'S OWN PARSER, which is the one way this
-// narrows the facet, and addressableCityFilter is its single owner: an empty
-// half, a half that is not its own trimmed self, and a half carrying a comma or
-// a pipe all produce a value parseCitiesParam either drops or splits
-// differently, and the announced URL then serves the unfiltered directory or a
-// page that asks not to be indexed. The empty case is deliberately NOT also
-// excluded in SQL, so every reason has one place to be read and one place to be
-// tested. GetVenueCities keeps such rows, because its numbers have to sum to
-// the list's total; a sitemap cannot, because a <loc> is a promise.
-//
-// UpdatedAt is MAX(venue.updated_at) within the city: the room rows ARE this
-// page's content, so its own edits are the signal, where venueYearEntries and
-// showsMonthEntries take theirs from the shows they list.
-//
-// The grain is (city, state), so entriesFor cannot serve it.
-func (s *SitemapService) venueCityEntries(ctx context.Context) ([]contracts.SitemapEntry, error) {
-	type row struct {
-		City      string    `gorm:"column:city"`
-		State     string    `gorm:"column:state"`
-		UpdatedAt time.Time `gorm:"column:updated_at"`
-	}
-
-	browsable := NewVenueService(s.db).venueListPredicates(
-		venueCitiesScope(contracts.VenueListFilters{}),
-	)
-
-	var rows []row
-	err := browsable(s.db.WithContext(ctx).Table("venues")).
-		Select("venues.city AS city, venues.state AS state, MAX(venues.updated_at) AS updated_at").
-		Group("venues.city, venues.state").
-		Scan(&rows).Error
-	if err != nil {
-		return nil, err
-	}
-
-	entries := make([]contracts.SitemapEntry, 0, len(rows))
-	for _, r := range rows {
-		if !addressableCityFilter(r.City) || !addressableCityFilter(r.State) {
-			continue
-		}
-		entries = append(entries, contracts.SitemapEntry{
-			Slug:      r.City + "," + r.State,
-			UpdatedAt: r.UpdatedAt,
-		})
-	}
-	// Sorted on the ASSEMBLED slug rather than in SQL, because the two orders
-	// differ wherever one city name is a prefix of another: ',' sorts below
-	// every letter, so "Mesa,AZ" precedes "Mesa Verde,CO".
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Slug < entries[j].Slug })
-	return entries, nil
-}
-
-// addressableCityFilter reports whether one half of a "City,ST" filter value
-// survives a round trip through the frontend's parseCitiesParam.
-//
-// That parser splits on "|" into pairs and on "," into exactly two halves, and
-// trims each. So a half carrying either separator, a half that is not its own
-// trimmed self, and an empty half all name something other than the row they
-// came from.
-func addressableCityFilter(half string) bool {
-	return half != "" &&
-		half == strings.TrimSpace(half) &&
-		!strings.ContainsAny(half, ",|")
 }
 
 // listQualifyingScenes returns the same threshold-gated scene set as

@@ -4,6 +4,7 @@ import {
   useQuery,
   useMutation,
   useQueryClient,
+  type Query,
   type QueryClient,
 } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
@@ -30,11 +31,9 @@ export const useCalendarTokenStatus = (
   enabled: boolean = true,
   options: {
     /**
-     * Refetch whenever an observer mounts and whenever the page becomes
-     * visible again (the query client's focus signal), and retry a failed read
-     * on its own, for the surface that shows the addresses: an address held
-     * from before can be one that was since replaced, and a calendar app's
-     * first check is made while the person is in that app.
+     * Read again whenever an observer mounts and whenever the window regains
+     * focus, and retry a failed read on its own: for a surface that acts on
+     * the address and must follow it being replaced or turned off elsewhere.
      */
     live?: boolean
   } = {}
@@ -60,6 +59,14 @@ export const useCalendarTokenStatus = (
 }
 
 /**
+ * How often a live status read that is waiting for a calendar app's first
+ * check (`pollUntil`) reads again while its page is visible. A calendar app
+ * usually fetches a newly added link within a minute or two; the window-focus
+ * refetch covers the person coming back from that app's tab.
+ */
+export const CALENDAR_STATUS_POLL_MS = 15_000
+
+/**
  * The calendar feed's status with no feed address in it: whether a link
  * exists, the calendar apps seen reading it, and the marker a security action
  * leaves when it reset a link an app had been reading. For surfaces that talk
@@ -74,8 +81,18 @@ export const useCalendarFeedStatus = (
      * person adds the calendar in another tab or app and comes back.
      */
     live?: boolean
+    /**
+     * With `live`: also read again every CALENDAR_STATUS_POLL_MS until a read
+     * satisfies this. React Query evaluates it on every render and after
+     * every read, so it must be pure and cheap. The interval belongs to the
+     * observer, so it ends when the surface unmounts, and React Query skips
+     * it while the page is hidden. A failed read follows the retry rule
+     * instead, so a refused session ends it.
+     */
+    pollUntil?: (status: CalendarFeedStatusResponse) => boolean
   } = {}
 ) => {
+  const { live, pollUntil } = options
   return useQuery({
     queryKey: queryKeys.calendar.feedStatus,
     queryFn: async (): Promise<CalendarFeedStatusResponse> => {
@@ -86,16 +103,23 @@ export const useCalendarFeedStatus = (
     },
     enabled,
     staleTime: 5 * 60 * 1000, // 5 minutes
-    ...(options.live
+    ...(live
       ? {
           refetchOnMount: 'always',
           refetchOnWindowFocus: 'always',
-          // A failed read is retried on its own until one succeeds. Whether
-          // the data still held from before is fit to show is the surface's
-          // call (the calendar panel shows only a read made since it opened),
-          // so the retry does not depend on it. A refused session is not
-          // retried: it will not change by waiting.
-          refetchInterval: retryWhileFailed,
+          // A failed read is retried on its own until one succeeds, and a
+          // refused session is not retried: it will not change by waiting.
+          // Whether the data still held from before is fit to show is the
+          // surface's call (the calendar panel shows only a read made since it
+          // opened), so the retry does not depend on it. Otherwise the
+          // interval polls until `pollUntil` holds.
+          refetchInterval: (query: Query<CalendarFeedStatusResponse, Error>) => {
+            if (!pollUntil || query.state.status === 'error') {
+              return retryWhileFailed(query)
+            }
+            const { data } = query.state
+            return data && pollUntil(data) ? false : CALENDAR_STATUS_POLL_MS
+          },
         }
       : {}),
   })

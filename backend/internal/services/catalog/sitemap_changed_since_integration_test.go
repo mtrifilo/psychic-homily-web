@@ -182,7 +182,7 @@ func TestSitemapEntriesChangedSinceFollowsEachFamilyLastmod(t *testing.T) {
 		t.Errorf("releases = %v, want %v", slugsOf(got.Releases), want)
 	}
 	for name, family := range map[string][]contracts.SitemapEntry{
-		"venue_years": got.VenueYears, "shows_months": got.ShowsMonths, "venue_cities": got.VenueCities,
+		"venue_years": got.VenueYears, "shows_months": got.ShowsMonths,
 		"scenes": got.Scenes, "scene_weeks": got.SceneWeeks, "scene_periods": got.ScenePeriods,
 		"labels": got.Labels, "festivals": got.Festivals, "tags": got.Tags,
 	} {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import {
   useMutation,
   useQueryClient,
@@ -145,10 +145,10 @@ function useAddCalendar(onHeld: (held: HeldResetReason) => void) {
  * Only status data written to the cache since this mount is shown (counted,
  * not timed, so a write in the same millisecond as the mount does not pass),
  * so no address held from before (one since replaced, or another account's
- * from earlier in the tab) is ever painted. The status is read again whenever
- * the page becomes visible or the window regains focus: a calendar app's first
- * check is made while the person is in that app, and the address may have
- * been replaced in another window. A connected app's line compares its last
+ * from earlier in the tab) is ever painted. The status is read live (see
+ * useCalendarTokenStatus): again on every mount and whenever the page is
+ * shown again, since a calendar app's first check is made while the person is
+ * in that app and the address may have been replaced in another window. A connected app's line compares its last
  * check with the newest save once that read lands; the saved-shows read never
  * holds the card back, and while it is pending or after it fails the line
  * names only the check, as the panel's does.
@@ -170,14 +170,6 @@ export function useSettingsCalendar() {
     error: statusState()?.errorUpdateCount ?? 0,
   }))
   const status = useCalendarTokenStatus(!!userId, { live: true })
-  const refetchStatus = status.refetch
-  // The live option follows page visibility; a window that only loses and
-  // regains focus (a calendar app opened beside the browser) is caught here.
-  useEffect(() => {
-    const onFocus = () => void refetchStatus({ cancelRefetch: false })
-    window.addEventListener('focus', onFocus)
-    return () => window.removeEventListener('focus', onFocus)
-  }, [refetchStatus])
   // Sorted newest save first when no time filter is given.
   const newest = useSavedShows({ limit: 1, userId, retryUntilRead: true })
   const device = useCalendarDevice()

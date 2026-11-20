@@ -23,8 +23,8 @@ import {
   CALENDAR_SURFACE_PROPS,
   CalendarAddressShownContext,
   CalendarPanelLayoutContext,
+  LinkFailedLine,
   PRIVATE_LINK_CLASS,
-  PanelErrorWithRetry,
   PanelNote,
 } from './CalendarPanelParts'
 import { CalendarConnectedApps, CalendarStoppedApp } from './CalendarAppStatus'
@@ -104,20 +104,13 @@ function SettingsCalendarBody() {
     case 'loading':
       return <PanelNote>{PANEL_COPY.loading}</PanelNote>
     case 'load_failed':
-      return (
-        <PanelErrorWithRetry onRetry={state.retry}>
-          {PANEL_COPY.loadFailed}
-        </PanelErrorWithRetry>
-      )
+      return <LinkFailedLine failure="load" onRetry={state.retry} />
     case 'no_link':
       return <NoLink resetReason={state.resetReason} add={add} />
     case 'link':
       return (
         <div className="flex flex-col gap-4">
-          {/* Keyed by the address: a row's note about an add belongs to the
-              link it added, not to one that replaced it. */}
           <CalendarAppsAndAdd
-            key={state.links?.feedUrl ?? 'unrecoverable'}
             model={state.model}
             device={state.device}
             links={state.links}
@@ -158,9 +151,7 @@ function NoLink({
           {COPY.addToCalendar}
         </CalendarCardButton>
         {add.isError && !add.isPending ? (
-          <PanelErrorWithRetry onRetry={() => add.mutate(resetReason)}>
-            {PANEL_COPY.createFailed}
-          </PanelErrorWithRetry>
+          <LinkFailedLine failure="create" onRetry={() => add.mutate(resetReason)} />
         ) : null}
       </div>
     </div>
@@ -192,8 +183,8 @@ function CalendarAppsAndAdd({
   const feedUrl = links?.feedUrl ?? null
   const actions = useSavedShowsCalendarActions(feedUrl ?? '')
   const anyApp = model.connected.length + model.stopped.length > 0
-  // Remounted when the address changes; focus on an add button moves to the
-  // card rather than dropping to the page.
+  // Focus inside moves to the card if the block leaves (the link turned off
+  // or replaced by a security action elsewhere).
   const blockRef = useHoldFocusOnLeave<HTMLDivElement>()
 
   return (

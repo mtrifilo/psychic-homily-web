@@ -18,7 +18,7 @@ import { useMediaQuery } from '@/lib/hooks/common/useMediaQuery'
 import {
   CALENDAR_SURFACE_PROPS,
   CalendarPanelLayoutContext,
-  PanelErrorWithRetry,
+  LinkFailedLine,
   PanelNote,
   type CalendarPanelLayout,
 } from './CalendarPanelParts'
@@ -243,11 +243,7 @@ function PanelContents({
             onNavigate={onNavigate}
           />
         ) : state.kind === 'link_failed' ? (
-          <PanelErrorWithRetry onRetry={state.retry}>
-            {state.failure === 'create'
-              ? PANEL_COPY.createFailed
-              : PANEL_COPY.loadFailed}
-          </PanelErrorWithRetry>
+          <LinkFailedLine failure={state.failure} onRetry={state.retry} />
         ) : (
           <PanelNote>{PANEL_COPY.loading}</PanelNote>
         )}

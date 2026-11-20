@@ -111,7 +111,7 @@ export function SettingsCalendarLinks({
     if (!el || returnFocusTo.current !== which) return
     returnFocusTo.current = null
     const active = document.activeElement
-    const card = el.closest('[data-saved-shows-calendar-panel]')
+    const card = el.closest('[data-calendar-surface]')
     if (!active || active === document.body || card?.contains(active)) {
       el.focus()
     }

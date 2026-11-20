@@ -6,7 +6,7 @@ import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { CalendarSendControlProps } from './CalendarEmailStepsAction'
-import { holdFocusInPanel } from './CalendarPanelParts'
+import { holdFocusInSurface } from './CalendarPanelParts'
 
 /**
  * A Settings calendar card button: full width with a 44px target below `sm`,
@@ -75,7 +75,7 @@ export function useHoldFocusOnLeave<T extends HTMLElement>() {
   useLayoutEffect(() => {
     const block = ref.current
     return () => {
-      if (block?.contains(document.activeElement)) holdFocusInPanel(block)
+      if (block?.contains(document.activeElement)) holdFocusInSurface(block)
     }
   }, [])
   return ref
