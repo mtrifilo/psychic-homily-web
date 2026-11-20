@@ -122,6 +122,9 @@ func main() {
 	// The resolved target is printed before anything runs, so a --confirm aimed
 	// at the wrong database is visible. Credentials are not printed.
 	fmt.Printf("Target: ENVIRONMENT=%q db=%s\n\n", os.Getenv(config.EnvEnvironment), redactDBHost(cfg.Database.URL))
+	if !confirm {
+		log.Print("dry run: every row runs in a transaction that is rolled back, so the services' log lines below describe writes that are undone")
+	}
 
 	if err := requireAdminActor(db.GetDB(), actorID); err != nil {
 		log.Fatal(err)

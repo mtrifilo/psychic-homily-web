@@ -141,10 +141,10 @@ func refuseMalformedRows(plans []*rowPlan) {
 				p.refuse("rename target %q looks like a slug, not a name; a merge takes a slug", r.Target)
 			}
 		case actionMerge:
-			switch {
-			case r.Target == "":
+			switch r.Target {
+			case "":
 				p.refuse("merge needs a target: the slug of the artist to keep")
-			case r.Target == r.ArtistSlug:
+			case r.ArtistSlug:
 				p.refuse("target %s is the artist itself", r.Target)
 			}
 		case actionRemove:
