@@ -3,14 +3,13 @@ import { HydrationBoundary } from '@tanstack/react-query'
 import { TagBrowse } from '@/features/tags/components'
 import {
   TAG_BROWSE_FIRST_SCREEN_DEFEATING_PARAMS,
+  TAG_BROWSE_FIRST_SCREEN_KEYS,
   TAG_BROWSE_FIRST_SCREEN_READS,
 } from '@/features/tags/browseFirstScreen'
 import { LoadingSpinner } from '@/components/shared'
 import { CachedListFallback } from '@/components/shared/CachedListFallback'
-import {
-  dehydrateListFirstScreen,
-  type RouteSearchParams,
-} from '@/lib/ssr/firstScreenSeed'
+import { dehydrateListFirstScreen } from '@/lib/ssr/firstScreenSeed'
+import type { RouteSearchParams } from '@/lib/ssr/firstScreenParams'
 
 export const metadata = {
   title: 'Tags',
@@ -71,7 +70,7 @@ export default function TagsPage({
         <Suspense
           fallback={
             <CachedListFallback
-              seededKeys={TAG_BROWSE_FIRST_SCREEN_READS.map(read => read.queryKey)}
+              seededKeys={TAG_BROWSE_FIRST_SCREEN_KEYS}
               defeatingParams={TAG_BROWSE_FIRST_SCREEN_DEFEATING_PARAMS}
               loader={
                 <div className="flex justify-center items-center py-12">

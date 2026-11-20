@@ -9,10 +9,8 @@ import {
 import { LoadingSpinner } from '@/components/shared'
 import { CachedListFallback } from '@/components/shared/CachedListFallback'
 import { listRootCanonical } from '@/lib/seo/siteMetadata'
-import {
-  dehydrateListFirstScreen,
-  type RouteSearchParams,
-} from '@/lib/ssr/firstScreenSeed'
+import { dehydrateListFirstScreen } from '@/lib/ssr/firstScreenSeed'
+import type { RouteSearchParams } from '@/lib/ssr/firstScreenParams'
 
 /**
  * The canonical is fixed at `/releases` for every query variant of this page.

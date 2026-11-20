@@ -201,6 +201,10 @@ describeCachedListFallback({
   route: '/festivals',
   fallback: () =>
     suspenseFallbackOf(FestivalsPage({ searchParams: Promise.resolve({}) })),
+  seededBoundary: () => {
+    fetchListPayload.mockResolvedValue(festivalsPayload)
+    return renderBoundary()
+  },
   list: FestivalList,
   seeded: [[FESTIVAL_LIST_FIRST_SCREEN_KEY, festivalsPayload]],
   defeatingParams: FESTIVAL_LIST_FIRST_SCREEN_DEFEATING_PARAMS,
@@ -231,11 +235,6 @@ describeCachedListFallback({
     row: 'href="/festivals/called-off-fest-2026"',
     search: 'status=cancelled',
   },
-  setSearch: search => {
-    nav.params = new URLSearchParams(search)
-  },
-  reset: () => {
-    vi.clearAllMocks()
-    apiRequest.mockReturnValue(new Promise(() => {}))
-  },
+  nav,
+  apiRequest,
 })

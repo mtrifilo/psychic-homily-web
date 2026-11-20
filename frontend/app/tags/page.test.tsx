@@ -200,6 +200,12 @@ describe('/tags first-screen request pairing', () => {
 describeCachedListFallback({
   route: '/tags',
   fallback: () => suspenseFallbackOf(TagsPage({ searchParams: Promise.resolve({}) })),
+  seededBoundary: () => {
+    fetchListPayload.mockImplementation(async ({ url }: { url: string }) =>
+      answerReads(url)
+    )
+    return renderBoundary()
+  },
   list: TagBrowse,
   // The directory's first page and the four chip counts.
   seeded: TAG_BROWSE_FIRST_SCREEN_READS.map(
@@ -220,11 +226,6 @@ describeCachedListFallback({
     row: 'href="/tags/ambient"',
     search: 'sort=alphabetical',
   },
-  setSearch: search => {
-    nav.params = new URLSearchParams(search)
-  },
-  reset: () => {
-    vi.clearAllMocks()
-    apiRequest.mockReturnValue(new Promise(() => {}))
-  },
+  nav,
+  apiRequest,
 })

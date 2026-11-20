@@ -61,6 +61,11 @@ export const TAG_BROWSE_FIRST_SCREEN_READS: readonly TagBrowseFirstScreenRead[] 
   })),
 ]
 
+/** Every key a bare `/tags` seeds, in read order. */
+export const TAG_BROWSE_FIRST_SCREEN_KEYS = TAG_BROWSE_FIRST_SCREEN_READS.map(
+  read => read.queryKey
+)
+
 /**
  * Search params that move `TagBrowse` off the first-screen keys. Category,
  * search and page are component state and always start at their defaults.

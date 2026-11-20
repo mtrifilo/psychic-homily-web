@@ -1,6 +1,8 @@
-import { Suspense, isValidElement, type ReactElement, type ReactNode } from 'react'
+import { Suspense, type ReactElement } from 'react'
 import { renderToString } from 'react-dom/server'
 import { render } from '@testing-library/react'
+import { findElement } from '@/test/elementTree'
+import { renderWithProviders } from '@/test/utils'
 import {
   QueryClient,
   QueryClientProvider,
@@ -65,42 +67,18 @@ export class RecordingSearchParams extends URLSearchParams {
   }
 }
 
-/**
- * The `fallback` of the first `Suspense` element in a route's returned tree,
- * found through children and element-valued props (a slot like `dial`).
- */
-export function suspenseFallbackOf(tree: ReactNode): ReactElement {
-  const found = findSuspense(tree)
-  if (!found) throw new Error('no Suspense element in the tree')
-  return (found.props as { fallback: ReactElement }).fallback
-}
-
-function findSuspense(node: ReactNode): ReactElement | undefined {
-  if (Array.isArray(node)) {
-    for (const child of node) {
-      const found = findSuspense(child)
-      if (found) return found
-    }
-    return undefined
-  }
-  if (!isValidElement(node)) return undefined
-  if (node.type === Suspense) return node
-  for (const value of Object.values(node.props as Record<string, unknown>)) {
-    const found = findSuspense(value as ReactNode)
-    if (found) return found
-  }
-  return undefined
-}
+/** The `fallback` of the first `Suspense` in a route's returned tree. */
+export const suspenseFallbackOf = (tree: ReactElement): ReactElement =>
+  (findElement(tree, node => node.type === Suspense).props as {
+    fallback: ReactElement
+  }).fallback
 
 /**
  * A fallback rendered the way a client-side navigation renders it: a mount on
  * the browser's own client, not a hydration, so the cache it holds is read.
  */
-export function renderOnNavigation(element: ReactElement, client: QueryClient) {
-  return render(
-    <QueryClientProvider client={client}>{element}</QueryClientProvider>
-  )
-}
+export const renderOnNavigation = (element: ReactElement, client: QueryClient) =>
+  renderWithProviders(element, { queryClient: client })
 
 /** A browser client with `entries` cached, the way an earlier visit leaves it. */
 export function warmClient(

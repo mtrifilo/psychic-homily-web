@@ -228,6 +228,10 @@ describeCachedListFallback({
   route: '/releases',
   fallback: () =>
     suspenseFallbackOf(ReleasesPage({ searchParams: Promise.resolve({}) })),
+  seededBoundary: () => {
+    fetchListPayload.mockResolvedValue(releasesPayload)
+    return renderBoundary()
+  },
   list: ReleaseList,
   seeded: [[RELEASE_LIST_FIRST_SCREEN_KEY, releasesPayload]],
   defeatingParams: RELEASE_LIST_FIRST_SCREEN_DEFEATING_PARAMS,
@@ -250,11 +254,6 @@ describeCachedListFallback({
     row: 'href="/releases/spiderland"',
     search: 'page=2',
   },
-  setSearch: search => {
-    nav.params = new URLSearchParams(search)
-  },
-  reset: () => {
-    vi.clearAllMocks()
-    apiRequest.mockReturnValue(new Promise(() => {}))
-  },
+  nav,
+  apiRequest,
 })

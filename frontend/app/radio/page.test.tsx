@@ -48,7 +48,6 @@ import RadioHub, {
   RadioDial,
   RadioDialLoader,
 } from './_components/RadioHub'
-import { CachedListFallback } from '@/components/shared/CachedListFallback'
 import {
   RADIO_DIAL_FIRST_SCREEN_KEY,
   RADIO_DIAL_FIRST_SCREEN_URL,
@@ -220,24 +219,20 @@ describe('/radio dial fallback', () => {
     apiRequest.mockReturnValue(new Promise(() => {}))
   })
 
-  it('is the shared cached fallback over the dial, and registers no query on a cold cache', () => {
+  it('stands the hook-free dial loader in, and registers no query on a cold cache', () => {
     const fallback = pageDialSlot().props.fallback as ReactElement<{
       loader: ReactElement
-      children: ReactElement
     }>
 
-    expect(fallback.type).toBe(CachedListFallback)
     expect(fallback.props.loader.type).toBe(RadioDialLoader)
-    expect(fallback.props.children.type).toBe(RadioDial)
     expect(registeredQueryHashes(fallback)).toEqual([])
     expect(apiRequest).not.toHaveBeenCalled()
   })
 
   it('on a cold cache, is the markup the dial renders before its reads answer', () => {
-    const fallback = pageDialSlot().props.fallback
-
-    expect(serverRender(fallback)).toBe(serverRender(<RadioDial />))
-    expect(serverRender(<RadioDialLoader />)).toBe(serverRender(<RadioDial />))
+    expect(serverRender(pageDialSlot().props.fallback)).toBe(
+      serverRender(<RadioDial />)
+    )
   })
 
   // A client-side navigation back to the hub renders the fallback on the
@@ -331,15 +326,15 @@ describe('/radio dial request pairing', () => {
 describeCachedListFallback({
   route: '/radio',
   fallback: () => pageDialSlot().props.fallback,
+  seededBoundary: () => {
+    fetchListPayload.mockResolvedValue(stationsPayload)
+    return HydratedRadioDial()
+  },
   list: RadioDial,
   seeded: [[RADIO_DIAL_FIRST_SCREEN_KEY, stationsPayload]],
   defeatingParams: [],
   seededRow: 'href="/radio/kexp"',
   loaders: [DIAL_LOADER],
   // The hub reads no URL params: there is no other filter, sort or page.
-  setSearch: () => {},
-  reset: () => {
-    vi.clearAllMocks()
-    apiRequest.mockReturnValue(new Promise(() => {}))
-  },
+  apiRequest,
 })

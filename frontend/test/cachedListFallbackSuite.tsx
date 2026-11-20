@@ -1,9 +1,10 @@
 import type { ComponentType, ReactElement } from 'react'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { renderToString } from 'react-dom/server'
 import { QueryClient, QueryClientProvider, type QueryKey } from '@tanstack/react-query'
 import { CachedListFallback } from '@/components/shared/CachedListFallback'
 import {
+  boundaryStateOf,
   entriesFor,
   renderOnNavigation,
   warmClient,
@@ -15,6 +16,8 @@ export interface CachedListFallbackCase {
   route: string
   /** The `Suspense` fallback the route renders, on a bare URL. */
   fallback: () => Promise<ReactElement> | ReactElement
+  /** The route's seeded boundary on a bare URL, with every read answering. */
+  seededBoundary: () => Promise<ReactElement>
   /** The list the fallback must render over a warm cache. */
   list: ComponentType
   /**
@@ -41,10 +44,10 @@ export interface CachedListFallbackCase {
     row: string
     search: string
   }
-  /** Points the mocked `useSearchParams` at a search string. */
-  setSearch: (search: string) => void
-  /** Per-test mock reset, including a browser request that never answers. */
-  reset: () => void
+  /** The URL the file's mocked `useSearchParams` returns. Absent for a list with no URL state. */
+  nav?: { params: URLSearchParams }
+  /** The file's mocked `apiRequest`: every browser request it sees never answers. */
+  apiRequest: Mock
 }
 
 /**
@@ -57,9 +60,14 @@ export function describeCachedListFallback(c: CachedListFallbackCase) {
   const showsLoader = (html: string) => c.loaders.some(marker => html.includes(marker))
 
   describe(`${c.route} fallback on a client-side navigation`, () => {
+    const setSearch = (search: string) => {
+      if (c.nav) c.nav.params = new URLSearchParams(search)
+    }
+
     beforeEach(() => {
-      c.reset()
-      c.setSearch('')
+      vi.clearAllMocks()
+      c.apiRequest.mockReturnValue(new Promise(() => {}))
+      setSearch('')
     })
 
     it('is the shared cached fallback over the real list and the seeded keys', async () => {
@@ -74,6 +82,16 @@ export function describeCachedListFallback(c: CachedListFallbackCase) {
       expect(props.seededKeys).toEqual(seededKeys)
       expect(props.defeatingParams ?? []).toEqual(c.defeatingParams)
       expect(props.children.type).toBe(c.list)
+    })
+
+    // The gate and the seed must name the same keys, or the fallback can run
+    // the list over a seeded key the cache does not hold.
+    it('gates on exactly the keys the seeded boundary seeds', async () => {
+      const seededBoundary = await c.seededBoundary()
+
+      expect(boundaryStateOf(seededBoundary).queries.map(q => q.queryKey)).toEqual(
+        seededKeys
+      )
     })
 
     it('server-renders the loader even when the cache is warm', async () => {
@@ -124,7 +142,7 @@ export function describeCachedListFallback(c: CachedListFallbackCase) {
       })
 
       it('shows the list loading, not the first screen, on another query the cache lacks', async () => {
-        c.setSearch(other.search)
+        setSearch(other.search)
         const client = warmClient(c.seeded)
 
         const { container } = renderOnNavigation(await c.fallback(), client)
@@ -134,7 +152,7 @@ export function describeCachedListFallback(c: CachedListFallbackCase) {
       })
 
       it('draws the other query from the cache when the URL asks for it', async () => {
-        c.setSearch(other.search)
+        setSearch(other.search)
         const client = warmClient([other.entry, ...sharedFacets])
 
         const { container } = renderOnNavigation(await c.fallback(), client)

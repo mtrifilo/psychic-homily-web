@@ -6,6 +6,21 @@ import { suspenseFallbackOf } from '@/test/firstScreenRender'
 const { fetchSeoList } = vi.hoisted(() => ({ fetchSeoList: vi.fn(async () => []) }))
 vi.mock('@/lib/seo/fetchSeoList', () => ({ fetchSeoList }))
 
+const { fetchListPayload } = vi.hoisted(() => ({ fetchListPayload: vi.fn() }))
+vi.mock('@/lib/ssr/fetchListPayload', () => ({ fetchListPayload }))
+
+// `seedFirstScreen` awaits `connection()`, which marks a request-time render and
+// has nothing to do outside Next.
+vi.mock('next/server', () => ({ connection: async () => {} }))
+
+// On the server `getQueryClient()` mints a fresh client per call. Under jsdom it
+// would hand back the browser singleton, so the server behaviour is restored.
+vi.mock('@/lib/queryClient', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/lib/queryClient')>()
+  const { QueryClient } = await import('@tanstack/react-query')
+  return { ...actual, getQueryClient: () => new QueryClient() }
+})
+
 // The browser requests a mounted list issues on a cold cache. They never
 // answer, so the list stays on its first request.
 const { apiRequest } = vi.hoisted(() => ({ apiRequest: vi.fn() }))
@@ -38,7 +53,7 @@ vi.mock('nuqs', async importOriginal => {
   }
 })
 
-import ArtistsPage from './page'
+import ArtistsPage, { HydratedArtistList } from './page'
 import { ArtistList } from '@/features/artists'
 import {
   ARTIST_LIST_FIRST_SCREEN_KEY,
@@ -71,16 +86,26 @@ const artist = (id: number, name: string, slug: string): ArtistListItem => ({
 
 const citiesPayload = { cities: [{ city: 'Phoenix', state: 'AZ', artist_count: 2 }] }
 
+const artistsPayload = {
+  artists: [artist(1, 'Gatecreeper', 'gatecreeper')],
+  total: 1,
+  limit: 50,
+  offset: 0,
+}
+
 describeCachedListFallback({
   route: '/artists',
   fallback: async () =>
     suspenseFallbackOf(await ArtistsPage({ searchParams: Promise.resolve({}) })),
+  seededBoundary: () => {
+    fetchListPayload.mockImplementation(async ({ url }: { url: string }) =>
+      url.includes('/cities') ? citiesPayload : artistsPayload
+    )
+    return HydratedArtistList({ searchParams: Promise.resolve({}) })
+  },
   list: ArtistList,
   seeded: [
-    [
-      ARTIST_LIST_FIRST_SCREEN_KEY,
-      { artists: [artist(1, 'Gatecreeper', 'gatecreeper')], total: 1, limit: 50, offset: 0 },
-    ],
+    [ARTIST_LIST_FIRST_SCREEN_KEY, artistsPayload],
     [artistQueryKeys.cities, citiesPayload],
   ],
   defeatingParams: ['page', 'cities', 'tags', 'tag_match', ARTIST_MISSING_PARAM],
@@ -99,11 +124,6 @@ describeCachedListFallback({
     row: 'href="/artists/snailmate"',
     search: 'page=2',
   },
-  setSearch: search => {
-    nav.params = new URLSearchParams(search)
-  },
-  reset: () => {
-    vi.clearAllMocks()
-    apiRequest.mockReturnValue(new Promise(() => {}))
-  },
+  nav,
+  apiRequest,
 })

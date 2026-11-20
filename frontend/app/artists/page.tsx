@@ -17,10 +17,7 @@ import { JsonLd } from '@/components/seo/JsonLd'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { seedFirstScreen } from '@/lib/query-hydration'
 import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
-import {
-  isFirstScreenRequest,
-  type RouteSearchParams,
-} from '@/lib/ssr/firstScreenParams'
+import { isFirstScreenRequest } from '@/lib/ssr/firstScreenParams'
 import { getArtistsForMetadata, type ArtistListItem } from './artistsMetadata'
 
 export const metadata = {
@@ -71,13 +68,6 @@ const FIRST_SCREEN_DEFEATING_PARAMS = [
   'tag_match',
   ARTIST_MISSING_PARAM,
 ] as const
-
-/**
- * Whether a URL's params keep it on the seeded first screen. The same rule the
- * page's `CachedListFallback` applies to the browser URL.
- */
-const isArtistsFirstScreen = (params: RouteSearchParams): boolean =>
-  isFirstScreenRequest(params, FIRST_SCREEN_DEFEATING_PARAMS)
 
 /**
  * Seed the two cache entries `ArtistList` blocks its first paint on — the first
@@ -135,7 +125,7 @@ export async function HydratedArtistList({
 async function dehydratedFirstScreen(
   params: Record<string, string | string[] | undefined>
 ): Promise<DehydratedState> {
-  if (!isArtistsFirstScreen(params)) {
+  if (!isFirstScreenRequest(params, FIRST_SCREEN_DEFEATING_PARAMS)) {
     return EMPTY_DEHYDRATED_STATE
   }
 
@@ -197,7 +187,7 @@ export async function FirstScreenItemList({
   searchParams: Promise<Record<string, string | string[] | undefined>>
   artists: Array<ArtistListItem & { slug: string }>
 }) {
-  if (!isArtistsFirstScreen(await searchParams)) return null
+  if (!isFirstScreenRequest(await searchParams, FIRST_SCREEN_DEFEATING_PARAMS)) return null
 
   return (
     <JsonLd

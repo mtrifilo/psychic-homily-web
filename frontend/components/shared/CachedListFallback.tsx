@@ -23,6 +23,9 @@ interface CachedListFallbackProps {
   children: ReactNode
 }
 
+/** For a route that seeds every request. */
+const NO_DEFEATING_PARAMS: readonly string[] = []
+
 /**
  * The `Suspense` fallback above a server-seeded list: the list itself, read
  * from the browser's query cache, wherever rendering it cannot pre-empt the
@@ -32,26 +35,21 @@ interface CachedListFallbackProps {
  * (`useHydrated`), so the server HTML is the route's loader and the hydration
  * render agrees with it whatever the browser's cache holds.
  *
- * On a client navigation it renders `children` when either holds:
- * - the URL is off the first screen, so the server seeds nothing;
- * - every seeded key already holds data in the cache. A seed is stamped 0 and
- *   `HydrationBoundary` replaces an existing entry only with newer data, so
- *   the list reading those entries changes nothing the seed would have done.
+ * On a client navigation it renders `children` when the URL is off the first
+ * screen (the server seeds nothing) or when every seeded key already holds
+ * data (the seed never replaces an existing entry, see `seedFirstScreen`).
+ * Otherwise the list's hooks would create a seeded key's entry before the
+ * boundary renders, so it renders `loader`.
  *
- * Otherwise `loader`: the list's hooks would create a seeded key's entry with
- * no data before the boundary renders, and the seed would never replace it
- * (see `seedFirstScreen`).
- *
- * `children` mounts here as a fresh query observer, so `keepPreviousData` has
- * nothing to hold: an entry cached for another filter, sort or page never
- * stands in for the current one, and the list shows its own loading state for
- * a query the cache lacks. Its other hooks (facets, counts, per-row reads) run
- * too and may create their entries; on a first-screen URL none of them is a
- * seeded key, since every seeded key already exists.
+ * `children` mounts as a fresh query observer, so `keepPreviousData` has
+ * nothing to hold: another filter's, sort's or page's cached entry never
+ * stands in for the current one. The list's other hooks (facets, counts,
+ * per-row reads) may create their entries here; on a first-screen URL none of
+ * them is a seeded key, since every seeded key already exists.
  */
 export function CachedListFallback({
   seededKeys,
-  defeatingParams = [],
+  defeatingParams = NO_DEFEATING_PARAMS,
   loader,
   children,
 }: CachedListFallbackProps) {

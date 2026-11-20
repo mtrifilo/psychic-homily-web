@@ -10,8 +10,6 @@ import {
   type RouteSearchParams,
 } from '@/lib/ssr/firstScreenParams'
 
-export { isFirstScreenRequest, type RouteSearchParams }
-
 /** What `dehydrate()` produces for an empty client: hydrates nothing. */
 export const EMPTY_DEHYDRATED_STATE: DehydratedState = {
   mutations: [],

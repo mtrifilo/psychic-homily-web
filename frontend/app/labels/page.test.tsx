@@ -189,6 +189,10 @@ describe('/labels first-screen request pairing', () => {
 describeCachedListFallback({
   route: '/labels',
   fallback: () => suspenseFallbackOf(LabelsPage({ searchParams: Promise.resolve({}) })),
+  seededBoundary: () => {
+    fetchListPayload.mockResolvedValue(labelsPayload)
+    return renderBoundary()
+  },
   list: LabelList,
   seeded: [[LABEL_LIST_FIRST_SCREEN_KEY, labelsPayload]],
   defeatingParams: LABEL_LIST_FIRST_SCREEN_DEFEATING_PARAMS,
@@ -211,11 +215,6 @@ describeCachedListFallback({
     row: 'href="/labels/gone-records"',
     search: 'status=defunct',
   },
-  setSearch: search => {
-    nav.params = new URLSearchParams(search)
-  },
-  reset: () => {
-    vi.clearAllMocks()
-    apiRequest.mockReturnValue(new Promise(() => {}))
-  },
+  nav,
+  apiRequest,
 })

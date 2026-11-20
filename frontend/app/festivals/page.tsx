@@ -8,10 +8,8 @@ import {
 } from '@/features/festivals/listFirstScreen'
 import { LoadingSpinner } from '@/components/shared'
 import { CachedListFallback } from '@/components/shared/CachedListFallback'
-import {
-  dehydrateListFirstScreen,
-  type RouteSearchParams,
-} from '@/lib/ssr/firstScreenSeed'
+import { dehydrateListFirstScreen } from '@/lib/ssr/firstScreenSeed'
+import type { RouteSearchParams } from '@/lib/ssr/firstScreenParams'
 
 export const metadata = {
   title: 'Festivals',
