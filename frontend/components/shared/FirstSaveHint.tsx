@@ -26,6 +26,12 @@ interface FirstSaveHintProps {
   align: 'start' | 'end'
   /** Close the hint locally. The hint stamps the account itself. */
   onClose: () => void
+  /**
+   * Open the saved-shows calendar panel against the Save control. Called after
+   * the hint has stamped and closed, so the panel takes focus from a hint that
+   * is already gone.
+   */
+  onOpenCalendar: () => void
 }
 
 /**
@@ -39,9 +45,16 @@ interface FirstSaveHintProps {
  * dismissable layer: a menu or popover opened near it keeps its own Escape and
  * outside clicks. It stamps the account as it opens, so it never opens again
  * on any device however it goes away; its own controls (Dismiss, the Library
- * link, Escape) stamp again, which keeps the first time.
+ * link, the calendar link, Escape) stamp again, which keeps the first time.
+ * The calendar link closes the hint and opens the saved-shows calendar panel
+ * in its place.
  */
-export function FirstSaveHint({ anchorRef, align, onClose }: FirstSaveHintProps) {
+export function FirstSaveHint({
+  anchorRef,
+  align,
+  onClose,
+  onOpenCalendar,
+}: FirstSaveHintProps) {
   const { mutate: stampOnAccount } = useStampFirstSaveHint()
   const {
     floatingStyles,
@@ -93,6 +106,14 @@ export function FirstSaveHint({ anchorRef, align, onClose }: FirstSaveHintProps)
     }
   }, [anchorRef, stampOnAccount, onClose, hintRef])
 
+  // Focus is left alone here: the panel opening in the hint's place takes it,
+  // and returns it to the Save control when it closes.
+  const openCalendar = useCallback(() => {
+    stampOnAccount()
+    onClose()
+    onOpenCalendar()
+  }, [stampOnAccount, onClose, onOpenCalendar])
+
   // Bubble phase on purpose: a Radix menu or popover handles its Escape in the
   // capture phase and marks it defaultPrevented, so an Escape that closed one
   // of those is not read as dismissing this hint.
@@ -117,17 +138,26 @@ export function FirstSaveHint({ anchorRef, align, onClose }: FirstSaveHintProps)
       }}
       className="z-50 flex w-[300px] max-w-[calc(100vw-2rem)] items-start gap-3 rounded-md border border-border bg-popover px-3 py-2.5 text-left font-sans text-sm normal-case leading-snug tracking-normal whitespace-normal text-popover-foreground shadow-md"
     >
-      <p className="flex-1">
-        Saved. Find it in your{' '}
-        <Link
-          href="/library"
-          onClick={dismiss}
-          className="text-link underline underline-offset-2"
+      <div className="flex flex-1 flex-col items-start gap-0.5">
+        <p>
+          Saved. Find it in your{' '}
+          <Link
+            href="/library"
+            onClick={dismiss}
+            className="text-link underline underline-offset-2"
+          >
+            Library
+          </Link>
+          .
+        </p>
+        <button
+          type="button"
+          onClick={openCalendar}
+          className="rounded-sm text-left text-link underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          Library
-        </Link>
-        .
-      </p>
+          Add saved shows to your calendar
+        </button>
+      </div>
       <button
         type="button"
         onClick={dismiss}

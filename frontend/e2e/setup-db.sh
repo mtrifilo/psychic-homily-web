@@ -493,6 +493,21 @@ BEGIN
   INSERT INTO show_venues (show_id, venue_id) VALUES (s_id, v_id);
   INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (s_id, a_id, 0, 'headliner');
 
+  -- saved-shows-calendar-panel.spec.ts: the worker's first save, which opens
+  -- the first-save hint and from it the calendar panel. Its own show, so the
+  -- public save counts other specs assert on are never moved by it.
+  INSERT INTO shows (title, event_date, city, state, status, slug, created_at, updated_at)
+  VALUES (
+    'E2E [calendar-panel-test]',
+    NOW() + INTERVAL '8 hours',
+    'Phoenix', 'AZ', 'approved',
+    'e2e-calendar-panel-test',
+    NOW(), NOW()
+  )
+  RETURNING id INTO s_id;
+  INSERT INTO show_venues (show_id, venue_id) VALUES (s_id, v_id);
+  INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (s_id, a_id, 0, 'headliner');
+
   -- shows.spec.ts "renders the advance/door price split on a list row".
   -- The only two seeded rows that record a door price: every other seeded show
   -- leaves both columns NULL, so the `$20/$25` list register and the door-only

@@ -131,6 +131,13 @@ export const API_ENDPOINTS = {
     // The token status without the feed addresses, for a surface that only
     // says whether a calendar is connected or its link was reset.
     FEED_STATUS: `${API_BASE_URL}/calendar/token/feed-status`,
+    // Forgets one calendar client family's reads of the current link, so a
+    // calendar the person removed stops being reported as stopped.
+    FORGET_READS: (client: string) =>
+      `${API_BASE_URL}/calendar/token/reads?client=${encodeURIComponent(client)}`,
+    // Emails the signed-in person the steps for adding the calendar to Google
+    // on a computer. The email carries no feed address.
+    EMAIL_STEPS: `${API_BASE_URL}/calendar/token/email-steps`,
     // One-shot .ics of the signed-in user's upcoming saved shows. It needs the
     // session, unlike the token feed URLs, so a calendar app cannot subscribe
     // to it.
