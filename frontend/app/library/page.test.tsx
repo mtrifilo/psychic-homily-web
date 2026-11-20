@@ -131,8 +131,12 @@ vi.mock('@/features/venues', () => ({
 
 // The Upcoming header's calendar link reads the status with no feed address;
 // the panel it opens has its own suite and stands in here as a marker.
+const mockUseCalendarFeedStatus = vi.fn<
+  (enabled?: boolean) => { data: undefined }
+>(() => ({ data: undefined }))
 vi.mock('@/features/auth/hooks/useCalendarFeed', () => ({
-  useCalendarFeedStatus: () => ({ data: undefined }),
+  useCalendarFeedStatus: (enabled?: boolean) =>
+    mockUseCalendarFeedStatus(enabled),
 }))
 vi.mock(
   '@/features/collections/components/saved-shows-calendar/LazySavedShowsCalendarPanel',
@@ -1349,6 +1353,17 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
 
       expect(screen.queryByRole('button', { name: /calendar/i })).toBeNull()
       expect(screen.queryByRole('heading', { name: 'Upcoming' })).toBeNull()
+    })
+
+    // The link mounts only once the lists settle; its status read starts with
+    // them, so the label is usually in by then.
+    it('starts the calendar status read while saved shows load', () => {
+      mockUseSavedShows.mockReturnValue(savedShowsResult())
+
+      renderWithProviders(<LibraryPage />)
+
+      expect(screen.queryByRole('button', { name: /calendar/i })).toBeNull()
+      expect(mockUseCalendarFeedStatus).toHaveBeenCalledWith(true)
     })
 
     it('opens the panel once for a #calendar-feed arrival, when the lists finish loading', () => {

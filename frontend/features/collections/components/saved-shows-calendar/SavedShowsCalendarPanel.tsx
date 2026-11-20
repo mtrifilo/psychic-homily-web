@@ -35,7 +35,7 @@ const POPOVER_MIN_WIDTH_QUERY = '(min-width: 640px)'
 /** The pointer-down or focus event Radix reports as outside the popover. */
 type OutsideInteractionEvent = CustomEvent<{ originalEvent: Event }>
 
-interface SavedShowsCalendarPanelProps {
+export interface SavedShowsCalendarPanelProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   /**
@@ -90,11 +90,13 @@ export function SavedShowsCalendarPanel({
   const headingId = useId()
   const close = useCallback(() => onOpenChange(false), [onOpenChange])
 
-  // The panel has no trigger for the primitives to return focus to, so it
-  // returns focus to the Save control itself, except after a click or focus
+  // The primitives have no trigger to return focus to (the popover is
+  // anchored, not triggered), so the panel returns focus to the anchor's first
+  // control (Save, or the link that opened it), except after a click or focus
   // move outside: that put focus where the person wanted it, and taking it
-  // back would also scroll the page to Save. The same rule Radix applies to a
-  // non-modal popover with a trigger.
+  // back would also scroll the page to the anchor. The same rule Radix applies
+  // to a non-modal popover with a trigger. A press on `triggerRef` is not
+  // outside: that control's own click handles it.
   const interactedOutside = useRef(false)
   const noteOutsideInteraction = useCallback(
     (event: OutsideInteractionEvent) => {
@@ -124,10 +126,11 @@ export function SavedShowsCalendarPanel({
   )
 
   // Tab past the popover's last control (or Shift+Tab before its first)
-  // steps out of the panel: it closes and returns focus to Save, rather than
-  // looping back into a portaled panel far from the row it belongs to.
+  // steps out of the panel: it closes and returns focus to the anchor, rather
+  // than looping back into a portaled panel far from the row it belongs to.
   // While no control exists yet (still loading), Tab stays put and only
-  // Shift+Tab steps out, since the hint that opened it cannot open it again.
+  // Shift+Tab steps out, so a Tab pressed while the rows load does not close
+  // a panel that was opened by a hint that cannot open it again.
   const closeOnTabOut = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
       if (event.key !== 'Tab') return

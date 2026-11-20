@@ -36,6 +36,7 @@ import {
   type HomeMetroState,
 } from '@/components/shared/followAlertChoices'
 import { useHomeMetroState } from '@/features/auth/hooks/useAlertPreferences'
+import { useCalendarFeedStatus } from '@/features/auth/hooks/useCalendarFeed'
 // Concrete module path, not the collections barrel.
 import { SavedShowsCalendarLink } from '@/features/collections/components/saved-shows-calendar/SavedShowsCalendarLink'
 import {
@@ -260,6 +261,10 @@ function ShowsTab({ currentUserId }: { currentUserId?: string }) {
     currentUserId,
     currentUserId !== undefined
   )
+  // The header's calendar link reads this status, but mounts only once the
+  // lists settle; started here, alongside them, it is usually in by then, so
+  // the link rarely shows the no-calendar label before the real one.
+  useCalendarFeedStatus(currentUserId !== undefined)
   const unsaveShow = useUnsaveShow({
     syncMode: 'patch-infinite',
     userId: currentUserId,

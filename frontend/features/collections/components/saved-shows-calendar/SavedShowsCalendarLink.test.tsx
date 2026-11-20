@@ -295,22 +295,50 @@ describe('SavedShowsCalendarLink', () => {
   // The panel's own suite proves a press inside the trigger does not dismiss
   // the popover; here the link has to name its slot as that trigger, so its
   // own click is what closes it.
-  it('names its slot as the panel trigger, so a press on it toggles', async () => {
+  it('anchors the panel to its slot and names the link as its trigger, so a press on it toggles', async () => {
     const user = userEvent.setup()
     renderWithProviders(<SavedShowsCalendarLink placement="section-header" />)
     const link = screen.getByRole('button', { name: 'Add to calendar' })
 
     await user.click(link)
     const { triggerRef, anchorRef } = mockPanelProps.mock.lastCall![0]
-    expect(triggerRef?.current).toBe(
+    expect(anchorRef.current).toBe(
       screen.getByTestId('saved-shows-calendar-link-slot')
     )
-    expect(triggerRef?.current).toContainElement(link)
-    expect(anchorRef).toBe(triggerRef)
+    // The link alone: a press on the slot's empty reserved width is outside.
+    expect(triggerRef?.current).toBe(link)
 
     await user.click(link)
     expect(screen.queryByTestId('calendar-panel')).toBeNull()
   })
+
+  // The copies that reserve the width are the link's own label markup and
+  // type, so a change to how a bracket link lays out its label moves both.
+  it.each(['none', 'connected', 'stopped'] as const)(
+    'measures the %s label with the markup the link renders',
+    state => {
+      mockStatus = STATUS[state]
+      const { container } = renderWithProviders(
+        <SavedShowsCalendarLink placement="module-footer" />
+      )
+      const link = screen.getByRole('button')
+      const sizer = Array.from(
+        container.querySelectorAll<HTMLElement>('[data-calendar-link-sizer]')
+      ).find(candidate => candidate.textContent === link.textContent)
+
+      expect(sizer?.innerHTML).toBe(link.innerHTML)
+      for (const shared of [
+        'inline-flex',
+        'items-baseline',
+        'whitespace-nowrap',
+        'font-data',
+        'text-xs',
+      ]) {
+        expect(sizer).toHaveClass(shared)
+        expect(link).toHaveClass(shared)
+      }
+    }
+  )
 
   it('closes the panel when the viewer changes', async () => {
     const user = userEvent.setup()
@@ -353,6 +381,21 @@ describe('SavedShowsCalendarLink', () => {
       renderWithProviders(
         <SavedShowsCalendarLink placement="section-header" opensFromHash />
       )
+      expect(screen.queryByTestId('calendar-panel')).toBeNull()
+    })
+
+    it('closes a panel it opened when the viewer changes', () => {
+      window.history.replaceState(null, '', '/library#calendar-feed')
+      const { rerender } = renderWithProviders(
+        <SavedShowsCalendarLink placement="section-header" opensFromHash />
+      )
+      expect(screen.getByTestId('calendar-panel')).toBeInTheDocument()
+
+      mockViewer = { id: '2' }
+      rerender(
+        <SavedShowsCalendarLink placement="section-header" opensFromHash />
+      )
+
       expect(screen.queryByTestId('calendar-panel')).toBeNull()
     })
 

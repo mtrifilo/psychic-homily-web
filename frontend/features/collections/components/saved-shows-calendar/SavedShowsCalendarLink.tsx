@@ -1,7 +1,11 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { BracketLink } from '@/components/shared/BracketLink'
+import {
+  BRACKET_LABEL_LAYOUT_CLASS,
+  BracketLabel,
+  BracketLink,
+} from '@/components/shared/BracketLink'
 import { useCalendarFeedStatus } from '@/features/auth/hooks/useCalendarFeed'
 import {
   summarizeCalendar,
@@ -27,6 +31,9 @@ export const CALENDAR_LINK_LABELS: Record<CalendarSummary, string> = {
 }
 
 const CALENDAR_LINK_LABEL_LIST = Object.values(CALENDAR_LINK_LABELS)
+
+/** The link's type, shared by the invisible copies that reserve its width. */
+const LINK_TYPE_CLASS = 'font-data text-xs'
 
 /**
  * The fragment that opened the Library's calendar card before the card was
@@ -74,6 +81,10 @@ interface SavedShowsCalendarLinkProps {
    * Open the panel when the page was reached through the calendar card's old
    * fragment, so links and bookmarks made for the card still reach the
    * calendar. Closing the panel drops the fragment, so it opens once.
+   *
+   * Opening the panel prepares the account's calendar link, creating one when
+   * the account has none (useSavedShowsCalendarLink), so arriving through the
+   * fragment creates a link with no click of its own.
    */
   opensFromHash?: boolean
 }
@@ -106,17 +117,21 @@ export function SavedShowsCalendarLink({
   const label = CALENDAR_LINK_LABELS[summary]
 
   const slotRef = useRef<HTMLDivElement>(null)
+  const linkRef = useRef<HTMLButtonElement>(null)
   const hash = useUrlHash()
-  // The person's own choice, kept with the viewer who made it: the panel acts
-  // for one account and closes when the viewer changes. Until a choice is
-  // made, the page's fragment decides.
+  // The panel acts for one account and closes when the viewer changes. The
+  // person's own choice is kept with the viewer who made it; until there is
+  // one, the page's fragment decides for the viewer the link mounted for.
   const [choice, setChoice] = useState<{
     open: boolean
     viewerId: string | undefined
   } | null>(null)
+  const [arrivalViewerId] = useState(viewerId)
   const open =
     choice === null
-      ? opensFromHash && hash === CALENDAR_ARRIVAL_HASH
+      ? opensFromHash &&
+        hash === CALENDAR_ARRIVAL_HASH &&
+        arrivalViewerId === viewerId
       : choice.open && choice.viewerId === viewerId
   // The panel mounts on the first open and stays mounted, so it closes with
   // its own animation and focus return. Adjusted during render.
@@ -137,22 +152,25 @@ export function SavedShowsCalendarLink({
   return (
     <div
       ref={slotRef}
-      className={cn('grid font-data text-xs', PLACEMENT_SLOT_CLASS[placement])}
+      className={cn('grid', PLACEMENT_SLOT_CLASS[placement])}
       data-testid="saved-shows-calendar-link-slot"
     >
       {CALENDAR_LINK_LABEL_LIST.map(sizerLabel => (
         <span
           key={sizerLabel}
           aria-hidden="true"
-          className="invisible col-start-1 row-start-1 inline-flex whitespace-nowrap"
+          className={cn(
+            BRACKET_LABEL_LAYOUT_CLASS,
+            LINK_TYPE_CLASS,
+            'invisible col-start-1 row-start-1'
+          )}
           data-calendar-link-sizer=""
         >
-          <span>[</span>
-          <span>{sizerLabel}</span>
-          <span>]</span>
+          <BracketLabel label={sizerLabel} />
         </span>
       ))}
       <BracketLink
+        ref={linkRef}
         label={label}
         variant={linkVariant(summary, placement)}
         onClick={() => setOpen(!open)}
@@ -161,7 +179,8 @@ export function SavedShowsCalendarLink({
         aria-haspopup="dialog"
         aria-expanded={open}
         className={cn(
-          'col-start-1 row-start-1 font-data text-xs',
+          LINK_TYPE_CLASS,
+          'col-start-1 row-start-1',
           PLACEMENT_LINK_CLASS[placement]
         )}
       />
@@ -170,9 +189,9 @@ export function SavedShowsCalendarLink({
           open={open}
           onOpenChange={setOpen}
           anchorRef={slotRef}
-          // The slot holds only the link, so a press anywhere in it is the
-          // link's to handle.
-          triggerRef={slotRef}
+          // The link itself, not the slot: a press on the slot's empty
+          // reserved width is a press outside.
+          triggerRef={linkRef}
           align="end"
         />
       ) : null}

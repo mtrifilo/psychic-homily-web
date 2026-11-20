@@ -60,6 +60,28 @@ function resolveAccessibleName(
   return ariaLabel?.trim() || label
 }
 
+/**
+ * How a bracket link lays out its label. Shared with anything that has to
+ * measure a bracket link's label without rendering the control (an invisible
+ * copy that reserves its width), so the copy cannot drift from the link.
+ */
+export const BRACKET_LABEL_LAYOUT_CLASS =
+  'inline-flex items-baseline whitespace-nowrap'
+
+/**
+ * The label every bracket link renders: the brackets are visual only, so the
+ * announced name is the label alone. Exported for the same measuring copies.
+ */
+export function BracketLabel({ label }: { label: string }) {
+  return (
+    <>
+      <span aria-hidden="true">[</span>
+      <span>{label}</span>
+      <span aria-hidden="true">]</span>
+    </>
+  )
+}
+
 export interface BracketLinkProps
   extends Omit<
     React.ButtonHTMLAttributes<HTMLButtonElement>,
@@ -248,7 +270,8 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
     const effectiveDisabled = disabled || unsafeExternalHref
 
     const classes = cn(
-      'inline-flex items-baseline whitespace-nowrap text-sm',
+      BRACKET_LABEL_LAYOUT_CLASS,
+      'text-sm',
       // Labels are arbitrary copy ("Loading…", "Catch up ✓"), and the body
       // face widens comma, period and colon under `tnum`, so only a
       // digits-only label gets tabular figures.
@@ -270,13 +293,7 @@ export const BracketLink = forwardRef<HTMLButtonElement, BracketLinkProps>(
       className
     )
 
-    const content = (
-      <>
-        <span aria-hidden="true">[</span>
-        <span>{label}</span>
-        <span aria-hidden="true">]</span>
-      </>
-    )
+    const content = <BracketLabel label={label} />
 
     if (href && !effectiveDisabled) {
       // ONE bag of anchor props for both anchor-shaped branches, so a shared

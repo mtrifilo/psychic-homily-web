@@ -86,8 +86,8 @@ async function preparePanelLink(queryClient: QueryClient): Promise<PanelLink> {
   } catch (error) {
     throw failedAt('create', error)
   }
-  // The Library and Settings cards hold an address they created; they swap
-  // it for this one, which replaced it.
+  // The Settings cards hold an address they created; they swap it for this
+  // one, which replaced it.
   window.dispatchEvent(
     new CustomEvent(PERSONAL_FEED_TOKEN_ROTATED_EVENT, { detail: created })
   )
