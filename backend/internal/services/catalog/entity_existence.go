@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"fmt"
+	"log/slog"
 	"strconv"
 	"time"
 
@@ -65,7 +66,7 @@ func (s *EntityExistenceService) Exists(entityType, idOrSlug string) (bool, erro
 	case "tags":
 		return s.existsByIDOrSlug(&catalogm.Tag{}, idOrSlug)
 	case "scenes":
-		_, exists, err := s.SceneCanonicalSlug(idOrSlug)
+		_, exists, err := s.ServedSceneSlug(idOrSlug)
 		return exists, err
 	default:
 		return false, nil
@@ -183,7 +184,7 @@ func (s *EntityExistenceService) CollectionExists(collectionIDOrSlug string) (bo
 	return firstIDExists(query, "collections.id")
 }
 
-// SceneCanonicalSlug gates the proxy soft-404 for /scenes/{slug}: whether the
+// ServedSceneSlug gates the proxy soft-404 for /scenes/{slug}: whether the
 // scene's page serves, and the slug that page is served at
 // (CanonicalSceneSlug's answer). The slug is "" when the scene does not exist,
 // and when no canonical slug can be named for it.
@@ -196,8 +197,10 @@ func (s *EntityExistenceService) CollectionExists(collectionIDOrSlug string) (bo
 // 404s.
 //
 // An unresolvable slug is absence, not failure: ParseSceneSlug reports it as a
-// scene-not-found error, and the probe answers false.
-func (s *EntityExistenceService) SceneCanonicalSlug(slug string) (string, bool, error) {
+// scene-not-found error, and the probe answers false. A failure to NAME the
+// slug of a scene that serves is not a failure of the verdict: the slug is
+// dropped and the verdict stands, as on the week routes.
+func (s *EntityExistenceService) ServedSceneSlug(slug string) (canonicalSlug string, serves bool, err error) {
 	city, state, err := s.scenes.ParseSceneSlug(slug)
 	if err != nil {
 		if apperrors.IsSceneNotFound(err) {
@@ -205,13 +208,14 @@ func (s *EntityExistenceService) SceneCanonicalSlug(slug string) (string, bool, 
 		}
 		return "", false, err
 	}
-	serves, err := s.scenes.sceneServesPage(city, state)
+	serves, err = s.scenes.sceneServesPage(city, state)
 	if err != nil || !serves {
 		return "", false, err
 	}
-	canonical, err := s.scenes.CanonicalSceneSlug(slug, city, state)
+	canonicalSlug, err = s.scenes.CanonicalSceneSlug(slug, city, state)
 	if err != nil {
-		return "", false, err
+		slog.Warn("scene_probe_canonical_slug_failed", "slug", slug, "error", err)
+		return "", true, nil
 	}
-	return canonical, true, nil
+	return canonicalSlug, true, nil
 }

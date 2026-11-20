@@ -215,7 +215,8 @@ function locationOf(response: Response): string {
 /**
  * Every scene probe names the slug the scene is served at. A request spelled
  * any other way is redirected there in one hop; a request spelled that way
- * renders, and is the only kind whose verdict is remembered.
+ * renders, and is the only kind whose verdict is remembered for the full
+ * verdict window.
  */
 describe('proxy — scene canonical redirects', () => {
   afterEach(() => {

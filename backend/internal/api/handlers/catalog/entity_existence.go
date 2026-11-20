@@ -8,7 +8,7 @@ import (
 
 type entityExistenceService interface {
 	Exists(entityType, idOrSlug string) (bool, error)
-	SceneCanonicalSlug(slug string) (string, bool, error)
+	ServedSceneSlug(slug string) (string, bool, error)
 	RadioStationExists(stationIDOrSlug string) (bool, error)
 	RadioShowExists(stationIDOrSlug, showIDOrSlug string) (bool, error)
 	RadioEpisodeExists(stationIDOrSlug, showIDOrSlug, airDate string) (bool, error)
@@ -39,7 +39,7 @@ type FamilyExistsResponse struct{}
 
 func (h *EntityExistenceHandler) EntityExistsHandler(ctx context.Context, req *EntityExistsRequest) (*EntityExistsResponse, error) {
 	if req.EntityType == "scenes" {
-		canonical, exists, err := h.entityExistenceService.SceneCanonicalSlug(req.EntityID)
+		canonical, exists, err := h.entityExistenceService.ServedSceneSlug(req.EntityID)
 		if err := existenceError(exists, err); err != nil {
 			return nil, err
 		}

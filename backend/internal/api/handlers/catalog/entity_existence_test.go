@@ -29,7 +29,7 @@ func (m mockEntityExistenceService) Exists(entityType, idOrSlug string) (bool, e
 	return m.answer(entityType, idOrSlug)
 }
 
-func (m mockEntityExistenceService) SceneCanonicalSlug(slug string) (string, bool, error) {
+func (m mockEntityExistenceService) ServedSceneSlug(slug string) (string, bool, error) {
 	exists, err := m.answer("scenes", slug)
 	if err != nil || !exists {
 		return "", exists, err
@@ -93,7 +93,7 @@ func TestEntityExistsHandler_ServiceError(t *testing.T) {
 
 // A scene probe names the slug the scene is served at in the Canonical-Slug
 // header, and every other entity type sends no such header.
-func TestEntityExistsHandler_SceneCanonicalSlug(t *testing.T) {
+func TestEntityExistsHandler_ServedSceneSlug(t *testing.T) {
 	var args []string
 	h := NewEntityExistenceHandler(mockEntityExistenceService{exists: true, args: &args, canonical: "phoenix-az"})
 

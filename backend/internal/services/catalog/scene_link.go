@@ -19,7 +19,7 @@ import (
 // sceneServingScope is the one existence rule for a scene addressed by its
 // display identity: the scope its rooms form, their verified-venue count, and
 // whether that count clears the floor. GetSceneDetail, the /scenes soft-404
-// gate (SceneCanonicalSlug) and the detail-page scene links all decide through
+// gate (ServedSceneSlug) and the detail-page scene links all decide through
 // it.
 func (s *SceneService) sceneServingScope(city, state string) (sceneScope, int64, bool, error) {
 	scope, err := s.scopeFor(city, state)

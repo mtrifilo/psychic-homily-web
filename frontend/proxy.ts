@@ -450,7 +450,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     //
     // Two caveats this buys, both accepted deliberately:
     //
-    // 1. The scene probe (the backend's `SceneCanonicalSlug`) shares the >= 2
+    // 1. The scene probe (the backend's `ServedSceneSlug`) shares the >= 2
     //    verified-venues threshold with the day endpoint but is a separate
     //    backend path to it. That is the same
     //    bargain every `/scenes/{slug}` page already makes through
@@ -774,7 +774,9 @@ function failedProbeResponse(
  * Probe a backend URL and turn the result into a pass-through or a real 404,
  * under `failedProbeResponse`'s policy. A network error fails open too.
  *
- * HEAD, and the STATUS is the whole answer. A new caller that finds itself
+ * HEAD, and the STATUS is the whole answer, except that a scene probe also
+ * names the scene's canonical slug in a response header (see `canonicalPath`
+ * below and `sceneCheck`). A new caller that finds itself
  * wanting a body should get its endpoint an honest status instead: the backend
  * can answer the question in one indexed row, and a body this function parses
  * is a body every OTHER caller pays to receive.
@@ -811,7 +813,7 @@ async function existenceCheck(
       method: 'HEAD',
       headers: serverReadHeaders(),
       // `next: { revalidate }` has NO effect inside proxy (per Next docs), so
-      // the only caching is `positiveExistenceVerdicts`. `redirect: 'manual'`
+      // the only caching is this module's verdict caches. `redirect: 'manual'`
       // keeps the check cheap and avoids following any backend redirect chain.
       // A 2xx means the slug resolves; only a backend 404 is treated as
       // "missing".
@@ -838,7 +840,9 @@ async function existenceCheck(
       }
     }
     // Backend reachable and the slug resolves. Only this 2xx answer is
-    // remembered; every other outcome is asked again on the next request.
+    // remembered for the full verdict window; a probe that named no canonical
+    // path is remembered briefly above, and every other outcome is asked again
+    // on the next request.
     positiveExistenceVerdicts.remember(url)
     return NextResponse.next()
   } catch {
@@ -869,10 +873,19 @@ const CANONICAL_SCENE_SLUG = /^[a-z0-9][a-z0-9.'-]{0,199}$/
  * the canonical one.
  *
  * The canonical path is the same path with the slug the probe names and an ISO
- * week key in upper case (`2026-W31`, the spelling every week page declares).
- * Everything else in the path and the query string is kept. A metro member
- * city (`/scenes/tempe-az/tonight`) and a case variant (`/scenes/PHOENIX-AZ`)
- * are therefore one hop from the metro's page, whichever of the two they are.
+ * week key in upper case (`2026-W31`, the spelling the backend, the sitemap
+ * and every link to a week use; the week page names its own request path, so
+ * this upper-casing is what makes that spelling canonical). Everything else in
+ * the path and the query string is kept. A metro member city
+ * (`/scenes/tempe-az/tonight`) and a case variant (`/scenes/PHOENIX-AZ`) are
+ * therefore one hop from the metro's page, whichever of the two they are.
+ *
+ * Every segment `canonicalPath` rewrites (the slug, the week key) is part of
+ * `probeUrl`. That is what makes a remembered probe URL safe to answer from
+ * before `canonicalPath` runs: two requests that share a probe URL differ only
+ * in segments this function keeps as they are. A rewrite of any other segment
+ * has to put that segment into the probe URL, or a remembered canonical
+ * request would wave its variants through unredirected.
  *
  * A probe that names no slug (an API without the header, or a scene whose slug
  * cannot be named), or one outside `CANONICAL_SCENE_SLUG`, redirects nothing:

@@ -186,7 +186,7 @@ func (suite *EntityExistenceServiceIntegrationTestSuite) TestExists_SceneSlugHyp
 // principal for a member city, the lowercase spelling for a case variant, and
 // the request itself when it is already canonical. A missing or below-threshold
 // scene names none.
-func (suite *EntityExistenceServiceIntegrationTestSuite) TestSceneCanonicalSlug() {
+func (suite *EntityExistenceServiceIntegrationTestSuite) TestServedSceneSlug() {
 	venues := []*catalogm.Venue{
 		{Name: "Crescent Ballroom", Slug: stringPtr("crescent-ballroom"), City: "Phoenix", State: "AZ", Metro: seedMetro("Phoenix", "AZ"), Verified: true},
 		{Name: "Valley Bar", Slug: stringPtr("valley-bar"), City: "Phoenix", State: "AZ", Metro: seedMetro("Phoenix", "AZ"), Verified: true},
@@ -213,7 +213,7 @@ func (suite *EntityExistenceServiceIntegrationTestSuite) TestSceneCanonicalSlug(
 		{"nowhere-zz", "", false},
 	}
 	for _, tc := range cases {
-		canonical, exists, err := suite.svc.SceneCanonicalSlug(tc.requested)
+		canonical, exists, err := suite.svc.ServedSceneSlug(tc.requested)
 		suite.Require().NoError(err, tc.requested)
 		suite.Equal(tc.wantExists, exists, tc.requested)
 		suite.Equal(tc.wantCanonical, canonical, tc.requested)
@@ -228,7 +228,7 @@ func (suite *EntityExistenceServiceIntegrationTestSuite) TestSceneCanonicalSlug(
 // A canonical slug that does not resolve back to itself is never named: the
 // scene still exists, and the probe names no slug for it. The slug-miss cache
 // is the lever that makes the canonical spelling unresolvable here.
-func (suite *EntityExistenceServiceIntegrationTestSuite) TestSceneCanonicalSlug_NamesNoSlugThatDoesNotResolveBack() {
+func (suite *EntityExistenceServiceIntegrationTestSuite) TestServedSceneSlug_NamesNoSlugThatDoesNotResolveBack() {
 	venues := []*catalogm.Venue{
 		{Name: "Crescent Ballroom", Slug: stringPtr("crescent-ballroom"), City: "Phoenix", State: "AZ", Metro: seedMetro("Phoenix", "AZ"), Verified: true},
 		{Name: "Valley Bar", Slug: stringPtr("valley-bar"), City: "Phoenix", State: "AZ", Metro: seedMetro("Phoenix", "AZ"), Verified: true},
@@ -240,7 +240,7 @@ func (suite *EntityExistenceServiceIntegrationTestSuite) TestSceneCanonicalSlug_
 	scenes.rememberSlugMiss("phoenix-az")
 	svc := NewEntityExistenceService(suite.db, scenes)
 
-	canonical, exists, err := svc.SceneCanonicalSlug("mesa-az")
+	canonical, exists, err := svc.ServedSceneSlug("mesa-az")
 	suite.Require().NoError(err)
 	suite.True(exists)
 	suite.Empty(canonical)

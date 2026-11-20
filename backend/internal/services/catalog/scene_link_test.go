@@ -104,7 +104,7 @@ func (suite *SceneServiceIntegrationTestSuite) sceneLink(city, state string, cou
 }
 
 func (suite *SceneServiceIntegrationTestSuite) requireLinkServes(link *contracts.SceneLinkResponse) {
-	canonical, exists, err := NewEntityExistenceService(suite.db, suite.sceneService).SceneCanonicalSlug(link.Slug)
+	canonical, exists, err := NewEntityExistenceService(suite.db, suite.sceneService).ServedSceneSlug(link.Slug)
 	suite.Require().NoError(err)
 	suite.Require().True(exists, "the soft-404 gate must pass %q", link.Slug)
 	suite.Require().Equal(link.Slug, canonical, "the proxy must serve %q rather than redirect it", link.Slug)

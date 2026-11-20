@@ -1466,9 +1466,9 @@ func TestSitemapEntriesSceneFamiliesAnnounceOnlyCanonicalSlugs(t *testing.T) {
 		}
 	}
 	for slug := range announced {
-		canonical, exists, err := probe.SceneCanonicalSlug(slug)
+		canonical, exists, err := probe.ServedSceneSlug(slug)
 		if err != nil {
-			t.Fatalf("SceneCanonicalSlug(%q): %v", slug, err)
+			t.Fatalf("ServedSceneSlug(%q): %v", slug, err)
 		}
 		if !exists || canonical != slug {
 			t.Errorf("announced scene %q: probe answers exists=%v canonical=%q, want its own slug", slug, exists, canonical)
