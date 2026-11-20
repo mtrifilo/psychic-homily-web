@@ -3,14 +3,18 @@
  * verbatim from the owner-approved board spec, section L1
  * (docs/research/calendar-subscribe-v4.1-board-spec-2026-11.md, an agent-only
  * document kept outside version control; board L1 in Product Designs shows
- * the same strings). Its error lines, the app names and labels of the other
- * calendars, the iPhone Google Calendar app hint and Android's per-show
- * pointer are the panel's own (savedShowsCalendarCopy, lib/calendarFeedStatus),
- * reused where the same thing happens; the page adds no line of its own beyond
- * these.
+ * the same strings, and the section "Decided 2026-11-20 ... gaps the
+ * /library/calendar build found" adds the no-link button). Its error, reset,
+ * old-link, stopped and checked lines, the app names, the iPhone lines outside
+ * Safari, the Google Calendar app hint and Android's per-show pointer are the
+ * panel's own (savedShowsCalendarCopy, lib/calendarFeedStatus), reused where
+ * the same thing happens; the page adds no line beyond these.
  */
 export const STEPS_PAGE_COPY = {
   heading: 'Add your saved shows to Google Calendar',
+
+  /** The one button when the account has no link: clicking it makes one. */
+  addToCalendar: 'Add to calendar',
 
   stepCopy: 'Copy your calendar link.',
   copyButton: 'Copy link',

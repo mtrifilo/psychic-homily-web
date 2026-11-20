@@ -1,122 +1,166 @@
 'use client'
 
 import { useState } from 'react'
-import { useCalendarFeedStatus } from '@/features/auth/hooks/useCalendarFeed'
-import { useAuthContext } from '@/lib/context/AuthContext'
 import {
-  calendarCheckedLine,
+  useCalendarFeedStatus,
+  useCalendarTokenStatus,
+  useCreateCalendarToken,
+} from '@/features/auth/hooks/useCalendarFeed'
+import {
+  calendarResetReason,
   classifyCalendarApps,
-  type CalendarApp,
+  type CalendarApps,
 } from '@/features/collections/lib/calendarFeedStatus'
-import type { CalendarFeedStatusResponse } from '@/features/shows/types'
-import {
-  panelLinkFailure,
-  useSavedShowsCalendarLink,
-  type PanelLinkFailure,
-} from './useSavedShowsCalendarLink'
+import type {
+  CalendarFeedStatusResponse,
+  CalendarLinkResetReason,
+} from '@/features/shows/types'
 
-/** The link the steps page acts on. */
+/**
+ * How long the page reads the status on an interval while it waits for
+ * Google's first check. After that only a return to the window reads it
+ * again, so a page left open does not poll for hours.
+ */
+export const GOOGLE_CHECK_POLL_LIMIT_MS = 10 * 60 * 1000
+
+/** The link the page acts on. */
 export type CalendarStepsLink =
-  | { kind: 'loading' }
-  | { kind: 'failed'; failure: PanelLinkFailure; retry: () => void }
+  /**
+   * The account has no link. Only the person's click on Add to calendar
+   * makes one: arriving here never does.
+   */
+  | {
+      kind: 'none'
+      create: () => void
+      creating: boolean
+      createFailed: boolean
+    }
   /** The private address. The page acts on it and never shows it. */
   | { kind: 'ready'; feedUrl: string }
   /** A link exists, but its address was never stored and cannot be shown. */
   | { kind: 'unrecoverable' }
 
-/**
- * The link, prepared once as the page mounts exactly as the calendar panel
- * prepares it on open (loaded fresh, and created only when the account has
- * none), so the copy and the calendar links act inside their own click.
- * Mounted only where the page acts on the address: never on Android, where
- * the page offers nothing that needs it.
- */
-export function useCalendarStepsLink(): CalendarStepsLink {
-  const { user } = useAuthContext()
-  const link = useSavedShowsCalendarLink(user?.id)
-  if (link.data) {
-    return link.data.kind === 'ready'
-      ? { kind: 'ready', feedUrl: link.data.feedUrl }
-      : { kind: 'unrecoverable' }
-  }
-  if (link.isError && !link.isFetching) {
-    return {
-      kind: 'failed',
-      failure: panelLinkFailure(link.error),
-      retry: () => void link.refetch(),
-    }
-  }
-  return { kind: 'loading' }
-}
-
-/** What the page knows about Google Calendar's checks of the link. */
-export type GoogleCalendarCheck =
-  /** No status read has finished since the page opened. */
-  | { kind: 'unknown' }
-  /** Every status read since the page opened failed. */
-  | { kind: 'failed'; retry: () => void }
+export type CalendarStepsPageState =
+  /** A read has not finished since the page opened. */
+  | { kind: 'loading' }
+  /** A read failed since the page opened, with nothing read before it. */
+  | { kind: 'read_failed'; retry: () => void }
   | {
-      kind: 'waiting'
-      /** Some other calendar app is checking the link. */
-      anyAppConnected: boolean
+      kind: 'ready'
+      link: CalendarStepsLink
+      apps: CalendarApps
+      /**
+       * Why a security action reset the link: set while the account has no
+       * link and the marker says why, and kept for the rest of this visit
+       * after Add to calendar clears the marker on the server.
+       */
+      resetReason: CalendarLinkResetReason | null
+      /** When the lines were computed; ages read from it. */
+      now: Date
     }
-  | {
-      kind: 'connected'
-      google: CalendarApp
-      /** "Checked 2h ago.": the page states no comparison with saves. */
-      checkedLine: string
-      anyAppConnected: true
-    }
-
-function connectedGoogle(connected: CalendarApp[]): CalendarApp | undefined {
-  return connected.find(app => app.client === 'google')
-}
-
-const googleIsConnected = (status: CalendarFeedStatusResponse) =>
-  connectedGoogle(classifyCalendarApps(status, new Date()).connected) !==
-  undefined
 
 /**
- * Google Calendar's observed state, for the page. Only a status read since
- * the page opened counts, so a stale read cached by another surface never
- * says Google is connected or not. The read is live (again on window focus,
- * which is when a person comes back from Google's tab), and with
- * `pollUntilGoogle` it is also read on an interval until Google shows as
- * connected; the interval ends with the component that asked for it. Poll
- * only while the person can add Google from the page: with no address to copy,
- * nothing on it can bring Google's first check.
+ * Everything the page reads: the link (read only, never created on arrival)
+ * and the status, each read live, so a link replaced or turned off in another
+ * tab is followed when the person comes back to this one. A read cached by
+ * another surface before the page opened is never shown.
+ *
+ * With `pollGoogle`, while the address is ready and Google is not connected,
+ * the status is also read on an interval, for GOOGLE_CHECK_POLL_LIMIT_MS; the
+ * interval ends with the page.
  */
-export function useGoogleCalendarCheck({
-  pollUntilGoogle,
+export function useCalendarStepsPage({
+  pollGoogle,
 }: {
-  pollUntilGoogle: boolean
-}): GoogleCalendarCheck {
+  pollGoogle: boolean
+}): CalendarStepsPageState {
+  const [openedAt] = useState(() => Date.now())
+  const token = useCalendarTokenStatus(true, { live: true })
+  const create = useCreateCalendarToken()
+  const [keptResetReason, setKeptResetReason] =
+    useState<CalendarLinkResetReason | null>(null)
+  // When this visit's Add to calendar succeeded; 0 until it has.
+  const [createdAt, setCreatedAt] = useState(0)
+
+  const readSinceOpen = <T>(query: {
+    data: T | undefined
+    dataUpdatedAt: number
+  }): T | undefined =>
+    query.data !== undefined && query.dataUpdatedAt >= openedAt
+      ? query.data
+      : undefined
+
+  const currentToken = readSinceOpen(token)
+  // A link this visit created stands until a read finished after it says
+  // otherwise (a later turn-off or replacement elsewhere).
+  const created =
+    create.data && createdAt > token.dataUpdatedAt ? create.data : null
+  const feedUrl = created
+    ? created.feed_url
+    : currentToken?.has_token && currentToken.url_recoverable
+      ? currentToken.feed_url
+      : undefined
+
   const status = useCalendarFeedStatus(true, {
     live: true,
-    pollUntil: pollUntilGoogle ? googleIsConnected : undefined,
+    pollUntil:
+      pollGoogle && feedUrl
+        ? (read: CalendarFeedStatusResponse) =>
+            googleConnected(classifyCalendarApps(read, new Date())) ||
+            Date.now() - openedAt >= GOOGLE_CHECK_POLL_LIMIT_MS
+        : undefined,
   })
-  const [openedAt] = useState(() => Date.now())
+  const currentStatus = readSinceOpen(status)
 
-  const current =
-    status.data && status.dataUpdatedAt >= openedAt ? status.data : undefined
-  if (!current) {
-    // A failure before this open belongs to another surface's read.
-    return status.errorUpdatedAt >= openedAt
-      ? { kind: 'failed', retry: () => void status.refetch() }
-      : { kind: 'unknown' }
+  const failedSinceOpen = (query: { errorUpdatedAt: number }) =>
+    query.errorUpdatedAt >= openedAt
+  if (
+    (!currentToken && !created && failedSinceOpen(token)) ||
+    (!currentStatus && failedSinceOpen(status))
+  ) {
+    return {
+      kind: 'read_failed',
+      retry: () => {
+        void token.refetch()
+        void status.refetch()
+      },
+    }
   }
+  if ((!currentToken && !created) || !currentStatus) return { kind: 'loading' }
 
-  // Read at render: the line is as fresh as the page's last render.
+  const link: CalendarStepsLink = feedUrl
+    ? { kind: 'ready', feedUrl }
+    : currentToken?.has_token
+      ? { kind: 'unrecoverable' }
+      : {
+          kind: 'none',
+          create: () => {
+            // Making the link clears the marker on the server; the page goes
+            // on saying why the old calendar stopped for this visit.
+            setKeptResetReason(
+              reason => reason ?? calendarResetReason(currentStatus)
+            )
+            create.mutate(undefined, {
+              onSuccess: () => setCreatedAt(Date.now()),
+            })
+          },
+          creating: create.isPending,
+          createFailed: create.isError,
+        }
+
+  // Read at render: the lines are as fresh as the page's last render.
   const now = new Date()
-  const { connected } = classifyCalendarApps(current, now)
-  const google = connectedGoogle(connected)
-  if (!google) {
-    return { kind: 'waiting', anyAppConnected: connected.length > 0 }
-  }
   return {
-    kind: 'connected',
-    google,
-    checkedLine: calendarCheckedLine(google.lastReadAt, null, now),
-    anyAppConnected: true,
+    kind: 'ready',
+    link,
+    apps: classifyCalendarApps(currentStatus, now),
+    resetReason:
+      keptResetReason ??
+      (link.kind === 'none' ? calendarResetReason(currentStatus) : null),
+    now,
   }
+}
+
+export function googleConnected(apps: CalendarApps): boolean {
+  return apps.connected.some(app => app.client === 'google')
 }

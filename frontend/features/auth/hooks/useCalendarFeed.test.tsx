@@ -141,6 +141,20 @@ describe('useCalendarTokenStatus', () => {
     mockApiRequest.mockReset()
   })
 
+  it('live: reads again when an observer mounts, even with a fresh read cached', async () => {
+    mockApiRequest.mockResolvedValue({ has_token: false })
+    const queryClient = createTestQueryClient()
+    queryClient.setQueryData(['calendar', 'tokenStatus'], { has_token: true })
+
+    const { result } = renderHook(
+      () => useCalendarTokenStatus(true, { live: true }),
+      { wrapper: createWrapperWithClient(queryClient) }
+    )
+
+    await waitFor(() => expect(result.current.data).toEqual({ has_token: false }))
+    expect(mockApiRequest).toHaveBeenCalledTimes(1)
+  })
+
   it('fetches token status when enabled', async () => {
     const mockResponse = {
       has_token: true,
@@ -620,6 +634,30 @@ describe('useCalendarFeedStatus live', () => {
         await vi.advanceTimersByTimeAsync(CALENDAR_STATUS_POLL_MS * 3)
       })
       expect(mockApiRequest).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('with pollUntil, a failed read is retried and the poll resumes after it', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      mockApiRequest
+        .mockResolvedValueOnce({ has_token: true, reads: [] })
+        .mockRejectedValueOnce(new Error('502'))
+        .mockResolvedValue({ has_token: true, reads: [] })
+      const { result } = renderHook(
+        () => useCalendarFeedStatus(true, { live: true, pollUntil: () => false }),
+        { wrapper: createWrapper() }
+      )
+      await waitFor(() => expect(result.current.data).toBeDefined())
+
+      for (let reads = 2; reads <= 4; reads++) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(CALENDAR_STATUS_POLL_MS + 1_000)
+        })
+        await waitFor(() => expect(mockApiRequest).toHaveBeenCalledTimes(reads))
+      }
     } finally {
       vi.useRealTimers()
     }

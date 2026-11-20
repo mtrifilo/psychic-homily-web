@@ -26,7 +26,17 @@ import { PERSONAL_FEED_TOKEN_REVOKED_EVENT } from '@/features/collections/compon
 /**
  * Hook to check if the user has a calendar feed token
  */
-export const useCalendarTokenStatus = (enabled: boolean = true) => {
+export const useCalendarTokenStatus = (
+  enabled: boolean = true,
+  options: {
+    /**
+     * Read again whenever an observer mounts and whenever the window regains
+     * focus, and retry a failed read on its own: for a surface that acts on
+     * the address and must follow it being replaced or turned off elsewhere.
+     */
+    live?: boolean
+  } = {}
+) => {
   return useQuery({
     queryKey: queryKeys.calendar.tokenStatus,
     queryFn: async (): Promise<CalendarTokenStatusResponse> => {
@@ -37,6 +47,13 @@ export const useCalendarTokenStatus = (enabled: boolean = true) => {
     },
     enabled,
     staleTime: 5 * 60 * 1000, // 5 minutes
+    ...(options.live
+      ? {
+          refetchOnMount: 'always',
+          refetchOnWindowFocus: 'always',
+          refetchInterval: retryWhileFailed,
+        }
+      : {}),
   })
 }
 
@@ -64,11 +81,11 @@ export const useCalendarFeedStatus = (
      */
     live?: boolean
     /**
-     * With `live`: also read again every CALENDAR_STATUS_POLL_MS until the
-     * latest status satisfies this. The interval belongs to the observer, so
-     * it ends when the surface unmounts, and React Query holds it while the
-     * page is hidden. A refused session ends it, since waiting will not change
-     * that answer.
+     * With `live`: also read again every CALENDAR_STATUS_POLL_MS until a read
+     * satisfies this, evaluated after each read. The interval belongs to the
+     * observer, so it ends when the surface unmounts, and React Query skips
+     * it while the page is hidden. A failed read follows the retry rule
+     * instead, so a refused session ends it.
      */
     pollUntil?: (status: CalendarFeedStatusResponse) => boolean
   } = {}
@@ -88,13 +105,12 @@ export const useCalendarFeedStatus = (
       ? {
           refetchOnMount: 'always',
           refetchOnWindowFocus: 'always',
-          // A failed read is retried on its own until one succeeds. Whether
-          // the data still held from before is fit to show is the surface's
-          // call (the calendar panel shows only a read made since it opened),
-          // so the retry does not depend on it. A refused session is not
-          // retried: it will not change by waiting.
-          // A poll runs only after a successful read; a failed one, the
-          // refused session included, follows the retry rule above.
+          // A failed read is retried on its own until one succeeds, and a
+          // refused session is not retried: it will not change by waiting.
+          // Whether the data still held from before is fit to show is the
+          // surface's call (the calendar panel shows only a read made since it
+          // opened), so the retry does not depend on it. Otherwise the
+          // interval polls until `pollUntil` holds.
           refetchInterval: (query: Query<CalendarFeedStatusResponse, Error>) => {
             if (!pollUntil || query.state.status === 'error') {
               return retryWhileFailed(query)
