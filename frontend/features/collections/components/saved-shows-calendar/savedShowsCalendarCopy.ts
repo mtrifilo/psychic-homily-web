@@ -57,6 +57,10 @@ export const PANEL_COPY = {
   removedIt: 'I removed it',
   unrecoverable:
     'This calendar was set up before links could be shown again. To copy the link or add another app, make a new link in Settings. That disconnects the calendar connected now.',
+  // With no app listed the last sentence would be false (orchestrator
+  // ruling, for owner confirmation).
+  unrecoverableNoApp:
+    'This calendar was set up before links could be shown again. To copy the link or add an app, make a new link in Settings.',
 
   createFailed: "Couldn't create your calendar link. Try again.",
   loadFailed: "Couldn't load your calendar link. Try again.",

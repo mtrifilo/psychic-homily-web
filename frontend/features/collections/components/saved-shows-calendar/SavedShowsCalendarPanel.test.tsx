@@ -410,6 +410,10 @@ describe('SavedShowsCalendarPanel: preparing the link as it opens', () => {
     expect(
       within(panel).getByRole('heading', { name: PANEL_COPY.headingStatus })
     ).toBeInTheDocument()
+    // With nothing connected the sentence about a connected calendar is
+    // dropped.
+    expect(within(panel).getByText(PANEL_COPY.unrecoverableNoApp)).toBeInTheDocument()
+    expect(within(panel).queryByText(PANEL_COPY.unrecoverable)).not.toBeInTheDocument()
     expect(within(panel).queryByText(PANEL_COPY.subAdd)).not.toBeInTheDocument()
     expect(rowNames(panel)).toEqual([])
   })
@@ -848,35 +852,68 @@ describe('SavedShowsCalendarPanel: rows act inside the click', () => {
 })
 
 describe('SavedShowsCalendarPanel: keeps this open together', () => {
-  it('a saved-shows read that fails on open retries on its own until it succeeds', async () => {
+  it('a failed saved-shows read blocks nothing: no comparison, no download, until it succeeds', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     try {
-      let failNewest = true
+      withLink([google(2 * HOUR)])
+      let failSaves = true
       const base = apiRequest.getMockImplementation()!
       apiRequest.mockImplementation(async (endpoint: string, options: unknown) => {
-        const url = String(endpoint)
-        if (url.includes('/saved-shows?') && !url.includes('time_filter') && failNewest) {
+        if (String(endpoint).includes('/saved-shows?') && failSaves) {
           throw new Error('502')
         }
         return base(endpoint, options)
       })
-      render(<Harness />, {
-        wrapper: createWrapperWithClient(createTestQueryClient()),
-      })
-      const panel = await screen.findByTestId('saved-shows-calendar-panel')
-      await waitFor(() =>
-        expect(within(panel).getByText(PANEL_COPY.loading)).toBeInTheDocument()
-      )
+      const panel = await renderPanel()
 
-      failNewest = false
+      expect(within(panel).getByText('Checked 2h ago.')).toBeInTheDocument()
+      expect(within(panel).queryByText(/Download/)).not.toBeInTheDocument()
+      expect(rowNames(panel)).toContain('Copy link')
+
+      failSaves = false
       await act(async () => {
         await vi.advanceTimersByTimeAsync(10_000)
       })
 
-      await waitFor(() => expect(rowNames(panel)).toContain('Copy link'))
+      await waitFor(() =>
+        expect(
+          within(panel).getByText('Checked 2h ago, since your last save.')
+        ).toBeInTheDocument()
+      )
+      expect(
+        within(panel).getByRole('link', { name: 'Download these 8 shows (.ics)' })
+      ).toBeInTheDocument()
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('a failed first status read shows the load line, and its retry recovers', async () => {
+    const user = setupUser()
+    let failStatus = true
+    const base = apiRequest.getMockImplementation()!
+    apiRequest.mockImplementation(async (endpoint: string, options: unknown) => {
+      if (String(endpoint).endsWith('/calendar/token/feed-status') && failStatus) {
+        throw new Error('502')
+      }
+      return base(endpoint, options)
+    })
+    render(<Harness />, {
+      wrapper: createWrapperWithClient(createTestQueryClient()),
+    })
+    const panel = await screen.findByTestId('saved-shows-calendar-panel')
+
+    const alert = await within(panel).findByRole('alert')
+    expect(alert).toHaveTextContent(PANEL_COPY.loadFailed)
+    expect(
+      within(panel).getByRole('heading', { name: PANEL_COPY.headingStatus })
+    ).toBeInTheDocument()
+    expect(rowNames(panel)).toEqual(['Try again.'])
+
+    failStatus = false
+    await user.click(within(alert).getByRole('button', { name: 'Try again.' }))
+
+    await waitFor(() => expect(rowNames(panel)).toContain('Copy link'))
   })
 
   it('a status refetch that fails keeps the panel and its notes on screen', async () => {

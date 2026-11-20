@@ -54,7 +54,13 @@ export function SavedShowsCalendarBody({
           onNavigate={onNavigate}
         />
       ))}
-      {model.unrecoverable ? <PanelNote>{PANEL_COPY.unrecoverable}</PanelNote> : null}
+      {model.unrecoverable ? (
+        <PanelNote>
+          {model.connected.length > 0
+            ? PANEL_COPY.unrecoverable
+            : PANEL_COPY.unrecoverableNoApp}
+        </PanelNote>
+      ) : null}
       {feedUrl && model.rows.length > 0 ? (
         <div
           className={cn(

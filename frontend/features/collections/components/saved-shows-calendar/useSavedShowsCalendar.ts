@@ -41,12 +41,15 @@ export type SavedShowsCalendarState =
  * made while the person was in their calendar app shows up when they return.
  *
  * Loading until the link is ready, the status has been read successfully
- * since this mount, and the newest save, the upcoming count and the device
- * are known, since every row and line depends on one of them. A status
- * cached by another surface is never shown. Once read, a later refetch that
- * fails keeps the last good read on screen; until a first read of each
- * succeeds the panel stays loading while those reads retry on their own. The panel has no wording for a status it
- * could not read, and never guesses one.
+ * since this mount, the saved-shows reads have settled, and the device is
+ * known. A status cached by another surface is never shown; once read, a
+ * later refetch that fails keeps the last good read on screen.
+ *
+ * Failed first reads: the link or the status says the link could not be
+ * loaded (with its retry), while the status keeps retrying on its own and the
+ * panel becomes ready when one succeeds. A failed saved-shows read blocks
+ * nothing: the panel states only what it knows, so each check line drops its
+ * comparison with the newest save and the download row waits for the count.
  */
 export function useSavedShowsCalendar(): SavedShowsCalendarState {
   const { user } = useAuthContext()
@@ -75,7 +78,17 @@ export function useSavedShowsCalendar(): SavedShowsCalendarState {
 
   const currentStatus =
     status.data && status.dataUpdatedAt >= openedAt ? status.data : undefined
-  if (!link.data || !currentStatus || !newest.data || !upcoming.data || !device) {
+  if (link.data && !currentStatus && status.isError) {
+    return {
+      kind: 'link_failed',
+      failure: 'load',
+      retry: () => void status.refetch(),
+    }
+  }
+
+  const newestSettled = !!newest.data || newest.isError
+  const upcomingSettled = !!upcoming.data || upcoming.isError
+  if (!link.data || !currentStatus || !newestSettled || !upcomingSettled || !device) {
     return { kind: 'loading' }
   }
 
@@ -84,8 +97,10 @@ export function useSavedShowsCalendar(): SavedShowsCalendarState {
     status: currentStatus,
     unrecoverable: !ready,
     resetReasonBeforeCreate: ready?.resetReasonBeforeCreate ?? null,
-    newestSavedAt: newest.data.shows[0]?.saved_at ?? null,
-    upcomingCount: upcoming.data.total,
+    // Unknown reads as no saved shows: the line then names only the check.
+    newestSavedAt: newest.data?.shows[0]?.saved_at ?? null,
+    // Unknown hides the download row until the count arrives.
+    upcomingCount: upcoming.data?.total ?? 0,
     device,
     // Read at render, so an age is as fresh as the panel's last render; the
     // lines do not tick while the panel sits open.
