@@ -114,8 +114,14 @@ export function describeCachedListFallback(c: CachedListFallbackCase) {
 
       expect(container.innerHTML).toContain(c.seededRow)
       expect(showsLoader(container.innerHTML)).toBe(false)
-      // The boundary's list replaces this copy, so nothing in it takes input.
+      // The boundary's list replaces this copy, so nothing in it takes input,
+      // and assistive tech hears the region is still loading.
       expect(container.querySelector('[inert]')?.innerHTML).toContain(c.seededRow)
+      expect(
+        [...container.querySelectorAll('[role="status"]')].some(
+          status => !status.closest('[inert]')
+        )
+      ).toBe(true)
       // The list's hooks ran, and every seeded entry is the one that was there.
       expect(entriesFor(client, seededKeys)).toEqual(seededEntries)
     })

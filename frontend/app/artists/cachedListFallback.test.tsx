@@ -2,8 +2,11 @@ import { vi } from 'vitest'
 import { describeCachedListFallback } from '@/test/cachedListFallbackSuite'
 import { cachedListFallbackOf } from '@/test/firstScreenRender'
 
-// The page's ItemList read; no artists, so no JSON-LD block.
-const { fetchSeoList } = vi.hoisted(() => ({ fetchSeoList: vi.fn(async () => []) }))
+// The page's ItemList read. It returns an artist, so the page also renders its
+// ItemList `Suspense` ahead of the list's, which the fallback lookup must skip.
+const { fetchSeoList } = vi.hoisted(() => ({
+  fetchSeoList: vi.fn(async () => [{ slug: 'gatecreeper', name: 'Gatecreeper' }]),
+}))
 vi.mock('@/lib/seo/fetchSeoList', () => ({ fetchSeoList }))
 
 const { fetchListPayload } = vi.hoisted(() => ({ fetchListPayload: vi.fn() }))

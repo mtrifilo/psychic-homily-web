@@ -50,10 +50,12 @@ const NO_DEFEATING_PARAMS: readonly string[] = []
  * per-row reads) may create their entries here; on a first-screen URL none of
  * them is a seeded key, since every seeded key already exists.
  *
- * The list drawn here is view-only (`inert`). The boundary's list mounts as a
- * separate instance and replaces it, so text typed, focus taken or a sheet
- * opened in this copy would be discarded at the swap; `inert` also keeps the
- * copy's mount effects from taking focus.
+ * The list drawn here is view-only (`inert`), links included, as the loader
+ * it stands in for is. The boundary's list mounts as a separate instance and
+ * replaces it, so text typed, focus taken or a sheet opened in this copy would
+ * be discarded at the swap; `inert` also keeps the copy's mount effects from
+ * taking focus. `inert` hides the copy from assistive tech too, so a status
+ * outside it says the region is still loading.
  */
 export function CachedListFallback({
   seededKeys,
@@ -100,8 +102,13 @@ function WarmCacheGate({
   // `contents`: the wrapper adds no box, so the list lays out as it does in
   // the boundary.
   return (
-    <div inert className="contents" data-testid="cached-list-fallback">
-      {children}
-    </div>
+    <>
+      <span role="status" className="sr-only">
+        Loading
+      </span>
+      <div inert className="contents">
+        {children}
+      </div>
+    </>
   )
 }
