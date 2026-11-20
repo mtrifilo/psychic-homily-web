@@ -2,6 +2,7 @@
 package errors
 
 import (
+	"errors"
 	"fmt"
 	"time"
 )
@@ -168,13 +169,30 @@ func ErrInvalidEventDate(message string) *ShowError {
 }
 
 // ErrShowEventDateBeyondBound creates the refusal for a show dated more than
-// boundMonths after now. The message is user-facing: it names the bound and the
-// override, because the caller can act on both.
+// boundMonths after now. The message is user-facing and names the bound and the
+// API's override; it names no client, so every surface can show it as is.
 func ErrShowEventDateBeyondBound(eventDate, bound time.Time, boundMonths int) *ShowError {
 	return NewShowError(CodeShowEventDateBeyondBound, fmt.Sprintf(
 		"event_date %s is more than %d months ahead (the latest date accepted today is %s). "+
-			"An admin can create it anyway by sending allow_far_future_date: true (ph: --allow-far-future)",
+			"Only an admin can create it, by sending allow_far_future_date: true with the show",
 		eventDate.UTC().Format(time.RFC3339), boundMonths, bound.UTC().Format(time.RFC3339)), nil)
+}
+
+// AsShowEventDateBeyondBound finds the far-future refusal anywhere in err's
+// chain, including under an outer ShowError (errors.As stops at the first
+// ShowError, which is usually the generic create failure wrapping it).
+func AsShowEventDateBeyondBound(err error) (*ShowError, bool) {
+	for e := err; e != nil; {
+		var showErr *ShowError
+		if !errors.As(e, &showErr) {
+			return nil, false
+		}
+		if showErr.Code == CodeShowEventDateBeyondBound {
+			return showErr, true
+		}
+		e = showErr.Internal
+	}
+	return nil, false
 }
 
 // ErrShowUnpublishUnauthorized creates a show unpublish unauthorized error.

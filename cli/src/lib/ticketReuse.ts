@@ -16,7 +16,7 @@ export interface TicketURLReuse {
   venueName?: string;
 }
 
-interface ShowWithTicket {
+export interface ShowWithTicket {
   id: number;
   slug?: string;
   event_date: string;
@@ -24,21 +24,30 @@ interface ShowWithTicket {
   venues?: Array<{ id: number; name: string }>;
 }
 
-/** The page size and the ceiling on how many matching shows are read. */
+/**
+ * The page size, equal to the `limit` maximum GET /shows accepts
+ * (GetShowsRequest in backend/internal/api/handlers/catalog/show.go), and the
+ * ceiling on how many matching shows are read.
+ */
 const TICKET_REUSE_PAGE = 200;
-const TICKET_REUSE_SCAN_CAP = 600;
+export const TICKET_REUSE_SCAN_CAP = 600;
 
-/** Shows already read for one ticket URL, shared by every show in a run. */
-export type TicketURLLookupCache = Map<string, Promise<{ shows: ShowWithTicket[]; truncated: boolean }>>;
+/** What one ticket URL lookup found, and why it may be incomplete. */
+export interface TicketURLLookup {
+  shows: ShowWithTicket[];
+  /** More shows matched than TICKET_REUSE_SCAN_CAP; the rest were not read. */
+  truncated: boolean;
+  /** The server returned shows with other ticket URLs, so it does not filter. */
+  unsupported: boolean;
+}
 
-async function fetchShowsByTicketURL(
-  client: APIClient,
-  url: string,
-): Promise<{ shows: ShowWithTicket[]; truncated: boolean }> {
+/** Lookups already made in a run, one per distinct URL. */
+export type TicketURLLookupCache = Map<string, Promise<TicketURLLookup>>;
+
+async function fetchShowsByTicketURL(client: APIClient, url: string): Promise<TicketURLLookup> {
   const shows: ShowWithTicket[] = [];
-  let truncated = false;
   for (let offset = 0; offset < TICKET_REUSE_SCAN_CAP; offset += TICKET_REUSE_PAGE) {
-    const page = await client.get<ShowWithTicket[] | { shows?: ShowWithTicket[] }>("/shows", {
+    const page = await client.get<ShowWithTicket[] | { shows?: ShowWithTicket[]; total?: number }>("/shows", {
       ticket_url: url,
       limit: String(TICKET_REUSE_PAGE),
       offset: String(offset),
@@ -46,11 +55,18 @@ async function fetchShowsByTicketURL(
     // Both shapes, as checkShowDuplicate reads this endpoint: a reader of one
     // shape alone silently sees nothing in the other.
     const rows = Array.isArray(page) ? page : (page?.shows ?? []);
+    // A row with another link means the filter was not applied; reading on
+    // would page through the whole catalog for nothing.
+    if (rows.some((row) => (row.ticket_url ?? "").trim() !== url)) {
+      return { shows: [], truncated: false, unsupported: true };
+    }
     shows.push(...rows);
-    if (rows.length < TICKET_REUSE_PAGE) break;
-    truncated = offset + TICKET_REUSE_PAGE >= TICKET_REUSE_SCAN_CAP;
+    const total = Array.isArray(page) ? undefined : page?.total;
+    if (rows.length < TICKET_REUSE_PAGE || (total !== undefined && shows.length >= total)) {
+      return { shows, truncated: false, unsupported: false };
+    }
   }
-  return { shows, truncated };
+  return { shows, truncated: true, unsupported: false };
 }
 
 /**
@@ -70,9 +86,9 @@ export async function findTicketURLReuse(
   state?: string,
   timezone?: string,
   cache: TicketURLLookupCache = new Map(),
-): Promise<{ reuse: TicketURLReuse[]; truncated: boolean }> {
+): Promise<{ reuse: TicketURLReuse[]; truncated: boolean; unsupported: boolean }> {
   const url = ticketUrl.trim();
-  if (!url || venueIds.length === 0) return { reuse: [], truncated: false };
+  if (!url || venueIds.length === 0) return { reuse: [], truncated: false, unsupported: false };
 
   const { fromDate, toDate } = showDedupWindow(eventDate, state, timezone);
   const from = Date.parse(fromDate);
@@ -83,7 +99,7 @@ export async function findTicketURLReuse(
     lookup = fetchShowsByTicketURL(client, url);
     cache.set(url, lookup);
   }
-  const { shows, truncated } = await lookup;
+  const { shows, truncated, unsupported } = await lookup;
 
   const reuse: TicketURLReuse[] = [];
   for (const show of shows) {
@@ -97,7 +113,7 @@ export async function findTicketURLReuse(
     if (sameDay) continue;
     reuse.push({ showId: show.id, slug: show.slug, eventDate: show.event_date, venueName: room.name });
   }
-  return { reuse, truncated };
+  return { reuse, truncated, unsupported };
 }
 
 /**

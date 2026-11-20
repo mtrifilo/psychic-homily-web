@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -70,6 +73,16 @@ func liveShowIDs(t *testing.T, database *gorm.DB) []uint {
 	return got
 }
 
+// digestIn reads the plan digest a run printed.
+func digestIn(t *testing.T, out string) string {
+	t.Helper()
+	m := regexp.MustCompile(`Plan digest: +([0-9a-f]+)`).FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("no plan digest in output\n%s", out)
+	}
+	return m[1]
+}
+
 func TestRun_DryRunThenConfirmThenRerun(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -77,24 +90,27 @@ func TestRun_DryRunThenConfirmThenRerun(t *testing.T) {
 	testDB := testutil.SetupTestPostgres(t)
 	defer testDB.Cleanup()
 	database := testDB.DB
+	backup := filepath.Join(t.TempDir(), "deleted.jsonl")
 
 	ids, aceID := seedReplicas(t, database)
 	all := append(append([]uint{}, ids...), aceID)
 
-	// Dry run is the default: it prints the plan and deletes nothing.
+	// Dry run is the default: it prints the plan and its digest and deletes nothing.
 	var dry bytes.Buffer
-	if code := run(database, options{beyondMonths: 18, now: testNow}, &dry); code != 0 {
+	if code := run(database, options{beyondMonths: 18, now: testNow, target: "test-db"}, &dry); code != 0 {
 		t.Fatalf("dry run exit %d\n%s", code, dry.String())
 	}
 	out := dry.String()
 	for _, want := range []string{
 		"(DRY RUN)",
+		"Target: test-db",
 		"Found 1 replicated group(s): 1 to purge (5 copies), 0 left untouched.",
 		fmt.Sprintf("KEEP show %d  2026-10-03", ids[0]),
 		fmt.Sprintf("DEL  show %d  2031-10-03", ids[5]),
 		"Ticket URL: " + testTicket,
 		fmt.Sprintf("show %d  2083-08-15", aceID),
 		"DRY RUN: no database writes.",
+		"--confirm --expect-plan ",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("dry run output lacks %q\n%s", want, out)
@@ -106,23 +122,61 @@ func TestRun_DryRunThenConfirmThenRerun(t *testing.T) {
 	if got := liveShowIDs(t, database); len(got) != len(all) {
 		t.Fatalf("dry run deleted shows: %v left of %v", got, all)
 	}
+	digest := digestIn(t, out)
 
-	// Confirm deletes the five later copies and nothing else.
+	// Confirm without the reviewed digest and a backup is refused outright.
+	for name, opts := range map[string]options{
+		"no digest":    {confirm: true, backupPath: backup, beyondMonths: 18, now: testNow},
+		"no backup":    {confirm: true, expectPlan: digest, beyondMonths: 18, now: testNow},
+		"wrong digest": {confirm: true, expectPlan: "0000000000000000", backupPath: backup, beyondMonths: 18, now: testNow},
+	} {
+		var refused bytes.Buffer
+		if code := run(database, opts, &refused); code != 1 {
+			t.Errorf("%s: want exit 1, got %d\n%s", name, code, refused.String())
+		}
+		if got := liveShowIDs(t, database); len(got) != len(all) {
+			t.Fatalf("%s: shows were deleted: %v", name, got)
+		}
+	}
+	if _, err := os.Stat(backup); !os.IsNotExist(err) {
+		t.Fatalf("a refused run created the backup file: %v", err)
+	}
+
+	// Confirm with the reviewed digest deletes the five later copies and nothing else.
 	var live bytes.Buffer
-	if code := run(database, options{confirm: true, beyondMonths: 18, now: testNow}, &live); code != 0 {
+	if code := run(database, options{confirm: true, expectPlan: digest, backupPath: backup, beyondMonths: 18, now: testNow}, &live); code != 0 {
 		t.Fatalf("confirm exit %d\n%s", code, live.String())
 	}
 	if !strings.Contains(live.String(), fmt.Sprintf("[DELETED] 5 copies; kept show %d", ids[0])) {
 		t.Errorf("confirm output lacks the deletion line\n%s", live.String())
 	}
+	if !strings.Contains(live.String(), "/shows/2031-10-04-a") {
+		t.Errorf("confirm output lacks the deleted slugs\n%s", live.String())
+	}
 	got := liveShowIDs(t, database)
 	if len(got) != 2 || got[0] != ids[0] || got[1] != aceID {
 		t.Fatalf("after confirm want [%d %d], got %v", ids[0], aceID, got)
 	}
+	lines, err := os.ReadFile(backup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(lines), "\n"); n != 5 {
+		t.Fatalf("backup holds %d lines, want 5\n%s", n, lines)
+	}
+	if !strings.Contains(string(lines), fmt.Sprintf(`"kept_show_id":%d`, ids[0])) {
+		t.Errorf("backup does not name the survivor\n%s", lines)
+	}
 
-	// A second confirmed run finds nothing to do.
+	// The backup file must be new: a second confirmed run with the same path is refused.
+	var reused bytes.Buffer
+	if code := run(database, options{confirm: true, expectPlan: digest, backupPath: backup, beyondMonths: 18, now: testNow}, &reused); code != 1 {
+		t.Errorf("reusing the backup path: want exit 1, got %d\n%s", code, reused.String())
+	}
+
+	// A second run finds nothing to do.
 	var rerun bytes.Buffer
-	if code := run(database, options{confirm: true, beyondMonths: 18, now: testNow}, &rerun); code != 0 {
+	if code := run(database, options{beyondMonths: 18, now: testNow}, &rerun); code != 0 {
 		t.Fatalf("rerun exit %d\n%s", code, rerun.String())
 	}
 	if !strings.Contains(rerun.String(), "Found 0 replicated group(s)") {

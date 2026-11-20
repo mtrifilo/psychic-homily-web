@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -18,8 +19,16 @@ import (
 
 type ShowReplicaPurgeSuite struct {
 	suite.Suite
-	testDB *testutil.TestDatabase
-	db     *gorm.DB
+	testDB  *testutil.TestDatabase
+	db      *gorm.DB
+	backups []json.RawMessage
+}
+
+// keepBackup is the backup writer every purge in this suite uses: it records
+// the snapshots so a test can read what a purge was handed before deleting.
+func (s *ShowReplicaPurgeSuite) keepBackup(docs []json.RawMessage) error {
+	s.backups = append(s.backups, docs...)
+	return nil
 }
 
 func TestShowReplicaPurgeSuite(t *testing.T) {
@@ -41,11 +50,12 @@ func (s *ShowReplicaPurgeSuite) TearDownSuite() {
 }
 
 func (s *ShowReplicaPurgeSuite) TearDownTest() {
+	s.backups = nil
 	sqlDB, err := s.db.DB()
 	s.Require().NoError(err)
 	for _, t := range []string{
 		"comment_subscriptions", "comment_last_read", "comments", "notification_log",
-		"show_notify_queue", "collection_items", "collections", "user_bookmarks",
+		"show_notify_queue", "show_reports", "collection_items", "collections", "user_bookmarks",
 		"show_artists", "show_venues", "shows", "artists", "venues", "users",
 	} {
 		_, _ = sqlDB.Exec(fmt.Sprintf("DELETE FROM %s", t))
@@ -91,9 +101,18 @@ func evening(year int, month time.Month, day int) time.Time {
 	return time.Date(year, month, day, 20, 0, 0, 0, la).UTC()
 }
 
-// show inserts an approved show headlined by artistID at venueID. An empty
-// ticket stores NULL.
+// replicaCreated is when every seeded show was written unless a test says
+// otherwise: one moment, the shape of one write fanning a date out.
+var replicaCreated = replicaNow.AddDate(0, -2, 0)
+
+// show inserts an approved show headlined by artistID at venueID, created at
+// replicaCreated by no submitter. An empty ticket stores NULL.
 func (s *ShowReplicaPurgeSuite) show(artistID, venueID uint, at time.Time, ticket string) uint {
+	return s.showFrom(artistID, venueID, at, ticket, replicaCreated, nil)
+}
+
+// showFrom is show with the creation time and submitter stated.
+func (s *ShowReplicaPurgeSuite) showFrom(artistID, venueID uint, at time.Time, ticket string, created time.Time, submittedBy *uint) uint {
 	var ticketArg any
 	if ticket != "" {
 		ticketArg = ticket
@@ -101,9 +120,9 @@ func (s *ShowReplicaPurgeSuite) show(artistID, venueID uint, at time.Time, ticke
 	slug := fmt.Sprintf("%s-a%d-v%d", at.Format("2006-01-02T15"), artistID, venueID)
 	var id uint
 	s.Require().NoError(s.db.Raw(`
-		INSERT INTO shows (title, event_date, state, status, source, ticket_url, slug, created_at, updated_at)
-		VALUES ('', ?, 'CA', 'approved', 'user', ?, ?, ?, ?)
-		RETURNING id`, at, ticketArg, slug, replicaNow.AddDate(0, -2, 0), replicaNow.AddDate(0, -2, 0)).
+		INSERT INTO shows (title, event_date, state, status, source, ticket_url, slug, submitted_by, created_at, updated_at)
+		VALUES ('', ?, 'CA', 'approved', 'user', ?, ?, ?, ?, ?)
+		RETURNING id`, at, ticketArg, slug, submittedBy, created, created).
 		Row().Scan(&id))
 	s.Require().NoError(s.db.Exec(
 		`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')`,
@@ -153,6 +172,7 @@ func (s *ShowReplicaPurgeSuite) TestReplicatedGroup_KeepsCurrentYearCopyAndDelet
 	s.Require().NoError(s.db.Exec(`INSERT INTO user_bookmarks (user_id, entity_type, entity_id, action) VALUES (?, 'show', ?, 'save')`, fan, ids[0]).Error)
 	s.Require().NoError(s.db.Exec(`INSERT INTO user_bookmarks (user_id, entity_type, entity_id, action) VALUES (?, 'show', ?, 'save')`, fan, ids[2]).Error)
 	s.Require().NoError(s.db.Exec(`INSERT INTO comments (entity_type, entity_id, user_id, body, body_html) VALUES ('show', ?, ?, 'see you', '<p>see you</p>')`, ids[3], fan).Error)
+	s.Require().NoError(s.db.Exec(`INSERT INTO show_reports (show_id, reported_by, report_type) VALUES (?, ?, 'inaccurate')`, ids[4], fan).Error)
 
 	plan := s.plan()
 	s.Require().Len(plan.Groups, 1)
@@ -169,10 +189,31 @@ func (s *ShowReplicaPurgeSuite) TestReplicatedGroup_KeepsCurrentYearCopyAndDelet
 	s.Equal("2026-10-03", g.Copies[0].LocalDate, "grouped on the venue-local day, not the UTC one")
 	s.Equal([]ReplicaRefCount{{Table: "user_bookmarks", Dropped: true, Rows: 1}}, g.Copies[2].Refs)
 	s.Equal([]ReplicaRefCount{{Table: "comments", Dropped: false, Rows: 1}}, g.Copies[3].Refs)
+	s.Equal([]ReplicaRefCount{{Table: "show_reports (cascade)", Dropped: true, Rows: 1}}, g.Copies[4].Refs)
 	s.Empty(g.Copies[1].Refs)
 	s.Empty(plan.Beyond, "every far-future copy belongs to the group")
 
-	s.Require().NoError(PurgeReplicatedShowGroup(s.db, replicaNow, g))
+	s.Require().NoError(PurgeReplicatedShowGroup(s.db, replicaNow, g, s.keepBackup))
+
+	// Every deleted show was handed to the backup first, with its rows.
+	s.Require().Len(s.backups, 5)
+	var doc struct {
+		Show struct {
+			ID uint `json:"id"`
+		} `json:"show"`
+		ShowArtists []json.RawMessage `json:"show_artists"`
+		ShowVenues  []json.RawMessage `json:"show_venues"`
+		Bookmarks   []json.RawMessage `json:"user_bookmarks"`
+		Reports     []json.RawMessage `json:"show_reports"`
+	}
+	s.Require().NoError(json.Unmarshal(s.backups[1], &doc))
+	s.Equal(ids[2], doc.Show.ID)
+	s.Len(doc.ShowArtists, 1)
+	s.Len(doc.ShowVenues, 1)
+	s.Len(doc.Bookmarks, 1)
+	s.Require().NoError(json.Unmarshal(s.backups[3], &doc))
+	s.Equal(ids[4], doc.Show.ID)
+	s.Len(doc.Reports, 1)
 
 	s.Equal([]uint{ids[0]}, s.existing(ids))
 	s.Equal([]uint{bystander}, s.existing([]uint{bystander}), "a different month-day is a different group")
@@ -188,6 +229,7 @@ func (s *ShowReplicaPurgeSuite) TestReplicatedGroup_KeepsCurrentYearCopyAndDelet
 		"comments are kept as tombstones by the delete path")
 	s.Equal(int64(0), s.count(`SELECT COUNT(*) FROM show_artists WHERE show_id IN ?`, ids[1:]))
 	s.Equal(int64(0), s.count(`SELECT COUNT(*) FROM show_venues WHERE show_id IN ?`, ids[1:]))
+	s.Equal(int64(0), s.count(`SELECT COUNT(*) FROM show_reports WHERE show_id = ?`, ids[4]))
 
 	again := s.plan()
 	s.Empty(again.Groups, "a second run finds nothing")
@@ -248,7 +290,7 @@ func (s *ShowReplicaPurgeSuite) assertUntouched(reason string, ids []uint) {
 	s.False(g.Actionable())
 	s.Zero(g.KeepID)
 	s.Empty(g.DeleteIDs)
-	s.Error(PurgeReplicatedShowGroup(s.db, replicaNow, g), "an untouched group is refused at the delete call too")
+	s.Error(PurgeReplicatedShowGroup(s.db, replicaNow, g, s.keepBackup), "an untouched group is refused at the delete call too")
 	s.Equal(ids, s.existing(ids))
 }
 
@@ -303,7 +345,7 @@ func (s *ShowReplicaPurgeSuite) TestBeyondListsOnlyUngroupedFarFutureShows() {
 	s.Equal("Testing Ace", plan.Beyond[0].HeadlinerName)
 	s.Equal(replicaNow.AddDate(0, 18, 0), plan.BeyondCutoff)
 
-	s.Require().NoError(PurgeReplicatedShowGroup(s.db, replicaNow, plan.Groups[0]))
+	s.Require().NoError(PurgeReplicatedShowGroup(s.db, replicaNow, plan.Groups[0], s.keepBackup))
 	s.Equal([]uint{ace}, s.existing([]uint{ace}), "the far-future report never deletes")
 }
 
@@ -314,9 +356,146 @@ func (s *ShowReplicaPurgeSuite) TestGroupChangedSincePlanDeletesNothing() {
 
 	s.Require().NoError(s.db.Exec(`UPDATE shows SET ticket_url = 'https://tix.example/fixed' WHERE id = ?`, ids[2]).Error)
 
-	err := PurgeReplicatedShowGroup(s.db, replicaNow, plan.Groups[0])
+	err := PurgeReplicatedShowGroup(s.db, replicaNow, plan.Groups[0], s.keepBackup)
 	s.Require().ErrorIs(err, ErrReplicaGroupChanged)
 	s.Equal(ids, s.existing(ids))
+}
+
+func (s *ShowReplicaPurgeSuite) TestGroupChangedSincePlan_UnapprovedOrRedatedCopy() {
+	for name, change := range map[string]string{
+		"unapproved": `UPDATE shows SET status = 'private' WHERE id = ?`,
+		"re-dated":   `UPDATE shows SET event_date = event_date + interval '1 day' WHERE id = ?`,
+		"deleted":    `DELETE FROM shows WHERE id = ?`,
+	} {
+		s.Run(name, func() {
+			s.TearDownTest()
+			ids := s.replicate(s.artist("Los Thuthanaka "+name), s.venue("Great American Music Hall "+name), 2026, 2027, 2028)
+			plan := s.plan()
+			s.Require().Len(plan.Groups, 1)
+
+			s.Require().NoError(s.db.Exec(change, ids[1]).Error)
+
+			err := PurgeReplicatedShowGroup(s.db, replicaNow, plan.Groups[0], s.keepBackup)
+			s.Require().ErrorIs(err, ErrReplicaGroupChanged)
+			s.Empty(s.backups, "nothing is handed to the backup for a changed group")
+			survivors := []uint{ids[0], ids[2]}
+			if name != "deleted" {
+				survivors = ids
+			}
+			s.Equal(survivors, s.existing(ids))
+		})
+	}
+}
+
+func (s *ShowReplicaPurgeSuite) TestBackupFailureDeletesNothing() {
+	ids := s.replicate(s.artist("Groundation"), s.venue("Great American Music Hall"), 2026, 2027, 2028)
+	plan := s.plan()
+	s.Require().Len(plan.Groups, 1)
+
+	err := PurgeReplicatedShowGroup(s.db, replicaNow, plan.Groups[0], func([]json.RawMessage) error {
+		return errors.New("disk full")
+	})
+	s.Require().ErrorContains(err, "disk full")
+	s.Equal(ids, s.existing(ids))
+}
+
+// A submitter who adds a show in an earlier year cannot make it the survivor
+// of another submitter's copies: mixed origin leaves the group alone.
+func (s *ShowReplicaPurgeSuite) TestMixedSubmittersAreUntouched() {
+	room := s.venue("Great American Music Hall")
+	act := s.artist("Igorrr")
+	owner := s.user("owner@test.local")
+	other := s.user("other@test.local")
+	a := s.showFrom(act, room, evening(2026, time.October, 3), replicaTicket, replicaCreated, &other)
+	b := s.showFrom(act, room, evening(2027, time.October, 3), replicaTicket, replicaCreated, &owner)
+	c := s.showFrom(act, room, evening(2028, time.October, 3), replicaTicket, replicaCreated, &owner)
+	s.assertUntouched(replicaSkipMixedOrigin, []uint{a, b, c})
+}
+
+// A show that really recurs was written at different times; copies written
+// more than the window apart are left for a human.
+func (s *ShowReplicaPurgeSuite) TestCopiesCreatedApartAreUntouched() {
+	room := s.venue("Great American Music Hall")
+	act := s.artist("NYE Band")
+	a := s.showFrom(act, room, evening(2026, time.December, 31), replicaTicket, replicaCreated, nil)
+	b := s.showFrom(act, room, evening(2027, time.December, 31), replicaTicket, replicaCreated, nil)
+	c := s.showFrom(act, room, evening(2028, time.December, 31), replicaTicket, replicaCreated.Add(replicaCreatedWindow+time.Second), nil)
+	s.assertUntouched(replicaSkipCreatedApart, []uint{a, b, c})
+}
+
+// The survivor may be written at any time; only the copies to delete must be
+// close together.
+func (s *ShowReplicaPurgeSuite) TestSurvivorCreatedEarlierStillPurges() {
+	room := s.venue("Great American Music Hall")
+	act := s.artist("Igorrr")
+	a := s.showFrom(act, room, evening(2026, time.October, 3), replicaTicket, replicaCreated.AddDate(0, -1, 0), nil)
+	b := s.showFrom(act, room, evening(2027, time.October, 3), replicaTicket, replicaCreated, nil)
+	c := s.showFrom(act, room, evening(2028, time.October, 3), replicaTicket, replicaCreated.Add(replicaCreatedWindow), nil)
+
+	plan := s.plan()
+	s.Require().Len(plan.Groups, 1)
+	s.Equal(a, plan.Groups[0].KeepID)
+	s.Equal([]uint{b, c}, plan.Groups[0].DeleteIDs)
+}
+
+// Two years inside the bound and nothing past it is not the replication
+// signature; it is left for a human.
+func (s *ShowReplicaPurgeSuite) TestNoCopyPastTheBoundIsUntouched() {
+	ids := s.replicate(s.artist("Phillip Phillips"), s.venue("Great American Music Hall"), 2026, 2027)
+	s.assertUntouched(replicaSkipNoFarCopy, ids)
+}
+
+// The ticket URL is a condition on the whole bucket: one stray link keeps
+// every copy at that room, headliner and month-day untouched and listed.
+func (s *ShowReplicaPurgeSuite) TestOneDifferentURLKeepsTheWholeBucketUntouched() {
+	room := s.venue("Great American Music Hall")
+	act := s.artist("Igorrr")
+	a := s.show(act, room, evening(2026, time.October, 3), replicaTicket)
+	b := s.show(act, room, evening(2027, time.October, 3), "https://tix.example/igorrr-2027")
+	c := s.show(act, room, evening(2028, time.October, 3), replicaTicket)
+	s.assertUntouched(replicaSkipTicketURLsDiffer, []uint{a, b, c})
+}
+
+// The group's headliner is the curated one, not the first-billed act, so a
+// curated headliner billed second still groups with its copies.
+func (s *ShowReplicaPurgeSuite) TestHeadlinerIsTheCuratedAct() {
+	room := s.venue("Great American Music Hall")
+	opener := s.artist("Opener")
+	star := s.artist("Star")
+	var ids []uint
+	for _, y := range []int{2026, 2027, 2028} {
+		var id uint
+		s.Require().NoError(s.db.Raw(`
+			INSERT INTO shows (title, event_date, state, status, source, ticket_url, slug, created_at, updated_at)
+			VALUES ('', ?, 'CA', 'approved', 'user', ?, ?, ?, ?) RETURNING id`,
+			evening(y, time.October, 3), replicaTicket, fmt.Sprintf("star-%d", y), replicaCreated, replicaCreated).Row().Scan(&id))
+		// The opener sits at position 0 in odd years and 1 in even years, so a
+		// key that read position alone would split the copies apart.
+		openerPos, starPos := 1, 0
+		if y%2 == 1 {
+			openerPos, starPos = 0, 1
+		}
+		s.Require().NoError(s.db.Exec(`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, ?, 'opener'), (?, ?, ?, 'headliner')`,
+			id, opener, openerPos, id, star, starPos).Error)
+		s.Require().NoError(s.db.Exec(`INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)`, id, room).Error)
+		ids = append(ids, id)
+	}
+
+	plan := s.plan()
+	s.Require().Len(plan.Groups, 1)
+	s.Equal("Star", plan.Groups[0].HeadlinerName)
+	s.Equal(ids[0], plan.Groups[0].KeepID)
+	s.Equal(ids[1:], plan.Groups[0].DeleteIDs)
+}
+
+func (s *ShowReplicaPurgeSuite) TestPlanDigestNamesTheDeletions() {
+	room := s.venue("Great American Music Hall")
+	s.replicate(s.artist("Igorrr"), room, 2026, 2027, 2028)
+	first := s.plan().Digest()
+	s.Equal(first, s.plan().Digest(), "the same rows give the same digest")
+
+	s.replicate(s.artist("Beth Orton"), room, 2026, 2027, 2028)
+	s.NotEqual(first, s.plan().Digest(), "a new actionable group changes the digest")
 }
 
 func (s *ShowReplicaPurgeSuite) TestUnapprovedCopyIsNotGrouped() {
