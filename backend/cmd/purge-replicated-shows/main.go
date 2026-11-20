@@ -25,7 +25,7 @@
 // target database, has the digest the reviewed dry run printed (--expect-plan),
 // and writes every deleted show, with the rows its delete removes, to --backup
 // (a new file, one JSON line per show) before deleting it, then one line per
-// group saying whether that group's deletion committed. The backup carries user
+// group saying whether this run applied that group's deletion. The backup carries user
 // ids (bookmarks, reports, notification rows): keep it private and delete it
 // once the run is verified.
 //
@@ -34,7 +34,8 @@
 //
 // Running it again after a confirmed run finds nothing left to delete. Deleted
 // pages keep serving from the frontend's cache until it revalidates; the run
-// prints the deleted slugs for that.
+// prints the slugs of every planned copy that is gone from the database, by
+// this run or by something else, for that.
 package main
 
 import (
@@ -68,6 +69,9 @@ type options struct {
 	beyondMonths int
 	now          time.Time
 	target       string
+	// beforeGroup runs before each actionable group is purged. Tests use it to
+	// change a group between the plan and its transaction.
+	beforeGroup func(catalog.ReplicatedShowGroup)
 }
 
 func main() {
@@ -192,17 +196,16 @@ func run(database *gorm.DB, opts options, w io.Writer) int {
 			say(w, "  [SKIPPED] the backup file failed earlier; nothing deleted in this group\n\n")
 			continue
 		}
+		if opts.beforeGroup != nil {
+			opts.beforeGroup(g)
+		}
 		var backupErr error
-		err := catalog.PurgeReplicatedShowGroup(database, opts.now, g, func(snapshot []json.RawMessage) error {
+		purgeErr := catalog.PurgeReplicatedShowGroup(database, opts.now, g, func(snapshot []json.RawMessage) error {
 			backupErr = writeBackup(backup, g, snapshot)
 			return backupErr
 		})
-		var stillPresent []uint
-		if err != nil {
-			stillPresent, err = confirmRolledBack(database, g, err)
-		}
-		if outcomeErr := writeOutcome(backup, g, err, stillPresent); outcomeErr != nil {
-			failedGroups++
+		outcome := outcomeOf(database, g, purgeErr, backupErr != nil)
+		if outcomeErr := writeOutcome(backup, g, outcome); outcomeErr != nil {
 			say(w, "  [ERROR] backup outcome line not written: %v\n", outcomeErr)
 			if backupErr == nil {
 				backupErr = outcomeErr
@@ -212,18 +215,24 @@ func run(database *gorm.DB, opts options, w io.Writer) int {
 			say(w, "  [ERROR] backup file failed: %v; no further group will be deleted\n", backupErr)
 		}
 		backupBroken = backupErr != nil
-		if err != nil {
-			failedGroups++
-			say(w, "  [ERROR] %v\n\n", err)
-			continue
-		}
-		deleted += len(g.DeleteIDs)
 		for _, c := range g.Copies {
-			if slices.Contains(g.DeleteIDs, c.ShowID) {
+			if slices.Contains(outcome.Gone, c.ShowID) {
 				deletedSlugs = append(deletedSlugs, c.Slug)
 			}
 		}
-		say(w, "  [DELETED] %d copies; kept show %d\n\n", len(g.DeleteIDs), g.KeepID)
+		if outcome.Applied == outcomeApplied {
+			deleted += len(g.DeleteIDs)
+			say(w, "  [DELETED] %d copies; kept show %d\n", len(g.DeleteIDs), g.KeepID)
+		} else {
+			say(w, "  [ERROR] %s: %v\n", outcome.Result, purgeErr)
+			if len(outcome.RemovedElsewhere) > 0 {
+				say(w, "  copies %v were removed by something other than this run\n", outcome.RemovedElsewhere)
+			}
+		}
+		if outcome.Applied != outcomeApplied || backupErr != nil {
+			failedGroups++
+		}
+		say(w, "\n")
 	}
 
 	printBeyond(w, plan)
@@ -241,7 +250,7 @@ func run(database *gorm.DB, opts options, w io.Writer) int {
 		say(w, "Backup:              %s\n", opts.backupPath)
 		say(w, "LIVE: deletions above are committed.\n")
 		if len(deletedSlugs) > 0 {
-			say(w, "Deleted slugs (their pages and the listings that link them serve from cache until revalidated):\n")
+			say(w, "Slugs of planned copies now gone from the database (their pages and the listings that link them serve from cache until revalidated):\n")
 			for _, slug := range deletedSlugs {
 				say(w, "  /shows/%s\n", clean(slug))
 			}
@@ -249,6 +258,8 @@ func run(database *gorm.DB, opts options, w io.Writer) int {
 	} else {
 		say(w, "DRY RUN: no database writes. To delete exactly this plan, re-run with\n")
 		say(w, "  --confirm --expect-plan %s --backup <new file>\n", digest)
+		say(w, "The digest also covers the rows each copy to delete carries that the delete removes (saves, crate items, tags,\n")
+		say(w, "notifications): one added after this dry run changes it, and --confirm then refuses until the dry run is re-run.\n")
 	}
 
 	if failedGroups > 0 {
@@ -278,57 +289,74 @@ func writeBackup(f *os.File, g catalog.ReplicatedShowGroup, snapshot []json.RawM
 	return f.Sync()
 }
 
-// errOutcomeUnknown marks a failed group whose copies could not be re-read, so
-// whether its deletion committed is not known.
-var errOutcomeUnknown = errors.New("could not re-read the group after the failure")
+// The three answers to "did this run apply the group's deletion?".
+const (
+	outcomeApplied    = "yes"
+	outcomeNotApplied = "no"
+	outcomeUnknown    = "unknown"
+)
 
-// confirmRolledBack re-reads a failed group's copies on a fresh connection,
-// because a transaction can report an error after the server committed it (a
-// connection lost during COMMIT). It returns the copies still present and an
-// error describing the outcome: all present means rolled back, none present
-// means the deletion committed despite the error.
-func confirmRolledBack(database *gorm.DB, g catalog.ReplicatedShowGroup, purgeErr error) ([]uint, error) {
+// groupOutcome is what one run did to one group, as written to the backup.
+type groupOutcome struct {
+	Applied string
+	Result  string
+	// Gone is every copy to delete that is no longer in the database, whoever
+	// removed it; RemovedElsewhere is the part of Gone this run did not remove.
+	Gone             []uint
+	RemovedElsewhere []uint
+}
+
+// outcomeOf decides what this run did to a group from the purge error and a
+// re-read of the copies on a fresh connection. The group's transaction is
+// atomic, so this run applied either every deletion or none: a copy missing
+// after a run that did not apply was removed by something else. A changed
+// group and a failed backup both abort before any delete, so they never
+// applied. Only a failure after the deletes began (a delete or the COMMIT
+// itself) with every copy gone leaves the answer unknown.
+func outcomeOf(database *gorm.DB, g catalog.ReplicatedShowGroup, purgeErr error, backupFailed bool) groupOutcome {
+	if purgeErr == nil {
+		return groupOutcome{Applied: outcomeApplied, Result: "applied", Gone: slices.Clone(g.DeleteIDs)}
+	}
 	var present []uint
 	if err := database.Raw(`SELECT id FROM shows WHERE id IN ? ORDER BY id`, g.DeleteIDs).Scan(&present).Error; err != nil {
-		return nil, fmt.Errorf("%w; %w: %w", purgeErr, errOutcomeUnknown, err)
+		return groupOutcome{Applied: outcomeUnknown, Result: fmt.Sprintf("unknown: the group could not be re-read after the failure (%v)", err)}
 	}
-	switch len(present) {
-	case len(g.DeleteIDs):
-		return present, fmt.Errorf("nothing deleted in this group: %w", purgeErr)
-	case 0:
-		return present, fmt.Errorf("the transaction reported %w, but every copy is gone, so the deletion committed", purgeErr)
+	var gone []uint
+	for _, id := range g.DeleteIDs {
+		if !slices.Contains(present, id) {
+			gone = append(gone, id)
+		}
+	}
+	switch {
+	case errors.Is(purgeErr, catalog.ErrReplicaGroupChanged):
+		return groupOutcome{Applied: outcomeNotApplied, Result: "not applied by this run: the group changed since planning", Gone: gone, RemovedElsewhere: gone}
+	case backupFailed:
+		return groupOutcome{Applied: outcomeNotApplied, Result: "not applied by this run: the backup could not be written", Gone: gone, RemovedElsewhere: gone}
+	case len(gone) < len(g.DeleteIDs):
+		return groupOutcome{Applied: outcomeNotApplied, Result: "not applied by this run: the transaction rolled back", Gone: gone, RemovedElsewhere: gone}
 	default:
-		return present, fmt.Errorf("%w; %d of %d copies are still present", purgeErr, len(present), len(g.DeleteIDs))
+		return groupOutcome{
+			Applied: outcomeUnknown,
+			Result:  "unknown: every copy is gone, so either this run's commit succeeded despite the error or something else removed them",
+			Gone:    gone,
+		}
 	}
 }
 
-// writeOutcome appends the line that says what happened to a group's
-// deletion, so a restore can tell snapshots of deleted shows from snapshots of
-// a group that rolled back. still_present_ids is the re-read after a failure;
-// "committed" is "unknown" when that re-read failed.
-func writeOutcome(f *os.File, g catalog.ReplicatedShowGroup, purgeErr error, stillPresent []uint) error {
+// writeOutcome appends the line that says what this run did to a group, so a
+// restore can tell snapshots of deleted shows from snapshots of a group this
+// run did not apply.
+func writeOutcome(f *os.File, g catalog.ReplicatedShowGroup, o groupOutcome) error {
 	if f == nil {
 		return errors.New("no backup file open")
 	}
-	committed := "true"
-	switch {
-	case errors.Is(purgeErr, errOutcomeUnknown):
-		committed = "unknown"
-	case purgeErr != nil && len(stillPresent) == len(g.DeleteIDs):
-		committed = "false"
-	case purgeErr != nil && len(stillPresent) > 0:
-		committed = "partial"
-	}
 	outcome := struct {
-		KeptShowID     uint   `json:"group_kept_show_id"`
-		DeletedShowIDs []uint `json:"group_deleted_show_ids"`
-		Committed      string `json:"committed"`
-		StillPresent   []uint `json:"still_present_ids,omitempty"`
-		Error          string `json:"error,omitempty"`
-	}{KeptShowID: g.KeepID, DeletedShowIDs: g.DeleteIDs, Committed: committed, StillPresent: stillPresent}
-	if purgeErr != nil {
-		outcome.Error = purgeErr.Error()
-	}
+		KeptShowID       uint   `json:"group_kept_show_id"`
+		DeletedShowIDs   []uint `json:"group_deleted_show_ids"`
+		AppliedByThisRun string `json:"applied_by_this_run"`
+		Result           string `json:"result"`
+		RemovedElsewhere []uint `json:"removed_elsewhere_ids,omitempty"`
+	}{g.KeepID, g.DeleteIDs, o.Applied, o.Result, o.RemovedElsewhere}
 	line, err := json.Marshal(outcome)
 	if err != nil {
 		return err
@@ -366,6 +394,12 @@ func printGroup(w io.Writer, g catalog.ReplicatedShowGroup) {
 			c.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 			orNone(clean(c.Source)), submitter(c.SubmittedBy),
 			refSuffix(c, verdict == "DEL "), ticketSuffix(g, c))
+	}
+	for _, c := range g.Siblings {
+		say(w, "  SIBLING show %d  %s  %s  status=%s  created %s  source=%s submitted_by=%s  ticket=%s\n",
+			c.ShowID, c.LocalDate, clean(c.Slug), clean(c.Status),
+			c.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+			orNone(clean(c.Source)), submitter(c.SubmittedBy), orNone(clean(c.TicketURL)))
 	}
 }
 

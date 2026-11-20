@@ -14,6 +14,7 @@ import (
 
 	"gorm.io/gorm"
 
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/shared"
 )
 
@@ -53,6 +54,9 @@ type ReplicatedShowCopy struct {
 	Source        string
 	// SubmittedBy is the submitting user's id, 0 when the column is NULL.
 	SubmittedBy uint
+	// Status is the show's status. Copies and Beyond rows are always
+	// approved; a group's Siblings never are.
+	Status string
 
 	// Refs counts the rows that name this show, per table: the polymorphic
 	// inventory DeleteShow sweeps, the alert rows beside it, and the foreign
@@ -84,6 +88,10 @@ type ReplicatedShowGroup struct {
 	CurrentYear int
 	// Copies are ordered by venue-local date, then show id.
 	Copies []ReplicatedShowCopy
+	// Siblings are shows of any other status with the group's key (rooms,
+	// headliner, venue-local month and day). Any sibling leaves the group
+	// untouched: the real original may be one of them.
+	Siblings []ReplicatedShowCopy
 
 	// KeepID and DeleteIDs are set only when SkipReason is empty.
 	KeepID    uint
@@ -113,8 +121,10 @@ type ReplicatedShowPlan struct {
 }
 
 // Digest names the plan's deletions: every actionable group's survivor and
-// deletion set, order-independent. Two plans with the same digest delete the
-// same shows and keep the same survivors.
+// deletion set, and for each copy to delete the count of every row its delete
+// removes (the Dropped refs), tables in sorted order; order-independent across
+// groups. Two plans with the same digest delete the same shows, keep the same
+// survivors and take the same counts of rows with them.
 func (p *ReplicatedShowPlan) Digest() string {
 	lines := make([]string, 0, len(p.Groups))
 	for _, g := range p.Groups {
@@ -123,7 +133,7 @@ func (p *ReplicatedShowPlan) Digest() string {
 		}
 		ids := make([]string, len(g.DeleteIDs))
 		for i, id := range g.DeleteIDs {
-			ids[i] = strconv.FormatUint(uint64(id), 10)
+			ids[i] = strconv.FormatUint(uint64(id), 10) + "[" + droppedRefsKey(g.copy(id)) + "]"
 		}
 		lines = append(lines, fmt.Sprintf("keep %d delete %s", g.KeepID, strings.Join(ids, ",")))
 	}
@@ -132,8 +142,31 @@ func (p *ReplicatedShowPlan) Digest() string {
 	return hex.EncodeToString(sum[:8])
 }
 
+// copy returns the group's copy with the given id, or the zero copy.
+func (g ReplicatedShowGroup) copy(id uint) ReplicatedShowCopy {
+	for _, c := range g.Copies {
+		if c.ShowID == id {
+			return c
+		}
+	}
+	return ReplicatedShowCopy{}
+}
+
+// droppedRefsKey is "table=n" for every ref the delete removes, sorted.
+func droppedRefsKey(c ReplicatedShowCopy) string {
+	var parts []string
+	for _, r := range c.Refs {
+		if r.Dropped {
+			parts = append(parts, fmt.Sprintf("%s=%d", r.Table, r.Rows))
+		}
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ";")
+}
+
 // Skip reasons. Each names the condition that keeps a group untouched.
 const (
+	replicaSkipSibling          = "a show with the same rooms, headliner and month-day is not approved (listed as SIBLING), so the original may be one of them; decide by hand"
 	replicaSkipMixedOrigin      = "the copies do not share one source and submitter"
 	replicaSkipNoTicketURL      = "a copy has no ticket URL"
 	replicaSkipTicketURLsDiffer = "the copies do not share one ticket URL"
@@ -157,7 +190,7 @@ var (
 // E-string reads \v as a literal "v".
 const ticketURLTrimSQL = `E' \t\n\r\f\x0b'`
 
-// replicaRowsSQL reads every approved show with its grouping key. Rooms are the
+// replicaRowsSQL reads every show, of any status, with its grouping key. Rooms are the
 // FULL sorted set of show_venues ids, so two shows group only when they are at
 // exactly the same rooms. The headliner is the RESOLVE rule shared by the slug
 // writer (set_type 'headliner' first, then lowest position, then lowest artist
@@ -173,6 +206,7 @@ SELECT shows.id AS show_id,
        COALESCE(btrim(shows.ticket_url, ` + ticketURLTrimSQL + `), '') AS ticket_url,
        COALESCE(shows.source::text, '') AS source,
        COALESCE(shows.submitted_by, 0) AS submitted_by,
+       shows.status::text AS status,
        (` + shared.VenueLocalDateSQL + `)::text AS local_date,
        (` + shared.VenueLocalDateAtParamSQL + `)::text AS local_today,
        COALESCE(rooms.venue_ids, '') AS venue_ids,
@@ -196,7 +230,7 @@ LEFT JOIN LATERAL (
     ORDER BY CASE WHEN sa.set_type = 'headliner' THEN 0 ELSE 1 END, sa.position ASC, sa.artist_id ASC
     LIMIT 1
 ) head ON true
-WHERE shows.status = 'approved'`
+WHERE true`
 
 type replicaRow struct {
 	ShowID        uint
@@ -206,6 +240,7 @@ type replicaRow struct {
 	TicketURL     string
 	Source        string
 	SubmittedBy   uint
+	Status        string
 	LocalDate     string
 	LocalToday    string
 	VenueIDs      string
@@ -224,6 +259,7 @@ func (r replicaRow) toCopy() ReplicatedShowCopy {
 		TicketURL:     r.TicketURL,
 		Source:        r.Source,
 		SubmittedBy:   r.SubmittedBy,
+		Status:        r.Status,
 		VenueName:     r.VenueName,
 		HeadlinerName: r.HeadlinerName,
 		venueIDs:      r.VenueIDs,
@@ -259,10 +295,12 @@ func scanReplicaCopies(db *gorm.DB, now time.Time, showIDs []uint) ([]Replicated
 	return copies, nil
 }
 
-// groupReplicaCopies buckets copies by key and classifies every bucket that
-// spans two or more venue-local years. A bucket inside one year (a single
-// show, or same-date duplicates) is not a replicated group and its copies are
-// returned in loners. farBound is the far-future bound at the planning instant.
+// groupReplicaCopies buckets copies (of any status) by key and classifies every
+// bucket whose APPROVED copies span two or more venue-local years; the bucket's
+// other copies become the group's Siblings. A bucket whose approved copies sit
+// inside one year (a single show, or same-date duplicates) is not a replicated
+// group, and only its approved copies are returned in loners. farBound is the
+// far-future bound at the planning instant.
 //
 // The ticket URL is a condition on a bucket, not part of its key: a bucket whose
 // copies carry different links is listed whole, untouched, rather than split
@@ -272,12 +310,22 @@ func groupReplicaCopies(copies []ReplicatedShowCopy, farBound time.Time) (groups
 	for _, c := range copies {
 		key := c.groupKey()
 		if key == "" {
-			loners = append(loners, c)
+			if c.Status == string(catalogm.ShowStatusApproved) {
+				loners = append(loners, c)
+			}
 			continue
 		}
 		buckets[key] = append(buckets[key], c)
 	}
-	for key, members := range buckets {
+	for key, all := range buckets {
+		var members, siblings []ReplicatedShowCopy
+		for _, c := range all {
+			if c.Status == string(catalogm.ShowStatusApproved) {
+				members = append(members, c)
+			} else {
+				siblings = append(siblings, c)
+			}
+		}
 		years := make(map[int]bool, len(members))
 		for _, c := range members {
 			years[localYear(c.LocalDate)] = true
@@ -286,7 +334,15 @@ func groupReplicaCopies(copies []ReplicatedShowCopy, farBound time.Time) (groups
 			loners = append(loners, members...)
 			continue
 		}
-		groups = append(groups, classifyReplicaGroup(key, members, farBound))
+		group := classifyReplicaGroup(key, members, farBound)
+		if len(siblings) > 0 {
+			sort.Slice(siblings, func(i, j int) bool { return siblings[i].LocalDate < siblings[j].LocalDate })
+			group.Siblings = siblings
+			group.SkipReason = replicaSkipSibling
+			group.KeepID = 0
+			group.DeleteIDs = nil
+		}
+		groups = append(groups, group)
 	}
 	sort.Slice(groups, func(i, j int) bool {
 		a, b := groups[i], groups[j]
@@ -635,7 +691,7 @@ func PurgeReplicatedShowGroup(db *gorm.DB, now time.Time, group ReplicatedShowGr
 			return err
 		}
 		if len(copies) != len(ids) {
-			return fmt.Errorf("%w: %d of %d shows are still approved", ErrReplicaGroupChanged, len(copies), len(ids))
+			return fmt.Errorf("%w: %d of %d shows still exist", ErrReplicaGroupChanged, len(copies), len(ids))
 		}
 		fresh, loners := groupReplicaCopies(copies, showEventDateBound(now))
 		if len(loners) != 0 || len(fresh) != 1 {
