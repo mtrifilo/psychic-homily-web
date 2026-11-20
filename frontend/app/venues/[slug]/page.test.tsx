@@ -330,6 +330,24 @@ describe('venues/[slug] generateMetadata', () => {
     )
   })
 
+  it("reads a show's day on the show's own state when the venue has no zone", async () => {
+    // 1:30 AM September 12 in Phoenix, 10:30 PM September 11 in Honolulu. The
+    // show is 7:00 PM September 11 in Honolulu: ended on the venue's state
+    // clock, still today on the show's own.
+    vi.setSystemTime(new Date('2026-09-12T08:30:00Z'))
+    stubVenueAndYears({
+      venue: () => okResponse(buildVenue({ timezone: null })),
+      years: () => yearsResponse([]),
+    })
+    upcomingFetchMock.mockResolvedValueOnce(
+      upcomingResponse([upcomingShow({ event_date: '2026-09-12T05:00:00Z', state: 'HI' })])
+    )
+
+    expect((await metadataFor()).description).toBe(
+      '1 upcoming show at The Rebel Lounge in Phoenix, AZ. Next: Top Billing, Sep 11. Address: 2303 E Indian School Rd.'
+    )
+  })
+
   it('ignores an upcoming answer for another venue', async () => {
     stubVenueAndYears({ years: () => yearsResponse([]) })
     upcomingFetchMock.mockResolvedValueOnce(upcomingResponse([upcomingShow()], 999))

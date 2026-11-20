@@ -99,6 +99,12 @@ describe('/artists JSON-LD ItemList', () => {
     vi.clearAllMocks()
   })
 
+  it('describes the list without naming a city', async () => {
+    fetchSeoList.mockResolvedValue(listingEntries(3))
+
+    expect((await itemList())?.description).toBe('Artists performing live music.')
+  })
+
   it('emits at most ARTIST_ITEM_LIST_LIMIT entries for a full catalogue', async () => {
     fetchSeoList.mockResolvedValue(listingEntries(6_200))
 
