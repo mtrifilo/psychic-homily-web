@@ -31,14 +31,14 @@ vi.mock('next/server', () => ({
 // at all. If a future test renders the tree, stub the component FILE, not this
 // module: since PSY-1772 the page imports it by path, not through the barrel.)
 vi.mock('@/features/shows/utils', async importOriginal => {
-  // `showTimingInput` and `splitBill` are taken REAL: the first decides which
-  // calendar the metadata description is dated on, the second who leads the
-  // MusicEvent description, so a stub would let every assertion below agree
-  // with a page that disagreed with itself. Stubbing the rest keeps the
-  // module's component imports out of this suite.
-  const { showTimingInput, splitBill } =
+  // `showTimingInput`, `byBillPosition` and `splitBill` are taken REAL: the
+  // first decides which calendar the metadata description is dated on, the
+  // other two who leads the MusicEvent description, so a stub would let every
+  // assertion below agree with a page that disagreed with itself. Stubbing the
+  // rest keeps the module's component imports out of this suite.
+  const { showTimingInput, byBillPosition, splitBill } =
     await importOriginal<typeof import('@/features/shows/utils')>()
-  return { showTimingInput, splitBill }
+  return { showTimingInput, byBillPosition, splitBill }
 })
 
 import ShowPage, { generateMetadata } from './page'
@@ -749,11 +749,13 @@ describe('ShowPage MusicEvent description and door time', () => {
           event_date: '2026-03-16T03:00:00Z',
           doors_at: '2026-03-16T02:00:00Z',
           music_at: '2026-03-16T03:00:00Z',
-          // Entered in stage order: the curated headliner is listed last and
-          // carries only `set_type`, so the lead comes from the role.
+          // Entered in stage order (the headliner at the later position) and
+          // delivered out of position order, so the description has to sort
+          // as the header does and then lead with the curated role.
           artists: [
-            { name: 'Opener', slug: 'opener', set_type: 'opener', position: 0, socials: {} },
-            { name: 'Holy Wave', slug: 'holy-wave', set_type: 'headliner', position: 1, socials: {} },
+            { id: 2, name: 'Holy Wave', slug: 'holy-wave', set_type: 'headliner', is_headliner: true, position: 2, socials: {} },
+            { id: 3, name: 'Second Support', slug: 'second-support', set_type: 'opener', is_headliner: false, position: 1, socials: {} },
+            { id: 1, name: 'Opener', slug: 'opener', set_type: 'opener', is_headliner: false, position: 0, socials: {} },
           ],
         })
       )
@@ -763,7 +765,7 @@ describe('ShowPage MusicEvent description and door time', () => {
     const schema = musicEventSchemaFrom(result)
 
     expect(schema.description).toBe(
-      'Holy Wave with Opener at The Rebel Lounge, Phoenix. Doors 7:00 PM, music 8:00 PM.'
+      'Holy Wave with Opener, Second Support at The Rebel Lounge, Phoenix. Doors 7:00 PM, music 8:00 PM.'
     )
     expect(schema.doorTime).toBe('2026-03-15T19:00:00-07:00')
     expect(schema.startDate).toBe('2026-03-15T20:00:00-07:00')

@@ -470,32 +470,37 @@ describe('generateMusicEventSchema', () => {
   })
 
   describe('description and doorTime', () => {
-    // 7:00 PM doors and 8:00 PM music at an Albuquerque venue (UTC-7 in November).
+    // 7:00 PM doors and 8:00 PM start at an Albuquerque venue (UTC-7 in November).
+    const GENERATED = 'Holy Wave at Launchpad, Albuquerque. Doors 7:00 PM, music 8:00 PM.'
     const launchpad = {
       date: '2026-11-22T03:00:00Z',
       venue: { name: 'Launchpad', city: 'Albuquerque', state: 'NM', timezone: 'America/Denver' },
-      artists: [
-        { name: 'Holy Wave', is_headliner: true },
-        { name: 'Support Act', is_headliner: false },
-      ],
+      artists: [{ name: 'Holy Wave', is_headliner: true }],
       doors_at: '2026-11-22T02:00:00Z',
-      music_at: '2026-11-22T03:00:00Z',
+      generated_description: GENERATED,
     }
 
-    it('generates the description from page facts when the show has none of its own', () => {
-      expect(generateMusicEventSchema(launchpad).description).toBe(
-        'Holy Wave with Support Act at Launchpad, Albuquerque. Doors 7:00 PM, music 8:00 PM.'
-      )
+    it('emits the generated description when the show has none of its own', () => {
+      expect(generateMusicEventSchema(launchpad).description).toBe(GENERATED)
     })
 
-    it('keeps an authored description unchanged', () => {
+    it('keeps an authored description unchanged over the generated one', () => {
       const schema = generateMusicEventSchema({ ...launchpad, description: '  Album release show. ' })
       expect(schema.description).toBe('  Album release show. ')
     })
 
-    it('generates the description when the authored one is blank', () => {
-      const schema = generateMusicEventSchema({ ...launchpad, description: '   ' })
-      expect(schema.description).toMatch(/^Holy Wave with Support Act/)
+    it('falls back to the generated description when the authored one is blank', () => {
+      for (const description of ['', '   ']) {
+        expect(generateMusicEventSchema({ ...launchpad, description }).description).toBe(GENERATED)
+      }
+    })
+
+    it('emits no description when there is neither', () => {
+      for (const generated_description of [undefined, null, '']) {
+        expect(generateMusicEventSchema({ ...launchpad, generated_description })).not.toHaveProperty(
+          'description'
+        )
+      }
     })
 
     it('emits doorTime in the offset form startDate uses', () => {
@@ -504,63 +509,29 @@ describe('generateMusicEventSchema', () => {
       expect(schema.doorTime).toBe('2026-11-21T19:00:00-07:00')
     })
 
-    it('emits no doorTime without a door time', () => {
+    it('emits no doorTime without a readable door time', () => {
       for (const doors_at of [undefined, null, '', 'not-a-date']) {
         expect(generateMusicEventSchema({ ...launchpad, doors_at })).not.toHaveProperty('doorTime')
       }
     })
 
-    it('emits no doorTime and no clock when the venue zone is a guess', () => {
+    it('emits no doorTime when the venue zone is a guess, as startDate drops its clock', () => {
       const schema = generateMusicEventSchema({
         ...launchpad,
         venue: { name: 'The Windmill', city: 'London', state: 'England' },
       })
       expect(schema.startDate).toBe('2026-11-21')
       expect(schema).not.toHaveProperty('doorTime')
-      expect(schema.description).toBe('Holy Wave with Support Act at The Windmill, London.')
     })
 
-    it('emits no doorTime and no clock for a show with no venue', () => {
-      const schema = generateMusicEventSchema({ ...launchpad, venue: undefined })
-      expect(schema).not.toHaveProperty('doorTime')
-      expect(schema.description).toBe('Holy Wave with Support Act.')
+    it('emits no doorTime for a show with no venue', () => {
+      expect(generateMusicEventSchema({ ...launchpad, venue: undefined })).not.toHaveProperty('doorTime')
     })
 
-    it('describes a date-only show without inventing a music time', () => {
-      // Stored at the 20:00 venue-local placeholder, with no announced times.
-      const schema = generateMusicEventSchema({ ...launchpad, doors_at: null, music_at: null })
-      expect(schema.startDate).toBe('2026-11-21T20:00:00-07:00')
-      expect(schema.description).toBe('Holy Wave with Support Act at Launchpad, Albuquerque.')
-      expect(schema).not.toHaveProperty('doorTime')
-    })
-
-    it('keeps the description and doorTime on a cancelled show, whose status says so', () => {
+    it('keeps doorTime on a cancelled show, whose status says so', () => {
       const schema = generateMusicEventSchema({ ...launchpad, is_cancelled: true })
       expect(schema.eventStatus).toBe('https://schema.org/EventCancelled')
-      expect(schema.description).toBe(
-        'Holy Wave with Support Act at Launchpad, Albuquerque. Doors 7:00 PM, music 8:00 PM.'
-      )
       expect(schema.doorTime).toBe('2026-11-21T19:00:00-07:00')
-    })
-
-    it('names nobody twice and skips an empty name', () => {
-      const schema = generateMusicEventSchema({
-        ...launchpad,
-        artists: [
-          { name: 'Holy Wave', is_headliner: true },
-          { name: '' },
-          { name: 'Support Act' },
-          { name: 'Holy Wave' },
-        ],
-      })
-      expect(schema.description).toBe(
-        'Holy Wave with Support Act at Launchpad, Albuquerque. Doors 7:00 PM, music 8:00 PM.'
-      )
-    })
-
-    it('emits no description when the bill names nobody', () => {
-      expect(generateMusicEventSchema({ ...launchpad, artists: [] })).not.toHaveProperty('description')
-      expect(generateMusicEventSchema({ date: launchpad.date })).not.toHaveProperty('description')
     })
   })
 

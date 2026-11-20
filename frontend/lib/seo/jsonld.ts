@@ -13,7 +13,6 @@ import { toZonedDateOnly, toZonedISOString } from '@/lib/utils/timeUtils'
 import { SITE_DESCRIPTION, SITE_URL } from '@/lib/seo/siteMetadata'
 import { resolveTicketVendor } from '@/lib/tickets/ticketVendors'
 import { renderableSocialLinks } from '@/lib/socialLinks'
-import { showEventDescription } from '@/lib/seo/entitySnippets'
 
 export interface OrganizationSchema {
   '@context': 'https://schema.org'
@@ -300,9 +299,14 @@ export function generateMusicEventSchema(show: {
    * depend on the clock.
    */
   has_started?: boolean
-  /** Announced display times, null when unannounced. */
+  /** The announced door time, null when unannounced. */
   doors_at?: string | null
-  music_at?: string | null
+  /**
+   * A description built from the page's own facts, emitted only when
+   * `description` is blank. A caller whose payload cannot name the bill's
+   * headliner, or cannot see the authored description, passes none.
+   */
+  generated_description?: string | null
   venue?: {
     name: string
     slug?: string
@@ -318,7 +322,6 @@ export function generateMusicEventSchema(show: {
     name: string
     slug?: string
     is_headliner?: boolean
-    set_type?: string | null
     socials?: Record<string, string | null | undefined>
   }>
   price?: number
@@ -357,20 +360,10 @@ export function generateMusicEventSchema(show: {
     schema.doorTime = doorTime
   }
 
-  // An authored description wins whole. Without one, the description states
-  // only what the page renders; see `showEventDescription` for its clauses.
+  // An authored description wins whole.
   const description = show.description?.trim()
     ? show.description
-    : showEventDescription({
-        artists: show.artists,
-        venue: show.venue?.name,
-        city: show.venue?.city,
-        eventDate: show.date,
-        doorsAt: show.doors_at,
-        musicAt: show.music_at,
-        state: show.venue?.state,
-        timezone: show.venue?.timezone,
-      })
+    : show.generated_description
   if (description) {
     schema.description = description
   }

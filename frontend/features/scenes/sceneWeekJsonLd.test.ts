@@ -61,13 +61,12 @@ describe('buildSceneWeekJsonLd — MusicEvent', () => {
     }
   })
 
-  it('describes each event by its bill and place, with no clock and no doorTime', () => {
-    // The scene payload carries no announced door or music time, and its
-    // 20:00 start may be a date-only placeholder, so no time is stated.
-    const { events } = build([
-      show({ artist_names: ['Riff Wood', 'Second Act', ' ', 'Riff Wood'] }),
-    ])
-    expect(events[0].description).toBe('Riff Wood with Second Act at Crescent Ballroom, Phoenix.')
+  it('states no description and no doorTime, since the payload names no bill roles', () => {
+    // Stage order: the scene payload lists the opener first and cannot say
+    // who headlines, so any lead it named could be the wrong act.
+    const { events } = build([show({ artist_names: ['Opener', 'Riff Wood'] })])
+    expect(events).toHaveLength(1)
+    expect(events[0]).not.toHaveProperty('description')
     expect(events[0]).not.toHaveProperty('doorTime')
   })
 

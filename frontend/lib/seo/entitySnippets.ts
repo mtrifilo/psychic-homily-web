@@ -12,7 +12,8 @@ import { formatShowTime } from '@/lib/utils/formatters'
 
 /**
  * Search-snippet strings (`<title>` and meta description) for the show, artist,
- * venue and release detail pages.
+ * venue and release detail pages, and the show page's generated
+ * `MusicEvent.description`.
  *
  * Every builder here is pure: the page resolves the entity, hands over plain
  * values, and gets back the two strings it puts in `generateMetadata`. The
@@ -196,8 +197,9 @@ export function showSnippet(input: ShowSnippetInput): EntitySnippet {
 
 export interface ShowEventDescriptionInput {
   /**
-   * The bill in running order. `set_type` and `is_headliner` decide who leads,
-   * by the same rule the show page's header applies.
+   * The bill sorted as the show page's header sorts it (`byBillPosition`).
+   * `set_type` and `is_headliner` then decide who leads, through the same
+   * `splitBill` the header calls.
    */
   artists?: ReadonlyArray<{
     name: string
@@ -225,28 +227,26 @@ function eventClock(
 }
 
 /**
- * The bill's names, leaders first, each once, blanks dropped. The first
- * occurrence of a repeated name keeps its place.
+ * The bill's names split as the header splits them, blanks dropped and each
+ * name stated once. The split runs on the whole bill, so an act the header
+ * lists as support stays support even when the act it lists as lead has a
+ * blank name. A name both leading and in support keeps its lead slot; a name
+ * repeated in support keeps its first support slot.
  */
 function billNames(
   artists: ShowEventDescriptionInput['artists']
 ): { leads: string[]; support: string[] } {
-  const named = (artists ?? []).flatMap(artist => {
-    const name = nonEmpty(artist.name)
-    return name ? [{ ...artist, name }] : []
-  })
-  const { headliners, support } = splitBill(named)
+  const { headliners, support } = splitBill([...(artists ?? [])])
   const seen = new Set<string>()
-  const unseen = (artist: { name: string }) => {
-    const key = artist.name.toLowerCase()
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  }
-  return {
-    leads: headliners.filter(unseen).map(artist => artist.name),
-    support: support.filter(unseen).map(artist => artist.name),
-  }
+  const unseenNames = (acts: ReadonlyArray<{ name: string }>) =>
+    acts.flatMap(act => {
+      const name = nonEmpty(act.name)
+      if (!name || seen.has(name.toLowerCase())) return []
+      seen.add(name.toLowerCase())
+      return [name]
+    })
+  // Leads first, so a name in both keeps its lead slot.
+  return { leads: unseenNames(headliners), support: unseenNames(support) }
 }
 
 /**
@@ -264,7 +264,11 @@ function billNames(
  * the start instant alone, because a date-only show stores a placeholder
  * evening start that nobody announced. The page prints a music time beside a
  * door time; with no door time, the only clock it prints is the start time, so
- * a lone music time is stated only when it is that same clock.
+ * a lone music time is stated only when it is that same clock. Those page
+ * rules are `doorsMusicFactSegment` and `startTimeFactSegment` in
+ * `features/shows/components/showStatusStripeCopy`; this module's tests run
+ * one fixture table through them and through this function to hold the two in
+ * step.
  */
 export function showEventDescription(
   input: ShowEventDescriptionInput

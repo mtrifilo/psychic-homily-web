@@ -12,7 +12,7 @@ import { connection } from 'next/server'
 // whole client-component surface. Importing it through the barrel would keep
 // that surface eagerly reachable from this route and quietly undo the eviction
 // below. utils.ts has type-only imports of its own, so it costs nothing.
-import { showTimingInput } from '@/features/shows/utils'
+import { byBillPosition, showTimingInput } from '@/features/shows/utils'
 // From the policy module, not the feature barrel, for the same eviction reason
 // the note above states: `showRails.ts` renders nothing.
 import { drawsNightRail, venueRailShowsUrl } from '@/features/shows/showRails'
@@ -27,7 +27,7 @@ import type {
 } from '@/features/shows/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicEventSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
-import { showSnippet } from '@/lib/seo/entitySnippets'
+import { showEventDescription, showSnippet } from '@/lib/seo/entitySnippets'
 import { showCanonicalPath } from '@/lib/seo/showCanonical'
 import { SITE_URL } from '@/lib/seo/siteMetadata'
 import { getShowLifecycleState, hasShowStarted } from '@/lib/utils/showTiming'
@@ -366,6 +366,19 @@ export default async function ShowPage({ params }: ShowPageProps) {
 
   const headliner = showData.artists?.find(a => a.is_headliner)?.name || showData.artists?.[0]?.name || 'Live Music'
   const showName = showData.title || `${headliner} at ${showData.venues?.[0]?.name || 'TBA'}`
+  const eventVenue = showData.venues?.[0]
+  // The bill as the header orders it, and the venue's own zone inputs, the
+  // ones `startDate` and `doorTime` are read in.
+  const eventDescription = showEventDescription({
+    artists: [...(showData.artists ?? [])].sort(byBillPosition),
+    venue: eventVenue?.name,
+    city: eventVenue?.city,
+    eventDate: showData.event_date,
+    doorsAt: showData.doors_at,
+    musicAt: showData.music_at,
+    state: eventVenue?.state,
+    timezone: eventVenue?.timezone,
+  })
 
   return (
     <>
@@ -376,7 +389,7 @@ export default async function ShowPage({ params }: ShowPageProps) {
         is_cancelled: showData.is_cancelled,
         is_sold_out: showData.is_sold_out,
         doors_at: showData.doors_at,
-        music_at: showData.music_at,
+        generated_description: eventDescription,
         venue: showData.venues?.[0] ? {
           name: showData.venues[0].name,
           slug: showData.venues[0].slug,
@@ -389,7 +402,6 @@ export default async function ShowPage({ params }: ShowPageProps) {
           name: a.name,
           slug: a.slug,
           is_headliner: a.is_headliner ?? undefined,
-          set_type: a.set_type,
           // `ShowArtistSocials` is a struct of named optional fields; spread into a
           // plain object so it satisfies the schema helper's index-signature parameter
           // type without changing the cross-feature type.

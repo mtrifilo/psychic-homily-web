@@ -12,11 +12,16 @@ import {
   releaseSnippet,
   showEventDescription,
   showSnippet,
+  type ShowEventDescriptionInput,
   snippetMonthDay,
   snippetPlace,
   venueNextShowFrom,
   venueSnippet,
 } from './entitySnippets'
+import {
+  doorsMusicFactSegment,
+  startTimeFactSegment,
+} from '@/features/shows/components/showStatusStripeCopy'
 
 function titleLength(title: string): number {
   return Array.from(title + SITE_TITLE_SUFFIX).length
@@ -405,7 +410,7 @@ describe('showEventDescription', () => {
     ).toBe('Holy Wave with Support Act at Launchpad, Albuquerque.')
   })
 
-  it('names an act listed twice once, in its first place', () => {
+  it('names an act listed twice once, in its first support slot', () => {
     expect(
       showEventDescription({
         ...holyWave,
@@ -413,18 +418,57 @@ describe('showEventDescription', () => {
           { name: 'Holy Wave', is_headliner: true },
           { name: 'Support Act' },
           { name: 'holy wave ' },
+          { name: 'Support Act' },
         ],
       })
     ).toBe('Holy Wave with Support Act at Launchpad, Albuquerque.')
   })
 
-  it('skips blank names, including a blank first act', () => {
+  it('keeps the lead slot for a name that both leads and appears in support', () => {
     expect(
       showEventDescription({
         ...holyWave,
-        artists: [{ name: '  ' }, { name: 'Holy Wave' }, { name: '' }, { name: 'Support Act' }],
+        artists: [
+          { name: 'Holy Wave' },
+          { name: 'Opener' },
+          { name: 'Holy Wave', set_type: 'headliner' },
+        ],
+      })
+    ).toBe('Holy Wave with Opener at Launchpad, Albuquerque.')
+  })
+
+  it('skips blank support names', () => {
+    expect(
+      showEventDescription({
+        ...holyWave,
+        artists: [
+          { name: 'Holy Wave', is_headliner: true },
+          { name: '  ' },
+          { name: 'Support Act' },
+        ],
       })
     ).toBe('Holy Wave with Support Act at Launchpad, Albuquerque.')
+  })
+
+  it('names no lead when the act the header leads with has a blank name', () => {
+    // The header splits the whole bill, so these acts stay support under a
+    // blank lead; promoting one of them would name an opener as headliner.
+    expect(
+      showEventDescription({
+        ...holyWave,
+        artists: [
+          { name: '', set_type: 'headliner' },
+          { name: 'Support A', set_type: 'opener' },
+          { name: 'Support B' },
+        ],
+      })
+    ).toBeNull()
+    expect(
+      showEventDescription({
+        ...holyWave,
+        artists: [{ name: '  ' }, { name: 'Holy Wave' }],
+      })
+    ).toBeNull()
   })
 
   it('is null when the bill names nobody', () => {
@@ -510,6 +554,45 @@ describe('showEventDescription', () => {
     const description = showEventDescription({ ...holyWave, doorsAt: DOORS, musicAt: MUSIC })
     expect(description).toContain('7:00 PM')
     expect(description).not.toMatch(/[\u00a0\u202f]/)
+  })
+
+  describe('states exactly the clocks the show page prints', () => {
+    // The page's own rules: `doorsMusicFactSegment` (venue facts line) and
+    // `startTimeFactSegment` (ticket line). Clocks are compared in the page's
+    // compact register.
+    const compact = (spoken: string) => spoken.replace(':00', '').replace(' ', '')
+    const cases: Array<[string, Partial<ShowEventDescriptionInput>]> = [
+      ['doors and music', { doorsAt: DOORS, musicAt: MUSIC }],
+      ['doors and a music time after the start', { doorsAt: DOORS, musicAt: '2026-11-22T03:30:00Z' }],
+      ['doors only', { doorsAt: DOORS }],
+      ['music equal to the start', { musicAt: MUSIC }],
+      ['music other than the start', { musicAt: '2026-11-22T03:30:00Z' }],
+      ['no announced times', {}],
+      ['half-hour doors', { doorsAt: '2026-11-22T02:30:00Z', musicAt: MUSIC }],
+      ['midnight doors', { doorsAt: '2026-11-22T07:00:00Z', eventDate: '2026-11-22T07:00:00Z' }],
+      ['a guessed zone', { doorsAt: DOORS, musicAt: MUSIC, state: 'England', timezone: null }],
+      ['an invalid zone on a mapped state', { doorsAt: DOORS, musicAt: MUSIC, timezone: 'Not/AZone' }],
+    ]
+
+    it.each(cases)('%s', (_, over) => {
+      const input = { ...holyWave, ...over }
+      const description = showEventDescription(input) ?? ''
+      const zone = { state: input.state, timezone: input.timezone }
+      const pageTimes = doorsMusicFactSegment({ doorsAt: input.doorsAt, musicAt: input.musicAt, ...zone })
+      const pageStart = startTimeFactSegment({ eventDate: input.eventDate, ...zone })
+
+      const pageDoors = pageTimes?.match(/DOORS (\S+)/)?.[1] ?? null
+      const pageMusic = pageTimes?.match(/MUSIC (\S+)/)?.[1] ?? null
+      const doors = description.match(/Doors (\d+:\d+ [AP]M)/)?.[1]
+      const music = description.match(/[Mm]usic (\d+:\d+ [AP]M)/)?.[1]
+
+      expect(doors ? compact(doors) : null).toBe(pageDoors)
+      if (pageMusic) expect(music && compact(music)).toBe(pageMusic)
+      if (music) {
+        // A music time the page prints: beside doors, or as the lone start.
+        expect([pageMusic, pageDoors ? null : pageStart]).toContain(compact(music))
+      }
+    })
   })
 
   it('ends the sentence once when a name already ends with a full stop', () => {
