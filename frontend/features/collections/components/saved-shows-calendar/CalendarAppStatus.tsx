@@ -65,7 +65,12 @@ export function CalendarStoppedApp({
     <div
       className={cn('flex flex-col', layout === 'card' ? 'gap-1' : 'gap-2')}
     >
-      <PanelNote>{view.stoppedLine}</PanelNote>
+      {/* The card states it at its status sentences' size. */}
+      <PanelNote
+        className={cn(layout === 'card' && 'text-sm leading-5 text-foreground')}
+      >
+        {view.stoppedLine}
+      </PanelNote>
       {/* The card sets its two links side by side from `sm` up. */}
       <div
         className={
