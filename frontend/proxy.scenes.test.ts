@@ -218,7 +218,7 @@ function locationOf(response: Response): string {
  * renders, and is the only kind whose verdict is remembered for the full
  * verdict window.
  */
-describe('proxy — scene canonical redirects', () => {
+describe('proxy: scene canonical redirects', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     clearExistenceVerdictsForTests()
