@@ -325,6 +325,28 @@ describe('walkSitemap', () => {
     })
   })
 
+  // A deployment that predates a shard's removal still lists it. That document
+  // is neither fetched nor an error, while an id no deployment emits still is.
+  it('skips a retired shard the served index still lists', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith('/sitemap-index')) {
+        return xmlResponse(index([...ALL_IDS, 'venue_cities', 'not-a-shard']))
+      }
+      return xmlResponse(urlset([]))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const observation = await walkSitemap(testConfig({ SITEMAP_MONITOR_TARGET: STAGE }))
+
+    const fetched = fetchMock.mock.calls.map(([url]) => url)
+    expect(fetched).not.toContain(`${STAGE}/sitemap/venue_cities.xml`)
+    expect(fetched).not.toContain(`${STAGE}/sitemap/not-a-shard.xml`)
+    expect(observation.observedByShard.has('venue_cities')).toBe(false)
+    expect(observation.errors).toEqual([
+      `sitemap index lists unknown shard "not-a-shard" (${STAGE}/sitemap/not-a-shard.xml)`,
+    ])
+  })
+
   // Production served this shape until the sharding deployed; the monitor has
   // to keep working across that boundary in both directions.
   it('classifies a single-document sitemap by URL path', async () => {

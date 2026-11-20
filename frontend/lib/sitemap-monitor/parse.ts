@@ -18,7 +18,6 @@ import { parseMonthSegments } from '@/features/shows/showsCalendarRoute'
 import { SCENE_WINDOW_SEGMENTS } from '@/features/scenes/sceneWindow'
 import {
   SITEMAP_FAMILIES,
-  FAMILY_QUERY_PARAMS,
   FAMILY_URL_PREFIXES,
   PAGES_SHARD_ID,
   type Family,
@@ -127,8 +126,8 @@ const PAGE_PREFIXES = new Set(['blog', 'dj-sets'])
  * First path segment → the families claiming it, derived from the shared
  * FAMILY_URL_PREFIXES table rather than restated.
  *
- * Most prefixes have exactly one claimant. `/scenes` and `/venues` have three
- * each and `/shows` two, which is why this is a list: the collision is
+ * Most prefixes have exactly one claimant. `/scenes` has three and `/venues`
+ * and `/shows` two each, which is why this is a list: the collision is
  * DETECTED here rather than assumed, so a future family sharing an existing
  * prefix surfaces in `SHARED_CLAIMANTS` (and fails the guard test in
  * parse.test.ts) instead of being silently misbucketed.
@@ -155,22 +154,6 @@ export const SHARED_CLAIMANTS: Record<string, Family[]> = Object.fromEntries(
   [...FAMILIES_BY_PREFIX]
     .filter(([, claimants]) => claimants.length > 1)
     .map(([prefix, claimants]) => [prefix, [...claimants].sort()])
-)
-
-/**
- * The families addressed by a query on their prefix, as (prefix, param) pairs.
- *
- * Derived from FAMILY_QUERY_PARAMS rather than restated, so a family that gains
- * a query shape is classified without a second edit here. These are checked
- * BEFORE the path rules because their path IS the bare prefix, which the
- * single-segment rule would otherwise count as a listing page.
- */
-const QUERY_FAMILIES = Object.entries(FAMILY_QUERY_PARAMS).map(
-  ([family, param]) => ({
-    prefix: FAMILY_URL_PREFIXES[family as Family],
-    param: param as string,
-    family: family as Family,
-  })
 )
 
 /** The `/scenes` prefix without its slash, as `classifyLoc` compares segments. */
@@ -207,17 +190,7 @@ export function classifyLoc(loc: string): LocBucket {
   } catch {
     return 'other'
   }
-  const path = url.pathname
-
-  // A query family owns its prefix only while the parameter is actually there:
-  // `/venues` bare is the listing page in the `pages` shard, and `/venues?cities=`
-  // with an empty value addresses no city.
-  for (const { prefix, param, family } of QUERY_FAMILIES) {
-    if (path !== prefix && path !== `${prefix}/`) continue
-    if (url.searchParams.get(param)) return family
-  }
-
-  const segments = path.split('/').filter(Boolean)
+  const segments = url.pathname.split('/').filter(Boolean)
 
   // The bare origin and every single-segment listing page belong to `pages`.
   if (segments.length <= 1) return PAGES_SHARD_ID
@@ -249,9 +222,7 @@ export function classifyLoc(loc: string): LocBucket {
   }
 
   // `/venues/{slug}` is a venue, `/venues/{slug}/shows/{year}` a year archive
-  // (PSY-1756). The prefix's third claimant, `venue_cities`, carries no path
-  // segment at all and was already settled by the query rule above.
-  // Stricter than the scenes rule on purpose: `/venues` has room for
+  // (PSY-1756). Stricter than the scenes rule on purpose: `/venues` has room for
   // other child routes, so anything that is not exactly the archive shape is
   // 'other' rather than being counted as an archive the generator never emitted.
   if (prefix === bareVenuesPrefix) {

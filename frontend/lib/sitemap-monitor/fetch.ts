@@ -344,6 +344,15 @@ function collectShowDates(locs: readonly string[], into: string[]): void {
 }
 
 /**
+ * Shard ids the sitemap no longer emits. The monitor runs from the default
+ * branch against a deployment that can predate a shard's removal, so a served
+ * index may still list one of these. Such a document is skipped: it is not
+ * fetched, its URLs are counted under no family, and listing it is not an
+ * error. Every other id the shard table does not know stays an error.
+ */
+const RETIRED_SHARD_IDS: ReadonlySet<string> = new Set(['venue_cities'])
+
+/**
  * Read the sitemap the way a crawler would.
  *
  * Handles BOTH document shapes on purpose. Production served a single
@@ -415,6 +424,7 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
   const outcomes = await mapWithConcurrency(shardUrls, SHARD_FETCH_CONCURRENCY, async shardUrl => {
     const id = shardIdFromUrl(shardUrl)
     if (!known.has(id)) {
+      if (RETIRED_SHARD_IDS.has(id)) return { id, retired: true as const }
       return { id, error: `sitemap index lists unknown shard "${id}" (${shardUrl})` }
     }
     try {
@@ -425,6 +435,7 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
   })
 
   for (const outcome of outcomes) {
+    if (outcome.retired) continue
     // A document listed twice is counted twice into its family while the
     // per-document table keeps the last write, so the inflation shows up
     // nowhere else. One bucket of eight is 12.5% of its family, inside the
@@ -550,7 +561,7 @@ const UNSERVED_SHARD_STATUSES = new Set([400, 422])
  * from the index. The unbucketed query is a different predicate over the same
  * table, which is what makes it an oracle rather than an echo.
  *
- * One request per entity shard plus one per sub-sharded family, so 34 today,
+ * One request per entity shard plus one per sub-sharded family, so 36 today,
  * against an API that rate-limits anonymous callers per IP. That is why they go
  * through the same bounded pool the document walk uses, and why
  * .github/workflows/sitemap-freshness.yml counts these waves in its timeout
