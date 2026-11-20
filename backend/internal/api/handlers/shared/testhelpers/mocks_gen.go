@@ -477,6 +477,8 @@ func (m *MockAuditLogService) GetAuditLogs(limit int, offset int, filters contra
 type MockAuthEmailOutbox struct {
 	EnqueueFn              func(context.Context, authm.AuthEmailKind, uint) error
 	EnqueueOAuthLinkFn     func(context.Context, uint, string) error
+	EnqueueMagicLinkFn     func(context.Context, uint, string) error
+	MagicLinkDestinationFn func(context.Context, uint, uint) (string, error)
 	EnqueueCalendarStepsFn func(context.Context, *authm.User) error
 }
 
@@ -491,6 +493,18 @@ func (m *MockAuthEmailOutbox) EnqueueOAuthLink(ctx context.Context, userID uint,
 		return m.EnqueueOAuthLinkFn(ctx, userID, ref)
 	}
 	return nil
+}
+func (m *MockAuthEmailOutbox) EnqueueMagicLink(ctx context.Context, userID uint, returnTo string) error {
+	if m.EnqueueMagicLinkFn != nil {
+		return m.EnqueueMagicLinkFn(ctx, userID, returnTo)
+	}
+	return nil
+}
+func (m *MockAuthEmailOutbox) MagicLinkDestination(ctx context.Context, ref uint, userID uint) (string, error) {
+	if m.MagicLinkDestinationFn != nil {
+		return m.MagicLinkDestinationFn(ctx, ref, userID)
+	}
+	return "", nil
 }
 func (m *MockAuthEmailOutbox) EnqueueCalendarSteps(ctx context.Context, user *authm.User) error {
 	if m.EnqueueCalendarStepsFn != nil {
@@ -2332,7 +2346,7 @@ type MockJWTService struct {
 	ValidateTokenFn                func(string) (*authm.User, error)
 	CreateVerificationTokenFn      func(uint, string) (string, error)
 	ValidateVerificationTokenFn    func(string) (*contracts.VerificationTokenClaims, error)
-	CreateMagicLinkTokenFn         func(uint, string) (string, error)
+	CreateMagicLinkTokenFn         func(uint, string, uint) (string, error)
 	ValidateMagicLinkTokenFn       func(string) (*contracts.MagicLinkTokenClaims, error)
 	ValidateOAuthLinkTokenFn       func(string) (*contracts.OAuthLinkTokenClaims, error)
 	CreateAccountRecoveryTokenFn   func(uint, string) (string, error)
@@ -2383,9 +2397,9 @@ func (m *MockJWTService) ValidateVerificationToken(tokenString string) (*contrac
 	}
 	return nil, nil
 }
-func (m *MockJWTService) CreateMagicLinkToken(userID uint, email string) (string, error) {
+func (m *MockJWTService) CreateMagicLinkToken(userID uint, email string, destinationRef uint) (string, error) {
 	if m.CreateMagicLinkTokenFn != nil {
-		return m.CreateMagicLinkTokenFn(userID, email)
+		return m.CreateMagicLinkTokenFn(userID, email, destinationRef)
 	}
 	return "", nil
 }

@@ -148,7 +148,7 @@ describe('the sign-in link under Sign in', () => {
     await user.click(screen.getByRole('button', { name: LINK_NAME }))
 
     expect(mockSendMagicLink).toHaveBeenCalledTimes(1)
-    expect(mockSendMagicLink.mock.calls[0][0]).toEqual({ email: 'user@example.com' })
+    expect(mockSendMagicLink.mock.calls[0][0]).toEqual({ email: 'user@example.com', returnTo: '/' })
     expect(screen.getByText(/Check your email for a sign-in link/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: LINK_NAME })).not.toBeInTheDocument()
   })
@@ -170,6 +170,32 @@ describe('the sign-in link under Sign in', () => {
     expect(mockSendMagicLink).not.toHaveBeenCalled()
     expect(screen.getByRole('alert')).toHaveTextContent('Please enter a valid email address first')
     expect(screen.getByRole('button', { name: LINK_NAME })).toBeInTheDocument()
+  })
+})
+
+// The sign-in link returns to the destination the page would send a password
+// sign-in to: the arrival's returnTo once sanitizeReturnTo has checked it.
+describe('the sign-in link destination', () => {
+  async function askForSignInLink(query: string) {
+    mockSearchParams = new URLSearchParams(query)
+    const user = userEvent.setup()
+    renderWithProviders(<AuthPage />)
+    await user.type(screen.getByLabelText('Email'), 'owner@example.com')
+    await user.click(screen.getByRole('button', { name: LINK_NAME }))
+    expect(mockSendMagicLink).toHaveBeenCalledTimes(1)
+    return mockSendMagicLink.mock.calls[0][0]
+  }
+
+  it.each([
+    ['a deep page', 'returnTo=%2Flibrary', '/library'],
+    ['a page with a query and fragment', 'returnTo=%2Fshows%3Fcity%3Dphoenix%23tonight', '/shows?city=phoenix#tonight'],
+    ['no destination', '', '/'],
+    ['a protocol-relative destination', 'returnTo=%2F%2Fevil.example', '/'],
+    ['an off-site destination', 'returnTo=https%3A%2F%2Fevil.example%2Flibrary', '/'],
+    ['a backslash destination', 'returnTo=%2F%5Cevil.example', '/'],
+    ['the sign-in page itself', 'returnTo=%2Fauth%2Fmagic-link', '/'],
+  ])('asks for a link back for %s', async (_name, query, expected) => {
+    expect(await askForSignInLink(query)).toEqual({ email: 'owner@example.com', returnTo: expected })
   })
 })
 

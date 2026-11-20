@@ -2528,7 +2528,7 @@ func TestSendMagicLinkHandler_ResponseIdenticalAcrossAccountStates(t *testing.T)
 			}
 			ah.userService = &testhelpers.MockUserService{GetUserByEmailFn: state.user}
 			ah.jwtService = &testhelpers.MockJWTService{
-				CreateMagicLinkTokenFn:    func(uint, string) (string, error) { return "magic-token", nil },
+				CreateMagicLinkTokenFn:    func(uint, string, uint) (string, error) { return "magic-token", nil },
 				CreateVerificationTokenFn: func(uint, string) (string, error) { return "verify-token", nil },
 			}
 		})
@@ -2590,18 +2590,24 @@ func TestSendMagicLinkHandler_UnverifiedQueuesVerification(t *testing.T) {
 	}
 }
 
-// queuedAuthEmail is one Enqueue call a recordingOutbox saw.
+// queuedAuthEmail is one Enqueue or EnqueueMagicLink call a recordingOutbox
+// saw; returnTo is the magic link's destination, "" for none.
 type queuedAuthEmail struct {
-	kind   authm.AuthEmailKind
-	userID uint
+	kind     authm.AuthEmailKind
+	userID   uint
+	returnTo string
 }
 
-// recordingOutbox returns an outbox mock that appends every Enqueue call to
-// queued and answers it with err.
+// recordingOutbox returns an outbox mock that appends every Enqueue and
+// EnqueueMagicLink call to queued and answers it with err.
 func recordingOutbox(queued *[]queuedAuthEmail, err error) *testhelpers.MockAuthEmailOutbox {
 	return &testhelpers.MockAuthEmailOutbox{
 		EnqueueFn: func(_ context.Context, kind authm.AuthEmailKind, userID uint) error {
 			*queued = append(*queued, queuedAuthEmail{kind: kind, userID: userID})
+			return err
+		},
+		EnqueueMagicLinkFn: func(_ context.Context, userID uint, returnTo string) error {
+			*queued = append(*queued, queuedAuthEmail{kind: authm.AuthEmailKindMagicLink, userID: userID, returnTo: returnTo})
 			return err
 		},
 	}

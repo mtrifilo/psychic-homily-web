@@ -32,8 +32,11 @@ function MagicLinkContent() {
         if (data.user) {
           setUser(data.user)
         }
-        // Redirect after short delay to show success message. A link that
-        // connected Google lands where the sign-in that started it was headed.
+        // Redirect after short delay to show success message. The
+        // destination comes from the verify response alone, which reads it
+        // from the signed link, never from this page's URL: a plain sign-in
+        // link lands where the page that asked for it was headed, and a link
+        // that connected Google where the sign-in that started it was.
         const destination = sanitizeReturnTo(data.return_to)
         redirectTimerRef.current = setTimeout(() => {
           router.push(destination)

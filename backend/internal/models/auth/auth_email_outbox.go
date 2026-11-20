@@ -52,7 +52,13 @@ type AuthEmailOutboxItem struct {
 	// OAuthLinkRef is the token_hash of the pending link an
 	// AuthEmailKindOAuthLink row proves the mailbox for, and nil for every
 	// other kind (auth_email_outbox_oauth_link_ref_check).
-	OAuthLinkRef  *string    `gorm:"column:oauth_link_ref"`
+	OAuthLinkRef *string `gorm:"column:oauth_link_ref"`
+	// ReturnTo is the frontend path an AuthEmailKindMagicLink row's link
+	// returns to once followed, already accepted by sanitizeOAuthReturnTo,
+	// and nil for no destination and for every other kind
+	// (auth_email_outbox_return_to_check). The link's token names this row's
+	// ID instead of carrying the path, and its verify reads the path here.
+	ReturnTo      *string    `gorm:"column:return_to"`
 	Status        string     `gorm:"column:status;not null;default:'pending'"`
 	Attempts      int        `gorm:"column:attempts;not null;default:0"`
 	MaxAttempts   int        `gorm:"column:max_attempts;not null;default:3"`

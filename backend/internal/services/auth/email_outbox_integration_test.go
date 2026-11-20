@@ -152,7 +152,13 @@ func (s *AuthEmailOutboxSuite) softDeletedUser(email string) *authm.User {
 	return user
 }
 
+// enqueue queues one email of kind for userID, a magic link through its own
+// method with no destination.
 func (s *AuthEmailOutboxSuite) enqueue(kind authm.AuthEmailKind, userID uint) {
+	if kind == authm.AuthEmailKindMagicLink {
+		s.Require().NoError(s.outbox.EnqueueMagicLink(context.Background(), userID, ""))
+		return
+	}
 	s.Require().NoError(s.outbox.Enqueue(context.Background(), kind, userID))
 }
 
@@ -193,6 +199,70 @@ func (s *AuthEmailOutboxSuite) TestMagicLink_MintedAtSendForTheCurrentAddress() 
 	s.Equal(1, row.Attempts)
 	s.NotNil(row.SentAt)
 	s.Nil(row.LastError)
+}
+
+// The row keeps the destination, NULL for none. A row with one mints a token
+// naming the row, which MagicLinkDestination reads back; a row without one
+// mints a token with no ref.
+func (s *AuthEmailOutboxSuite) TestMagicLink_TokenNamesTheRowHoldingTheDestination() {
+	for i, destination := range []string{"/library?tab=shows", ""} {
+		user := s.verifiedUser(fmt.Sprintf("dest-%d@example.com", i))
+		s.Require().NoError(s.outbox.EnqueueMagicLink(context.Background(), user.ID, destination))
+		var row authm.AuthEmailOutboxItem
+		s.Require().NoError(s.db.Where("user_id = ?", user.ID).Take(&row).Error)
+		s.Equal(authm.AuthEmailKindMagicLink, row.Kind)
+
+		before := len(s.sender.recorded())
+		s.outbox.RunNow(context.Background())
+		sends := s.sender.recorded()
+		s.Require().Len(sends, before+1)
+		claims, err := s.jwt.ValidateMagicLinkToken(sends[len(sends)-1].token)
+		s.Require().NoError(err)
+
+		if destination == "" {
+			s.Nil(row.ReturnTo)
+			s.Zero(claims.DestinationRef, "a link without a destination names no row")
+			continue
+		}
+		s.Require().NotNil(row.ReturnTo)
+		s.Equal(destination, *row.ReturnTo)
+		s.Equal(row.ID, claims.DestinationRef)
+		s.NotContains(sends[len(sends)-1].token, "library", "the destination is not in the token")
+		got, err := s.outbox.MagicLinkDestination(context.Background(), claims.DestinationRef, user.ID)
+		s.Require().NoError(err)
+		s.Equal(destination, got)
+	}
+}
+
+// A ref returns a destination only for its own account's magic link row.
+func (s *AuthEmailOutboxSuite) TestMagicLinkDestination_OnlyForTheRowsOwnAccount() {
+	owner := s.verifiedUser("owner@example.com")
+	other := s.verifiedUser("other@example.com")
+	s.Require().NoError(s.outbox.EnqueueMagicLink(context.Background(), owner.ID, "/library"))
+	s.enqueue(authm.AuthEmailKindVerification, owner.ID)
+	var magic, verification authm.AuthEmailOutboxItem
+	s.Require().NoError(s.db.Where("user_id = ? AND kind = ?", owner.ID, authm.AuthEmailKindMagicLink).Take(&magic).Error)
+	s.Require().NoError(s.db.Where("user_id = ? AND kind = ?", owner.ID, authm.AuthEmailKindVerification).Take(&verification).Error)
+
+	for name, tc := range map[string]struct{ ref, userID uint }{
+		"another account's row": {magic.ID, other.ID},
+		"a row of another kind": {verification.ID, owner.ID},
+		"a row that is gone":    {magic.ID + verification.ID + 1000, owner.ID},
+	} {
+		got, err := s.outbox.MagicLinkDestination(context.Background(), tc.ref, tc.userID)
+		s.Require().NoError(err, name)
+		s.Empty(got, name)
+	}
+	got, err := s.outbox.MagicLinkDestination(context.Background(), magic.ID, owner.ID)
+	s.Require().NoError(err)
+	s.Equal("/library", got)
+}
+
+// Enqueue refuses a magic link: only EnqueueMagicLink records its destination.
+func (s *AuthEmailOutboxSuite) TestEnqueue_RefusesMagicLink() {
+	user := s.verifiedUser("refused@example.com")
+	s.ErrorIs(s.outbox.Enqueue(context.Background(), authm.AuthEmailKindMagicLink, user.ID), ErrMagicLinkNeedsItsOwnEnqueue)
+	s.Empty(s.rows())
 }
 
 func (s *AuthEmailOutboxSuite) TestRecovery_DaysRemainingComputedAtSend() {
@@ -265,7 +335,7 @@ func (s *AuthEmailOutboxSuite) TestEnqueue_SurvivesCanceledRequestContext() {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	s.Require().NoError(s.outbox.Enqueue(ctx, authm.AuthEmailKindMagicLink, user.ID),
+	s.Require().NoError(s.outbox.EnqueueMagicLink(ctx, user.ID, ""),
 		"a client that disconnects after asking still gets its email")
 	s.Len(s.rows(), 1)
 }

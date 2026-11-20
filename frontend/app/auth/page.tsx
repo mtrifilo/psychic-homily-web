@@ -289,7 +289,7 @@ function LoginForm({
     if (email === null) return
 
     sendMagicLink.mutate(
-      { email },
+      { email, returnTo },
       {
         onSuccess: data => {
           if (data.success) {

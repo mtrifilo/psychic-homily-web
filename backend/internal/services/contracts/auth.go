@@ -31,9 +31,14 @@ type VerificationTokenClaims struct {
 }
 
 // MagicLinkTokenClaims contains JWT claims for magic link login tokens.
+// DestinationRef is the id of the auth_email_outbox row the link was sent for
+// when that row holds a destination, and 0 (no claim) when it holds none. The
+// destination itself stays in the row, so the emailed URL never carries it;
+// the ref is signed with the rest, so only the outbox can set it.
 type MagicLinkTokenClaims struct {
-	UserID uint   `json:"user_id"`
-	Email  string `json:"email"`
+	UserID         uint   `json:"user_id"`
+	Email          string `json:"email"`
+	DestinationRef uint   `json:"dst,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -459,7 +464,10 @@ type JWTServiceInterface interface {
 	ValidateToken(tokenString string) (*authm.User, error)
 	CreateVerificationToken(userID uint, email string) (string, error)
 	ValidateVerificationToken(tokenString string) (*VerificationTokenClaims, error)
-	CreateMagicLinkToken(userID uint, email string) (string, error)
+	// CreateMagicLinkToken mints the emailed sign-in link for userID's
+	// mailbox, email, naming destinationRef (MagicLinkTokenClaims, 0 for
+	// none) as where its destination is kept.
+	CreateMagicLinkToken(userID uint, email string, destinationRef uint) (string, error)
 	ValidateMagicLinkToken(tokenString string) (*MagicLinkTokenClaims, error)
 	// ValidateOAuthLinkToken accepts only the emailed sign-in link that
 	// proves the mailbox for a pending provider link; ValidateMagicLinkToken
@@ -602,14 +610,25 @@ type AuthEmailOutboxInterface interface {
 	// Enqueue queues one email of kind for userID. A call while one is still
 	// queued for the same account and kind is a no-op that returns nil. It
 	// returns an error when the row could not be written, the outbox is
-	// switched off, or kind is the calendar steps kind, which has its own
-	// method; in each case no email is sent for this call.
+	// switched off, or kind is the magic link or calendar steps kind, which
+	// have their own methods; in each case no email is sent for this call.
 	Enqueue(ctx context.Context, kind authm.AuthEmailKind, userID uint) error
 	// EnqueueOAuthLink queues the sign-in link that proves userID's mailbox
 	// for the pending link ref names (OAuthPendingLink.Ref), on Enqueue's
 	// terms: one queued per account, and an error means no email for this
 	// call.
 	EnqueueOAuthLink(ctx context.Context, userID uint, ref string) error
+	// EnqueueMagicLink queues the sign-in link for userID on Enqueue's terms,
+	// with returnTo ("" for none) as the destination following it returns.
+	// It is the only way to queue that kind; Enqueue refuses it. The caller
+	// has already checked returnTo with sanitizeOAuthReturnTo. While one is
+	// queued for the account, a call is a no-op that keeps the queued row's
+	// destination.
+	EnqueueMagicLink(ctx context.Context, userID uint, returnTo string) error
+	// MagicLinkDestination is the destination of the magic link row ref
+	// names (MagicLinkTokenClaims.DestinationRef) when that row is userID's,
+	// and "" when it is not, holds none, or no longer exists.
+	MagicLinkDestination(ctx context.Context, ref, userID uint) (string, error)
 	// EnqueueCalendarSteps queues the calendar steps email for user, the
 	// signed-in account that asked for it, to its own address, on Enqueue's
 	// terms. It is the only way to queue that kind; Enqueue refuses it. Its
