@@ -114,9 +114,9 @@ export function RadioDial() {
 
 /**
  * The dial as it renders before its station read answers: the dial loader,
- * and no guide (the guide renders nothing while loading). No hook behind it,
- * so it can stand as the fallback above the seeded dial on a server render
- * (see `CachedListFallback`).
+ * and no guide (the guide renders nothing while loading). It is the `loader`
+ * of the dial's `CachedListFallback`, which renders it wherever the cache
+ * cannot answer, so it must create no query.
  */
 export function RadioDialLoader() {
   return (

@@ -7,7 +7,7 @@ import {
   RecordingSearchParams,
   registeredQueryHashes,
   serverRenderFirstScreen as serverRender,
-  suspenseFallbackOf,
+  cachedListFallbackOf,
 } from '@/test/firstScreenRender'
 import { describeCachedListFallback } from '@/test/cachedListFallbackSuite'
 
@@ -200,7 +200,7 @@ describe('/festivals first-screen request pairing', () => {
 describeCachedListFallback({
   route: '/festivals',
   fallback: () =>
-    suspenseFallbackOf(FestivalsPage({ searchParams: Promise.resolve({}) })),
+    cachedListFallbackOf(FestivalsPage({ searchParams: Promise.resolve({}) })),
   seededBoundary: () => {
     fetchListPayload.mockResolvedValue(festivalsPayload)
     return renderBoundary()

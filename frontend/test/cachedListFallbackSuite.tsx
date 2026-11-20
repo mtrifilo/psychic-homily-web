@@ -105,8 +105,8 @@ export function describeCachedListFallback(c: CachedListFallbackCase) {
       expect(html).not.toContain(c.seededRow)
     })
 
-    // The regression: the fallback was the loader whatever the cache held.
-    it('draws the cached rows, with no loader, on a warm cache', async () => {
+    // A warm cache draws the rows, not the loader.
+    it('draws the cached rows, view-only and with no loader, on a warm cache', async () => {
       const client = warmClient(c.seeded)
       const seededEntries = entriesFor(client, seededKeys)
 
@@ -114,6 +114,8 @@ export function describeCachedListFallback(c: CachedListFallbackCase) {
 
       expect(container.innerHTML).toContain(c.seededRow)
       expect(showsLoader(container.innerHTML)).toBe(false)
+      // The boundary's list replaces this copy, so nothing in it takes input.
+      expect(container.querySelector('[inert]')?.innerHTML).toContain(c.seededRow)
       // The list's hooks ran, and every seeded entry is the one that was there.
       expect(entriesFor(client, seededKeys)).toEqual(seededEntries)
     })
@@ -141,7 +143,8 @@ export function describeCachedListFallback(c: CachedListFallbackCase) {
         expect(entriesFor(client, [seededKeys[0]])).toEqual([undefined])
       })
 
-      it('shows the list loading, not the first screen, on another query the cache lacks', async () => {
+      // Off the first screen the list itself renders and asks for its query.
+      it('renders the list asking for another query the cache lacks, not the first screen', async () => {
         setSearch(other.search)
         const client = warmClient(c.seeded)
 
@@ -149,6 +152,7 @@ export function describeCachedListFallback(c: CachedListFallbackCase) {
 
         expect(showsLoader(container.innerHTML)).toBe(true)
         expect(container.innerHTML).not.toContain(c.seededRow)
+        expect(entriesFor(client, [other.entry[0]])[0]).toBeDefined()
       })
 
       it('draws the other query from the cache when the URL asks for it', async () => {

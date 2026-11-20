@@ -146,11 +146,21 @@ async function dehydratedFirstScreen(
     return EMPTY_DEHYDRATED_STATE
   }
 
+  const [rowsKey, citiesKey] = FIRST_SCREEN_SEEDED_KEYS
   return seedFirstScreen([
-    { queryKey: ARTIST_LIST_FIRST_SCREEN_KEY, data: artists },
-    { queryKey: artistQueryKeys.cities, data: cities },
+    { queryKey: rowsKey, data: artists },
+    { queryKey: citiesKey, data: cities },
   ])
 }
+
+/**
+ * The two keys a bare `/artists` seeds, in seed order: the first page of
+ * artists and the city facet counts. The page's fallback gates on them.
+ */
+const FIRST_SCREEN_SEEDED_KEYS = [
+  ARTIST_LIST_FIRST_SCREEN_KEY,
+  artistQueryKeys.cities,
+] as const
 
 /** What `dehydrate()` produces for an empty client: hydrates nothing. */
 const EMPTY_DEHYDRATED_STATE: DehydratedState = { mutations: [], queries: [] }
@@ -243,7 +253,7 @@ export default async function ArtistsPage({
           <Suspense
             fallback={
               <CachedListFallback
-                seededKeys={[ARTIST_LIST_FIRST_SCREEN_KEY, artistQueryKeys.cities]}
+                seededKeys={FIRST_SCREEN_SEEDED_KEYS}
                 defeatingParams={FIRST_SCREEN_DEFEATING_PARAMS}
                 loader={<ArtistListSkeleton />}
               >

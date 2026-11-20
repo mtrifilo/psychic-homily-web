@@ -1,6 +1,6 @@
 import { vi } from 'vitest'
 import { describeCachedListFallback } from '@/test/cachedListFallbackSuite'
-import { suspenseFallbackOf } from '@/test/firstScreenRender'
+import { cachedListFallbackOf } from '@/test/firstScreenRender'
 
 // The page's ItemList read; no artists, so no JSON-LD block.
 const { fetchSeoList } = vi.hoisted(() => ({ fetchSeoList: vi.fn(async () => []) }))
@@ -96,7 +96,7 @@ const artistsPayload = {
 describeCachedListFallback({
   route: '/artists',
   fallback: async () =>
-    suspenseFallbackOf(await ArtistsPage({ searchParams: Promise.resolve({}) })),
+    cachedListFallbackOf(await ArtistsPage({ searchParams: Promise.resolve({}) })),
   seededBoundary: () => {
     fetchListPayload.mockImplementation(async ({ url }: { url: string }) =>
       url.includes('/cities') ? citiesPayload : artistsPayload

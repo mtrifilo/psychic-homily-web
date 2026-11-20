@@ -7,7 +7,10 @@ import {
   RADIO_DIAL_FIRST_SCREEN_KEY,
   RADIO_DIAL_FIRST_SCREEN_URL,
 } from '@/features/radio/dialFirstScreen'
-import { dehydrateFirstScreen } from '@/lib/ssr/firstScreenSeed'
+import {
+  dehydrateFirstScreen,
+  type FirstScreenRead,
+} from '@/lib/ssr/firstScreenSeed'
 
 export const metadata: Metadata = {
   title: 'Radio',
@@ -19,6 +22,19 @@ export const metadata: Metadata = {
     url: '/radio',
   },
 }
+
+/** The read that seeds the dial. */
+const FIRST_SCREEN_READS: readonly FirstScreenRead[] = [
+  {
+    url: RADIO_DIAL_FIRST_SCREEN_URL,
+    queryKey: RADIO_DIAL_FIRST_SCREEN_KEY,
+    collection: 'stations',
+    service: 'radio-stations-first-screen',
+  },
+]
+
+/** The keys that read seeds: what the dial's fallback gates on. */
+const FIRST_SCREEN_KEYS = FIRST_SCREEN_READS.map(read => read.queryKey)
 
 /**
  * `RadioDial` under a boundary seeded with the station list, so every dial
@@ -32,14 +48,7 @@ export const metadata: Metadata = {
  * error states. The element is a `HydrationBoundary` on every path.
  */
 export async function HydratedRadioDial() {
-  const dehydratedState = await dehydrateFirstScreen([
-    {
-      url: RADIO_DIAL_FIRST_SCREEN_URL,
-      queryKey: RADIO_DIAL_FIRST_SCREEN_KEY,
-      collection: 'stations',
-      service: 'radio-stations-first-screen',
-    },
-  ])
+  const dehydratedState = await dehydrateFirstScreen(FIRST_SCREEN_READS)
 
   return (
     <HydrationBoundary state={dehydratedState}>
@@ -62,7 +71,7 @@ export default function RadioPage() {
         <Suspense
           fallback={
             <CachedListFallback
-              seededKeys={[RADIO_DIAL_FIRST_SCREEN_KEY]}
+              seededKeys={FIRST_SCREEN_KEYS}
               loader={<RadioDialLoader />}
             >
               <RadioDial />

@@ -17,7 +17,10 @@ interface CachedListFallbackProps {
    * gate reads them. Empty for a route that seeds every request.
    */
   defeatingParams?: readonly string[]
-  /** What the route showed in this slot before: its loader. */
+  /**
+   * The route's loader: rendered on the server, through hydration, and on a
+   * client navigation the cache cannot answer, so it must create no query.
+   */
   loader: ReactNode
   /** The list itself, unseeded. */
   children: ReactNode
@@ -46,6 +49,11 @@ const NO_DEFEATING_PARAMS: readonly string[] = []
  * stands in for the current one. The list's other hooks (facets, counts,
  * per-row reads) may create their entries here; on a first-screen URL none of
  * them is a seeded key, since every seeded key already exists.
+ *
+ * The list drawn here is view-only (`inert`). The boundary's list mounts as a
+ * separate instance and replaces it, so text typed, focus taken or a sheet
+ * opened in this copy would be discarded at the swap; `inert` also keeps the
+ * copy's mount effects from taking focus.
  */
 export function CachedListFallback({
   seededKeys,
@@ -88,5 +96,12 @@ function WarmCacheGate({
     !seeded ||
     seededKeys.every(key => queryClient.getQueryData(key) !== undefined)
 
-  return seedCannotBePreempted ? children : loader
+  if (!seedCannotBePreempted) return loader
+  // `contents`: the wrapper adds no box, so the list lays out as it does in
+  // the boundary.
+  return (
+    <div inert className="contents" data-testid="cached-list-fallback">
+      {children}
+    </div>
+  )
 }

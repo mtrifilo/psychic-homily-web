@@ -8,7 +8,7 @@ import {
   RecordingSearchParams,
   registeredQueryHashes,
   serverRenderFirstScreen as serverRender,
-  suspenseFallbackOf,
+  cachedListFallbackOf,
 } from '@/test/firstScreenRender'
 import { describeCachedListFallback } from '@/test/cachedListFallbackSuite'
 
@@ -199,7 +199,7 @@ describe('/tags first-screen request pairing', () => {
 
 describeCachedListFallback({
   route: '/tags',
-  fallback: () => suspenseFallbackOf(TagsPage({ searchParams: Promise.resolve({}) })),
+  fallback: () => cachedListFallbackOf(TagsPage({ searchParams: Promise.resolve({}) })),
   seededBoundary: () => {
     fetchListPayload.mockImplementation(async ({ url }: { url: string }) =>
       answerReads(url)

@@ -1,6 +1,7 @@
 import { Suspense, type ReactElement } from 'react'
 import { renderToString } from 'react-dom/server'
 import { render } from '@testing-library/react'
+import { CachedListFallback } from '@/components/shared/CachedListFallback'
 import { findElement } from '@/test/elementTree'
 import { renderWithProviders } from '@/test/utils'
 import {
@@ -67,11 +68,18 @@ export class RecordingSearchParams extends URLSearchParams {
   }
 }
 
-/** The `fallback` of the first `Suspense` in a route's returned tree. */
-export const suspenseFallbackOf = (tree: ReactElement): ReactElement =>
-  (findElement(tree, node => node.type === Suspense).props as {
-    fallback: ReactElement
-  }).fallback
+/**
+ * The `CachedListFallback` a route's returned tree hands a `Suspense`, found
+ * by type, so another `Suspense` earlier in the tree is never taken for it.
+ */
+export const cachedListFallbackOf = (tree: ReactElement): ReactElement =>
+  (findElement(
+    tree,
+    node =>
+      node.type === Suspense &&
+      (node.props as { fallback?: ReactElement }).fallback?.type ===
+        CachedListFallback
+  ).props as { fallback: ReactElement }).fallback
 
 /**
  * A fallback rendered the way a client-side navigation renders it: a mount on
