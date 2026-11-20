@@ -13,6 +13,7 @@ import { toZonedDateOnly, toZonedISOString } from '@/lib/utils/timeUtils'
 import { SITE_DESCRIPTION, SITE_URL } from '@/lib/seo/siteMetadata'
 import { resolveTicketVendor } from '@/lib/tickets/ticketVendors'
 import { renderableSocialLinks } from '@/lib/socialLinks'
+import { showEventDescription } from '@/lib/seo/entitySnippets'
 
 export interface OrganizationSchema {
   '@context': 'https://schema.org'
@@ -47,6 +48,7 @@ export interface MusicEventSchema {
   '@type': 'MusicEvent'
   name: string
   startDate: string
+  doorTime?: string
   description?: string
   eventStatus: string
   eventAttendanceMode: string
@@ -261,6 +263,20 @@ function startDateForSchema(
 }
 
 /**
+ * `MusicEvent.doorTime`, in the offset form {@link startDateForSchema} gives a
+ * known zone, or undefined. Only a known zone states a door time: the page
+ * withholds DOORS on a guessed one, and a bare date is no door time.
+ */
+function doorTimeForSchema(
+  doorsAt: string | null | undefined,
+  venue: { state?: string; timezone?: string | null } | undefined
+): string | undefined {
+  if (!venue || !doorsAt || !Number.isFinite(Date.parse(doorsAt))) return undefined
+  if (!isShowTimezoneResolved(venue.state, venue.timezone)) return undefined
+  return toZonedISOString(doorsAt, resolveShowTimezone(venue.state, venue.timezone))
+}
+
+/**
  * Generate MusicEvent schema for a show
  */
 export function generateMusicEventSchema(show: {
@@ -284,6 +300,9 @@ export function generateMusicEventSchema(show: {
    * depend on the clock.
    */
   has_started?: boolean
+  /** Announced display times, null when unannounced. */
+  doors_at?: string | null
+  music_at?: string | null
   venue?: {
     name: string
     slug?: string
@@ -299,6 +318,7 @@ export function generateMusicEventSchema(show: {
     name: string
     slug?: string
     is_headliner?: boolean
+    set_type?: string | null
     socials?: Record<string, string | null | undefined>
   }>
   price?: number
@@ -332,8 +352,27 @@ export function generateMusicEventSchema(show: {
     },
   }
 
-  if (show.description) {
-    schema.description = show.description
+  const doorTime = doorTimeForSchema(show.doors_at, show.venue)
+  if (doorTime) {
+    schema.doorTime = doorTime
+  }
+
+  // An authored description wins whole. Without one, the description states
+  // only what the page renders; see `showEventDescription` for its clauses.
+  const description = show.description?.trim()
+    ? show.description
+    : showEventDescription({
+        artists: show.artists,
+        venue: show.venue?.name,
+        city: show.venue?.city,
+        eventDate: show.date,
+        doorsAt: show.doors_at,
+        musicAt: show.music_at,
+        state: show.venue?.state,
+        timezone: show.venue?.timezone,
+      })
+  if (description) {
+    schema.description = description
   }
 
   if (show.venue?.slug) {

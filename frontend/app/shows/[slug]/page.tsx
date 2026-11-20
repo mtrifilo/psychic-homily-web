@@ -375,6 +375,8 @@ export default async function ShowPage({ params }: ShowPageProps) {
         description: showData.description ?? undefined,
         is_cancelled: showData.is_cancelled,
         is_sold_out: showData.is_sold_out,
+        doors_at: showData.doors_at,
+        music_at: showData.music_at,
         venue: showData.venues?.[0] ? {
           name: showData.venues[0].name,
           slug: showData.venues[0].slug,
@@ -387,6 +389,7 @@ export default async function ShowPage({ params }: ShowPageProps) {
           name: a.name,
           slug: a.slug,
           is_headliner: a.is_headliner ?? undefined,
+          set_type: a.set_type,
           // `ShowArtistSocials` is a struct of named optional fields; spread into a
           // plain object so it satisfies the schema helper's index-signature parameter
           // type without changing the cross-feature type.

@@ -61,6 +61,16 @@ describe('buildSceneWeekJsonLd — MusicEvent', () => {
     }
   })
 
+  it('describes each event by its bill and place, with no clock and no doorTime', () => {
+    // The scene payload carries no announced door or music time, and its
+    // 20:00 start may be a date-only placeholder, so no time is stated.
+    const { events } = build([
+      show({ artist_names: ['Riff Wood', 'Second Act', ' ', 'Riff Wood'] }),
+    ])
+    expect(events[0].description).toBe('Riff Wood with Second Act at Crescent Ballroom, Phoenix.')
+    expect(events[0]).not.toHaveProperty('doorTime')
+  })
+
   it('emits one event per listed show, across days', () => {
     const data = week([])
     data.days = [

@@ -7,6 +7,8 @@ import {
   showPageDateLong,
   showPageMonthDay,
 } from '@/features/shows/showPageDate'
+import { splitBill } from '@/features/shows/utils'
+import { formatShowTime } from '@/lib/utils/formatters'
 
 /**
  * Search-snippet strings (`<title>` and meta description) for the show, artist,
@@ -190,6 +192,111 @@ export function showSnippet(input: ShowSnippetInput): EntitySnippet {
   )
 
   return { title, description }
+}
+
+export interface ShowEventDescriptionInput {
+  /**
+   * The bill in running order. `set_type` and `is_headliner` decide who leads,
+   * by the same rule the show page's header applies.
+   */
+  artists?: ReadonlyArray<{
+    name: string
+    set_type?: string | null
+    is_headliner?: boolean | null
+  }> | null
+  venue?: string | null
+  city?: string | null
+  /** The show's start instant, the one the page prints as its start time. */
+  eventDate: string
+  doorsAt?: string | null
+  musicAt?: string | null
+  /** The venue's zone inputs. A clock is stated only when they resolve one. */
+  state?: string | null
+  timezone?: string | null
+}
+
+/** `7:00 PM` in the zone, or null when the zone is a guess or the instant is unreadable. */
+function eventClock(
+  instant: string | null | undefined,
+  input: Pick<ShowEventDescriptionInput, 'state' | 'timezone'>
+): string | null {
+  if (!instant || !Number.isFinite(Date.parse(instant))) return null
+  return formatShowTime(instant, input.state, input.timezone)
+}
+
+/**
+ * The bill's names, leaders first, each once, blanks dropped. The first
+ * occurrence of a repeated name keeps its place.
+ */
+function billNames(
+  artists: ShowEventDescriptionInput['artists']
+): { leads: string[]; support: string[] } {
+  const named = (artists ?? []).flatMap(artist => {
+    const name = nonEmpty(artist.name)
+    return name ? [{ ...artist, name }] : []
+  })
+  const { headliners, support } = splitBill(named)
+  const seen = new Set<string>()
+  const unseen = (artist: { name: string }) => {
+    const key = artist.name.toLowerCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  }
+  return {
+    leads: headliners.filter(unseen).map(artist => artist.name),
+    support: support.filter(unseen).map(artist => artist.name),
+  }
+}
+
+/**
+ * A `MusicEvent.description` for a show with no prose of its own, built only
+ * from facts the show page renders:
+ * `{headliner} with {support, comma separated} at {venue}, {city}. Doors {h:mm
+ * AM/PM}, music {h:mm AM/PM}.` Null when the bill names nobody.
+ *
+ * Each clause is dropped when its fact is missing. The city qualifies the
+ * venue, so it is stated only with one. Co-headliners share the lead, comma
+ * separated, as the page's heading lists them.
+ *
+ * Clocks follow the page's own refusals. None is stated when the venue's zone
+ * is a guess. Doors and music come only from the announced times, never from
+ * the start instant alone, because a date-only show stores a placeholder
+ * evening start that nobody announced. The page prints a music time beside a
+ * door time; with no door time, the only clock it prints is the start time, so
+ * a lone music time is stated only when it is that same clock.
+ */
+export function showEventDescription(
+  input: ShowEventDescriptionInput
+): string | null {
+  const { leads, support } = billNames(input.artists)
+  if (leads.length === 0) return null
+
+  const venue = nonEmpty(input.venue)
+  const city = venue ? nonEmpty(input.city) : null
+  const lead = sentence(
+    leads.join(', ') +
+      (support.length > 0 ? ` with ${support.join(', ')}` : '') +
+      (venue ? ` at ${venue}` : '') +
+      (city ? `, ${city}` : '')
+  )
+
+  const doors = eventClock(input.doorsAt, input)
+  const announcedMusic = eventClock(input.musicAt, input)
+  const music =
+    doors || announcedMusic === eventClock(input.eventDate, input)
+      ? announcedMusic
+      : null
+  const times =
+    doors && music
+      ? `Doors ${doors}, music ${music}.`
+      : doors
+        ? `Doors ${doors}.`
+        : music
+          ? `Music ${music}.`
+          : null
+
+  return collapseWhitespace(times ? `${lead} ${times}` : lead)
 }
 
 export interface ArtistSnippetInput {

@@ -10,6 +10,7 @@ import {
   fitTitle,
   releaseArtistPhrase,
   releaseSnippet,
+  showEventDescription,
   showSnippet,
   snippetMonthDay,
   snippetPlace,
@@ -313,6 +314,208 @@ describe('showSnippet', () => {
   it('has no em dash in any output', () => {
     const { title, description } = showSnippet(NIROSTA_AT_HIDEOUT)
     expect(title + description).not.toContain('\u2014')
+  })
+})
+
+describe('showEventDescription', () => {
+  // Launchpad is in Albuquerque (America/Denver, UTC-7 in November): 02:00Z
+  // and 03:00Z on Nov 22 are 7:00 PM and 8:00 PM on Saturday Nov 21.
+  const DOORS = '2026-11-22T02:00:00Z'
+  const MUSIC = '2026-11-22T03:00:00Z'
+  const holyWave = {
+    artists: [{ name: 'Holy Wave', is_headliner: true }],
+    venue: 'Launchpad',
+    city: 'Albuquerque',
+    eventDate: MUSIC,
+    state: 'NM',
+    timezone: 'America/Denver',
+  }
+
+  describe('the examples the owner approved', () => {
+    it('names the bill, the place, and both announced times', () => {
+      expect(
+        showEventDescription({
+          ...holyWave,
+          artists: [
+            { name: 'Holy Wave', is_headliner: true },
+            { name: 'Support Act', is_headliner: false },
+          ],
+          doorsAt: DOORS,
+          musicAt: MUSIC,
+        })
+      ).toBe('Holy Wave with Support Act at Launchpad, Albuquerque. Doors 7:00 PM, music 8:00 PM.')
+    })
+
+    it('states a lone music time that is the start time the page prints', () => {
+      expect(showEventDescription({ ...holyWave, musicAt: MUSIC })).toBe(
+        'Holy Wave at Launchpad, Albuquerque. Music 8:00 PM.'
+      )
+    })
+
+    it('states no time when none was announced', () => {
+      expect(showEventDescription(holyWave)).toBe('Holy Wave at Launchpad, Albuquerque.')
+    })
+  })
+
+  it('lists several support acts comma separated, in bill order', () => {
+    expect(
+      showEventDescription({
+        ...holyWave,
+        artists: [
+          { name: 'Holy Wave', is_headliner: true },
+          { name: 'First Support' },
+          { name: 'Second Support' },
+          { name: 'Third Support' },
+        ],
+      })
+    ).toBe('Holy Wave with First Support, Second Support, Third Support at Launchpad, Albuquerque.')
+  })
+
+  it('leads with the curated headliner wherever the bill lists it', () => {
+    expect(
+      showEventDescription({
+        ...holyWave,
+        artists: [
+          { name: 'Opener', set_type: 'opener' },
+          { name: 'Holy Wave', set_type: 'headliner' },
+        ],
+      })
+    ).toBe('Holy Wave with Opener at Launchpad, Albuquerque.')
+  })
+
+  it('lists co-headliners together in the lead', () => {
+    expect(
+      showEventDescription({
+        ...holyWave,
+        artists: [
+          { name: 'Holy Wave', is_headliner: true },
+          { name: 'Co Headliner', is_headliner: true },
+          { name: 'Support Act' },
+        ],
+      })
+    ).toBe('Holy Wave, Co Headliner with Support Act at Launchpad, Albuquerque.')
+  })
+
+  it('leads with the first act of a bill that names no headliner', () => {
+    expect(
+      showEventDescription({
+        ...holyWave,
+        artists: [{ name: 'Holy Wave' }, { name: 'Support Act' }],
+      })
+    ).toBe('Holy Wave with Support Act at Launchpad, Albuquerque.')
+  })
+
+  it('names an act listed twice once, in its first place', () => {
+    expect(
+      showEventDescription({
+        ...holyWave,
+        artists: [
+          { name: 'Holy Wave', is_headliner: true },
+          { name: 'Support Act' },
+          { name: 'holy wave ' },
+        ],
+      })
+    ).toBe('Holy Wave with Support Act at Launchpad, Albuquerque.')
+  })
+
+  it('skips blank names, including a blank first act', () => {
+    expect(
+      showEventDescription({
+        ...holyWave,
+        artists: [{ name: '  ' }, { name: 'Holy Wave' }, { name: '' }, { name: 'Support Act' }],
+      })
+    ).toBe('Holy Wave with Support Act at Launchpad, Albuquerque.')
+  })
+
+  it('is null when the bill names nobody', () => {
+    expect(showEventDescription({ ...holyWave, artists: [{ name: ' ' }] })).toBeNull()
+    expect(showEventDescription({ ...holyWave, artists: [] })).toBeNull()
+    expect(showEventDescription({ ...holyWave, artists: null })).toBeNull()
+  })
+
+  it('drops the city when the venue has none', () => {
+    expect(showEventDescription({ ...holyWave, city: '  ', doorsAt: DOORS })).toBe(
+      'Holy Wave at Launchpad. Doors 7:00 PM.'
+    )
+  })
+
+  it('drops the place, city included, when there is no venue', () => {
+    expect(showEventDescription({ ...holyWave, venue: null })).toBe('Holy Wave.')
+  })
+
+  it('states a door time without a music time', () => {
+    expect(showEventDescription({ ...holyWave, doorsAt: DOORS })).toBe(
+      'Holy Wave at Launchpad, Albuquerque. Doors 7:00 PM.'
+    )
+  })
+
+  it('states the music time beside a door time even when it is not the start time', () => {
+    expect(
+      showEventDescription({
+        ...holyWave,
+        doorsAt: DOORS,
+        musicAt: '2026-11-22T03:30:00Z',
+      })
+    ).toBe('Holy Wave at Launchpad, Albuquerque. Doors 7:00 PM, music 8:30 PM.')
+  })
+
+  it('withholds a lone music time that is not the start time the page prints', () => {
+    // Without a door time the page prints no music time, only the start time.
+    expect(showEventDescription({ ...holyWave, musicAt: '2026-11-22T03:30:00Z' })).toBe(
+      'Holy Wave at Launchpad, Albuquerque.'
+    )
+  })
+
+  it('never states the start instant of a date-only show as a music time', () => {
+    // A date-only show is stored at 20:00 venue-local with no announced times.
+    expect(showEventDescription({ ...holyWave, doorsAt: null, musicAt: null })).toBe(
+      'Holy Wave at Launchpad, Albuquerque.'
+    )
+  })
+
+  it('states no clock when the venue zone is a guess', () => {
+    expect(
+      showEventDescription({
+        ...holyWave,
+        state: 'England',
+        timezone: null,
+        doorsAt: DOORS,
+        musicAt: MUSIC,
+      })
+    ).toBe('Holy Wave at Launchpad, Albuquerque.')
+  })
+
+  it('reads the clocks in the venue zone, not the state map', () => {
+    // AZ alone would read 02:00Z as 7:00 PM; the venue's own zone says 8:00 PM.
+    expect(
+      showEventDescription({
+        ...holyWave,
+        state: 'AZ',
+        timezone: 'America/Chicago',
+        doorsAt: DOORS,
+      })
+    ).toBe('Holy Wave at Launchpad, Albuquerque. Doors 8:00 PM.')
+  })
+
+  it('skips an unreadable time rather than throwing', () => {
+    expect(
+      showEventDescription({ ...holyWave, doorsAt: 'not-a-date', musicAt: 'nope' })
+    ).toBe('Holy Wave at Launchpad, Albuquerque.')
+    expect(
+      showEventDescription({ ...holyWave, eventDate: 'not-a-date', musicAt: MUSIC })
+    ).toBe('Holy Wave at Launchpad, Albuquerque.')
+  })
+
+  it('separates the clock from AM/PM with a plain space', () => {
+    const description = showEventDescription({ ...holyWave, doorsAt: DOORS, musicAt: MUSIC })
+    expect(description).toContain('7:00 PM')
+    expect(description).not.toMatch(/[\u00a0\u202f]/)
+  })
+
+  it('ends the sentence once when a name already ends with a full stop', () => {
+    expect(showEventDescription({ ...holyWave, venue: 'Launchpad', city: 'St.' })).toBe(
+      'Holy Wave at Launchpad, St.'
+    )
   })
 })
 
