@@ -15,6 +15,8 @@ vi.mock('./SavedShowsCalendarPanel', () => {
 
 import { LazySavedShowsCalendarPanel } from './LazySavedShowsCalendarPanel'
 
+const onLoadFailed = vi.fn()
+
 function Opener() {
   const anchorRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
@@ -33,21 +35,28 @@ function Opener() {
         open={open}
         onOpenChange={setOpen}
         anchorRef={anchorRef}
+        onLoadFailed={onLoadFailed}
       />
     </>
   )
 }
 
 describe('LazySavedShowsCalendarPanel', () => {
-  it('refuses the open when the code fails to load, and loads again on the next open', async () => {
+  // The retry below is the module asking for the code again; whether a
+  // browser then fetches the chunk again is the bundler runtime's call, which
+  // is why the opener is told the load failed.
+  it('refuses the open when the code fails to load, tells the opener, and asks again on the next open', async () => {
     render(<Opener />)
     const control = screen.getByRole('button', { name: 'Calendar' })
+    control.focus()
 
     await act(async () => control.click())
 
     // Not left announcing a panel that is not there.
     await waitFor(() => expect(control).toHaveAttribute('aria-expanded', 'false'))
     expect(screen.queryByRole('dialog')).toBeNull()
+    expect(onLoadFailed).toHaveBeenCalledTimes(1)
+    expect(control).toHaveFocus()
 
     failLoad = false
     await act(async () => control.click())

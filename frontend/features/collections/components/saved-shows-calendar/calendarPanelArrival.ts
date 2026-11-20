@@ -1,0 +1,25 @@
+/**
+ * The fragment that opens the saved-shows calendar panel on Library: the
+ * address the Library calendar card had, kept so links and bookmarks made for
+ * the card still reach the calendar.
+ */
+export const CALENDAR_ARRIVAL_HASH = '#calendar-feed'
+
+const CALENDAR_ARRIVAL_PATH = '/library'
+
+/**
+ * Loads Library afresh at the calendar fragment, where the panel opens on
+ * arrival. A full page load, not a client navigation: it is the way back to
+ * the panel when this page's copy of its code failed to load, and a fresh load
+ * fetches the code again.
+ */
+export function reloadIntoCalendarPanel(): void {
+  const target = CALENDAR_ARRIVAL_PATH + CALENDAR_ARRIVAL_HASH
+  if (window.location.pathname === CALENDAR_ARRIVAL_PATH) {
+    // Assigning a URL that differs only by fragment would not reload.
+    window.history.replaceState(null, '', target)
+    window.location.reload()
+    return
+  }
+  window.location.assign(target)
+}

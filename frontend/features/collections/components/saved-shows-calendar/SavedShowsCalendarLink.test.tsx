@@ -43,6 +43,7 @@ const mockPanelProps = vi.fn<
     align?: string
     anchorRef: RefObject<HTMLElement | null>
     triggerRef?: RefObject<HTMLElement | null>
+    onLoadFailed?: () => void
   }) => void
 >()
 vi.mock('./LazySavedShowsCalendarPanel', () => ({
@@ -53,6 +54,7 @@ vi.mock('./LazySavedShowsCalendarPanel', () => ({
     align?: string
     anchorRef: RefObject<HTMLElement | null>
     triggerRef?: RefObject<HTMLElement | null>
+    onLoadFailed?: () => void
   }) => {
     mockPanelProps(props)
     return props.open ? (
@@ -69,6 +71,7 @@ import {
   CALENDAR_LINK_LABELS,
   SavedShowsCalendarLink,
 } from './SavedShowsCalendarLink'
+import { reloadIntoCalendarPanel } from './calendarPanelArrival'
 
 function read(
   client: CalendarFeedRead['client'],
@@ -382,6 +385,26 @@ describe('SavedShowsCalendarLink', () => {
         <SavedShowsCalendarLink placement="section-header" opensFromHash />
       )
       expect(screen.queryByTestId('calendar-panel')).toBeNull()
+    })
+
+    // A failed load of the panel's code falls back to a fresh Library load at
+    // the fragment, except for an open that came from the fragment, which may
+    // itself be that fresh load.
+    it('falls back to a fresh load only for an open the person clicked', async () => {
+      const user = userEvent.setup()
+      window.history.replaceState(null, '', '/library#calendar-feed')
+      renderWithProviders(
+        <SavedShowsCalendarLink placement="section-header" opensFromHash />
+      )
+      expect(mockPanelProps.mock.lastCall![0].onLoadFailed).toBeUndefined()
+
+      await user.click(screen.getByRole('button', { name: 'Close panel' }))
+      await user.click(screen.getByRole('button', { name: 'Add to calendar' }))
+
+      expect(mockPanelProps.mock.lastCall![0]).toMatchObject({
+        open: true,
+        onLoadFailed: reloadIntoCalendarPanel,
+      })
     })
 
     it('closes a panel it opened when the viewer changes', () => {

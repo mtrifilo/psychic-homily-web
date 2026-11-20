@@ -15,6 +15,10 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 import { useUrlHash } from '@/lib/hooks/common/useUrlHash'
 import { cn } from '@/lib/utils'
 import {
+  CALENDAR_ARRIVAL_HASH,
+  reloadIntoCalendarPanel,
+} from './calendarPanelArrival'
+import {
   LazySavedShowsCalendarPanel,
   preloadSavedShowsCalendarPanel,
 } from './LazySavedShowsCalendarPanel'
@@ -35,11 +39,6 @@ const CALENDAR_LINK_LABEL_LIST = Object.values(CALENDAR_LINK_LABELS)
 /** The link's type, shared by the invisible copies that reserve its width. */
 const LINK_TYPE_CLASS = 'font-data text-xs'
 
-/**
- * The fragment that opened the Library's calendar card before the card was
- * replaced by this link. Arriving on a page carrying it opens the panel once.
- */
-const CALENDAR_ARRIVAL_HASH = '#calendar-feed'
 
 /**
  * Where the link sits, as drawn on the boards:
@@ -193,6 +192,12 @@ export function SavedShowsCalendarLink({
           // reserved width is a press outside.
           triggerRef={linkRef}
           align="end"
+          // A failed load of the panel's code is not retried in place (the
+          // bundler may keep the failure); a fresh Library load fetches it and
+          // opens the panel. Not after an open that came from the fragment:
+          // that open may itself be the fresh load, and reloading again would
+          // loop.
+          onLoadFailed={choice === null ? undefined : reloadIntoCalendarPanel}
         />
       ) : null}
     </div>
