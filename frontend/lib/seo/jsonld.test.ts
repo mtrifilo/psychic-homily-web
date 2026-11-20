@@ -503,9 +503,22 @@ describe('generateMusicEventSchema', () => {
       }
     })
 
+    it('drops a blank authored description even when there is nothing to replace it', () => {
+      const schema = generateMusicEventSchema({ ...launchpad, description: '   ', generated_description: null })
+      expect(schema).not.toHaveProperty('description')
+    })
+
     it('emits doorTime in the offset form startDate uses', () => {
       const schema = generateMusicEventSchema(launchpad)
       expect(schema.startDate).toBe('2026-11-21T20:00:00-07:00')
+      expect(schema.doorTime).toBe('2026-11-21T19:00:00-07:00')
+    })
+
+    it('emits doorTime for a zone the state map supplies', () => {
+      const schema = generateMusicEventSchema({
+        ...launchpad,
+        venue: { name: 'Launchpad', city: 'Albuquerque', state: 'NM' },
+      })
       expect(schema.doorTime).toBe('2026-11-21T19:00:00-07:00')
     })
 

@@ -126,9 +126,10 @@ const ANNOUNCED_TIME_WINDOW_MS = 12 * 60 * 60 * 1000
  * start: both readable, within {@link ANNOUNCED_TIME_WINDOW_MS} of each
  * other, and, for doors, not after the start.
  *
- * Nothing re-anchors `doors_at` and `music_at` when `event_date` is edited,
- * so a stored time can name another night. Structured data publishes the
- * whole instant, date included, and asks this before stating one.
+ * `doors_at` and `music_at` are columns of their own, written apart from
+ * `event_date`, so a stored time is not guaranteed to name the start's
+ * night. Structured data publishes the whole instant, date included, and asks
+ * this before stating one.
  */
 export function isAnnouncedTimeOfStart(
   announced: string | null | undefined,

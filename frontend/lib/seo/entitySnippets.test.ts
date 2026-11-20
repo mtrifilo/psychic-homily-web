@@ -528,6 +528,15 @@ describe('showEventDescription', () => {
     ).toBe('Holy Wave at Launchpad, Albuquerque.')
   })
 
+  it('judges the door and music times apart when only one is on the start night', () => {
+    expect(
+      showEventDescription({ ...holyWave, doorsAt: DOORS, musicAt: '2026-11-08T03:00:00Z' })
+    ).toBe('Holy Wave at Launchpad, Albuquerque. Doors 7:00 PM.')
+    expect(
+      showEventDescription({ ...holyWave, doorsAt: '2026-11-08T02:00:00Z', musicAt: MUSIC })
+    ).toBe('Holy Wave at Launchpad, Albuquerque. Music 8:00 PM.')
+  })
+
   it('states no door time after the start', () => {
     expect(
       showEventDescription({ ...holyWave, doorsAt: '2026-11-22T05:00:00Z', musicAt: MUSIC })
