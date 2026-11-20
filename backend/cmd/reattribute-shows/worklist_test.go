@@ -85,7 +85,7 @@ func TestRun_ReportsRefusedRowsAndSendsTheRestInOrder(t *testing.T) {
 	var out bytes.Buffer
 	var sent []string
 
-	tally := run(&out, rows, false, func(r catalog.ShowReattribution) catalog.ShowReattributionResult {
+	tally := run(&report{w: &out}, rows, false, func(r catalog.ShowReattribution) catalog.ShowReattributionResult {
 		sent = append(sent, r.ShowSlug)
 		if r.MergeIntoSlug != "" {
 			return catalog.ShowReattributionResult{ShowSlug: r.ShowSlug, Outcome: catalog.ReattributionFailed, Reason: "boom"}
@@ -111,7 +111,7 @@ func TestRun_ReportsRefusedRowsAndSendsTheRestInOrder(t *testing.T) {
 
 func TestPrintResult_NamesWhatAMergeKeepsAndWhatItRemoves(t *testing.T) {
 	var out bytes.Buffer
-	printResult(&out, worklistRow{Line: 5}, catalog.ShowReattributionResult{
+	printResult(&report{w: &out}, worklistRow{Line: 5}, catalog.ShowReattributionResult{
 		Outcome:            catalog.ReattributionMerged,
 		ShowID:             7,
 		ShowSlug:           "aild-2",
@@ -137,7 +137,7 @@ func TestPrintResult_NamesWhatAMergeKeepsAndWhatItRemoves(t *testing.T) {
 
 func TestPrintResult_WarnsAboutAShowAlreadyAtTheTargetThatNight(t *testing.T) {
 	var out bytes.Buffer
-	printResult(&out, worklistRow{Line: 9}, catalog.ShowReattributionResult{
+	printResult(&report{w: &out}, worklistRow{Line: 9}, catalog.ShowReattributionResult{
 		Outcome:  catalog.ReattributionMoved,
 		ShowSlug: "cenit",
 		SameNightAtTarget: []catalog.ReattributionNeighbour{
@@ -159,7 +159,7 @@ func TestPrintResult_WarnsAboutAShowAlreadyAtTheTargetThatNight(t *testing.T) {
 
 func TestPrintResult_AMergeRowsNeighbourIsNotOfferedAsAMergeTarget(t *testing.T) {
 	var out bytes.Buffer
-	printResult(&out, worklistRow{Line: 4}, catalog.ShowReattributionResult{
+	printResult(&report{w: &out}, worklistRow{Line: 4}, catalog.ShowReattributionResult{
 		Outcome:           catalog.ReattributionMerged,
 		ShowSlug:          "a",
 		MergeIntoID:       2,
@@ -172,7 +172,7 @@ func TestPrintResult_AMergeRowsNeighbourIsNotOfferedAsAMergeTarget(t *testing.T)
 
 func TestPrintResult_ReplacesControlCharactersFromTheDatabase(t *testing.T) {
 	var out bytes.Buffer
-	printResult(&out, worklistRow{Line: 2, Note: "ok\x1b[2K"}, catalog.ShowReattributionResult{
+	printResult(&report{w: &out}, worklistRow{Line: 2, Note: "ok\x1b[2K"}, catalog.ShowReattributionResult{
 		Outcome:   catalog.ReattributionRefused,
 		ShowID:    1,
 		ShowSlug:  "x",
@@ -193,7 +193,7 @@ func TestClean_ReplacesBidiOverridesAndLineSeparators(t *testing.T) {
 
 func TestPrintMergeSummary_PrintsEveryCounterTheMergeFillsAndEveryTable(t *testing.T) {
 	var out bytes.Buffer
-	printMergeSummary(&out, &catalog.ShowDedupSummary{
+	printMergeSummary(&report{w: &out}, &catalog.ShowDedupSummary{
 		LosersMerged:      2,
 		PendingEditsMoved: 3,
 		EntityRefsMoved:   map[string]int64{"user_bookmarks": 4, "comments": 1},
@@ -218,4 +218,27 @@ func TestMergeSummaryFieldsNotSet_NameRealFields(t *testing.T) {
 		_, ok := typ.FieldByName(name)
 		assert.True(t, ok, "ShowDedupSummary has no field %s", name)
 	}
+}
+
+// A merge row refused before its target was read still says it is a merge, and
+// does not offer a neighbour as the merge target.
+func TestPrintResult_ARefusedMergeRowStillNamesItsTarget(t *testing.T) {
+	var out bytes.Buffer
+	printResult(&report{w: &out}, worklistRow{Line: 6}, catalog.ShowReattributionResult{
+		Outcome:           catalog.ReattributionRefused,
+		ShowSlug:          "x",
+		MergeIntoSlug:     "y",
+		Reason:            "n (show 9, approved) at the target room bills one of this show's acts at the same time",
+		SameNightAtTarget: []catalog.ReattributionNeighbour{{ID: 9, Slug: "n", Headliner: "N", Status: "approved", Collides: true}},
+	}, false)
+
+	text := out.String()
+	assert.Contains(t, text, "    merge into: y\n")
+	assert.Contains(t, text, "it stays after this merge")
+	assert.NotContains(t, text, "add it as merge_into_show_slug")
+}
+
+func TestRedactDBHost_DropsCredentials(t *testing.T) {
+	assert.Equal(t, "db.example:5432/app", redactDBHost("postgres://user:secret@db.example:5432/app?sslmode=require"))
+	assert.Equal(t, "<unparseable>", redactDBHost("not a url"))
 }

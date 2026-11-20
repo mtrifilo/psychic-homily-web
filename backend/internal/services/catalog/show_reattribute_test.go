@@ -126,7 +126,8 @@ func (s *ShowReattributeTestSuite) snapshot() string {
 	var out string
 	for _, q := range []string{
 		`SELECT string_agg(show_id || ':' || venue_id, ',' ORDER BY show_id, venue_id) FROM show_venues`,
-		`SELECT string_agg(show_id || ':' || artist_id || ':' || COALESCE(venue_id, 0), ',' ORDER BY show_id, artist_id) FROM show_artists`,
+		`SELECT string_agg(show_id || ':' || artist_id || ':' || COALESCE(venue_id, 0) || ':' || position || ':' ||
+		        COALESCE(set_type, ''), ',' ORDER BY show_id, artist_id) FROM show_artists`,
 		`SELECT string_agg(id || ':' || slug || ':' || updated_at, ',' ORDER BY id) FROM shows`,
 		`SELECT string_agg(entity_id || ':' || user_id || ':' || action, ',' ORDER BY id) FROM user_bookmarks`,
 		`SELECT string_agg(entity_id::text, ',' ORDER BY id) FROM comments`,
@@ -358,7 +359,7 @@ func (s *ShowReattributeTestSuite) TestMerge_RefusesATargetThatIsNotAtTheRoom() 
 		ShowSlug: "wolves", RoomSlug: "sunshine", MergeIntoSlug: "demon-hunter"})
 
 	s.Equal(ReattributionRefused, res.Outcome)
-	s.Contains(res.Reason, "is not at room sunshine")
+	s.Equal("merge target demon-hunter must list exactly one room, sunshine; it lists [el-rey]", res.Reason)
 	s.Equal(before, s.snapshot())
 }
 
@@ -585,7 +586,9 @@ func (s *ShowReattributeTestSuite) TestMerge_AFailureLeavesBothShowsAsTheyWere()
 	aild := s.artist("As I Lay Dying")
 	support := s.artist("Kill The Lights")
 	s.show("aild", albuquerqueEvening, sunshine.ID, aild.ID)
-	loser := s.show("aild-2", albuquerqueEvening, launchpad.ID, aild.ID, support.ID)
+	// The loser headlines with the act the winner lacks, so the bill rewrite
+	// changes it (headliner at 0 to performer at 1) before the merge fails.
+	loser := s.show("aild-2", albuquerqueEvening, launchpad.ID, support.ID, aild.ID)
 	u := s.user("commenter@test.local")
 	var commentID uint
 	s.Require().NoError(s.db.Raw(`INSERT INTO comments (entity_type, entity_id, user_id, body, body_html)
@@ -596,6 +599,7 @@ func (s *ShowReattributeTestSuite) TestMerge_AFailureLeavesBothShowsAsTheyWere()
 	// after the rooms and bill have already been rewritten.
 	holder := s.db.Begin()
 	s.Require().NoError(holder.Error)
+	defer func() { _ = holder.Rollback() }()
 	s.Require().NoError(holder.Exec(`SELECT id FROM comments WHERE id = ? FOR UPDATE`, commentID).Error)
 
 	var res ShowReattributionResult
@@ -667,6 +671,25 @@ func (s *ShowReattributeTestSuite) TestRefusesACrossCityMove() {
 
 	state := ReattributeShow(s.db, ShowReattribution{ShowSlug: "sage", RoomSlug: "launchpad-tx"})
 	s.Equal(ReattributionRefused, state.Outcome, "the same city name in another state is another city")
+	s.Equal(before, s.snapshot())
+}
+
+// A merge target at a second room would take the show's acts there too, where
+// the collision check does not look, so it is refused.
+func (s *ShowReattributeTestSuite) TestMerge_RefusesATargetWithASecondRoom() {
+	launchpad := s.room("launchpad", "Launchpad", "Albuquerque", "NM")
+	sunshine := s.room("sunshine", "Sunshine Theater", "Albuquerque", "NM")
+	elRey := s.room("el-rey", "El Rey Theater", "Albuquerque", "NM")
+	a := s.artist("Two Room Winner")
+	winner := s.show("winner", albuquerqueEvening, sunshine.ID, a.ID)
+	s.Require().NoError(s.db.Exec(`INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)`, winner, elRey.ID).Error)
+	s.show("loser", albuquerqueEvening, launchpad.ID, a.ID)
+	before := s.snapshot()
+
+	res := ReattributeShow(s.db, ShowReattribution{ShowSlug: "loser", RoomSlug: "sunshine", MergeIntoSlug: "winner"})
+
+	s.Equal(ReattributionRefused, res.Outcome)
+	s.Equal("merge target winner must list exactly one room, sunshine; it lists [sunshine, el-rey]", res.Reason)
 	s.Equal(before, s.snapshot())
 }
 

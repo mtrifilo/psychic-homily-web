@@ -56,6 +56,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/url"
 	"os"
 	"reflect"
 	"sort"
@@ -82,7 +83,7 @@ func main() {
 	dryRun := flag.Bool("dry-run", false, "Preview the worklist and roll it back (the default without --confirm)")
 	envFile := flag.String("env", "", "Path to .env file (defaults to .env.development / .env)")
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "usage: reattribute-shows [--dry-run | --confirm] [--env FILE] WORKLIST.csv\n")
+		_, _ = fmt.Fprintln(flag.CommandLine.Output(), "usage: reattribute-shows [--dry-run | --confirm] [--env FILE] WORKLIST.csv")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -91,19 +92,19 @@ func main() {
 		os.Exit(exitUsage)
 	}
 	if *confirm && *dryRun {
-		fmt.Fprintln(os.Stderr, "--dry-run and --confirm cannot be combined")
+		_, _ = fmt.Fprintln(os.Stderr, "--dry-run and --confirm cannot be combined")
 		os.Exit(exitUsage)
 	}
 
 	f, err := os.Open(flag.Arg(0))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "open worklist: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "open worklist: %v\n", err)
 		os.Exit(exitUsage)
 	}
 	rows, err := parseWorklist(f)
 	_ = f.Close()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "worklist %s: %v\n", flag.Arg(0), err)
+		_, _ = fmt.Fprintf(os.Stderr, "worklist %s: %v\n", flag.Arg(0), err)
 		os.Exit(exitUsage)
 	}
 
@@ -116,24 +117,38 @@ func main() {
 		fatal("connect db: %v", err)
 	}
 
+	// Named before any row runs, in both modes: an exported DATABASE_URL wins
+	// over the --env file, so the file loaded is not proof of the target.
+	target := fmt.Sprintf("Target: ENVIRONMENT=%q  db=%s\n\n",
+		os.Getenv(config.EnvEnvironment), redactDBHost(cfg.Database.URL))
+	if _, err := os.Stdout.WriteString(target); err != nil {
+		fatal("write the report: %v", err)
+	}
+
 	database := db.GetDB()
-	// A failed row reports the database's own error, constraint name and detail
-	// included, rather than the bare sentinel GORM translates it to.
+	// A failed row reports the database's own error, which names the constraint
+	// (and, through ReattributeShow, the key that collided), rather than the
+	// bare sentinel GORM translates it to.
 	database.TranslateError = false
 	var tally runTally
 	if *confirm {
-		tally = run(os.Stdout, rows, true, func(r catalog.ShowReattribution) catalog.ShowReattributionResult {
+		live := &report{w: os.Stdout}
+		tally = run(live, rows, true, func(r catalog.ShowReattribution) catalog.ShowReattributionResult {
 			return catalog.ReattributeShow(database, r)
 		})
+		if live.err != nil {
+			fatal("write the report (every row processed before the failure is applied): %v", live.err)
+		}
 	} else {
-		var out bytes.Buffer
+		var buf bytes.Buffer
+		out := &report{w: &buf}
 		err := database.Transaction(func(tx *gorm.DB) error {
 			for _, stmt := range dryRunTimeouts {
 				if err := tx.Exec(stmt).Error; err != nil {
 					return err
 				}
 			}
-			tally = run(&out, rows, false, func(r catalog.ShowReattribution) catalog.ShowReattributionResult {
+			tally = run(out, rows, false, func(r catalog.ShowReattribution) catalog.ShowReattributionResult {
 				return catalog.ReattributeShow(tx, r)
 			})
 			return errDryRun
@@ -141,7 +156,9 @@ func main() {
 		if !errors.Is(err, errDryRun) {
 			fatal("dry run could not start: %v", err)
 		}
-		_, _ = os.Stdout.Write(out.Bytes())
+		if _, err := os.Stdout.Write(buf.Bytes()); err != nil {
+			fatal("write the dry-run report: %v", err)
+		}
 	}
 	if tally.refused+tally.failed > 0 {
 		os.Exit(exitRowsRefused)
@@ -156,6 +173,21 @@ var dryRunTimeouts = []string{
 	"SET LOCAL lock_timeout = '5s'",
 	"SET LOCAL statement_timeout = '60s'",
 	"SET LOCAL idle_in_transaction_session_timeout = '60s'",
+}
+
+// report writes the run's report and keeps the first write error, so a report
+// that could not be written is noticed once, at the end, rather than at every
+// line.
+type report struct {
+	w   io.Writer
+	err error
+}
+
+func (r *report) f(format string, args ...interface{}) {
+	if r.err != nil {
+		return
+	}
+	_, r.err = fmt.Fprintf(r.w, format, args...)
 }
 
 // errDryRun rolls back the dry run's outer transaction.
@@ -174,12 +206,12 @@ type runTally struct {
 // run applies, or previews, every row in file order and prints one block per
 // row followed by the totals. confirm only chooses the wording; what is written
 // is decided by reattribute.
-func run(w io.Writer, rows []worklistRow, confirm bool, reattribute reattributeFunc) runTally {
+func run(w *report, rows []worklistRow, confirm bool, reattribute reattributeFunc) runTally {
 	mode := "DRY RUN: the whole file runs and is rolled back"
 	if confirm {
 		mode = "LIVE: each row commits on its own"
 	}
-	fmt.Fprintf(w, "=== Re-attribute shows (%s) ===\n\n", mode)
+	w.f("=== Re-attribute shows (%s) ===\n\n", mode)
 
 	var tally runTally
 	for _, row := range rows {
@@ -214,53 +246,56 @@ func (t *runTally) count(res catalog.ShowReattributionResult) {
 	}
 }
 
-func printResult(w io.Writer, row worklistRow, res catalog.ShowReattributionResult, confirm bool) {
+func printResult(w *report, row worklistRow, res catalog.ShowReattributionResult, confirm bool) {
 	label := strings.ToUpper(string(res.Outcome))
 	if !confirm && (res.Outcome == catalog.ReattributionMoved || res.Outcome == catalog.ReattributionMerged) {
 		label = "WOULD BE " + label
 	}
-	fmt.Fprintf(w, "line %d  %s  %s", row.Line, label, clean(res.ShowSlug))
+	w.f("line %d  %s  %s", row.Line, label, clean(res.ShowSlug))
 	if res.ShowID != 0 {
-		fmt.Fprintf(w, " (show %d, %s", res.ShowID, res.ShowStatus)
+		w.f(" (show %d, %s", res.ShowID, res.ShowStatus)
 		if res.Headliner != "" {
-			fmt.Fprintf(w, ", %s", clean(res.Headliner))
+			w.f(", %s", clean(res.Headliner))
 		}
 		if res.VenueLocalDate != "" {
-			fmt.Fprintf(w, ", %s", res.VenueLocalDate)
+			w.f(", %s", res.VenueLocalDate)
 		}
-		fmt.Fprint(w, ")")
+		w.f(")")
 	}
-	fmt.Fprintln(w)
+	w.f("\n")
 
 	if res.CurrentRoom != nil || res.TargetRoom != nil {
-		fmt.Fprintf(w, "    room: %s -> %s\n", roomLabel(res.CurrentRoom), roomLabel(res.TargetRoom))
+		w.f("    room: %s -> %s\n", roomLabel(res.CurrentRoom), roomLabel(res.TargetRoom))
 	}
-	if res.MergeIntoID != 0 {
-		fmt.Fprintf(w, "    merge into: %s (show %d, %s, %s)\n",
+	merging := res.MergeIntoSlug != ""
+	switch {
+	case res.MergeIntoID != 0:
+		w.f("    merge into: %s (show %d, %s, %s)\n",
 			clean(res.MergeIntoSlug), res.MergeIntoID, res.MergeIntoStatus, clean(res.MergeIntoHeadliner))
+	case merging:
+		w.f("    merge into: %s\n", clean(res.MergeIntoSlug))
 	}
-	merging := res.MergeIntoID != 0
 	switch res.Outcome {
 	case catalog.ReattributionMoved:
-		fmt.Fprintf(w, "    slug: kept as %s (it names the old room)\n", clean(res.ShowSlug))
+		w.f("    slug: kept as %s (it names the old room)\n", clean(res.ShowSlug))
 	case catalog.ReattributionMerged:
-		fmt.Fprintf(w, "    %s keeps its slug, headliner and bill order; %s stops answering\n",
+		w.f("    %s keeps its slug, headliner and bill order; %s stops answering\n",
 			clean(res.MergeIntoSlug), clean(res.ShowSlug))
 		for _, act := range res.ActsAddedToWinner {
-			fmt.Fprintf(w, "    act added to its bill: %s (%s, position %d)\n", clean(act.Name), act.SetType, act.Position)
+			w.f("    act added to its bill: %s (%s, position %d)\n", clean(act.Name), act.SetType, act.Position)
 		}
 	}
 	for _, n := range res.SameNightAtTarget {
-		fmt.Fprintf(w, "    WARNING: %s (show %d, %s, %s) is also at the target room that night; %s\n",
+		w.f("    WARNING: %s (show %d, %s, %s) is also at the target room that night; %s\n",
 			clean(n.Slug), n.ID, n.Status, clean(n.Headliner), neighbourAdvice(n, merging))
 	}
 	if res.Reason != "" {
-		fmt.Fprintf(w, "    reason: %s\n", clean(res.Reason))
+		w.f("    reason: %s\n", clean(res.Reason))
 	}
 	if row.Note != "" {
-		fmt.Fprintf(w, "    note: %s\n", clean(row.Note))
+		w.f("    note: %s\n", clean(row.Note))
 	}
-	fmt.Fprintln(w)
+	w.f("\n")
 }
 
 // neighbourAdvice says what a reviewer can do about another show at the target
@@ -297,25 +332,25 @@ func clean(s string) string {
 	}, s)
 }
 
-func printTotals(w io.Writer, t *runTally, confirm bool) {
+func printTotals(w *report, t *runTally, confirm bool) {
 	verb := "would be"
 	if confirm {
 		verb = "were"
 	}
-	fmt.Fprintln(w, "=== Totals ===")
-	fmt.Fprintf(w, "moved:     %d %s moved\n", t.moved, verb)
-	fmt.Fprintf(w, "merged:    %d %s merged\n", t.merged, verb)
-	fmt.Fprintf(w, "unchanged: %d already at their room\n", t.unchanged)
-	fmt.Fprintf(w, "refused:   %d\n", t.refused)
-	fmt.Fprintf(w, "failed:    %d\n", t.failed)
+	w.f("=== Totals ===\n")
+	w.f("moved:     %d %s moved\n", t.moved, verb)
+	w.f("merged:    %d %s merged\n", t.merged, verb)
+	w.f("unchanged: %d already at their room\n", t.unchanged)
+	w.f("refused:   %d\n", t.refused)
+	w.f("failed:    %d\n", t.failed)
 	if t.merged > 0 {
-		fmt.Fprintln(w, "merge references (from the merges above):")
-		fmt.Fprintf(w, "  %-22s %d\n", "merged shows' rooms cleared:", t.roomRowsCleared)
+		w.f("merge references (from the merges above):\n")
+		w.f("  %-22s %d\n", "RoomRowsCleared:", t.roomRowsCleared)
 		printMergeSummary(w, &t.mergeSummary)
 	}
 	if !confirm {
-		fmt.Fprintln(w, "\nDRY RUN: nothing was written. Log lines printed above this report describe the rolled-back preview.")
-		fmt.Fprintln(w, "Re-run with --confirm to apply.")
+		w.f("\nDRY RUN: nothing was written. Log lines printed above this report describe the rolled-back preview.\n")
+		w.f("Re-run with --confirm to apply.\n")
 	}
 }
 
@@ -334,7 +369,7 @@ var mergeSummaryFieldsNotSet = map[string]bool{
 // reattribution never fills, one per line, then the per-table reference counts
 // in name order. It walks the struct rather than naming fields, so a counter
 // added to ShowDedupSummary is printed without a change here.
-func printMergeSummary(w io.Writer, s *catalog.ShowDedupSummary) {
+func printMergeSummary(w *report, s *catalog.ShowDedupSummary) {
 	v := reflect.ValueOf(*s)
 	for i := 0; i < v.NumField(); i++ {
 		name := v.Type().Field(i).Name
@@ -344,7 +379,7 @@ func printMergeSummary(w io.Writer, s *catalog.ShowDedupSummary) {
 		}
 		switch f.Kind() {
 		case reflect.Int, reflect.Int64:
-			fmt.Fprintf(w, "  %-22s %d\n", name+":", f.Int())
+			w.f("  %-22s %d\n", name+":", f.Int())
 		}
 	}
 	tables := make([]string, 0, len(s.EntityRefsMoved))
@@ -353,8 +388,18 @@ func printMergeSummary(w io.Writer, s *catalog.ShowDedupSummary) {
 	}
 	sort.Strings(tables)
 	for _, table := range tables {
-		fmt.Fprintf(w, "  %-22s moved=%d skipped=%d\n", table+":", s.EntityRefsMoved[table], s.EntityRefsDropped[table])
+		w.f("  %-22s moved=%d skipped=%d\n", table+":", s.EntityRefsMoved[table], s.EntityRefsDropped[table])
 	}
+}
+
+// redactDBHost reduces a database URL to host[:port]/dbname, dropping any
+// credentials, so the target can be printed.
+func redactDBHost(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return "<unparseable>"
+	}
+	return u.Host + u.Path
 }
 
 func fatal(format string, args ...interface{}) {
@@ -365,7 +410,7 @@ func fatal(format string, args ...interface{}) {
 func loadEnv(envFile string) {
 	if envFile != "" {
 		if err := godotenv.Load(envFile); err != nil {
-			fmt.Fprintf(os.Stderr, "load env file %s: %v\n", envFile, err)
+			_, _ = fmt.Fprintf(os.Stderr, "load env file %s: %v\n", envFile, err)
 			os.Exit(exitUsage)
 		}
 		log.Printf("loaded env from %s", envFile)

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -162,6 +163,13 @@ func ReattributeShow(db *gorm.DB, row ShowReattribution) ShowReattributionResult
 	default:
 		res.Outcome = ReattributionFailed
 		res.Reason = err.Error()
+		// A Postgres error's message names the constraint; its detail names the
+		// row (the key that collided), which is what a reviewer needs to fix
+		// the worklist row.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Detail != "" {
+			res.Reason += " (" + pgErr.Detail + ")"
+		}
 	}
 	return res
 }
@@ -243,6 +251,24 @@ func reattributeInTx(tx *gorm.DB, row ShowReattribution, res *ShowReattributionR
 	localDate := venueRowLocalDate(show.EventDate, target.Timezone, target.State)
 	res.VenueLocalDate = localDate
 
+	// A merge target must list exactly the one room the show moves to. The
+	// merge copies the show's acts onto every room the target lists, and the
+	// collision check below reads the target room only.
+	if winnerID != 0 {
+		winnerRooms, err := showRooms(tx, winnerID)
+		if err != nil {
+			return err
+		}
+		if len(winnerRooms) != 1 || winnerRooms[0].ID != target.ID {
+			listed := make([]string, len(winnerRooms))
+			for i := range winnerRooms {
+				listed[i] = shared.DerefOrEmpty(winnerRooms[i].Slug)
+			}
+			return refuse("merge target %s must list exactly one room, %s; it lists [%s]",
+				row.MergeIntoSlug, row.RoomSlug, strings.Join(listed, ", "))
+		}
+	}
+
 	if winnerID == 0 && current.ID == target.ID {
 		res.Outcome = ReattributionUnchanged
 		res.Reason = "already at the target room"
@@ -286,8 +312,9 @@ func reattributeInTx(tx *gorm.DB, row ShowReattribution, res *ShowReattributionR
 	return nil
 }
 
-// mergeIntoCopy folds the row's show into the named winner, which must already
-// be at the target room on the same venue-local date.
+// mergeIntoCopy folds the row's show into the named winner, which the caller
+// has checked lists exactly the target room, and which must be on the same
+// venue-local date.
 //
 // The loser's room rows are removed BEFORE the merge. MergeDuplicateShow
 // re-points the loser's show_venues onto the winner, which here would hand the
@@ -305,17 +332,6 @@ func mergeIntoCopy(tx *gorm.DB, loser, winner *catalogm.Show, target *catalogm.V
 	if loser.Status != catalogm.ShowStatusApproved || winner.Status != catalogm.ShowStatusApproved {
 		return refuse("both shows must be approved to merge; the show is %s and the merge target is %s",
 			loser.Status, winner.Status)
-	}
-
-	var atTarget int64
-	if err := tx.Model(&catalogm.ShowVenue{}).
-		Where("show_id = ? AND venue_id = ?", winner.ID, target.ID).
-		Count(&atTarget).Error; err != nil {
-		return fmt.Errorf("check merge target room: %w", err)
-	}
-	if atTarget == 0 {
-		return refuse("merge target %s is not at room %s",
-			shared.DerefOrEmpty(winner.Slug), shared.DerefOrEmpty(target.Slug))
 	}
 
 	winnerDate := venueRowLocalDate(winner.EventDate, target.Timezone, target.State)
