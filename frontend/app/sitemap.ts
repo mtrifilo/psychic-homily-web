@@ -26,9 +26,9 @@
  *
  * The route mode is CONDITIONAL on whether the build-time fetch succeeds, and
  * the build's fetch Data Cache is a second input. All four rows measured by
- * build → `next start` → kill the backend → curl. The latest count each row
- * was measured at is recorded in lib/sitemap-prerender/check.ts; read the
- * counts below as the count they were taken at:
+ * build → `next start` → kill the backend → curl. Rows 1 and 3 have a
+ * last-measured shard count recorded in lib/sitemap-prerender/check.ts; rows 2
+ * and 4 were not counted:
  *
  *   Backend reachable at build time (the normal production path):
  *     ├ ● /sitemap/[__metadata_id__]         1h      1y
