@@ -772,6 +772,27 @@ func (suite *CalendarIntegrationTestSuite) TestCreateToken_Success() {
 	suite.NotZero(resp.CreatedAt)
 }
 
+// The CreatedAt a mint returns is the instant the database stored, even when
+// the clock reads finer than the microseconds timestamptz keeps (as Linux's
+// does).
+func (suite *CalendarIntegrationTestSuite) TestCreateToken_CreatedAtIsTheStoredInstant() {
+	user := suite.createTestUser(true)
+	clock := time.Date(2026, time.November, 19, 12, 0, 0, 123456789, time.UTC)
+	svc := &CalendarService{
+		db:           suite.db.Session(&gorm.Session{NowFunc: func() time.Time { return clock }}),
+		savedShowSvc: suite.svc.savedShowSvc,
+	}
+
+	minted, err := svc.CreateToken(user.ID, user.SessionsValidAfter, "http://localhost:8080")
+	suite.Require().NoError(err)
+
+	suite.True(minted.CreatedAt.Equal(clock.Truncate(time.Microsecond)), "got %s", minted.CreatedAt)
+	status, err := suite.svc.GetTokenStatus(user.ID, "http://localhost:8080")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(status.CreatedAt)
+	suite.True(minted.CreatedAt.Equal(*status.CreatedAt), "minted %s, stored %s", minted.CreatedAt, *status.CreatedAt)
+}
+
 func (suite *CalendarIntegrationTestSuite) TestCreateToken_ReplacesExisting() {
 	user := suite.createTestUser(true)
 

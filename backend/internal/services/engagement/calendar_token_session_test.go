@@ -4,6 +4,7 @@ import (
 	"errors"
 	"time"
 
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
@@ -116,7 +117,8 @@ func (suite *CalendarIntegrationTestSuite) TestCreateToken_AccountThatMayNotSign
 
 // The other order: a revocation that starts after the mint has locked the
 // account waits for the mint to commit, then deletes the token the mint
-// wrote, so the token never outlives the revocation.
+// wrote, so the token never outlives the revocation. The mint still returns
+// the token it wrote.
 func (suite *CalendarIntegrationTestSuite) TestCreateToken_RevocationThatStartsDuringTheMintEvictsItsToken() {
 	user := suite.createTestUser(true)
 
@@ -145,4 +147,32 @@ func (suite *CalendarIntegrationTestSuite) TestCreateToken_RevocationThatStartsD
 	suite.Zero(suite.tokenRows(user.ID), "the revocation deletes the token the mint wrote")
 	_, err = suite.svc.ValidateCalendarToken(resp.Token)
 	suite.Error(err)
+}
+
+// A mint reads nothing from calendar_tokens once its transaction has
+// committed, so a revocation that deletes the token at that instant cannot
+// fail the mint. The hook plays that revocation before any such read.
+func (suite *CalendarIntegrationTestSuite) TestCreateToken_ReadsNoTokenAfterItCommits() {
+	user := suite.createTestUser(true)
+	sqlDB, err := suite.db.DB()
+	suite.Require().NoError(err)
+	hooked, err := gorm.Open(postgres.New(postgres.Config{Conn: sqlDB}), &gorm.Config{TranslateError: true})
+	suite.Require().NoError(err)
+
+	readAfterCommit := false
+	suite.Require().NoError(hooked.Callback().Query().Before("gorm:query").Register("test:revoke_before_read_after_commit", func(inFlight *gorm.DB) {
+		if _, inTransaction := inFlight.Statement.ConnPool.(gorm.TxCommitter); inTransaction || inFlight.Statement.Table != "calendar_tokens" {
+			return
+		}
+		readAfterCommit = true
+		_, err := DeleteCalendarTokensTx(suite.db, user.ID)
+		suite.Require().NoError(err)
+	}))
+	svc := &CalendarService{db: hooked, savedShowSvc: suite.svc.savedShowSvc}
+
+	resp, err := svc.CreateToken(user.ID, user.SessionsValidAfter, "http://localhost:8080")
+
+	suite.Require().NoError(err)
+	suite.NotEmpty(resp.Token)
+	suite.False(readAfterCommit, "the mint read calendar_tokens after its transaction committed")
 }
