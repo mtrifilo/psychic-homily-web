@@ -1,4 +1,5 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, afterEach } from "bun:test";
+import { processBatch } from "../src/commands/batch";
 import {
   applyEventDateBound,
   buildShowPayload,
@@ -45,8 +46,9 @@ function catalog(showsByTicket: Record<string, unknown[]> = {}) {
   return { get, calls };
 }
 
-function show(eventDate: string, ticket = TICKET) {
+function show(eventDate: string, ticket = TICKET, extra: Record<string, unknown> = {}) {
   return {
+    ...extra,
     event_date: eventDate,
     city: "San Francisco",
     state: "CA",
@@ -84,6 +86,7 @@ describe("far-future bound in the show plan", () => {
     expect(far.valid).toBe(false);
     expect(far.errors.join(" ")).toContain("more than 18 months ahead");
     expect(far.errors.join(" ")).toContain("--allow-far-future");
+    expect(far.errors.join(" ")).toContain(`"allow_far_future_date": true`);
     expect(result.plans[1].valid).toBe(true);
     expect(result.created).toBe(1);
     expect(posts).toHaveLength(0);
@@ -97,18 +100,43 @@ describe("far-future bound in the show plan", () => {
     expect(posts).toHaveLength(0);
   });
 
-  test("--allow-far-future sends the override only on the shows past the bound", async () => {
+  test("--allow-far-future sends the override only on a marked show past the bound", async () => {
     const { get } = catalog();
     const posts: Array<Record<string, unknown>> = [];
     const result = await submitShows(
       client(get, posts),
-      JSON.stringify([show("2028-10-03"), show("2027-10-03", "https://tix.example/other")]),
+      JSON.stringify([
+        show("2028-10-03", TICKET, { allow_far_future_date: true }),
+        show("2027-10-03", "https://tix.example/other", { allow_far_future_date: true }),
+      ]),
       true,
       { now: NOW, allowFarFuture: true },
     );
     expect(result.created).toBe(2);
     expect(posts[0].allow_far_future_date).toBe(true);
     expect("allow_far_future_date" in posts[1]).toBe(false);
+  });
+
+  test("the flag alone does not lift the bound for an unmarked show", async () => {
+    const { get } = catalog();
+    const posts: unknown[] = [];
+    const result = await submitShows(
+      client(get, posts),
+      JSON.stringify([show("2028-10-03", TICKET, { allow_far_future_date: true }), show("2029-10-03", "https://tix.example/b")]),
+      true,
+      { now: NOW, allowFarFuture: true },
+    );
+    expect(result.created).toBe(1);
+    expect(result.plans[1].valid).toBe(false);
+    expect(result.plans[1].errors.join(" ")).toContain("does not carry");
+    expect(posts).toHaveLength(1);
+  });
+
+  test("a marked show without the flag is still refused", async () => {
+    const { get } = catalog();
+    const result = await submitShows(client(get), JSON.stringify([show("2028-10-03", TICKET, { allow_far_future_date: true })]), true, { now: NOW });
+    expect(result.plans[0].valid).toBe(false);
+    expect(result.plans[0].errors.join(" ")).toContain("re-run with --allow-far-future");
   });
 
   test("a duplicate is not judged: nothing is created for it", () => {
@@ -135,8 +163,6 @@ describe("ticket URL reuse", () => {
         { id: 18065, slug: "2026-10-03-igorrr", event_date: "2026-10-04T03:00:00Z", ticket_url: TICKET, venues: [{ id: 7, name: "Great American Music Hall" }] },
         // Another room.
         { id: 5, slug: "elsewhere", event_date: "2027-01-01T03:00:00Z", ticket_url: TICKET, venues: [{ id: 99, name: "Elsewhere" }] },
-        // A server that ignored the filter: a different ticket URL is never a flag.
-        { id: 6, slug: "unrelated", event_date: "2027-02-01T03:00:00Z", ticket_url: "https://tix.example/x", venues: [{ id: 7, name: "Great American Music Hall" }] },
       ],
     });
     const posts: unknown[] = [];
@@ -177,6 +203,27 @@ describe("ticket URL reuse", () => {
     expect(result.plans[0].ticketReuseNote).toContain("HTTP 500");
   });
 
+  test("a server that ignores the filter is detected after one page, not flagged", async () => {
+    let lookups = 0;
+    const get = async (path: string, params?: Record<string, string>) => {
+      if (params?.ticket_url) {
+        lookups++;
+        return {
+          shows: Array.from({ length: 200 }, (_, i) => ({
+            id: i + 1, event_date: "2027-01-01T03:00:00Z", ticket_url: `https://other.example/${i}`,
+            venues: [{ id: 7, name: "Great American Music Hall" }],
+          })),
+          total: 5000,
+        };
+      }
+      return catalog().get(path, params);
+    };
+    const result = await submitShows(client(get), JSON.stringify([show("2026-10-03")]), false, { now: NOW });
+    expect(lookups).toBe(1);
+    expect(result.plans[0].ticketReuse).toBeUndefined();
+    expect(result.plans[0].ticketReuseNote).toContain("does not filter");
+  });
+
   test("findTicketURLReuse skips the call without a ticket URL or a matched room", async () => {
     let called = false;
     const c = client(async () => {
@@ -196,5 +243,61 @@ describe("ticket URL reuse", () => {
       { ticketUrl: TICKET, venueKeys: ["id:8"], day: "2027-10-03" },
     ]);
     expect(out.size).toBe(0);
+  });
+});
+
+describe("ph batch carries the far-future option and prints the flags", () => {
+  const realFetch = globalThis.fetch;
+  const realWrite = process.stderr.write.bind(process.stderr);
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+    process.stderr.write = realWrite;
+  });
+
+  async function runBatch(confirm: boolean, allowFarFuture: boolean) {
+    const posts: Array<Record<string, unknown>> = [];
+    const { get } = catalog({
+      [TICKET]: [
+        { id: 18089, slug: "2026-10-03-igorrr", event_date: "2026-10-04T03:00:00Z", ticket_url: TICKET, venues: [{ id: 7, name: "Great American Music Hall" }] },
+      ],
+    });
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (init?.method === "POST" && url.pathname === "/shows") {
+        posts.push(JSON.parse(String(init.body)));
+        return new Response(JSON.stringify({ id: 901, slug: "created" }), { status: 200 });
+      }
+      const params = Object.fromEntries(url.searchParams.entries());
+      const body = await get(url.pathname, params);
+      return new Response(JSON.stringify(body ?? {}), { status: 200 });
+    }) as typeof fetch;
+    let out = "";
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      out += String(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+
+    const items = [
+      { entity_type: "show", ...show("2027-10-03") },
+      { entity_type: "show", ...show("2028-10-03", "https://tix.example/far", { allow_far_future_date: true }) },
+    ] as unknown as Parameters<typeof processBatch>[0];
+    await processBatch(items, { url: "http://api.test", token: "phk_test" }, confirm, { now: NOW, allowFarFuture });
+    return { out, posts };
+  }
+
+  test("the dry run prints the ticket URL flag and the bound refusal", async () => {
+    const { out, posts } = await runBatch(false, false);
+    expect(out).toContain("ticket URL already sells show 18089");
+    expect(out).toContain("more than 18 months ahead");
+    expect(posts).toHaveLength(0);
+  });
+
+  test("a confirmed batch with the flag sends the override for the marked show", async () => {
+    const { posts } = await runBatch(true, true);
+    expect(posts).toHaveLength(2);
+    const far = posts.find((p) => p.ticket_url === "https://tix.example/far");
+    expect(far?.allow_far_future_date).toBe(true);
+    const near = posts.find((p) => p.ticket_url === TICKET);
+    expect(near && "allow_far_future_date" in near).toBe(false);
   });
 });

@@ -1,11 +1,15 @@
 package catalog
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -14,14 +18,23 @@ import (
 )
 
 // A year-replicated show is one event written once per year: the same rooms,
-// the same headliner, the same ticket URL and the same venue-local month and
-// day, in several venue-local years. This file finds those groups and removes
+// the same headliner, the same venue-local month and day and the same ticket
+// URL, in several venue-local years. This file finds those groups and removes
 // every copy but one through DeleteShow, so each removal runs the same
 // reference sweep an admin delete does.
 //
 // The planner is deliberately narrow. A group is only acted on when nothing
 // about it is ambiguous; everything else is reported with the reason it was
-// left alone, for a human to decide.
+// left alone, for a human to decide. In particular a group is acted on only
+// when its copies carry one origin (source and submitter), one ticket URL, at
+// least one copy past the far-future bound, and copies to delete that were
+// written within replicaCreatedWindow of each other: the signature of one
+// write that fanned a date out across years, as opposed to a show that really
+// recurs or a show someone else submitted.
+
+// replicaCreatedWindow is how close together the copies a group deletes must
+// have been created.
+const replicaCreatedWindow = 10 * time.Minute
 
 // ReplicatedShowCopy is one approved show inside a replicated group, or one
 // show dated past the bound that belongs to no group.
@@ -36,9 +49,13 @@ type ReplicatedShowCopy struct {
 	TicketURL     string
 	VenueName     string
 	HeadlinerName string
+	Source        string
+	// SubmittedBy is the submitting user's id, 0 when the column is NULL.
+	SubmittedBy uint
 
-	// Refs counts the polymorphic reference rows naming this show, per table,
-	// over the same inventory DeleteShow sweeps; only non-zero tables appear.
+	// Refs counts the rows that name this show, per table: the polymorphic
+	// inventory DeleteShow sweeps, the alert rows beside it, and the foreign
+	// keys a delete cascades or nulls. Only non-zero tables appear.
 	Refs []ReplicaRefCount
 
 	venueIDs    string
@@ -46,8 +63,9 @@ type ReplicatedShowCopy struct {
 	localToday  string
 }
 
-// ReplicaRefCount is how many rows in one reference table name a show, and
-// whether DeleteShow drops them or keeps them as tombstones.
+// ReplicaRefCount is how many rows in one table name a show, and whether
+// deleting the show removes or rewrites them (Dropped) or keeps them as
+// tombstones.
 type ReplicaRefCount struct {
 	Table   string
 	Dropped bool
@@ -55,7 +73,7 @@ type ReplicaRefCount struct {
 }
 
 // ReplicatedShowGroup is every approved show sharing one (rooms, headliner,
-// venue-local month and day) key, two or more of them.
+// venue-local month and day) key across two or more venue-local years.
 type ReplicatedShowGroup struct {
 	VenueName     string
 	HeadlinerName string
@@ -93,14 +111,42 @@ type ReplicatedShowPlan struct {
 	Beyond []ReplicatedShowCopy
 }
 
+// Digest names the plan's deletions: every actionable group's survivor and
+// deletion set, order-independent. Two plans with the same digest delete the
+// same shows and keep the same survivors.
+func (p *ReplicatedShowPlan) Digest() string {
+	lines := make([]string, 0, len(p.Groups))
+	for _, g := range p.Groups {
+		if !g.Actionable() {
+			continue
+		}
+		ids := make([]string, len(g.DeleteIDs))
+		for i, id := range g.DeleteIDs {
+			ids[i] = strconv.FormatUint(uint64(id), 10)
+		}
+		lines = append(lines, fmt.Sprintf("keep %d delete %s", g.KeepID, strings.Join(ids, ",")))
+	}
+	sort.Strings(lines)
+	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
+	return hex.EncodeToString(sum[:8])
+}
+
 // Skip reasons. Each names the condition that keeps a group untouched.
 const (
+	replicaSkipMixedOrigin      = "the copies do not share one source and submitter"
 	replicaSkipNoTicketURL      = "a copy has no ticket URL"
 	replicaSkipTicketURLsDiffer = "the copies do not share one ticket URL"
 	replicaSkipSameYear         = "two copies fall in the same venue-local year"
-	replicaSkipPastYear         = "a copy is dated in a venue-local year before the current one"
+	replicaSkipNoCurrentYear    = "the venue-local current year could not be read"
+	replicaSkipPastYear         = "a copy is dated in a venue-local year before the current one, so the earliest copy may be the original; decide by hand"
 	replicaSkipNoNearCopy       = "no copy is in the current or the next venue-local year"
+	replicaSkipNoFarCopy        = "no copy is dated past the far-future bound"
+	replicaSkipCreatedApart     = "the copies to delete were not created within 10 minutes of each other"
 )
+
+// ticketURLTrimSQL is the whitespace set stripped from a stored ticket_url
+// before it is compared, matching what strings.TrimSpace strips from a query.
+const ticketURLTrimSQL = `E' \t\n\r\f\v'`
 
 // replicaRowsSQL reads every approved show with its grouping key. Rooms are the
 // FULL sorted set of show_venues ids, so two shows group only when they are at
@@ -115,7 +161,9 @@ SELECT shows.id AS show_id,
        COALESCE(shows.slug, '') AS slug,
        shows.event_date AS event_date,
        shows.created_at AS created_at,
-       COALESCE(btrim(shows.ticket_url), '') AS ticket_url,
+       COALESCE(btrim(shows.ticket_url, ` + ticketURLTrimSQL + `), '') AS ticket_url,
+       COALESCE(shows.source::text, '') AS source,
+       COALESCE(shows.submitted_by, 0) AS submitted_by,
        (` + shared.VenueLocalDateSQL + `)::text AS local_date,
        (` + shared.VenueLocalDateAtParamSQL + `)::text AS local_today,
        COALESCE(rooms.venue_ids, '') AS venue_ids,
@@ -147,6 +195,8 @@ type replicaRow struct {
 	EventDate     time.Time
 	CreatedAt     time.Time
 	TicketURL     string
+	Source        string
+	SubmittedBy   uint
 	LocalDate     string
 	LocalToday    string
 	VenueIDs      string
@@ -163,6 +213,8 @@ func (r replicaRow) toCopy() ReplicatedShowCopy {
 		EventDate:     r.EventDate,
 		CreatedAt:     r.CreatedAt,
 		TicketURL:     r.TicketURL,
+		Source:        r.Source,
+		SubmittedBy:   r.SubmittedBy,
 		VenueName:     r.VenueName,
 		HeadlinerName: r.HeadlinerName,
 		venueIDs:      r.VenueIDs,
@@ -201,8 +253,12 @@ func scanReplicaCopies(db *gorm.DB, now time.Time, showIDs []uint) ([]Replicated
 // groupReplicaCopies buckets copies by key and classifies every bucket that
 // spans two or more venue-local years. A bucket inside one year (a single
 // show, or same-date duplicates) is not a replicated group and its copies are
-// returned in loners.
-func groupReplicaCopies(copies []ReplicatedShowCopy) (groups []ReplicatedShowGroup, loners []ReplicatedShowCopy) {
+// returned in loners. farBound is the far-future bound at the planning instant.
+//
+// The ticket URL is a condition on a bucket, not part of its key: a bucket whose
+// copies carry different links is listed whole, untouched, rather than split
+// into sub-groups a human would never see side by side.
+func groupReplicaCopies(copies []ReplicatedShowCopy, farBound time.Time) (groups []ReplicatedShowGroup, loners []ReplicatedShowCopy) {
 	buckets := make(map[string][]ReplicatedShowCopy)
 	for _, c := range copies {
 		key := c.groupKey()
@@ -221,7 +277,7 @@ func groupReplicaCopies(copies []ReplicatedShowCopy) (groups []ReplicatedShowGro
 			loners = append(loners, members...)
 			continue
 		}
-		groups = append(groups, classifyReplicaGroup(key, members))
+		groups = append(groups, classifyReplicaGroup(key, members, farBound))
 	}
 	sort.Slice(groups, func(i, j int) bool {
 		a, b := groups[i], groups[j]
@@ -240,12 +296,11 @@ func groupReplicaCopies(copies []ReplicatedShowCopy) (groups []ReplicatedShowGro
 }
 
 // classifyReplicaGroup decides what happens to one group. The survivor is the
-// copy in the earliest venue-local year that is not before the current year,
-// and the group is acted on only when that year is the current or the next one,
-// every copy carries the same non-empty ticket URL, no two copies share a year,
-// and no copy sits in a year before the current one. A copy dated earlier in the
-// CURRENT year is a valid survivor even though its date has passed.
-func classifyReplicaGroup(key string, members []ReplicatedShowCopy) ReplicatedShowGroup {
+// copy in the earliest venue-local year, which must be the current or the next
+// one; a copy dated earlier in the CURRENT year is a valid survivor even though
+// its date has passed. Every condition in the skip list must hold before
+// anything is deleted, and the first that fails is the reason reported.
+func classifyReplicaGroup(key string, members []ReplicatedShowCopy, farBound time.Time) ReplicatedShowGroup {
 	copies := slices.Clone(members)
 	sort.Slice(copies, func(i, j int) bool {
 		if copies[i].LocalDate != copies[j].LocalDate {
@@ -263,42 +318,57 @@ func classifyReplicaGroup(key string, members []ReplicatedShowCopy) ReplicatedSh
 		Copies:        copies,
 		key:           key,
 	}
+	skip := func(reason string) ReplicatedShowGroup {
+		group.SkipReason = reason
+		return group
+	}
 
-	url := first.TicketURL
 	seenYears := make(map[int]bool, len(copies))
+	far := false
 	for _, c := range copies {
-		if c.TicketURL == "" {
-			group.SkipReason = replicaSkipNoTicketURL
-			return group
+		switch {
+		case c.Source != first.Source || c.SubmittedBy != first.SubmittedBy:
+			return skip(replicaSkipMixedOrigin)
+		case c.TicketURL == "":
+			return skip(replicaSkipNoTicketURL)
+		case c.TicketURL != first.TicketURL:
+			return skip(replicaSkipTicketURLsDiffer)
+		case seenYears[localYear(c.LocalDate)]:
+			return skip(replicaSkipSameYear)
 		}
-		if c.TicketURL != url {
-			group.SkipReason = replicaSkipTicketURLsDiffer
-			return group
-		}
-		year := localYear(c.LocalDate)
-		if seenYears[year] {
-			group.SkipReason = replicaSkipSameYear
-			return group
-		}
-		seenYears[year] = true
+		seenYears[localYear(c.LocalDate)] = true
+		far = far || c.EventDate.After(farBound)
 	}
 
 	// Copies are sorted by date, so the first copy holds the earliest year.
 	firstYear := localYear(first.LocalDate)
-	if group.CurrentYear == 0 {
-		group.SkipReason = replicaSkipNoNearCopy
-		return group
+	switch {
+	case group.CurrentYear == 0:
+		return skip(replicaSkipNoCurrentYear)
+	case firstYear < group.CurrentYear:
+		return skip(replicaSkipPastYear)
+	case firstYear > group.CurrentYear+1:
+		return skip(replicaSkipNoNearCopy)
+	case !far:
+		return skip(replicaSkipNoFarCopy)
 	}
-	if firstYear < group.CurrentYear {
-		group.SkipReason = replicaSkipPastYear
-		return group
+
+	doomed := copies[1:]
+	earliest, latest := doomed[0].CreatedAt, doomed[0].CreatedAt
+	for _, c := range doomed {
+		if c.CreatedAt.Before(earliest) {
+			earliest = c.CreatedAt
+		}
+		if c.CreatedAt.After(latest) {
+			latest = c.CreatedAt
+		}
 	}
-	if firstYear > group.CurrentYear+1 {
-		group.SkipReason = replicaSkipNoNearCopy
-		return group
+	if latest.Sub(earliest) > replicaCreatedWindow {
+		return skip(replicaSkipCreatedApart)
 	}
+
 	group.KeepID = first.ShowID
-	for _, c := range copies[1:] {
+	for _, c := range doomed {
 		group.DeleteIDs = append(group.DeleteIDs, c.ShowID)
 	}
 	return group
@@ -332,7 +402,7 @@ func PlanReplicatedShowPurge(db *gorm.DB, now time.Time, beyondMonths int) (*Rep
 		return nil, err
 	}
 
-	groups, loners := groupReplicaCopies(copies)
+	groups, loners := groupReplicaCopies(copies, showEventDateBound(now))
 	plan := &ReplicatedShowPlan{
 		BeyondMonths: beyondMonths,
 		BeyondCutoff: monthsAfter(now, beyondMonths),
@@ -356,10 +426,24 @@ func PlanReplicatedShowPurge(db *gorm.DB, now time.Time, beyondMonths int) (*Rep
 	return plan, nil
 }
 
-// attachReplicaRefCounts fills each printed copy's Refs from the same
-// inventory DeleteShow sweeps (entityRefsWalkedOnDelete and its recorded
-// dispositions), plus the alert rows that inventory cannot see, so the dry run
-// reports what a confirmed run drops and what it keeps.
+// showFKRefs are the tables with a foreign key to shows.id that a show delete
+// cascades (or, for duplicate_of_show_id, nulls), outside the polymorphic
+// inventory. Each entry is (label, table, column, dropped).
+var showFKRefs = []struct {
+	label, table, column string
+	dropped              bool
+}{
+	{"show_reports (cascade)", "show_reports", "show_id", true},
+	{"enrichment_queue (cascade)", "enrichment_queue", "show_id", true},
+	{"show_notify_queue (cascade)", "show_notify_queue", "show_id", true},
+	{"venue_show_alert_batch (cascade)", "venue_show_alert_batch", "show_id", true},
+	{"shows.duplicate_of_show_id (set to NULL)", "shows", "duplicate_of_show_id", true},
+}
+
+// attachReplicaRefCounts fills each printed copy's Refs. The polymorphic part
+// reads the same inventory DeleteShow sweeps (entityRefsWalkedOnDelete and its
+// recorded dispositions) plus the alert rows that inventory cannot see; the
+// foreign-key part reads showFKRefs.
 func attachReplicaRefCounts(db *gorm.DB, plan *ReplicatedShowPlan) error {
 	var ids []uint
 	for _, g := range plan.Groups {
@@ -375,35 +459,40 @@ func attachReplicaRefCounts(db *gorm.DB, plan *ReplicatedShowPlan) error {
 	}
 
 	refs := make(map[uint][]ReplicaRefCount)
-	count := func(label, table, idCol string, types []string, dropped bool) error {
+	collect := func(label, query string, dropped bool, args ...any) error {
 		var rows []struct {
 			EntityID uint
 			N        int64
 		}
-		// #nosec G201 -- table and column come from the hardcoded inventory.
-		q := fmt.Sprintf(
-			"SELECT %[2]s AS entity_id, COUNT(*) AS n FROM %[1]s WHERE entity_type IN ? AND %[2]s IN ? GROUP BY %[2]s",
-			table, idCol)
-		if err := db.Raw(q, types, ids).Scan(&rows).Error; err != nil {
-			return fmt.Errorf("failed to count %s on replica copies: %w", table, err)
+		if err := db.Raw(query, args...).Scan(&rows).Error; err != nil {
+			return fmt.Errorf("failed to count %s on replica copies: %w", label, err)
 		}
 		for _, r := range rows {
 			refs[r.EntityID] = append(refs[r.EntityID], ReplicaRefCount{Table: label, Dropped: dropped, Rows: r.N})
 		}
 		return nil
 	}
+	// #nosec G201 -- tables and columns below come from hardcoded inventories.
+	polymorphic := "SELECT %[2]s AS entity_id, COUNT(*) AS n FROM %[1]s WHERE entity_type IN ? AND %[2]s IN ? GROUP BY %[2]s"
 	for _, ref := range entityRefsWalkedOnDelete() {
 		disposition, ok := entityRefDeleteDispositions[ref.table]
 		if !ok {
 			return fmt.Errorf("%s has no recorded delete disposition", ref.table)
 		}
-		if err := count(ref.table, ref.table, ref.idCol, []string{string(entityTypeShow)}, disposition == dropRefRows); err != nil {
+		if err := collect(ref.table, fmt.Sprintf(polymorphic, ref.table, ref.idCol), disposition == dropRefRows,
+			[]string{string(entityTypeShow)}, ids); err != nil {
 			return err
 		}
 	}
-	if err := count("notification_log (alert discriminators)", "notification_log", "entity_id",
-		alertTypesKeyedOnEntity[entityTypeShow], true); err != nil {
+	if err := collect("notification_log (alert discriminators)", fmt.Sprintf(polymorphic, "notification_log", "entity_id"), true,
+		alertTypesKeyedOnEntity[entityTypeShow], ids); err != nil {
 		return err
+	}
+	for _, fk := range showFKRefs {
+		q := fmt.Sprintf("SELECT %[2]s AS entity_id, COUNT(*) AS n FROM %[1]s WHERE %[2]s IN ? GROUP BY %[2]s", fk.table, fk.column)
+		if err := collect(fk.label, q, fk.dropped, ids); err != nil {
+			return err
+		}
 	}
 
 	for gi := range plan.Groups {
@@ -418,6 +507,54 @@ func attachReplicaRefCounts(db *gorm.DB, plan *ReplicatedShowPlan) error {
 	return nil
 }
 
+// snapshotReplicaShows returns, per show id, one JSON document holding the shows
+// row and every row that names it in the tables attachReplicaRefCounts reads,
+// so a deletion can be restored by hand. Read inside the purge's transaction,
+// after the lock, so it is exactly what the delete is about to remove.
+func snapshotReplicaShows(tx *gorm.DB, ids []uint) ([]json.RawMessage, error) {
+	parts := []string{
+		"'show', to_jsonb(s)",
+		"'show_artists', (SELECT COALESCE(jsonb_agg(to_jsonb(x)), '[]'::jsonb) FROM show_artists x WHERE x.show_id = s.id)",
+		"'show_venues', (SELECT COALESCE(jsonb_agg(to_jsonb(x)), '[]'::jsonb) FROM show_venues x WHERE x.show_id = s.id)",
+	}
+	for _, fk := range showFKRefs {
+		if fk.table == "shows" {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf(
+			"'%[1]s', (SELECT COALESCE(jsonb_agg(to_jsonb(x)), '[]'::jsonb) FROM %[1]s x WHERE x.%[2]s = s.id)",
+			fk.table, fk.column))
+	}
+	parts = append(parts,
+		"'shows_pointing_here', (SELECT COALESCE(jsonb_agg(x.id), '[]'::jsonb) FROM shows x WHERE x.duplicate_of_show_id = s.id)")
+	for _, ref := range entityRefsWalkedOnDelete() {
+		parts = append(parts, fmt.Sprintf(
+			"'%[1]s', (SELECT COALESCE(jsonb_agg(to_jsonb(x)), '[]'::jsonb) FROM %[1]s x WHERE x.entity_type = 'show' AND x.%[2]s = s.id)",
+			ref.table, ref.idCol))
+	}
+	alertTypes := alertTypesKeyedOnEntity[entityTypeShow]
+	parts = append(parts,
+		"'notification_log_alerts', (SELECT COALESCE(jsonb_agg(to_jsonb(x)), '[]'::jsonb) FROM notification_log x WHERE x.entity_type IN ? AND x.entity_id = s.id)")
+
+	var rows []struct {
+		ID  uint
+		Doc string
+	}
+	// #nosec G201 -- every interpolated table and column comes from a hardcoded inventory.
+	q := "SELECT s.id AS id, jsonb_build_object(" + strings.Join(parts, ", ") + ")::text AS doc FROM shows s WHERE s.id IN ? ORDER BY s.id"
+	if err := tx.Raw(q, alertTypes, ids).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("failed to snapshot replica copies: %w", err)
+	}
+	if len(rows) != len(ids) {
+		return nil, fmt.Errorf("%w: snapshot found %d of %d shows", ErrReplicaGroupChanged, len(rows), len(ids))
+	}
+	out := make([]json.RawMessage, len(rows))
+	for i, r := range rows {
+		out[i] = json.RawMessage(r.Doc)
+	}
+	return out, nil
+}
+
 // ErrReplicaGroupChanged is returned when a group's shows no longer read the way
 // the plan described them, so nothing in that group is deleted.
 var ErrReplicaGroupChanged = errors.New("replica group changed since it was planned")
@@ -430,9 +567,16 @@ var ErrReplicaGroupChanged = errors.New("replica group changed since it was plan
 // moved the survivor or the deletion set (a show deleted, unapproved, re-dated,
 // re-billed, moved room or given another ticket URL) aborts the whole group
 // with ErrReplicaGroupChanged and deletes nothing.
-func PurgeReplicatedShowGroup(db *gorm.DB, now time.Time, group ReplicatedShowGroup) error {
+//
+// backup receives one snapshot per show about to be deleted (see
+// snapshotReplicaShows) before any delete runs; an error from it aborts the
+// group, so nothing is deleted that was not first handed to backup.
+func PurgeReplicatedShowGroup(db *gorm.DB, now time.Time, group ReplicatedShowGroup, backup func([]json.RawMessage) error) error {
 	if db == nil {
 		return fmt.Errorf("database not initialized")
+	}
+	if backup == nil {
+		return fmt.Errorf("a backup writer is required")
 	}
 	if !group.Actionable() {
 		return fmt.Errorf("group %s at %s on %s is not actionable: %s",
@@ -458,13 +602,21 @@ func PurgeReplicatedShowGroup(db *gorm.DB, now time.Time, group ReplicatedShowGr
 		if len(copies) != len(ids) {
 			return fmt.Errorf("%w: %d of %d shows are still approved", ErrReplicaGroupChanged, len(copies), len(ids))
 		}
-		fresh, loners := groupReplicaCopies(copies)
+		fresh, loners := groupReplicaCopies(copies, showEventDateBound(now))
 		if len(loners) != 0 || len(fresh) != 1 {
 			return fmt.Errorf("%w: the shows no longer form one group", ErrReplicaGroupChanged)
 		}
 		if fresh[0].KeepID != group.KeepID || !slices.Equal(fresh[0].DeleteIDs, group.DeleteIDs) {
 			return fmt.Errorf("%w: survivor or deletion set differs (now keep %d, delete %v; skip %q)",
 				ErrReplicaGroupChanged, fresh[0].KeepID, fresh[0].DeleteIDs, fresh[0].SkipReason)
+		}
+
+		snapshot, err := snapshotReplicaShows(tx, group.DeleteIDs)
+		if err != nil {
+			return err
+		}
+		if err := backup(snapshot); err != nil {
+			return fmt.Errorf("backup failed, nothing deleted: %w", err)
 		}
 
 		svc := NewShowService(tx)

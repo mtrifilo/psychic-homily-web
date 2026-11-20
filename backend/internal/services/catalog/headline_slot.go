@@ -90,10 +90,13 @@ import (
 //     position 0 -- though current write paths do assign incrementing
 //     positions, so the tiebreak guards the corpus, not the writers.
 //
-//     Test coverage is asymmetric, deliberately, and uneven across the four:
+//     Test coverage is asymmetric, deliberately, and uneven across the sites:
 //
 //       - enrichShows (tag) and headlinerNameByShow (explore): rank arm pinned
 //         by mutation-checked tests at both.
+//       - replicaRowsSQL (show_replica_purge): rank arm pinned by
+//         TestHeadlinerIsTheCuratedAct, whose curated headliner is billed
+//         second in some copies; the id tiebreak is not pinned there.
 //       - The id tiebreak is pinned ONLY at explore. enrichShows reaches
 //         show_artists by the (show_id, artist_id) primary key, so its plan
 //         already yields ascending artist_id and a tied-bill test there passes

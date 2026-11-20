@@ -2,12 +2,38 @@ package catalog
 
 import (
 	"errors"
+	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	apperrors "psychic-homily-backend/internal/errors"
 )
+
+// The bound is stated in three places; this fails when one of them moves alone.
+func TestShowEventDateBound_CopiesAgree(t *testing.T) {
+	want := strconv.Itoa(ShowEventDateBoundMonths)
+
+	cli, err := os.ReadFile("../../../../cli/src/lib/dateBound.ts")
+	if err != nil {
+		t.Fatalf("read CLI copy: %v", err)
+	}
+	m := regexp.MustCompile(`SHOW_EVENT_DATE_BOUND_MONTHS = (\d+);`).FindSubmatch(cli)
+	if m == nil || string(m[1]) != want {
+		t.Errorf("cli/src/lib/dateBound.ts states %q, want %s", m, want)
+	}
+
+	handler, err := os.ReadFile("../../api/handlers/catalog/show.go")
+	if err != nil {
+		t.Fatalf("read handler: %v", err)
+	}
+	tag := regexp.MustCompile(`json:"allow_far_future_date,omitempty".*doc:"[^"]*more than (\d+) months ahead`).FindSubmatch(handler)
+	if tag == nil || string(tag[1]) != want {
+		t.Errorf("allow_far_future_date doc tag states %q, want %s", tag, want)
+	}
+}
 
 func TestShowEventDateBound_IsEighteenCalendarMonthsInUTC(t *testing.T) {
 	now := time.Date(2026, 11, 20, 23, 30, 0, 0, time.FixedZone("UTC-8", -8*3600))
@@ -37,7 +63,7 @@ func TestCheckShowEventDateBound_BothSidesAndOverride(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := checkShowEventDateBound(tc.date, now, tc.override)
+			err := CheckShowEventDateBound(tc.date, now, tc.override)
 			if !tc.refused {
 				if err != nil {
 					t.Fatalf("want accepted, got %v", err)
@@ -48,7 +74,7 @@ func TestCheckShowEventDateBound_BothSidesAndOverride(t *testing.T) {
 			if !errors.As(err, &showErr) || showErr.Code != apperrors.CodeShowEventDateBeyondBound {
 				t.Fatalf("want %s, got %v", apperrors.CodeShowEventDateBeyondBound, err)
 			}
-			for _, want := range []string{"18 months", "allow_far_future_date", "--allow-far-future", bound.Format(time.RFC3339)} {
+			for _, want := range []string{"18 months", "allow_far_future_date: true", bound.Format(time.RFC3339)} {
 				if !strings.Contains(showErr.Message, want) {
 					t.Errorf("message %q does not name %q", showErr.Message, want)
 				}

@@ -113,7 +113,7 @@ func (s *ShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.S
 		return nil, err
 	}
 
-	if err := checkShowEventDateBound(req.EventDate, time.Now(), req.AllowFarFutureDate && req.SubmitterIsAdmin); err != nil {
+	if err := CheckShowEventDateBound(req.EventDate, time.Now(), req.AllowFarFutureDate && req.SubmitterIsAdmin); err != nil {
 		return nil, err
 	}
 
@@ -779,7 +779,7 @@ func (s *ShowService) GetShows(filters map[string]interface{}, page contracts.Sh
 			query = query.Where("event_date <= ?", toDate.UTC())
 		}
 		if ticketURL, ok := filters["ticket_url"].(string); ok && ticketURL != "" {
-			query = query.Where("btrim(ticket_url) = ?", ticketURL)
+			query = query.Where("btrim(ticket_url, "+ticketURLTrimSQL+") = ?", ticketURL)
 		}
 		if tf, ok := filters["tag_filter"].(TagFilter); ok {
 			// PSY-499: Shows are not directly tagged with genre/locale tags — they

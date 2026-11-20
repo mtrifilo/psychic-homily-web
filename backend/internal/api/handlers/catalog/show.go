@@ -638,8 +638,7 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 
 	// Create show using service
 	show, err := h.showService.CreateShow(serviceReq)
-	var boundErr *apperrors.ShowError
-	if errors.As(err, &boundErr) && boundErr.Code == apperrors.CodeShowEventDateBeyondBound {
+	if boundErr, ok := apperrors.AsShowEventDateBeyondBound(err); ok {
 		// Surfaced verbatim, unlike the generic failure below: the message names
 		// the bound and the override, which is what the caller acts on.
 		return nil, huma.Error422UnprocessableEntity(

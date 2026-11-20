@@ -17,7 +17,7 @@ import {
   isBeyondShowEventDateBound,
   showEventDateBound,
 } from "../lib/dateBound";
-import { batchTicketURLReuse, findTicketURLReuse } from "../lib/ticketReuse";
+import { TICKET_REUSE_SCAN_CAP, batchTicketURLReuse, findTicketURLReuse } from "../lib/ticketReuse";
 import type { TicketURLLookupCache, TicketURLReuse } from "../lib/ticketReuse";
 
 /**
@@ -103,6 +103,12 @@ interface ShowInput {
   age_requirement?: string;
   description?: string;
   ticket_url?: string;
+  /**
+   * Marks the one show whose far-future date a person has confirmed. Sent as
+   * the API's override only when the run also passes --allow-far-future, so the
+   * flag alone never lifts the bound for a whole batch.
+   */
+  allow_far_future_date?: boolean;
   artists: ShowArtistInput[];
   venues: ShowVenueInput[];
   tags?: TagInput[];
@@ -549,13 +555,19 @@ export function applyEventDateBound(plans: ShowPlan[], options: SubmitShowsOptio
     if (!plan.valid || plan.duplicate?.isDuplicate) continue;
     const instant = String(buildShowPayload(plan).event_date);
     if (!isBeyondShowEventDateBound(instant, now)) continue;
-    if (options.allowFarFuture) {
+    const marked = plan.input.allow_far_future_date === true;
+    if (options.allowFarFuture && marked) {
       plan.allowFarFuture = true;
       continue;
     }
+    const remedy = options.allowFarFuture
+      ? `--allow-far-future is set, but this show does not carry "allow_far_future_date": true, which marks a show whose date is confirmed`
+      : marked
+        ? `the show carries "allow_far_future_date": true; re-run with --allow-far-future to send it`
+        : `if the date is real, add "allow_far_future_date": true to this show and re-run with --allow-far-future`;
     plan.valid = false;
     plan.errors = [
-      `event_date: ${quoteSourceValue(instant)} is more than ${SHOW_EVENT_DATE_BOUND_MONTHS} months ahead (the latest date accepted today is ${bound}); the API refuses it. If the date is real, re-run with --allow-far-future.`,
+      `event_date: ${quoteSourceValue(instant)} is more than ${SHOW_EVENT_DATE_BOUND_MONTHS} months ahead (the latest date accepted today is ${bound}); the API refuses it. ${remedy}.`,
     ];
   }
 }
@@ -603,7 +615,7 @@ export async function flagTicketURLReuse(client: APIClient, plans: ShowPlan[]): 
     const venueIds = plan.venues.filter((v) => v.id !== undefined).map((v) => v.id!);
     const zone = planVenueZone(plan);
     try {
-      const { reuse, truncated } = await findTicketURLReuse(
+      const { reuse, truncated, unsupported } = await findTicketURLReuse(
         client,
         plan.input.ticket_url ?? "",
         venueIds,
@@ -614,7 +626,10 @@ export async function flagTicketURLReuse(client: APIClient, plans: ShowPlan[]): 
       );
       if (reuse.length > 0) plan.ticketReuse = reuse;
       if (truncated) {
-        plan.ticketReuseNote = "the ticket URL check read its first 600 matching shows and stopped";
+        plan.ticketReuseNote = `the ticket URL check read its first ${TICKET_REUSE_SCAN_CAP} matching shows and stopped`;
+      }
+      if (unsupported) {
+        plan.ticketReuseNote = "the ticket URL check was skipped: this API does not filter shows by ticket_url";
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";

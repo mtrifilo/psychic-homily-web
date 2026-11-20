@@ -9,7 +9,7 @@ export const SHOW_EVENT_DATE_BOUND_MONTHS = 18;
 /**
  * The latest `event_date` accepted at `now` without the override: `now` plus
  * the bound in calendar months, in UTC. `setUTCMonth` overflows a short month
- * the same way Go's `AddDate` does (Aug 31 + 18 months is Mar 3), so the two
+ * the same way Go's `AddDate` does (Aug 31 + 18 months is Mar 2 or 3), so the two
  * agree on every day.
  */
 export function showEventDateBound(now: Date): Date {

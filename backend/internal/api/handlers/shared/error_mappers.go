@@ -275,6 +275,11 @@ func MapFestivalError(err error) error {
 // (its single failure mode is SHOW_NOT_FOUND → 404). Adding a caller that can
 // update or delete means revisiting this switch, not just calling it.
 func MapShowError(err error) error {
+	// Checked first: this refusal usually arrives wrapped in a generic create
+	// failure, whose message would hide the bound and the override.
+	if boundErr, ok := apperrors.AsShowEventDateBeyondBound(err); ok {
+		return huma.Error422UnprocessableEntity(boundErr.Message)
+	}
 	var showErr *apperrors.ShowError
 	if errors.As(err, &showErr) {
 		switch showErr.Code {

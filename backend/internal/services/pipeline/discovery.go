@@ -306,6 +306,12 @@ func (s *DiscoveryService) importEvent(event *contracts.DiscoveredEvent, dryRun 
 		return fmt.Sprintf("ERROR: Failed to parse date for %s: %v", event.Title, err), "error"
 	}
 
+	// The far-future bound CreateShow applies, with no override: a scraped
+	// calendar never carries a human's confirmation that the date is real.
+	if err := catalog.CheckShowEventDateBound(eventDate, time.Now(), false); err != nil {
+		return fmt.Sprintf("SKIP: %s (ID: %s): %v", event.Title, event.ID, err), "error"
+	}
+
 	// Check if there's a rejected show at the same venue at the same exact
 	// event_date. This prevents re-importing events that were previously
 	// rejected. Keyed on the FULL event_date timestamp (PSY-559) so a rejected
