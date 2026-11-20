@@ -19,6 +19,7 @@ import {
 } from "../lib/dateBound";
 import { TICKET_REUSE_SCAN_CAP, batchTicketURLReuse, findTicketURLReuse } from "../lib/ticketReuse";
 import type { TicketURLLookupCache, TicketURLReuse } from "../lib/ticketReuse";
+import { reportArtistNameFlags } from "../lib/artistNameFlags";
 
 /**
  * Normalize a date string to an ISO 8601 UTC timestamp.
@@ -814,6 +815,7 @@ export async function submitShows(
   // 3. Display preview
   displayPreview(plans, resolvedTags);
   if (!confirm) await reportSameNightOtherRooms(client, plans, planVenueZone);
+  if (!confirm) await reportArtistNameFlags(client, plans);
 
   // 4. Fill empty venue addresses the batch states. Duplicate shows count:
   // a calendar refresh whose shows all exist still carries the address.
