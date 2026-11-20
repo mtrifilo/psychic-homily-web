@@ -268,6 +268,14 @@ func (s *CalendarService) CreateToken(userID uint, sessionsValidAfter *time.Time
 
 	tokenHash := hashCalendarToken(plainToken)
 
+	// The response is built from this row, never from a read after commit:
+	// a revocation waiting on the account lock deletes the token as soon as
+	// the transaction commits, and a read-back would then find nothing.
+	token := &engagementm.CalendarToken{
+		UserID:    userID,
+		TokenHash: tokenHash,
+		Token:     &plainToken,
+	}
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		if _, err := shared.LockSessionAccount(tx, userID, sessionsValidAfter); err != nil {
 			return err
@@ -277,11 +285,10 @@ func (s *CalendarService) CreateToken(userID uint, sessionsValidAfter *time.Time
 			return fmt.Errorf("failed to delete existing token: %w", err)
 		}
 
-		token := &engagementm.CalendarToken{
-			UserID:    userID,
-			TokenHash: tokenHash,
-			Token:     &plainToken,
-		}
+		// timestamptz keeps microseconds, so a microsecond instant is stored
+		// exactly and the CreatedAt returned equals the one GetTokenStatus
+		// later reads.
+		token.CreatedAt = tx.NowFunc().Truncate(time.Microsecond)
 		if err := tx.Create(token).Error; err != nil {
 			return fmt.Errorf("failed to create token: %w", err)
 		}
@@ -296,17 +303,11 @@ func (s *CalendarService) CreateToken(userID uint, sessionsValidAfter *time.Time
 
 	s.invalidateFeedCache(userID)
 
-	// Fetch the created token to get the server-set created_at
-	var created engagementm.CalendarToken
-	if err := s.db.Where("user_id = ?", userID).First(&created).Error; err != nil {
-		return nil, fmt.Errorf("failed to fetch created token: %w", err)
-	}
-
 	return &contracts.CalendarTokenCreateResponse{
 		Token:          plainToken,
 		FeedURL:        calendarFeedURL(apiBaseURL, plainToken),
 		FollowsFeedURL: followsActivityFeedURL(apiBaseURL, plainToken),
-		CreatedAt:      created.CreatedAt,
+		CreatedAt:      token.CreatedAt,
 	}, nil
 }
 
