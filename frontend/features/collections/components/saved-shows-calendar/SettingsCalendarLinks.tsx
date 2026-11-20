@@ -8,7 +8,6 @@ import {
   useCreateCalendarToken,
   useDeleteCalendarToken,
 } from '@/features/auth/hooks/useCalendarFeed'
-import { queryKeys } from '@/lib/queryClient'
 import { cn } from '@/lib/utils'
 import type { CalendarTokenStatusResponse } from '@/features/shows/types'
 import {
@@ -22,7 +21,11 @@ import { copyText } from './calendarPanelBrowser'
 import { PANEL_COPY } from './savedShowsCalendarCopy'
 import { SETTINGS_CALENDAR_COPY as COPY } from './settingsCalendarCopy'
 import { CalendarCardButton } from './SettingsCalendarParts'
-import { statusOfNewLink, type CalendarLinks } from './useSettingsCalendar'
+import {
+  showCalendarStatus,
+  statusOfNewLink,
+  type CalendarLinks,
+} from './useSettingsCalendar'
 
 type Confirming = 'new_link' | 'turn_off'
 
@@ -69,10 +72,7 @@ export function SettingsCalendarLinks({
   const makeNewLink = () => {
     createLink.mutate(undefined, {
       onSuccess: created => {
-        queryClient.setQueryData(
-          queryKeys.calendar.tokenStatus,
-          statusOfNewLink(created)
-        )
+        showCalendarStatus(queryClient, statusOfNewLink(created))
         returnFocusTo.current = 'new_link'
         setConfirming(null)
         onLinkChanged()
@@ -86,7 +86,7 @@ export function SettingsCalendarLinks({
         // This block disappears with the link.
         if (blockRef.current) holdFocusInPanel(blockRef.current)
         const off: CalendarTokenStatusResponse = { has_token: false }
-        queryClient.setQueryData(queryKeys.calendar.tokenStatus, off)
+        showCalendarStatus(queryClient, off)
         onLinkChanged()
       },
     })

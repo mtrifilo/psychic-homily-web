@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type ComponentType } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import type React from 'react'
@@ -29,7 +29,6 @@ import {
   useCalendarPanelLayout,
 } from './CalendarPanelParts'
 import { PANEL_COPY, emailSentLine } from './savedShowsCalendarCopy'
-import { CalendarCardButton } from './SettingsCalendarParts'
 
 /**
  * "Email me the steps": on a phone, where Google's app cannot add a calendar
@@ -40,13 +39,13 @@ import { CalendarCardButton } from './SettingsCalendarParts'
  * panel never claims an email that a later attempt did not send. An address
  * that is not verified gets the house verification resend in place.
  *
- * `appearance` draws the send controls as text-link rows (the panel's) or as
- * outline buttons (the Settings card's add block).
+ * `sendControl` draws the send controls; the panel's text-link row unless a
+ * surface draws its own (the Settings card's outline buttons).
  */
 export function CalendarEmailStepsAction({
-  appearance = 'row',
+  sendControl: SendControl = PanelRowButton,
 }: {
-  appearance?: 'row' | 'button'
+  sendControl?: ComponentType<CalendarSendControlProps>
 } = {}) {
   const { user } = useAuthContext()
   const send = useEmailCalendarSteps()
@@ -68,10 +67,8 @@ export function CalendarEmailStepsAction({
     onSend()
   }
 
-  const SendControl = appearance === 'button' ? CardSendButton : PanelRowButton
-
   return (
-    <div className={cn('flex flex-col', appearance === 'button' && 'gap-1')}>
+    <div className="flex flex-col">
       {outcome === 'sent' ? (
         <>
           <PanelNote className="mt-0.5">
@@ -103,22 +100,12 @@ export function CalendarEmailStepsAction({
   )
 }
 
-function CardSendButton({
-  onClick,
-  disabled,
-  testId,
-  children,
-}: {
+/** What a send control is given: "Email me the steps" or "Send again". */
+export interface CalendarSendControlProps {
   onClick: (event: React.MouseEvent<HTMLButtonElement>) => void
   disabled?: boolean
   testId?: string
   children: string
-}) {
-  return (
-    <CalendarCardButton onClick={onClick} disabled={disabled} data-testid={testId}>
-      {children}
-    </CalendarCardButton>
-  )
 }
 
 /**

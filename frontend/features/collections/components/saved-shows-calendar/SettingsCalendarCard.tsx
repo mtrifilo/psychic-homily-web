@@ -36,7 +36,7 @@ import {
   SETTINGS_CALENDAR_COPY as COPY,
   SETTINGS_RESET_SENTENCE,
 } from './settingsCalendarCopy'
-import { CalendarCardButton } from './SettingsCalendarParts'
+import { CalendarCardButton, CalendarCardSendButton } from './SettingsCalendarParts'
 import { SettingsCalendarLinks } from './SettingsCalendarLinks'
 import {
   useSavedShowsCalendarActions,
@@ -111,7 +111,7 @@ function SettingsCalendarBody() {
         })
       return (
         <div className="flex flex-col gap-4">
-          <StatusSentence>{noLinkSentence(state.resetReason)}</StatusSentence>
+          <StatusSentence>{statusSentence(state.resetReason)}</StatusSentence>
           <div className="flex flex-col gap-1">
             <CalendarCardButton
               working={add.isPending}
@@ -152,7 +152,8 @@ function SettingsCalendarBody() {
   }
 }
 
-function noLinkSentence(resetReason: CalendarLinkResetReason | null): string {
+/** The status sentence: why the link was reset, or that nothing checks it. */
+function statusSentence(resetReason: CalendarLinkResetReason | null): string {
   return resetReason ? SETTINGS_RESET_SENTENCE[resetReason] : COPY.noneChecking
 }
 
@@ -180,10 +181,8 @@ function CalendarAppsAndAdd({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-3">
-        {model.resetReason ? (
-          <StatusSentence>{SETTINGS_RESET_SENTENCE[model.resetReason]}</StatusSentence>
-        ) : !anyApp ? (
-          <StatusSentence>{COPY.noneChecking}</StatusSentence>
+        {model.resetReason || !anyApp ? (
+          <StatusSentence>{statusSentence(model.resetReason)}</StatusSentence>
         ) : null}
         {model.connected.length > 0 ? (
           <CalendarConnectedApps apps={model.connected} />
@@ -263,7 +262,7 @@ function AddButton({
   switch (row) {
     case 'google':
       if (!canAddOnDevice('google', device)) {
-        return <CalendarEmailStepsAction appearance="button" />
+        return <CalendarEmailStepsAction sendControl={CalendarCardSendButton} />
       }
       return (
         <CalendarCardButton onClick={actions.addToGoogle} className={PRIVATE_LINK_CLASS}>

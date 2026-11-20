@@ -214,7 +214,7 @@ async function renderReadCard() {
   return view
 }
 
-const addButtonNames = [
+const addButtonNames: string[] = [
   COPY.addGoogle,
   COPY.addApple,
   COPY.outlookCom,

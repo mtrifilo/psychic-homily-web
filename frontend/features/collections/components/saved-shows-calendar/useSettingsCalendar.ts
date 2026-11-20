@@ -122,16 +122,15 @@ export function addCalendarFailure(error: unknown): AddCalendarFailure {
 }
 
 /**
- * Puts the status a mutation answered with in the cache, so the card shows
- * the new state at once, then refetches every calendar read (the refetch
- * confirms it, and refreshes the feed status other surfaces read).
+ * Puts the status a write answered with in the cache, so the card shows the
+ * new state at once. The caller refetches every calendar read after it, which
+ * confirms it and refreshes the feed status other surfaces read.
  */
-export function applyCalendarStatus(
+export function showCalendarStatus(
   queryClient: QueryClient,
   status: CalendarTokenStatusResponse
 ) {
   queryClient.setQueryData(queryKeys.calendar.tokenStatus, status)
-  void createInvalidateQueries(queryClient).calendar()
 }
 
 /**
@@ -143,7 +142,8 @@ function useAddCalendar(onAdded: (resetReason: CalendarLinkResetReason | null) =
   return useMutation({
     mutationFn: readOrCreateLink,
     onSuccess: ({ status, resetReason }) => {
-      applyCalendarStatus(queryClient, status)
+      showCalendarStatus(queryClient, status)
+      void createInvalidateQueries(queryClient).calendar()
       onAdded(resetReason)
     },
   })

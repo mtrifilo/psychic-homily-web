@@ -69,12 +69,7 @@ export {
 } from './hooks'
 
 // Hooks — Calendar Feed
-export {
-  useCalendarTokenStatus,
-  useCalendarFeedStatus,
-  useCreateCalendarToken,
-  useDeleteCalendarToken,
-} from './hooks'
+export { useCalendarFeedStatus } from './hooks'
 
 // Hooks — WebAuthn capability
 export { useWebAuthnSupport } from './hooks'

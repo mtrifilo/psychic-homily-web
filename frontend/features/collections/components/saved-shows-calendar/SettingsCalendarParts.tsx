@@ -4,12 +4,13 @@ import type React from 'react'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import type { CalendarSendControlProps } from './CalendarEmailStepsAction'
 
 /**
  * A Settings calendar card button: full width with a 44px target below `sm`,
  * the house small button from `sm` up.
  */
-export const CARD_BUTTON_CLASS = 'h-11 w-full sm:h-8 sm:w-auto'
+const CARD_BUTTON_CLASS = 'h-11 w-full sm:h-8 sm:w-auto'
 
 type CardButtonProps = React.ComponentProps<typeof Button> & {
   /**
@@ -51,4 +52,12 @@ export function CalendarCardButton({
       )}
     </Button>
   )
+}
+
+/** "Email me the steps" and "Send again" as the card's outline buttons. */
+export function CalendarCardSendButton({
+  testId,
+  ...props
+}: CalendarSendControlProps) {
+  return <CalendarCardButton data-testid={testId} {...props} />
 }

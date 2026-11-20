@@ -37,12 +37,7 @@ export {
 
 export { useIsAuthenticated } from './useIsAuthenticated'
 
-export {
-  useCalendarTokenStatus,
-  useCalendarFeedStatus,
-  useCreateCalendarToken,
-  useDeleteCalendarToken,
-} from './useCalendarFeed'
+export { useCalendarFeedStatus } from './useCalendarFeed'
 
 export { useWebAuthnSupport } from './useWebAuthnSupport'
 

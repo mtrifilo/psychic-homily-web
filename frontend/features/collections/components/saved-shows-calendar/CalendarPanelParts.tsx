@@ -38,7 +38,7 @@ const CALENDAR_SURFACE_ATTRIBUTE = 'data-saved-shows-calendar-panel'
 
 /**
  * Spread on the element that holds a calendar surface (the panel's popover or
- * sheet, the steps page): the element holdFocusInPanel returns focus to.
+ * sheet, the Settings card): the element holdFocusInPanel returns focus to.
  */
 export const CALENDAR_SURFACE_PROPS = { [CALENDAR_SURFACE_ATTRIBUTE]: '' }
 
