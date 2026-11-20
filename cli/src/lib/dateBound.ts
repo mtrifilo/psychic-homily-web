@@ -1,8 +1,9 @@
 /**
  * How many months ahead the API accepts a show's `event_date` without the
- * explicit override. Kept equal by hand to `ShowEventDateBoundMonths` in
+ * explicit override. Kept equal to `ShowEventDateBoundMonths` in
  * backend/internal/services/catalog/show_date_bound.go, which is the
- * authority; this copy only lets the dry run say what the API will refuse.
+ * authority, by that package's TestShowEventDateBound_CopiesAgree; this copy
+ * only lets the dry run say what the API will refuse.
  */
 export const SHOW_EVENT_DATE_BOUND_MONTHS = 18;
 
