@@ -1,4 +1,4 @@
-import { APIClient } from "../lib/api";
+import { APIClient, APIError } from "../lib/api";
 import type { EnvironmentConfig } from "../lib/types";
 import { validateShow } from "../lib/schemas";
 import { searchArtistsByName, searchVenuesByName, similarityScore, checkShowDuplicate, compareFields } from "../lib/duplicates";
@@ -11,6 +11,13 @@ import { resolveVenueTimezone, localTimeToUTC } from "../lib/timezone";
 import { isValidSetType, statedSlot } from "../lib/setType";
 import { readEventDate, resolveShowTimes } from "../lib/showTimes";
 import type { ShowTimes, ShowTimesRefusal } from "../lib/showTimes";
+import {
+  SHOW_EVENT_DATE_BOUND_MONTHS,
+  isBeyondShowEventDateBound,
+  showEventDateBound,
+} from "../lib/dateBound";
+import { TICKET_REUSE_SCAN_CAP, batchTicketURLReuse, findTicketURLReuse } from "../lib/ticketReuse";
+import type { TicketURLLookupCache, TicketURLReuse } from "../lib/ticketReuse";
 
 /**
  * Normalize a date string to an ISO 8601 UTC timestamp.
@@ -95,6 +102,12 @@ interface ShowInput {
   age_requirement?: string;
   description?: string;
   ticket_url?: string;
+  /**
+   * Marks the one show whose far-future date a person has confirmed. Sent as
+   * the API's override only when the run also passes --allow-far-future, so the
+   * flag alone never lifts the bound for a whole batch.
+   */
+  allow_far_future_date?: boolean;
   artists: ShowArtistInput[];
   venues: ShowVenueInput[];
   tags?: TagInput[];
@@ -234,6 +247,27 @@ export interface ShowPlan {
   valid: boolean;
   errors: string[];
   duplicate?: ShowDuplicateResult;
+  /**
+   * Set only for a show past the far-future bound when the run was given
+   * --allow-far-future: the payload then carries the API's override.
+   */
+  allowFarFuture?: boolean;
+  /** Other shows at the same room on another date with this ticket URL. */
+  ticketReuse?: TicketURLReuse[];
+  /** Why the ticket URL check could not be completed, when it could not. */
+  ticketReuseNote?: string;
+  /** Indices of other shows in this run with the same room and ticket URL on another date. */
+  batchTicketReuse?: number[];
+}
+
+export interface SubmitShowsOptions {
+  /**
+   * Permit the far-future override. It is sent only for a show past the bound
+   * whose input also carries "allow_far_future_date": true.
+   */
+  allowFarFuture?: boolean;
+  /** The instant the bound is measured from; tests pin it. */
+  now?: Date;
 }
 
 export interface SubmitShowsResult {
@@ -506,8 +540,117 @@ export function buildShowPayload(plan: ShowPlan): Record<string, unknown> {
   if (plan.input.age_requirement) payload.age_requirement = plan.input.age_requirement;
   if (plan.input.description) payload.description = plan.input.description;
   if (plan.input.ticket_url) payload.ticket_url = plan.input.ticket_url;
+  if (plan.allowFarFuture) payload.allow_far_future_date = true;
 
   return payload;
+}
+
+/**
+ * Refuses, in the plan, every show whose stored instant would be past the
+ * far-future bound, unless the run allows it, in which case the show carries
+ * the override. Duplicates are left alone: nothing is created for them.
+ */
+export function applyEventDateBound(plans: ShowPlan[], options: SubmitShowsOptions): void {
+  const now = options.now ?? new Date();
+  const bound = showEventDateBound(now).toISOString();
+  for (const plan of plans) {
+    if (!plan.valid || plan.duplicate?.isDuplicate) continue;
+    const instant = String(buildShowPayload(plan).event_date);
+    if (!isBeyondShowEventDateBound(instant, now)) continue;
+    const marked = plan.input.allow_far_future_date === true;
+    if (options.allowFarFuture && marked) {
+      plan.allowFarFuture = true;
+      continue;
+    }
+    const remedy = options.allowFarFuture
+      ? `--allow-far-future is set, but this show does not carry "allow_far_future_date": true, which marks a show whose date is confirmed`
+      : marked
+        ? `The show carries "allow_far_future_date": true; re-run with --allow-far-future to send it`
+        : `If the date is real, add "allow_far_future_date": true to this show and re-run with --allow-far-future`;
+    plan.valid = false;
+    plan.errors = [
+      `event_date: ${quoteSourceValue(instant)} is more than ${SHOW_EVENT_DATE_BOUND_MONTHS} months ahead (the latest date accepted today is ${bound}); the API refuses it. ${remedy}.`,
+    ];
+  }
+}
+
+/** The API's error code for a show refused for its far-future date. */
+export const SHOW_EVENT_DATE_BEYOND_BOUND = "SHOW_EVENT_DATE_BEYOND_BOUND";
+
+/**
+ * ph's own hint for the API's far-future refusal, recognised by its code
+ * rather than its sentence, which is worded for every surface. Null for any
+ * other error.
+ */
+export function farFutureRefusalHint(err: unknown): string | null {
+  if (!(err instanceof APIError) || err.errorCode !== SHOW_EVENT_DATE_BEYOND_BOUND) return null;
+  return `if the date is confirmed, add "allow_far_future_date": true to this show and re-run with --allow-far-future`;
+}
+
+/** How a venue is matched across shows in one run: its id, else its name and city. */
+function venueKeys(plan: ShowPlan): string[] {
+  return plan.venues.map((v, i) =>
+    v.id !== undefined
+      ? `id:${v.id}`
+      : `name:${placeKey(v.name)}|${placeKey(plan.input.venues[i]?.city ?? plan.input.city)}`,
+  );
+}
+
+/** The venue-local calendar day a plan's show lands on. */
+function planDay(plan: ShowPlan): string {
+  const zone = planVenueZone(plan);
+  const reading = readEventDate(
+    plan.input.event_date,
+    resolveVenueTimezone(zone.state, zone.timezone),
+  );
+  return reading ? reading.day : String(plan.input.event_date).slice(0, 10);
+}
+
+/**
+ * Flags, without refusing, a show whose ticket URL already sells another date
+ * at the same room: against the catalog, and against the other shows in this
+ * run. See TicketURLReuse for why this is a flag.
+ */
+export async function flagTicketURLReuse(client: APIClient, plans: ShowPlan[]): Promise<void> {
+  const creatable = plans.filter((p) => p.valid && !p.duplicate?.isDuplicate);
+
+  const inRun = batchTicketURLReuse(
+    creatable.map((p) => ({
+      ticketUrl: p.input.ticket_url,
+      venueKeys: venueKeys(p),
+      day: planDay(p),
+    })),
+  );
+  for (const [index, others] of inRun) {
+    creatable[index].batchTicketReuse = others.map((j) => plans.indexOf(creatable[j]));
+  }
+
+  const cache: TicketURLLookupCache = new Map();
+  for (const plan of creatable) {
+    const venueIds = plan.venues.filter((v) => v.id !== undefined).map((v) => v.id!);
+    const zone = planVenueZone(plan);
+    try {
+      const { reuse, truncated, unsupported } = await findTicketURLReuse(
+        client,
+        plan.input.ticket_url ?? "",
+        venueIds,
+        plan.input.event_date,
+        zone.state,
+        zone.timezone,
+        cache,
+      );
+      if (reuse.length > 0) plan.ticketReuse = reuse;
+      if (truncated) {
+        plan.ticketReuseNote = `the ticket URL check read its first ${TICKET_REUSE_SCAN_CAP} matching shows and stopped`;
+      }
+      if (unsupported) {
+        plan.ticketReuseNote = "the ticket URL check was skipped: this API does not filter shows by ticket_url";
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      plan.ticketReuseNote = `the ticket URL check failed: ${message}`;
+    }
+  }
 }
 
 /** Only the two columns this path fills, as the API serves them. */
@@ -594,6 +737,7 @@ export async function submitShows(
   client: APIClient,
   jsonStr: string,
   confirm: boolean,
+  options: SubmitShowsOptions = {},
 ): Promise<SubmitShowsResult> {
   // 1. Parse input
   const shows = parseShowInput(jsonStr);
@@ -648,6 +792,11 @@ export async function submitShows(
       duplicate,
     });
   }
+
+  // 2a. The far-future bound refuses here, in the plan, before any write; the
+  // ticket URL check only flags.
+  applyEventDateBound(plans, options);
+  await flagTicketURLReuse(client, plans);
 
   // 2b. Resolve tags for all shows
   const tagResolver = new TagResolver(client);
@@ -763,6 +912,8 @@ export async function submitShows(
       const label = plan.input.title || `${plan.input.event_date} show`;
       const message = err instanceof Error ? err.message : "Unknown error";
       display.error(`Failed to create ${label}: ${message}`);
+      const hint = farFutureRefusalHint(err);
+      if (hint) display.info(`  ${hint}`);
     }
   }
 
@@ -928,6 +1079,14 @@ function quoteSourceValue(value: string): string {
 }
 
 /**
+ * quoteSourceValue for a value printed inside one warning line: tabs and line
+ * breaks become spaces, so a stored name cannot print a line of its own.
+ */
+export function quoteLineValue(value: string): string {
+  return quoteSourceValue(value.replace(/[\t\n\u2028\u2029]/g, " "));
+}
+
+/**
  * One line saying which stated time is not being stored, and why.
  *
  * The wording lives here rather than in `resolveShowTimes` because it is dry-run
@@ -1050,6 +1209,26 @@ function displayPreview(plans: ShowPlan[], resolvedTags?: ResolvedTag[][]): void
     if (plan.input.ticket_url) {
       display.kv("Tickets", plan.input.ticket_url);
     }
+    for (const reuse of plan.ticketReuse ?? []) {
+      const slug = reuse.slug ? ` (${quoteLineValue(reuse.slug)})` : "";
+      display.warn(
+        `ticket URL already sells show ${reuse.showId}${slug} at ${quoteLineValue(reuse.venueName ?? "this room")} on ${quoteLineValue(reuse.eventDate)}; a residency can share one link, and so does a year-replicated copy: check before --confirm`,
+      );
+    }
+    if (plan.batchTicketReuse && plan.batchTicketReuse.length > 0) {
+      const others = plan.batchTicketReuse.map((j) => `#${j + 1}`).join(", ");
+      display.warn(
+        `ticket URL is also stated by show ${others} in this run at the same room on another date; check before --confirm`,
+      );
+    }
+    if (plan.ticketReuseNote) {
+      display.warn(plan.ticketReuseNote);
+    }
+    if (plan.allowFarFuture) {
+      display.warn(
+        `event_date is more than ${SHOW_EVENT_DATE_BOUND_MONTHS} months ahead; --allow-far-future sends the API's override for this show`,
+      );
+    }
 
     // Artists
     process.stderr.write(`\n  ${gray("Artists:")}\n`);
@@ -1092,6 +1271,7 @@ export async function runSubmitShow(
   json: string | undefined,
   env: EnvironmentConfig,
   confirm: boolean,
+  options: SubmitShowsOptions = {},
 ): Promise<void> {
   let jsonStr: string;
 
@@ -1107,7 +1287,7 @@ export async function runSubmitShow(
   }
 
   const client = new APIClient(env);
-  const result = await submitShows(client, jsonStr, confirm);
+  const result = await submitShows(client, jsonStr, confirm, options);
 
   const hasDuplicates = result.plans.some((p) => p.duplicate?.isDuplicate);
   // `process.exitCode`, not `process.exit()`: shows written before a failure

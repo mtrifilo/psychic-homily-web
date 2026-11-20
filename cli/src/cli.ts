@@ -13,6 +13,7 @@ import { submitReleases } from "./commands/submit-release";
 import { runSubmitLabel } from "./commands/submit-label";
 import { runSubmitFestival } from "./commands/submit-festival";
 import { runBatch } from "./commands/batch";
+import { SHOW_EVENT_DATE_BOUND_MONTHS } from "./lib/dateBound";
 import { runStatus } from "./commands/status";
 import { runFestivalLinkArtists, runFestivalUnlinkArtist } from "./commands/festival";
 import { runShowAddArtist, runShowRemoveArtist } from "./commands/show";
@@ -91,7 +92,8 @@ program
   .option("--confirm", "Actually submit (default is dry-run)")
   .option("--force", "Skip duplicate checking (force create)")
   .option("--overwrite-catalog", "Overwrite existing release↔label catalog numbers (release only; default is write-once)")
-  .action(async (entityType: string, json: string | undefined, opts: { confirm?: boolean; force?: boolean; overwriteCatalog?: boolean }) => {
+  .option("--allow-far-future", `Send the override for shows dated more than ${SHOW_EVENT_DATE_BOUND_MONTHS} months ahead that carry "allow_far_future_date": true (show only; admin)`)
+  .action(async (entityType: string, json: string | undefined, opts: { confirm?: boolean; force?: boolean; overwriteCatalog?: boolean; allowFarFuture?: boolean }) => {
     if (!SUBMIT_TYPES.includes(entityType)) {
       display.error(
         `Invalid entity type "${entityType}". Must be one of: ${SUBMIT_TYPES.join(", ")}`,
@@ -109,7 +111,7 @@ program
         await runSubmitVenue(json, opts, env);
         break;
       case "show":
-        await runSubmitShow(json, env, !!opts.confirm);
+        await runSubmitShow(json, env, !!opts.confirm, { allowFarFuture: !!opts.allowFarFuture });
         break;
       case "release":
         await submitReleases(json ?? "", env, !!opts.confirm, !!opts.overwriteCatalog);
@@ -134,9 +136,10 @@ program
   .command("batch <file>")
   .description("Submit a mixed-entity JSON file for batch creation/update")
   .option("--confirm", "Actually submit (default is dry-run)")
-  .action(async (file: string, opts: { confirm?: boolean }) => {
+  .option("--allow-far-future", `Send the override for shows dated more than ${SHOW_EVENT_DATE_BOUND_MONTHS} months ahead that carry "allow_far_future_date": true (admin)`)
+  .action(async (file: string, opts: { confirm?: boolean; allowFarFuture?: boolean }) => {
     const env = await resolveEnvOrExit(program.opts().env);
-    await runBatch(file, env, !!opts.confirm);
+    await runBatch(file, env, !!opts.confirm, { allowFarFuture: !!opts.allowFarFuture });
   });
 
 // ─── ph sources ──────────────────────────────────────────────────────────────

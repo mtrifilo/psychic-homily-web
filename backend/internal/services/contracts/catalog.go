@@ -83,6 +83,9 @@ type CreateShowRequest struct {
 	SubmittedByUserID *uint `json:"-"` // User ID of submitter (set by handler)
 	SubmitterIsAdmin  bool  `json:"-"` // Whether submitter is admin (set by handler)
 	IsPrivate         bool  `json:"-"` // Whether show should be private (user's list only)
+	// AllowFarFutureDate lifts the far-future event_date bound. CreateShow
+	// honours it only together with SubmitterIsAdmin.
+	AllowFarFutureDate bool `json:"-"`
 }
 
 // UpdateShowRequest represents the basic show fields that can be updated.

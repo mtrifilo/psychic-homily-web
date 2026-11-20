@@ -199,7 +199,7 @@ type ImportResult struct {
 	Total         int      `json:"total"`          // Total events processed
 	Imported      int      `json:"imported"`       // Successfully imported
 	Duplicates    int      `json:"duplicates"`     // Skipped due to deduplication
-	Rejected      int      `json:"rejected"`       // Skipped due to matching rejected shows
+	Rejected      int      `json:"rejected"`       // Skipped: matched a rejected show, or dated past the far-future bound
 	PendingReview int      `json:"pending_review"` // Flagged as potential duplicates for admin review
 	Updated       int      `json:"updated"`        // Updated existing shows with new data
 	Errors        int      `json:"errors"`         // Failed to import
