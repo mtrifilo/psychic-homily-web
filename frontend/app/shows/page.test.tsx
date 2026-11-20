@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const { fetchListPayload } = vi.hoisted(() => ({ fetchListPayload: vi.fn() }))
 vi.mock('@/lib/ssr/fetchListPayload', () => ({ fetchListPayload }))
 
-import {
+import { Suspense, type ReactElement } from 'react'
+import { findElement } from '@/test/elementTree'
+import { ShowListFallback } from '@/features/shows/components/ShowListFallback'
+import ShowsPage, {
   UPCOMING_SHOWS_LIMIT,
   getScenesForWeekIndex,
   getShowsMonthsPayload,
@@ -192,5 +195,27 @@ describe('showsFirstScreenSeeds', () => {
 
   it('seeds nothing when the cities failed', () => {
     expect(showsFirstScreenSeeds({ shows, cities: null, months, calendarKey: SHOWS_CALENDAR_FIRST_SCREEN_KEY, citiesKey: SHOW_CITIES_FIRST_SCREEN_KEY })).toBeNull()
+  })
+})
+
+describe('ShowsPage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fetchListPayload.mockResolvedValue(null)
+  })
+
+  // The list's boundary falls back to the viewer-keyed cache fallback, not to
+  // a bare skeleton.
+  it('falls back to ShowListFallback while the seeded list streams', async () => {
+    const tree = (await ShowsPage()) as ReactElement
+
+    const boundary = findElement(
+      tree,
+      node =>
+        node.type === Suspense &&
+        (node.props as { fallback?: ReactElement | null }).fallback?.type ===
+          ShowListFallback
+    )
+    expect(boundary).toBeDefined()
   })
 })

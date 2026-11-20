@@ -8,6 +8,7 @@ import { useProfile } from '@/features/auth'
 import type { CityState, CityWithCount } from '@/components/filters/CityFilters'
 import { citiesParser, ALL_CITIES } from '@/components/filters/cityParams'
 import { useGeoDefaultCity } from '@/components/filters/useGeoDefaultCity'
+import type { GeoLocation } from '@/lib/geo-default'
 import type { ShowCitiesResponse } from '../types'
 import type { ShowListFilterOptions } from './useShows'
 
@@ -16,6 +17,12 @@ interface UseShowListCitySelectionParams {
   citiesData: ShowCitiesResponse | undefined
   /** Wraps the `?cities=` writes, so a caller can show them as pending. */
   startTransition: TransitionStartFunction
+  /**
+   * A location answer the caller already holds (`null` for "no city"). When
+   * given, the geo default is derived from it on the first render and no
+   * `/api/geo` request is made. Omitted, the hook requests it.
+   */
+  knownGeo?: GeoLocation | null
 }
 
 /**
@@ -29,6 +36,7 @@ interface UseShowListCitySelectionParams {
 export function useShowListCitySelection({
   citiesData,
   startTransition,
+  knownGeo,
 }: UseShowListCitySelectionParams) {
   const searchParams = useSearchParams()
   const { authStatus } = useAuthContext()
@@ -87,7 +95,8 @@ export function useShowListCitySelection({
       authStatus,
       favoriteCities,
       hasExistingSelection,
-      enableClientFetch: true,
+      geoFromServer: knownGeo,
+      enableClientFetch: knownGeo === undefined,
     })
 
   // The effective city filter, DERIVED during render, never seeded into the
@@ -111,6 +120,11 @@ export function useShowListCitySelection({
     favoriteCities,
     /** The geo city in `selectedCities`, or null when it did not come from geo. */
     appliedGeoDefault,
+    /**
+     * True when neither the URL nor favourites choose the cities, so the
+     * selection is the geo default's when there is one, else all cities.
+     */
+    fallsBackToDefault: !hasExistingSelection && favoriteCities.length === 0,
     /** True while the selection may still change without input: see `useGeoDefaultCity`. */
     isResolving,
     notifyUserInteracted,

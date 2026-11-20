@@ -1,6 +1,6 @@
 'use client'
 
-import { useTransition } from 'react'
+import { useState, useTransition } from 'react'
 import { useSearchParams } from 'next/navigation'
 import {
   useQueryClient,
@@ -9,6 +9,8 @@ import {
 } from '@tanstack/react-query'
 import type { CityState } from '@/components/filters/CityFilters'
 import { CacheDrawnList } from '@/components/shared/CachedListFallback'
+import { useAuthContext } from '@/lib/context/AuthContext'
+import { readCachedGeoAnswer } from '@/lib/geo-client'
 import { useHydrated } from '@/lib/hooks/common/useHydrated'
 import {
   isFirstScreenRequest,
@@ -35,9 +37,6 @@ export const SHOW_LIST_SKELETON_ONLY_PARAMS: readonly string[] = [
   'page',
 ]
 
-/** The all-cities selection. Stable, so the keys built from it are too. */
-const ALL_CITIES_SELECTION: CityState[] = []
-
 /**
  * The `Suspense` fallback above the seeded, unwindowed `/shows` list: the list
  * itself, drawn from the browser's query cache, when every entry it reads
@@ -49,10 +48,12 @@ const ALL_CITIES_SELECTION: CityState[] = []
  * browser's cache holds.
  *
  * On a client navigation the entries are named from the viewer's own city
- * selection (`?cities=`, else favourites, else the geo default), resolved by
- * the hook the list itself uses. While that selection is still resolving the
- * fallback is the skeleton, so it never draws one city's rows and then
- * another's.
+ * selection (`?cities=`, else favourites, else all cities), resolved by the
+ * hook the list itself uses. The fallback is the skeleton while that selection
+ * is resolving, whenever it comes from the geo default, and whenever the
+ * cached location answer it would need is missing, so it never draws one
+ * city's rows and then another's. It reads the location answer from the
+ * session cache only and never requests it.
  *
  * The page's seed writes the all-cities entries only, and never replaces an
  * entry the cache already holds (see `seedFirstScreen`). Every entry the list
@@ -66,8 +67,8 @@ export function ShowListFallback() {
 }
 
 /**
- * The URL and facet half. Its own component so the selection hook below, and
- * the geo request it can make, run only when the facet is already cached.
+ * The URL and facet half. Its own component so the selection hook below runs
+ * only over a facet that is already cached.
  */
 function CachedFacetGate() {
   const queryClient = useQueryClient()
@@ -88,17 +89,32 @@ function CachedFacetGate() {
 
 function CachedSelectionGate({ citiesData }: { citiesData: ShowCitiesResponse }) {
   const queryClient = useQueryClient()
+  const { authStatus } = useAuthContext()
   // Required by the hook's `?cities=` setter, which nothing here calls.
   const [, startTransition] = useTransition()
-  const { selectedCities, appliedGeoDefault, isResolving } =
-    useShowListCitySelection({ citiesData, startTransition })
+  // Read once, at mount. This component renders only after hydration, so the
+  // read cannot disagree with server HTML, and it makes no request.
+  const [cachedGeo] = useState(readCachedGeoAnswer)
+  const { selectedCities, appliedGeoDefault, isResolving, fallsBackToDefault } =
+    useShowListCitySelection({
+      citiesData,
+      startTransition,
+      knownGeo: cachedGeo ?? null,
+    })
 
+  // The geo default applies to anonymous viewers only (`useGeoDefaultCity`),
+  // so with no cached answer an anonymous viewer's selection is unknown.
+  const locationAnswerUnknown =
+    fallsBackToDefault && authStatus === 'anonymous' && cachedGeo === undefined
+
+  // A selection from the geo default is never drawn here: the list derives
+  // that default after it mounts, so a drawn copy would paint the all-cities
+  // rows first.
   if (
     isResolving ||
-    !allCached(
-      queryClient,
-      showListFirstPaintKeys(selectedCities, appliedGeoDefault !== null)
-    )
+    appliedGeoDefault !== null ||
+    locationAnswerUnknown ||
+    !allCached(queryClient, showListFirstPaintKeys(selectedCities))
   ) {
     return <ShowListSkeleton />
   }
@@ -111,29 +127,14 @@ function CachedSelectionGate({ citiesData }: { citiesData: ShowCitiesResponse })
 
 /**
  * Every entry the unwindowed, untagged first page of the list reads before
- * its first paint, for a selection.
- *
- * `fromGeoDefault` adds the all-cities entries: the list derives its geo
- * default after it mounts (`useGeoDefaultCity` answers null on a fresh
- * mount's first render), so a list whose selection came from geo reads those
- * entries first.
+ * its first paint, for a selection that did not come from the geo default.
  */
-export function showListFirstPaintKeys(
-  selectedCities: CityState[],
-  fromGeoDefault: boolean
-): QueryKey[] {
-  const selections = fromGeoDefault
-    ? [selectedCities, ALL_CITIES_SELECTION]
-    : [selectedCities]
+export function showListFirstPaintKeys(selectedCities: CityState[]): QueryKey[] {
+  const filters = showListFilters(selectedCities, [], 'all')
   return [
     SHOW_CITIES_FIRST_SCREEN_KEY,
-    ...selections.flatMap(cities => {
-      const filters = showListFilters(cities, [], 'all')
-      return [
-        showsCalendarQueryKey({ limit: SHOWS_PAGE_SIZE, ...filters }),
-        showMonthsQueryKey(filters),
-      ]
-    }),
+    showsCalendarQueryKey({ limit: SHOWS_PAGE_SIZE, ...filters }),
+    showMonthsQueryKey(filters),
   ]
 }
 
