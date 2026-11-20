@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
@@ -112,10 +113,13 @@ async function preparePanelLink(queryClient: QueryClient): Promise<PanelLink> {
  */
 export function useSavedShowsCalendarLink(userId: string | undefined) {
   const queryClient = useQueryClient()
+  // The viewer this open belongs to. A different viewer never prepares a
+  // link through it: that could create one for an account that never asked.
+  const [openedBy] = useState(userId)
   return useQuery({
-    queryKey: queryKeys.calendar.panelLink(userId),
+    queryKey: queryKeys.calendar.panelLink(openedBy),
     queryFn: () => preparePanelLink(queryClient),
-    enabled: !!userId,
+    enabled: !!openedBy && userId === openedBy,
     staleTime: Infinity,
     gcTime: 0,
     retry: false,

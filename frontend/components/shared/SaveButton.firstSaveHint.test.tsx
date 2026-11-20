@@ -31,11 +31,12 @@ vi.mock('next/navigation', () => ({
 }))
 
 let authStatus: 'authenticated' | 'anonymous' = 'authenticated'
+let viewerId = '7'
 vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => ({
     authStatus,
     isAuthenticated: authStatus === 'authenticated',
-    user: authStatus === 'authenticated' ? { id: '7', email: 'a@b.c' } : null,
+    user: authStatus === 'authenticated' ? { id: viewerId, email: 'a@b.c' } : null,
     isLoading: false,
     logout: vi.fn(),
   }),
@@ -120,6 +121,7 @@ beforeEach(() => {
   savedTotal = 0
   storedDismissal = null
   authStatus = 'authenticated'
+  viewerId = '7'
   mockToggle.mockImplementation(async (showId: number, isSaved: boolean) => {
     if (isSaved) {
       saved.delete(showId)
@@ -616,4 +618,39 @@ describe('SaveButton first-save hint', () => {
       ).toHaveFocus()
     }
   )
+
+  // The panel belongs to the viewer who opened it: a change of viewer closes
+  // it, and nothing is created for an account that never opened it.
+  it('closes the calendar panel when the viewer changes, creating nothing for the next', async () => {
+    const user = userEvent.setup()
+    const client = createClient(null)
+    const ui = () => <SaveButton showId={1} variant="bracket" />
+    const { rerender } = render(ui(), { wrapper: createWrapperWithClient(client) })
+
+    await clickSave(user)
+    await screen.findByRole('status')
+    await user.click(
+      screen.getByRole('button', { name: 'Add saved shows to your calendar' })
+    )
+    await screen.findByRole(
+      'dialog',
+      { name: 'Add your saved shows to your calendar' },
+      { timeout: 5000 }
+    )
+    const creates = () =>
+      apiRequest.mock.calls.filter(
+        ([endpoint, options]) =>
+          String(endpoint).endsWith('/calendar/token') &&
+          (options as { method?: string }).method === 'POST'
+      ).length
+    const before = creates()
+
+    viewerId = '8'
+    rerender(ui())
+
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    )
+    expect(creates()).toBe(before)
+  })
 })

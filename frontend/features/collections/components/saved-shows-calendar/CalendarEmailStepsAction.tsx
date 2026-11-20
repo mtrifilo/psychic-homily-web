@@ -3,9 +3,11 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import type React from 'react'
 import {
   emailCalendarStepsFailure,
   useEmailCalendarSteps,
+  type EmailCalendarStepsFailure,
 } from '@/features/auth/hooks/useCalendarFeed'
 import {
   VerificationResend,
@@ -22,6 +24,7 @@ import {
   PanelErrorWithRetry,
   PanelNote,
   PanelRowButton,
+  holdFocusInPanel,
   useCalendarPanelLayout,
 } from './CalendarPanelParts'
 import { PANEL_COPY, emailSentLine } from './savedShowsCalendarCopy'
@@ -38,42 +41,49 @@ import { PANEL_COPY, emailSentLine } from './savedShowsCalendarCopy'
 export function CalendarEmailStepsAction() {
   const { user } = useAuthContext()
   const send = useEmailCalendarSteps()
-  // Sticky across a "Send again" in flight, which would otherwise flash the
-  // first-send row back for the length of the request.
-  const [hasSent, setHasSent] = useState(false)
+  // The last settled outcome, kept through a send in flight so neither the
+  // confirmation nor a failure line flashes while it is pending.
+  const [outcome, setOutcome] = useState<
+    'sent' | EmailCalendarStepsFailure | null
+  >(null)
 
   const onSend = () => {
-    send.mutate(undefined, { onSuccess: () => setHasSent(true) })
+    send.mutate(undefined, {
+      onSuccess: () => setOutcome('sent'),
+      onError: error => setOutcome(emailCalendarStepsFailure(error)),
+    })
   }
-
-  const failure = send.isError ? emailCalendarStepsFailure(send.error) : null
-  const showSent = hasSent && !failure
+  // The send controls swap or disappear as the outcome changes.
+  const sendFromControl = (event: React.MouseEvent<HTMLElement>) => {
+    holdFocusInPanel(event.currentTarget)
+    onSend()
+  }
 
   return (
     <div className="flex flex-col">
-      {showSent ? (
+      {outcome === 'sent' ? (
         <>
           <PanelNote className="mt-0.5">
             {emailSentLine(user?.email ?? '')}
           </PanelNote>
-          <PanelRowButton onClick={onSend} disabled={send.isPending}>
+          <PanelRowButton onClick={sendFromControl} disabled={send.isPending}>
             {PANEL_COPY.sendAgain}
           </PanelRowButton>
         </>
       ) : (
         <PanelRowButton
-          onClick={onSend}
+          onClick={sendFromControl}
           disabled={send.isPending}
           testId="calendar-email-steps"
         >
           {PANEL_COPY.emailSteps}
         </PanelRowButton>
       )}
-      {failure === 'unverified' ? <VerifyEmailInPlace /> : null}
-      {failure === 'rate_limited' ? (
+      {outcome === 'unverified' ? <VerifyEmailInPlace /> : null}
+      {outcome === 'rate_limited' ? (
         <PanelError>{PANEL_COPY.emailRateLimited}</PanelError>
       ) : null}
-      {failure === 'failed' ? (
+      {outcome === 'failed' ? (
         <PanelErrorWithRetry onRetry={onSend}>
           {PANEL_COPY.emailFailed}
         </PanelErrorWithRetry>

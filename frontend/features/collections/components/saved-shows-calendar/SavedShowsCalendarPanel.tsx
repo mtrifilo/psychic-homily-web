@@ -104,9 +104,11 @@ export function SavedShowsCalendarPanel({
     [anchorRef]
   )
 
-  // The popover is portaled to the end of the page and does not trap focus,
-  // so Tab past its last control (or Shift+Tab before its first) would leave
-  // for the browser chrome. It closes instead, returning focus to Save.
+  // Tab past the popover's last control (or Shift+Tab before its first)
+  // steps out of the panel: it closes and returns focus to Save, rather than
+  // looping back into a portaled panel far from the row it belongs to.
+  // While no control exists yet (still loading), Tab stays put and only
+  // Shift+Tab steps out, since the hint that opened it cannot open it again.
   const closeOnTabOut = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
       if (event.key !== 'Tab') return
@@ -118,6 +120,10 @@ export function SavedShowsCalendarPanel({
       const edge = event.shiftKey ? controls[0] : controls[controls.length - 1]
       // The panel itself holds focus when it opened before its rows existed;
       // Shift+Tab from there is also a step out.
+      if (controls.length === 0 && !event.shiftKey) {
+        event.preventDefault()
+        return
+      }
       const leaving =
         controls.length === 0 ||
         document.activeElement === edge ||
@@ -144,6 +150,7 @@ export function SavedShowsCalendarPanel({
           onCloseAutoFocus={returnFocusToAnchor}
           onKeyDown={closeOnTabOut}
           className="w-72 p-4 shadow-md"
+          data-saved-shows-calendar-panel=""
           data-testid="saved-shows-calendar-panel"
         >
           <PanelContents
@@ -163,6 +170,7 @@ export function SavedShowsCalendarPanel({
         aria-describedby={undefined}
         onCloseAutoFocus={returnFocusToAnchor}
         className="max-h-[85dvh] gap-0 overflow-y-auto rounded-t-lg px-5 pb-6 pt-4"
+        data-saved-shows-calendar-panel=""
         data-testid="saved-shows-calendar-panel"
       >
         <PanelContents layout="sheet" headingId={headingId} onNavigate={close} />

@@ -848,6 +848,37 @@ describe('SavedShowsCalendarPanel: rows act inside the click', () => {
 })
 
 describe('SavedShowsCalendarPanel: keeps this open together', () => {
+  it('a saved-shows read that fails on open retries on its own until it succeeds', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      let failNewest = true
+      const base = apiRequest.getMockImplementation()!
+      apiRequest.mockImplementation(async (endpoint: string, options: unknown) => {
+        const url = String(endpoint)
+        if (url.includes('/saved-shows?') && !url.includes('time_filter') && failNewest) {
+          throw new Error('502')
+        }
+        return base(endpoint, options)
+      })
+      render(<Harness />, {
+        wrapper: createWrapperWithClient(createTestQueryClient()),
+      })
+      const panel = await screen.findByTestId('saved-shows-calendar-panel')
+      await waitFor(() =>
+        expect(within(panel).getByText(PANEL_COPY.loading)).toBeInTheDocument()
+      )
+
+      failNewest = false
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000)
+      })
+
+      await waitFor(() => expect(rowNames(panel)).toContain('Copy link'))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('a status refetch that fails keeps the panel and its notes on screen', async () => {
     const user = setupUser()
     const client = createTestQueryClient()
@@ -891,6 +922,43 @@ describe('SavedShowsCalendarPanel: keeps this open together', () => {
 })
 
 describe('SavedShowsCalendarPanel: focus', () => {
+  it('keeps focus in the panel when "I removed it" takes its own block away', async () => {
+    const user = setupUser()
+    withLink([google(12 * DAY)])
+    const panel = await renderPanel()
+    server.status = { has_token: true, reads: [] }
+
+    await user.click(within(panel).getByRole('button', { name: 'I removed it' }))
+
+    await waitFor(() => expect(rowNames(panel)).not.toContain('I removed it'))
+    expect(panel.contains(document.activeElement)).toBe(true)
+  })
+
+  it('Tab while the panel is still loading stays in the panel', async () => {
+    const user = setupUser()
+    let finish!: () => void
+    const linkRead = new Promise<void>(resolve => {
+      finish = resolve
+    })
+    const base = apiRequest.getMockImplementation()!
+    apiRequest.mockImplementation(async (endpoint: string, options: unknown) => {
+      if (String(endpoint).endsWith('/calendar/token') && method(options) === 'GET') {
+        await linkRead
+      }
+      return base(endpoint, options)
+    })
+    render(<Harness />, {
+      wrapper: createWrapperWithClient(createTestQueryClient()),
+    })
+    const panel = await screen.findByTestId('saved-shows-calendar-panel')
+    panel.focus()
+
+    await user.tab()
+
+    expect(screen.getByTestId('saved-shows-calendar-panel')).toBe(panel)
+    finish()
+  })
+
   it('Shift+Tab from the panel itself closes it and returns focus to Save', async () => {
     const user = setupUser()
     // A page control after Save, as a real page has: the portaled panel sits

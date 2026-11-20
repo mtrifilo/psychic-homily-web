@@ -47,7 +47,11 @@ function NoCalendarPanel({
   anchorRef: RefObject<HTMLElement | null>
 }) {
   useEffect(() => {
-    anchorRef.current?.querySelector<HTMLElement>('button, a')?.focus()
+    // Only when focus is lost: the person may have moved on while it loaded.
+    if (document.activeElement && document.activeElement !== document.body) return
+    anchorRef.current
+      ?.querySelector<HTMLElement>('button, a')
+      ?.focus({ preventScroll: true })
   }, [anchorRef])
   return null
 }
@@ -130,7 +134,15 @@ export function SaveButton({
   // open state; kept mounted after that so it closes with its own animation
   // and focus return.
   const [isCalendarOpen, setIsCalendarOpen] = useState<boolean>()
-  const openCalendar = useCallback(() => setIsCalendarOpen(true), [])
+  // The panel belongs to the viewer who opened it; it closes the moment the
+  // viewer changes (signed out, or another account), so it never acts for an
+  // account that did not open it. Adjusted during render, not in an effect.
+  const [calendarOpenedBy, setCalendarOpenedBy] = useState<string>()
+  if (isCalendarOpen && user?.id !== calendarOpenedBy) setIsCalendarOpen(false)
+  const openCalendar = useCallback(() => {
+    setCalendarOpenedBy(user?.id)
+    setIsCalendarOpen(true)
+  }, [user?.id])
   // The hint anchors to this wrapper and renders inside it, right after the
   // control, so it is the next stop in tab and reading order.
   const wrapperRef = useRef<HTMLDivElement>(null)

@@ -44,22 +44,22 @@ export type SavedShowsCalendarState =
  * since this mount, and the newest save, the upcoming count and the device
  * are known, since every row and line depends on one of them. A status
  * cached by another surface is never shown. Once read, a later refetch that
- * fails keeps the last good read on screen; until a first read succeeds the
- * panel stays loading while the status query retries on its own. The panel has no wording for a status it
+ * fails keeps the last good read on screen; until a first read of each
+ * succeeds the panel stays loading while those reads retry on their own. The panel has no wording for a status it
  * could not read, and never guesses one.
  */
 export function useSavedShowsCalendar(): SavedShowsCalendarState {
   const { user } = useAuthContext()
   const userId = user?.id
   const link = useSavedShowsCalendarLink(userId)
-  const status = useCalendarFeedStatus(true, { live: true })
+  const status = useCalendarFeedStatus(!!userId, { live: true })
   // Sorted newest save first when no time filter is given.
-  const newest = useSavedShows({ limit: 1, userId, retryOnFocus: true })
+  const newest = useSavedShows({ limit: 1, userId, retryUntilRead: true })
   const upcoming = useSavedShows({
     limit: 1,
     userId,
     timeFilter: 'upcoming',
-    retryOnFocus: true,
+    retryUntilRead: true,
   })
   const device = useCalendarDevice()
   // When this open began; a status read before it came from another surface.

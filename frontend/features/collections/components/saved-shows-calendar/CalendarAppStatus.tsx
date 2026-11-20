@@ -6,6 +6,7 @@ import {
   PanelErrorWithRetry,
   PanelNote,
   PanelRowButton,
+  holdFocusInPanel,
 } from './CalendarPanelParts'
 import { CalendarRowNoteLines } from './CalendarRowNoteLines'
 import { AddTargetControl } from './CalendarAddRows'
@@ -71,7 +72,14 @@ export function CalendarStoppedApp({
         </div>
       ) : null}
       <div className="flex flex-col">
-        <PanelRowButton onClick={forgetApp} disabled={forget.isPending}>
+        <PanelRowButton
+          onClick={event => {
+            // This block disappears once the app is forgotten.
+            holdFocusInPanel(event.currentTarget)
+            forgetApp()
+          }}
+          disabled={forget.isPending}
+        >
           {PANEL_COPY.removedIt}
         </PanelRowButton>
         {forget.isError ? (

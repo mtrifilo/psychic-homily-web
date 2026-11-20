@@ -10,6 +10,7 @@ import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys, createInvalidateQueries } from '@/lib/queryClient'
 import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import { isAuthError } from '@/lib/errors'
+import { retryWhileFailed } from '@/lib/retryFailedRead'
 import type { ApiError } from '@/lib/api'
 import { calendarResetReason } from '@/features/collections/lib/calendarFeedStatus'
 import type { CalendarFeedClient } from '@/features/shows/types'
@@ -39,8 +40,6 @@ export const useCalendarTokenStatus = (enabled: boolean = true) => {
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 }
-
-const FAILED_STATUS_RETRY_MS = 10_000
 
 /**
  * The calendar feed's status with no feed address in it: whether a link
@@ -76,9 +75,9 @@ export const useCalendarFeedStatus = (
           // A failed read is retried on its own until one succeeds. Whether
           // the data still held from before is fit to show is the surface's
           // call (the calendar panel shows only a read made since it opened),
-          // so the retry does not depend on it.
-          refetchInterval: query =>
-            query.state.status === 'error' ? FAILED_STATUS_RETRY_MS : false,
+          // so the retry does not depend on it. A refused session is not
+          // retried: it will not change by waiting.
+          refetchInterval: retryWhileFailed,
         }
       : {}),
   })

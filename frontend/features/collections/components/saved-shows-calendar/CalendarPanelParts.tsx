@@ -1,6 +1,7 @@
 'use client'
 
 import { createContext, useContext, type ReactNode } from 'react'
+import type React from 'react'
 import Link from 'next/link'
 import type { LucideIcon } from 'lucide-react'
 import { CALENDAR_FEED_SETTINGS_HREF } from '@/features/auth/components/settings/calendar-feed-anchor'
@@ -29,6 +30,16 @@ export function useCalendarPanelLayout(): CalendarPanelLayout {
  */
 export const PRIVATE_LINK_CLASS = 'ph-no-capture sentry-block'
 
+/**
+ * Moves focus to the panel itself before a control that is about to unmount
+ * (a retry line, a stopped app's block) acts. The popover does not trap
+ * focus, so focus on a removed control would drop to the page's body and
+ * leave the person outside the panel they are still using.
+ */
+export function holdFocusInPanel(control: HTMLElement) {
+  control.closest<HTMLElement>('[data-saved-shows-calendar-panel]')?.focus()
+}
+
 /** The rows' stack: spaced in the popover, edge to edge in the sheet. */
 export function rowStackClass(layout: CalendarPanelLayout): string {
   return layout === 'sheet' ? 'flex flex-col' : 'flex flex-col gap-2.5'
@@ -43,7 +54,7 @@ function rowClass(layout: CalendarPanelLayout, className?: string) {
 
 interface RowButtonProps {
   children: ReactNode
-  onClick: () => void
+  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void
   icon?: LucideIcon
   disabled?: boolean
   /** The row acts on the private calendar link; see PRIVATE_LINK_CLASS. */
@@ -167,6 +178,7 @@ export function PanelErrorWithRetry({
   children: string
   onRetry: () => void
 }) {
+  const layout = useCalendarPanelLayout()
   if (!endsWithRetry(children)) return <PanelError>{children}</PanelError>
   const lead = children.slice(0, -TRY_AGAIN.length)
   return (
@@ -174,8 +186,16 @@ export function PanelErrorWithRetry({
       {lead}
       <button
         type="button"
-        onClick={onRetry}
-        className="rounded-sm underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={event => {
+          holdFocusInPanel(event.currentTarget)
+          onRetry()
+        }}
+        className={cn(
+          'rounded-sm underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          // The sheet's 44px tap target, without changing how the line reads.
+          layout === 'sheet' &&
+            "relative after:absolute after:-inset-x-1 after:-inset-y-4 after:content-['']"
+        )}
       >
         {TRY_AGAIN}
       </button>
