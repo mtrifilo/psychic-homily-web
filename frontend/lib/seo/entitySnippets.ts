@@ -284,19 +284,22 @@ export function showEventDescription(
   const doors = eventClock(input.doorsAt, input)
   const announcedMusic = eventClock(input.musicAt, input)
   const music =
-    doors || announcedMusic === eventClock(input.eventDate, input)
+    announcedMusic &&
+    (doors || announcedMusic === eventClock(input.eventDate, input))
       ? announcedMusic
       : null
-  const times =
-    doors && music
-      ? `Doors ${doors}, music ${music}.`
-      : doors
-        ? `Doors ${doors}.`
-        : music
-          ? `Music ${music}.`
-          : null
+  const times = timesSentence(doors, music)
 
+  // Also turns the narrow no-break space some ICU builds put before AM/PM
+  // into a plain one.
   return collapseWhitespace(times ? `${lead} ${times}` : lead)
+}
+
+function timesSentence(doors: string | null, music: string | null): string | null {
+  if (doors && music) return `Doors ${doors}, music ${music}.`
+  if (doors) return `Doors ${doors}.`
+  if (music) return `Music ${music}.`
+  return null
 }
 
 export interface ArtistSnippetInput {
