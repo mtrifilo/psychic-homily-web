@@ -6,7 +6,7 @@ import {
   PanelErrorWithRetry,
   PanelNote,
   PanelRowButton,
-  holdFocusInPanel,
+  holdFocusInSurface,
 } from './CalendarPanelParts'
 import { CalendarRowNoteLines } from './CalendarRowNoteLines'
 import { AddTargetControl } from './CalendarAddRows'
@@ -75,7 +75,7 @@ export function CalendarStoppedApp({
         <PanelRowButton
           onClick={event => {
             // This block disappears once the app is forgotten.
-            holdFocusInPanel(event.currentTarget)
+            holdFocusInSurface(event.currentTarget)
             forgetApp()
           }}
           disabled={forget.isPending}
