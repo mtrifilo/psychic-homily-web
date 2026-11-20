@@ -1,6 +1,13 @@
 'use client'
 
-import { useCallback, useId, useRef, useState, type ReactNode } from 'react'
+import {
+  useCallback,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { AlertCircle } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Input } from '@/components/ui/input'
@@ -32,8 +39,8 @@ type Confirming = 'new_link' | 'turn_off'
 interface SettingsCalendarLinksProps {
   /** The two addresses, or null when the link's address cannot be shown. */
   links: CalendarLinks | null
-  /** The link was replaced or turned off. */
-  onLinkChanged: () => void
+  /** A New link or Turn off request settled, whatever its outcome. */
+  onLinkWritten: () => void
 }
 
 /**
@@ -46,27 +53,46 @@ interface SettingsCalendarLinksProps {
  */
 export function SettingsCalendarLinks({
   links,
-  onLinkChanged,
+  onLinkWritten,
 }: SettingsCalendarLinksProps) {
   const queryClient = useQueryClient()
   const createLink = useCreateCalendarToken()
   const turnOffLink = useDeleteCalendarToken()
-  const [confirming, setConfirming] = useState<Confirming | null>(null)
+  // Which confirmation is open, and for which address. A confirmation asked
+  // about one link closes when the address changes, including by a refetch
+  // after a write whose response was lost.
+  const [asked, setAsked] = useState<{
+    which: Confirming
+    address: string | null
+  } | null>(null)
+  const currentAddress = links?.feedUrl ?? null
+  const confirming =
+    asked && asked.address === currentAddress ? asked.which : null
   // The control that opened a confirmation, focused again when the controls
   // return (Cancel, or a new link made).
   const returnFocusTo = useRef<Confirming | null>(null)
   const calendarFieldId = useId()
   const followsFieldId = useId()
   const blockRef = useRef<HTMLDivElement>(null)
+  // The block leaves whenever the link does, also when a refetch finds it
+  // gone (turned off elsewhere, or a turn-off whose answer was lost). Focus
+  // inside it moves to the card first; a layout cleanup runs while the
+  // block's nodes are still in the page.
+  useLayoutEffect(() => {
+    const block = blockRef.current
+    return () => {
+      if (block?.contains(document.activeElement)) holdFocusInPanel(block)
+    }
+  }, [])
 
   const open = (which: Confirming) => {
     createLink.reset()
     turnOffLink.reset()
-    setConfirming(which)
+    setAsked({ which, address: currentAddress })
   }
   const cancel = () => {
     returnFocusTo.current = confirming
-    setConfirming(null)
+    setAsked(null)
   }
 
   const makeNewLink = () => {
@@ -74,21 +100,19 @@ export function SettingsCalendarLinks({
       onSuccess: created => {
         showCalendarStatus(queryClient, statusOfNewLink(created))
         returnFocusTo.current = 'new_link'
-        setConfirming(null)
-        onLinkChanged()
+        setAsked(null)
       },
+      onSettled: onLinkWritten,
     })
   }
 
   const turnOff = () => {
     turnOffLink.mutate(undefined, {
       onSuccess: () => {
-        // This block disappears with the link.
-        if (blockRef.current) holdFocusInPanel(blockRef.current)
         const off: CalendarTokenStatusResponse = { has_token: false }
         showCalendarStatus(queryClient, off)
-        onLinkChanged()
       },
+      onSettled: onLinkWritten,
     })
   }
 

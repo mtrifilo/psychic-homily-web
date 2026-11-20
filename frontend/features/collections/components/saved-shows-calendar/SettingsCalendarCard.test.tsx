@@ -123,21 +123,30 @@ function stopNavigation(event: MouseEvent) {
   if ((event.target as Element).closest('a')) event.preventDefault()
 }
 
+let mints = 0
+
 beforeEach(() => {
   apiRequest.mockReset()
+  mints = 0
   server = {
     token: { has_token: false },
     mint: async () => {
+      // Every create mints a new key: the first is NEW_TOKEN, later ones
+      // differ again, as on the server.
+      mints += 1
+      const token = mints === 1 ? NEW_TOKEN : `${NEW_TOKEN}-${mints}`
+      const feedUrl = `https://api.example.test/feeds/${token}/saved-shows.ics`
+      const followsUrl = `https://api.example.test/feeds/${token}/follows.atom`
       server.token = {
         has_token: true,
         url_recoverable: true,
-        feed_url: NEW_FEED_URL,
-        follows_feed_url: NEW_FOLLOWS_URL,
+        feed_url: feedUrl,
+        follows_feed_url: followsUrl,
       }
       return {
-        token: NEW_TOKEN,
-        feed_url: NEW_FEED_URL,
-        follows_feed_url: NEW_FOLLOWS_URL,
+        token,
+        feed_url: feedUrl,
+        follows_feed_url: followsUrl,
         created_at: ago(0),
       }
     },
@@ -347,6 +356,28 @@ describe('SettingsCalendarCard', () => {
         ).toBeNull()
       )
       expect(screen.getByText(COPY.noneChecking)).toBeInTheDocument()
+    })
+
+    it('keeps the reset sentence when a create whose answer was lost made the link', async () => {
+      server.token = {
+        has_token: false,
+        link_reset_at: ago(HOUR),
+        link_reset_reason: 'password_reset',
+      }
+      const mint = server.mint
+      server.mint = async () => {
+        await mint()
+        throw new Error('connection reset')
+      }
+      const user = setupUser()
+      await renderReadCard()
+      await user.click(screen.getByRole('button', { name: COPY.addToCalendar }))
+      // The re-read after the failure finds the link the create made.
+      await waitFor(() => expect(fieldValues()).toEqual([NEW_FEED_URL, NEW_FOLLOWS_URL]))
+      expect(
+        screen.getByText(SETTINGS_RESET_SENTENCE.password_reset)
+      ).toBeInTheDocument()
+      expect(calls('/calendar/token', 'POST')).toHaveLength(1)
     })
 
     it('shows the one approved line when the fresh read before creating fails', async () => {
@@ -715,6 +746,24 @@ describe('SettingsCalendarCard', () => {
       expect(screen.getByText(COPY.noneChecking)).toBeInTheDocument()
     })
 
+    it('closes the question when a create whose answer was lost did replace the link', async () => {
+      withLink()
+      const mint = server.mint
+      server.mint = async () => {
+        await mint()
+        throw new Error('connection reset')
+      }
+      const user = setupUser()
+      await renderReadCard()
+      await user.click(screen.getByRole('button', { name: COPY.newLink }))
+      await user.click(
+        screen.getByRole('button', { name: COPY.confirmNewLinkAction })
+      )
+      await waitFor(() => expect(fieldValues()).toEqual([NEW_FEED_URL, NEW_FOLLOWS_URL]))
+      expect(screen.queryByRole('group', { name: COPY.confirmNewLink })).toBeNull()
+      expect(screen.queryByText(PANEL_COPY.createFailed)).toBeNull()
+    })
+
     it('keeps asking, with the create line, when it fails', async () => {
       withLink()
       server.mint = () => Promise.reject(new Error('down'))
@@ -771,6 +820,8 @@ describe('SettingsCalendarCard', () => {
         await screen.findByRole('button', { name: COPY.addToCalendar })
       ).toBeInTheDocument()
       expect(fieldValues()).toEqual([])
+      // Focus was on the confirm button inside the block that left.
+      expect(document.getElementById('calendar')).toHaveFocus()
     })
 
     it('says so when it fails, and tries again', async () => {

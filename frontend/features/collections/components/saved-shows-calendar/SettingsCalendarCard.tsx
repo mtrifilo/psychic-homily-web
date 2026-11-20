@@ -94,7 +94,7 @@ export function SettingsCalendarCard({
 }
 
 function SettingsCalendarBody() {
-  const { state, add, onLinkChanged } = useSettingsCalendar()
+  const { state, add, onLinkWritten } = useSettingsCalendar()
 
   switch (state.kind) {
     case 'loading':
@@ -107,7 +107,7 @@ function SettingsCalendarBody() {
       )
     case 'no_link': {
       const addLink = (control: HTMLElement) =>
-        add.mutate(undefined, {
+        add.mutate(state.resetReason, {
           // The button is replaced by the add buttons and the links.
           onSuccess: () => holdFocusInPanel(control),
         })
@@ -123,7 +123,7 @@ function SettingsCalendarBody() {
               {COPY.addToCalendar}
             </CalendarCardButton>
             {add.isError && !add.isPending ? (
-              <PanelErrorWithRetry onRetry={() => add.mutate()}>
+              <PanelErrorWithRetry onRetry={() => add.mutate(state.resetReason)}>
                 {PANEL_COPY.createFailed}
               </PanelErrorWithRetry>
             ) : null}
@@ -145,7 +145,7 @@ function SettingsCalendarBody() {
           <div role="separator" className="h-px bg-border" />
           <SettingsCalendarLinks
             links={state.links}
-            onLinkChanged={onLinkChanged}
+            onLinkWritten={onLinkWritten}
           />
         </div>
       )
