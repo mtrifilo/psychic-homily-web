@@ -174,10 +174,9 @@ func TestConnectReportsARefusedConnectionWithoutTheBound(t *testing.T) {
 // A failed connect closes the pool it opened. Each open database/sql pool runs
 // one connection-opener goroutine until it is closed, so an opener goroutine
 // created after the test started belongs to a pool opened since then that
-// nothing has closed. The test looks only at those, not at a process-wide
-// count, because Close does not wait for an opener to exit: a pool an earlier
-// test closed can still be counted at the start and stop being counted at any
-// point after.
+// nothing has closed. The test looks only at those because Close does not
+// wait for an opener to exit: a pool an earlier test closed can still be
+// running its opener at the start and stop at any point after.
 func TestConnectClosesThePoolWhenItFails(t *testing.T) {
 	dsn := refusingDSN(t)
 	cfg := connectConfig(t, dsn)
