@@ -61,6 +61,15 @@ describe('buildSceneWeekJsonLd — MusicEvent', () => {
     }
   })
 
+  it('states no description and no doorTime, since the payload names no bill roles', () => {
+    // Stage order: the scene payload lists the opener first and cannot say
+    // who headlines, so any lead it named could be the wrong act.
+    const { events } = build([show({ artist_names: ['Opener', 'Riff Wood'] })])
+    expect(events).toHaveLength(1)
+    expect(events[0]).not.toHaveProperty('description')
+    expect(events[0]).not.toHaveProperty('doorTime')
+  })
+
   it('emits one event per listed show, across days', () => {
     const data = week([])
     data.days = [

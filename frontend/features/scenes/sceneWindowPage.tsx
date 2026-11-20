@@ -172,7 +172,12 @@ export async function buildSceneWindowMetadata(
   // scene_periods sitemap family. Never another window's or a week's URL:
   // they bound different stretches of time, so pointing one at another would
   // fold two different lists into one indexed page.
-  const canonical = `${SITE_URL}${sceneWindowHref(data.slug, window)}`
+  //
+  // The canonical names the request's own path, the same path the canonical
+  // `Link` header rule in next.config.ts names; the proxy redirects every
+  // other spelling of a scene URL to the scene's canonical one before this
+  // renders. `og:url` names the scene the payload loaded.
+  const canonical = `${SITE_URL}${sceneWindowHref(slug, window)}`
 
   return {
     title,
@@ -183,7 +188,12 @@ export async function buildSceneWindowMetadata(
     // rolling window has no such key, so advertising a card here would pin
     // whichever weekend a scraper saw first. Adding one means giving these
     // windows dated permalinks, which is a separate decision.
-    openGraph: { title, description, url: canonical, type: 'website' },
+    openGraph: {
+      title,
+      description,
+      url: `${SITE_URL}${sceneWindowHref(data.slug, window)}`,
+      type: 'website',
+    },
     twitter: { card: 'summary_large_image', title, description },
   }
 }

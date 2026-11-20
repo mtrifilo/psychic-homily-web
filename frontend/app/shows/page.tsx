@@ -15,7 +15,8 @@ import {
   SCENE_WEEK_INDEX_TIMEZONE,
 } from '@/features/scenes/sceneWeek'
 import type { SceneListResponse } from '@/features/scenes/types'
-import { ShowList, ShowListSkeleton } from '@/features/shows'
+import { ShowList } from '@/features/shows'
+import { ShowListFallback } from '@/features/shows/components/ShowListFallback'
 import {
   SHOW_CITIES_FIRST_SCREEN_KEY,
   SHOW_CITIES_FIRST_SCREEN_URL,
@@ -230,7 +231,7 @@ export function getShowsMonthsPayload(): Promise<ShowMonthsResponse | null> {
  * component fetches for itself and owns the error state (see
  * `fetchListPayload`).
  */
-async function HydratedShowList() {
+export async function HydratedShowList() {
   const [shows, cities, months] = await Promise.all([
     fetchListPayload<ShowsCalendarResponse>({
       url: SHOWS_CALENDAR_FIRST_SCREEN_URL,
@@ -374,7 +375,7 @@ export default async function ShowsPage() {
       ])} />
       <div className="w-full max-w-6xl mx-auto px-4 py-8 md:px-8">
         <h1 className="text-3xl font-bold text-center mb-8 leading-9">Upcoming Shows</h1>
-        <Suspense fallback={<ShowListSkeleton />}>
+        <Suspense fallback={<ShowListFallback />}>
           <HydratedShowList />
         </Suspense>
         {/* No fallback: the block carries no reader-facing state worth

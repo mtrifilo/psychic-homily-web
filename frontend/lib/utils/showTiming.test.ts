@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   getShowLifecycleState,
   hasReadableStartDate,
+  isAnnouncedTimeOfStart,
   isShowPast,
   hasShowStarted,
   showIsArchived,
@@ -352,6 +353,39 @@ describe('showIsArchived', () => {
       ).toBe(false)
     }
   )
+})
+
+describe('isAnnouncedTimeOfStart', () => {
+  const START = '2026-11-22T03:00:00Z'
+
+  it('accepts doors up to the window before the start, and at the start', () => {
+    expect(isAnnouncedTimeOfStart('2026-11-22T02:00:00Z', START, 'doors')).toBe(true)
+    expect(isAnnouncedTimeOfStart(START, START, 'doors')).toBe(true)
+    expect(isAnnouncedTimeOfStart('2026-11-21T15:00:00Z', START, 'doors')).toBe(true)
+    expect(isAnnouncedTimeOfStart('2026-11-21T14:59:59Z', START, 'doors')).toBe(false)
+  })
+
+  it('refuses doors after the start', () => {
+    expect(isAnnouncedTimeOfStart('2026-11-22T03:00:01Z', START, 'doors')).toBe(false)
+  })
+
+  it('accepts music within the window either side of the start', () => {
+    expect(isAnnouncedTimeOfStart(START, START, 'music')).toBe(true)
+    expect(isAnnouncedTimeOfStart('2026-11-22T15:00:00Z', START, 'music')).toBe(true)
+    expect(isAnnouncedTimeOfStart('2026-11-22T15:00:01Z', START, 'music')).toBe(false)
+  })
+
+  it('refuses a time left on another night by a moved start', () => {
+    expect(isAnnouncedTimeOfStart('2026-11-08T02:00:00Z', START, 'doors')).toBe(false)
+    expect(isAnnouncedTimeOfStart('2026-11-08T03:00:00Z', START, 'music')).toBe(false)
+  })
+
+  it('refuses unreadable or missing instants', () => {
+    for (const bad of [null, undefined, '', 'not-a-date']) {
+      expect(isAnnouncedTimeOfStart(bad, START, 'doors')).toBe(false)
+      expect(isAnnouncedTimeOfStart(START, bad, 'music')).toBe(false)
+    }
+  })
 })
 
 describe('hasReadableStartDate', () => {

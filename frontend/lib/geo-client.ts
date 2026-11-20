@@ -46,6 +46,23 @@ export function toGeoLocation(value: unknown): GeoLocation | null {
   return { city, state }
 }
 
+/**
+ * The `/api/geo` answer cached this session: a location, `null` for an answer
+ * of "no city", or `undefined` when nothing usable is cached (no answer yet,
+ * storage unavailable, or an entry that does not parse). Parsed the way
+ * `useGeoDefaultCity` restores the entry. Makes no request. Browser only.
+ */
+export function readCachedGeoAnswer(): GeoLocation | null | undefined {
+  try {
+    const cached = window.sessionStorage.getItem(GEO_CACHE_KEY)
+    if (cached === null) return undefined
+    const parsed = JSON.parse(cached) as { geo?: unknown } | null
+    return toGeoLocation(parsed?.geo)
+  } catch {
+    return undefined
+  }
+}
+
 /** A finite number within ±`max` degrees — the valid range for a coordinate. */
 function isCoordinate(value: unknown, max: number): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= -max && value <= max

@@ -409,7 +409,8 @@ type GetSceneCurrentWeekRequest struct {
 
 // GetSceneWeekResponse represents the response for a scene's week.
 type GetSceneWeekResponse struct {
-	Body *contracts.SceneWeekResponse
+	CanonicalSlug string `header:"Canonical-Slug" doc:"The slug the scene's pages are served at, which a member city or a case variant of the requested slug resolves to. Absent when it cannot be named."`
+	Body          *contracts.SceneWeekResponse
 }
 
 // GetSceneWeekHandler handles GET /scenes/{slug}/week and
@@ -445,7 +446,15 @@ func (h *SceneHandler) sceneWeek(slug, weekKey string) (*GetSceneWeekResponse, e
 		return nil, huma.Error500InternalServerError("Failed to get scene week", err)
 	}
 
-	return &GetSceneWeekResponse{Body: week}, nil
+	// The header is optional to every reader of this route, so a failure to
+	// name the slug drops the header rather than the week.
+	canonical, err := h.sceneService.CanonicalSceneSlug(slug, city, state)
+	if err != nil {
+		logger.Default().Warn("scene_week_canonical_slug_failed", "slug", slug, "error", err.Error())
+		canonical = ""
+	}
+
+	return &GetSceneWeekResponse{CanonicalSlug: canonical, Body: week}, nil
 }
 
 // parseTypesQueryParam splits the comma-separated `types` query param into a

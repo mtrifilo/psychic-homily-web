@@ -31,14 +31,14 @@ vi.mock('next/server', () => ({
 // at all. If a future test renders the tree, stub the component FILE, not this
 // module: since PSY-1772 the page imports it by path, not through the barrel.)
 vi.mock('@/features/shows/utils', async importOriginal => {
-  // Only `showTimingInput` is taken from the feature, and it is taken REAL: it
-  // now decides which calendar the metadata description is dated on, so a stub
-  // that answered a fixed zone would let every assertion below agree with a
-  // page that disagreed with itself. Stubbing the rest keeps the module's
-  // component imports out of this suite.
-  const { showTimingInput } =
+  // `showTimingInput`, `byBillPosition` and `splitBill` are taken REAL: the
+  // first decides which calendar the metadata description is dated on, the
+  // other two who leads the MusicEvent description, so a stub would let every
+  // assertion below agree with a page that disagreed with itself. Stubbing the
+  // rest keeps the module's component imports out of this suite.
+  const { showTimingInput, byBillPosition, splitBill } =
     await importOriginal<typeof import('@/features/shows/utils')>()
-  return { showTimingInput }
+  return { showTimingInput, byBillPosition, splitBill }
 })
 
 import ShowPage, { generateMetadata } from './page'
@@ -737,6 +737,50 @@ describe('ShowPage MusicEvent offers', () => {
     expect(JSON.stringify(offers)).not.toContain('dice.fm')
     // The vendor is named, not linked.
     expect(offers.seller).toEqual({ '@type': 'Organization', name: 'DICE' })
+  })
+})
+
+describe('ShowPage MusicEvent description and door time', () => {
+  it('describes the bill the header renders, with the announced times', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse(
+        buildShow({
+          // 8 PM in Phoenix (UTC-7), doors an hour earlier.
+          event_date: '2026-03-16T03:00:00Z',
+          doors_at: '2026-03-16T02:00:00Z',
+          music_at: '2026-03-16T03:00:00Z',
+          // Entered in stage order (the headliner at the later position) and
+          // delivered out of position order, so the description has to sort
+          // as the header does and then lead with the curated role.
+          artists: [
+            { id: 2, name: 'Holy Wave', slug: 'holy-wave', set_type: 'headliner', is_headliner: true, position: 2, socials: {} },
+            { id: 3, name: 'Second Support', slug: 'second-support', set_type: 'opener', is_headliner: false, position: 1, socials: {} },
+            { id: 1, name: 'Opener', slug: 'opener', set_type: 'opener', is_headliner: false, position: 0, socials: {} },
+          ],
+        })
+      )
+    )
+
+    const result = await ShowPage({ params: Promise.resolve({ slug: 'test-show' }) })
+    const schema = musicEventSchemaFrom(result)
+
+    expect(schema.description).toBe(
+      'Holy Wave with Opener, Second Support at The Rebel Lounge, Phoenix. Doors 7:00 PM, music 8:00 PM.'
+    )
+    expect(schema.doorTime).toBe('2026-03-15T19:00:00-07:00')
+    expect(schema.startDate).toBe('2026-03-15T20:00:00-07:00')
+  })
+
+  it('keeps the authored description and states no time the show did not announce', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse(buildShow({ description: 'Album release show.' }))
+    )
+
+    const result = await ShowPage({ params: Promise.resolve({ slug: 'test-show' }) })
+    const schema = musicEventSchemaFrom(result)
+
+    expect(schema.description).toBe('Album release show.')
+    expect(schema).not.toHaveProperty('doorTime')
   })
 })
 

@@ -12,10 +12,12 @@ import type {
   ArtistCitiesResponse,
   ArtistsListResponse,
 } from '@/features/artists/types'
+import { CachedListFallback } from '@/components/shared/CachedListFallback'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { seedFirstScreen } from '@/lib/query-hydration'
 import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
+import { isFirstScreenRequest } from '@/lib/ssr/firstScreenParams'
 import { getArtistsForMetadata, type ArtistListItem } from './artistsMetadata'
 
 export const metadata = {
@@ -68,25 +70,6 @@ const FIRST_SCREEN_DEFEATING_PARAMS = [
 ] as const
 
 /**
- * Whether a URL's params keep it on the seeded first screen.
- *
- * Empty values (`?tags=`, `?page=`) read as absent, because that is how the
- * client parses them — `parseTagsParam('')` is `[]` and an unparseable page is
- * page 1 — so treating them as present would skip a seed that would have hit.
- */
-function isFirstScreenRequest(
-  params: Record<string, string | string[] | undefined>
-): boolean {
-  return !FIRST_SCREEN_DEFEATING_PARAMS.some(key => {
-    const value = params[key]
-    // An array means the param was repeated; the client reads the first one,
-    // and a repeated filter param is never the bare first screen either way.
-    if (Array.isArray(value)) return value.some(v => v !== '')
-    return value !== undefined && value !== ''
-  })
-}
-
-/**
  * Seed the two cache entries `ArtistList` blocks its first paint on — the first
  * page of artists and the city facet counts — so the artist rows reach the
  * server HTML (PSY-1774, absorbing the seeding half of PSY-1773).
@@ -133,6 +116,15 @@ export async function HydratedArtistList({
 }
 
 /**
+ * The two keys a bare `/artists` seeds, in seed order: the first page of
+ * artists and the city facet counts. The page's fallback gates on them.
+ */
+const FIRST_SCREEN_SEEDED_KEYS = [
+  ARTIST_LIST_FIRST_SCREEN_KEY,
+  artistQueryKeys.cities,
+] as const
+
+/**
  * The seeds for this request, or an empty state when there are none to give.
  *
  * Split out so the caller's returned element type never varies — see the note
@@ -142,7 +134,7 @@ export async function HydratedArtistList({
 async function dehydratedFirstScreen(
   params: Record<string, string | string[] | undefined>
 ): Promise<DehydratedState> {
-  if (!isFirstScreenRequest(params)) {
+  if (!isFirstScreenRequest(params, FIRST_SCREEN_DEFEATING_PARAMS)) {
     return EMPTY_DEHYDRATED_STATE
   }
 
@@ -163,9 +155,10 @@ async function dehydratedFirstScreen(
     return EMPTY_DEHYDRATED_STATE
   }
 
+  const [rowsKey, citiesKey] = FIRST_SCREEN_SEEDED_KEYS
   return seedFirstScreen([
-    { queryKey: ARTIST_LIST_FIRST_SCREEN_KEY, data: artists },
-    { queryKey: artistQueryKeys.cities, data: cities },
+    { queryKey: rowsKey, data: artists },
+    { queryKey: citiesKey, data: cities },
   ])
 }
 
@@ -204,7 +197,7 @@ export async function FirstScreenItemList({
   searchParams: Promise<Record<string, string | string[] | undefined>>
   artists: Array<ArtistListItem & { slug: string }>
 }) {
-  if (!isFirstScreenRequest(await searchParams)) return null
+  if (!isFirstScreenRequest(await searchParams, FIRST_SCREEN_DEFEATING_PARAMS)) return null
 
   return (
     <JsonLd
@@ -257,7 +250,17 @@ export default async function ArtistsPage({
       <div className="flex min-h-screen items-start justify-center">
         <main className="w-full max-w-6xl px-4 py-8 md:px-8">
           <h1 className="text-3xl font-bold text-center mb-8">Artists</h1>
-          <Suspense fallback={<ArtistListSkeleton />}>
+          <Suspense
+            fallback={
+              <CachedListFallback
+                seededKeys={FIRST_SCREEN_SEEDED_KEYS}
+                defeatingParams={FIRST_SCREEN_DEFEATING_PARAMS}
+                loader={<ArtistListSkeleton />}
+              >
+                <ArtistList />
+              </CachedListFallback>
+            }
+          >
             <HydratedArtistList searchParams={searchParams} />
           </Suspense>
         </main>

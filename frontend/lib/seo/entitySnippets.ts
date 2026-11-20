@@ -1,16 +1,20 @@
 import { formatLocation, LOCATION_UNKNOWN } from '@/lib/formatLocation'
 import {
   hasReadableStartDate,
+  isAnnouncedTimeOfStart,
   type ShowTimingInput,
 } from '@/lib/utils/showTiming'
 import {
   showPageDateLong,
   showPageMonthDay,
 } from '@/features/shows/showPageDate'
+import { splitBill } from '@/features/shows/utils'
+import { formatShowTime } from '@/lib/utils/formatters'
 
 /**
  * Search-snippet strings (`<title>` and meta description) for the show, artist,
- * venue and release detail pages.
+ * venue and release detail pages, and the show page's generated
+ * `MusicEvent.description`.
  *
  * Every builder here is pure: the page resolves the entity, hands over plain
  * values, and gets back the two strings it puts in `generateMetadata`. The
@@ -190,6 +194,125 @@ export function showSnippet(input: ShowSnippetInput): EntitySnippet {
   )
 
   return { title, description }
+}
+
+export interface ShowEventDescriptionInput {
+  /**
+   * The bill sorted as the show page's header sorts it (`byBillPosition`).
+   * `set_type` and `is_headliner` then decide who leads, through the same
+   * `splitBill` the header calls.
+   */
+  artists?: ReadonlyArray<{
+    name: string
+    set_type?: string | null
+    is_headliner?: boolean | null
+  }> | null
+  venue?: string | null
+  city?: string | null
+  /** The show's start instant, the one the page prints as its start time. */
+  eventDate: string
+  doorsAt?: string | null
+  musicAt?: string | null
+  /** The venue's zone inputs. A clock is stated only when they resolve one. */
+  state?: string | null
+  timezone?: string | null
+}
+
+/** `7:00 PM` in the zone, or null when the zone is a guess or the instant is unreadable. */
+function eventClock(
+  instant: string | null | undefined,
+  input: Pick<ShowEventDescriptionInput, 'state' | 'timezone'>
+): string | null {
+  if (!instant || !Number.isFinite(Date.parse(instant))) return null
+  return formatShowTime(instant, input.state, input.timezone)
+}
+
+/**
+ * The bill's names split as the header splits them, blanks dropped and each
+ * name stated once. The split runs on the whole bill, so an act the header
+ * lists as support stays support even when the act it lists as lead has a
+ * blank name. A name both leading and in support keeps its lead slot; a name
+ * repeated in support keeps its first support slot.
+ */
+function billNames(
+  artists: ShowEventDescriptionInput['artists']
+): { leads: string[]; support: string[] } {
+  const { headliners, support } = splitBill([...(artists ?? [])])
+  const seen = new Set<string>()
+  const unseenNames = (acts: ReadonlyArray<{ name: string }>) =>
+    acts.flatMap(act => {
+      const name = nonEmpty(act.name)
+      if (!name || seen.has(name.toLowerCase())) return []
+      seen.add(name.toLowerCase())
+      return [name]
+    })
+  // Leads first, so a name in both keeps its lead slot.
+  return { leads: unseenNames(headliners), support: unseenNames(support) }
+}
+
+/**
+ * A `MusicEvent.description` for a show with no prose of its own, built only
+ * from facts the show page renders:
+ * `{headliner} with {support, comma separated} at {venue}, {city}. Doors {h:mm
+ * AM/PM}, music {h:mm AM/PM}.` Null when the bill names nobody.
+ *
+ * Each clause is dropped when its fact is missing. The city qualifies the
+ * venue, so it is stated only with one. Co-headliners share the lead, comma
+ * separated, as the page's heading lists them.
+ *
+ * Clocks follow the page's own refusals. None is stated when the venue's zone
+ * is a guess. Doors and music come only from the announced times, never from
+ * the start instant alone, because a date-only show stores a placeholder
+ * evening start that nobody announced. The page prints a music time beside a
+ * door time; with no door time, the only clock it prints is the start time, so
+ * a lone music time is stated only when it is that same clock. Those page
+ * rules are `doorsMusicFactSegment` and `startTimeFactSegment` in
+ * `features/shows/components/showStatusStripeCopy`; this module's tests run
+ * one fixture table through them and through this function to hold the two in
+ * step.
+ *
+ * A door or music time stored for another night than the start is not stated
+ * (see `isAnnouncedTimeOfStart`), so the description can say less than the
+ * page, never more.
+ */
+export function showEventDescription(
+  input: ShowEventDescriptionInput
+): string | null {
+  const { leads, support } = billNames(input.artists)
+  if (leads.length === 0) return null
+
+  const venue = nonEmpty(input.venue)
+  const city = venue ? nonEmpty(input.city) : null
+  const lead = sentence(
+    leads.join(', ') +
+      (support.length > 0 ? ` with ${support.join(', ')}` : '') +
+      (venue ? ` at ${venue}` : '') +
+      (city ? `, ${city}` : '')
+  )
+
+  const doors = isAnnouncedTimeOfStart(input.doorsAt, input.eventDate, 'doors')
+    ? eventClock(input.doorsAt, input)
+    : null
+  const announcedMusic = isAnnouncedTimeOfStart(input.musicAt, input.eventDate, 'music')
+    ? eventClock(input.musicAt, input)
+    : null
+  const music =
+    announcedMusic &&
+    (doors || announcedMusic === eventClock(input.eventDate, input))
+      ? announcedMusic
+      : null
+  const times = timesSentence(doors, music)
+
+  // Also turns the narrow no-break space some ICU builds put before AM/PM
+  // into a plain one.
+  return collapseWhitespace(times ? `${lead} ${times}` : lead)
+}
+
+function timesSentence(doors: string | null, music: string | null): string | null {
+  if (doors && music) return `Doors ${doors}, music ${music}.`
+  if (doors) return `Doors ${doors}.`
+  if (music) return `Music ${music}.`
+  return null
 }
 
 export interface ArtistSnippetInput {
