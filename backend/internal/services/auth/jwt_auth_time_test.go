@@ -247,7 +247,7 @@ func TestValidateSession_FutureAuthTimeIsBelievedOnlyWithinTheSkewAllowance(t *t
 func TestValidateSessionLenient_RefusesCrossTypeTokens(t *testing.T) {
 	svc := authTimeTestService(t, authTimeTestSecret, 24)
 
-	magicLink, err := svc.CreateMagicLinkToken(7, "cross@example.com")
+	magicLink, err := svc.CreateMagicLinkToken(7, "cross@example.com", "")
 	require.NoError(t, err)
 
 	_, _, err = svc.ValidateSessionLenient(magicLink, time.Hour)

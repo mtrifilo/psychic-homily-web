@@ -121,7 +121,7 @@ func TestPasswordResetToken_SubjectIsolation(t *testing.T) {
 		t.Error("a reset link must not be honored as a session")
 	}
 
-	magic, err := svc.CreateMagicLinkToken(user.ID, *user.Email)
+	magic, err := svc.CreateMagicLinkToken(user.ID, *user.Email, "")
 	if err != nil {
 		t.Fatal(err)
 	}

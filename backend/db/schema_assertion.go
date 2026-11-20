@@ -110,6 +110,7 @@ var requiredSchemaColumns = []requiredColumn{
 	// Same reason for every auth email INSERT, which the request handlers
 	// swallow: absent DDL stops every sign-in and recovery email silently.
 	{Table: "auth_email_outbox", Column: "oauth_link_ref"},
+	{Table: "auth_email_outbox", Column: "return_to"},
 	// GORM's Create enumerates every model column, so this appears in every
 	// feed-token INSERT: absent DDL fails every calendar feed mint and
 	// regeneration at request time.

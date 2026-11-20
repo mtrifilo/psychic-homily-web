@@ -31,6 +31,7 @@ import {
   type AuthErrorCodeType,
 } from '@/lib/errors'
 import type { NavMode } from '@/lib/nav-mode'
+import { FALLBACK_RETURN_TO } from '@/lib/auth-href'
 import { forgetAccountCreatedThisSession } from '../accountCreatedMarker'
 import { forgetRevokedCalendarLink } from './useCalendarFeed'
 import type { AuthApiUser } from '../authUser'
@@ -660,6 +661,25 @@ interface ChangePasswordResponse {
 // Magic link types
 interface SendMagicLinkRequest {
   email: string
+  /**
+   * Where the link returns to once it is followed, in whatever tab or browser
+   * opens it: a `sanitizeReturnTo` result. The backend checks it again, keeps
+   * it with the link, and hands it back on verify as `return_to`.
+   */
+  returnTo?: string
+}
+
+type SendMagicLinkBody = components['schemas']['SendMagicLinkRequestBody']
+
+/**
+ * The send's wire body. The fallback destination is left off, as the Google
+ * start leaves it off its URL, so a request with no destination worth
+ * returning to asks for exactly what it did before links carried one.
+ */
+function sendMagicLinkBody({ email, returnTo }: SendMagicLinkRequest): SendMagicLinkBody {
+  return returnTo === undefined || returnTo === FALLBACK_RETURN_TO
+    ? { email }
+    : { email, return_to: returnTo }
 }
 
 interface SendMagicLinkResponse {
@@ -676,8 +696,9 @@ interface VerifyMagicLinkResponse {
   request_id?: string
   user?: AuthApiUser
   /**
-   * For a link that connected Google, where the sign-in that started it was
-   * headed, a path on the frontend.
+   * Where the sign-in was headed, a path on the frontend: for a link that
+   * connected Google, the sign-in that started it; for a plain sign-in link,
+   * the destination its request named. Absent when there is none.
    */
   return_to?: string
 }
@@ -922,7 +943,7 @@ export const useSendMagicLink = () => {
         API_ENDPOINTS.AUTH.MAGIC_LINK_SEND,
         {
           method: 'POST',
-          body: JSON.stringify(request),
+          body: JSON.stringify(sendMagicLinkBody(request)),
           credentials: 'include',
         }
       )

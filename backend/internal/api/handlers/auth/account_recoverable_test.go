@@ -75,7 +75,7 @@ func (s *AuthHandlerIntegrationSuite) TestVerifyMagicLink_AccountState() {
 			s.verifyEmail(user.ID)
 			state.apply(user.ID)
 
-			token, err := jwtSvc.CreateMagicLinkToken(user.ID, address)
+			token, err := jwtSvc.CreateMagicLinkToken(user.ID, address, "")
 			s.Require().NoError(err)
 			input := &VerifyMagicLinkRequest{}
 			input.Body.Token = token

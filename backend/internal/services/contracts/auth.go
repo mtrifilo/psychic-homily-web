@@ -31,9 +31,13 @@ type VerificationTokenClaims struct {
 }
 
 // MagicLinkTokenClaims contains JWT claims for magic link login tokens.
+// ReturnTo is the frontend path the request that asked for the link named, or
+// "" for none. It is signed with the rest, so only the request can set it, and
+// the verify handler checks it again before returning it.
 type MagicLinkTokenClaims struct {
-	UserID uint   `json:"user_id"`
-	Email  string `json:"email"`
+	UserID   uint   `json:"user_id"`
+	Email    string `json:"email"`
+	ReturnTo string `json:"return_to,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -459,7 +463,9 @@ type JWTServiceInterface interface {
 	ValidateToken(tokenString string) (*authm.User, error)
 	CreateVerificationToken(userID uint, email string) (string, error)
 	ValidateVerificationToken(tokenString string) (*VerificationTokenClaims, error)
-	CreateMagicLinkToken(userID uint, email string) (string, error)
+	// CreateMagicLinkToken mints the emailed sign-in link for userID's
+	// mailbox, email, carrying returnTo ("" for none) as its destination.
+	CreateMagicLinkToken(userID uint, email, returnTo string) (string, error)
 	ValidateMagicLinkToken(tokenString string) (*MagicLinkTokenClaims, error)
 	// ValidateOAuthLinkToken accepts only the emailed sign-in link that
 	// proves the mailbox for a pending provider link; ValidateMagicLinkToken
@@ -610,6 +616,12 @@ type AuthEmailOutboxInterface interface {
 	// terms: one queued per account, and an error means no email for this
 	// call.
 	EnqueueOAuthLink(ctx context.Context, userID uint, ref string) error
+	// EnqueueMagicLink queues the sign-in link for userID on Enqueue's terms,
+	// with returnTo ("" for none) as the destination its token carries. The
+	// caller has already checked returnTo with the sign-in destination rule.
+	// While one is queued for the account, a call is a no-op that keeps the
+	// queued row's destination.
+	EnqueueMagicLink(ctx context.Context, userID uint, returnTo string) error
 	// EnqueueCalendarSteps queues the calendar steps email for user, the
 	// signed-in account that asked for it, to its own address, on Enqueue's
 	// terms. It is the only way to queue that kind; Enqueue refuses it. Its

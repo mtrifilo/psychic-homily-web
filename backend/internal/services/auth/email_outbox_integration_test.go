@@ -195,6 +195,37 @@ func (s *AuthEmailOutboxSuite) TestMagicLink_MintedAtSendForTheCurrentAddress() 
 	s.Nil(row.LastError)
 }
 
+func (s *AuthEmailOutboxSuite) TestMagicLink_TokenCarriesTheQueuedDestination() {
+	user := s.verifiedUser("dest@example.com")
+	s.Require().NoError(s.outbox.EnqueueMagicLink(context.Background(), user.ID, "/library?tab=shows"))
+	row := s.onlyRow()
+	s.Equal(authm.AuthEmailKindMagicLink, row.Kind)
+	s.Require().NotNil(row.ReturnTo)
+	s.Equal("/library?tab=shows", *row.ReturnTo)
+
+	s.outbox.RunNow(context.Background())
+
+	sends := s.sender.recorded()
+	s.Require().Len(sends, 1)
+	claims, err := s.jwt.ValidateMagicLinkToken(sends[0].token)
+	s.Require().NoError(err)
+	s.Equal("/library?tab=shows", claims.ReturnTo)
+}
+
+func (s *AuthEmailOutboxSuite) TestMagicLink_NoDestinationIsStoredAsNone() {
+	user := s.verifiedUser("nodest@example.com")
+	s.Require().NoError(s.outbox.EnqueueMagicLink(context.Background(), user.ID, ""))
+	s.Nil(s.onlyRow().ReturnTo)
+
+	s.outbox.RunNow(context.Background())
+
+	sends := s.sender.recorded()
+	s.Require().Len(sends, 1)
+	claims, err := s.jwt.ValidateMagicLinkToken(sends[0].token)
+	s.Require().NoError(err)
+	s.Empty(claims.ReturnTo)
+}
+
 func (s *AuthEmailOutboxSuite) TestRecovery_DaysRemainingComputedAtSend() {
 	user := s.softDeletedUser("gone@example.com")
 	s.enqueue(authm.AuthEmailKindAccountRecovery, user.ID)

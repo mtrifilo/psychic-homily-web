@@ -148,7 +148,7 @@ describe('the sign-in link under Sign in', () => {
     await user.click(screen.getByRole('button', { name: LINK_NAME }))
 
     expect(mockSendMagicLink).toHaveBeenCalledTimes(1)
-    expect(mockSendMagicLink.mock.calls[0][0]).toEqual({ email: 'user@example.com' })
+    expect(mockSendMagicLink.mock.calls[0][0]).toEqual({ email: 'user@example.com', returnTo: '/' })
     expect(screen.getByText(/Check your email for a sign-in link/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: LINK_NAME })).not.toBeInTheDocument()
   })

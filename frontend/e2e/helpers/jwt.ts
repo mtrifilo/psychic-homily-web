@@ -51,13 +51,18 @@ export async function createVerificationToken(
 
 /**
  * Create a valid magic link JWT matching the Go backend's
- * MagicLinkTokenClaims structure (services/jwt.go:194-217).
+ * MagicLinkTokenClaims (internal/services/auth/jwt.go CreateMagicLinkToken).
+ * `returnTo` is the destination the outbox signs into the token from the
+ * send request; the claim is left off when there is none, as the backend
+ * leaves it off.
  */
 export async function createMagicLinkToken(
   userId: number,
-  email: string
+  email: string,
+  returnTo?: string
 ): Promise<string> {
-  return new SignJWT({ user_id: userId, email })
+  const claims = returnTo ? { user_id: userId, email, return_to: returnTo } : { user_id: userId, email }
+  return new SignJWT(claims)
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setIssuer('psychic-homily-backend')

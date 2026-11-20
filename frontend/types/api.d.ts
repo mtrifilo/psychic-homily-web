@@ -15277,6 +15277,11 @@ export interface components {
              * @example user@example.com
              */
             email: string;
+            /**
+             * @description Where the link returns to once followed, a path on the frontend; a value Google sign-in would refuse as a destination is ignored
+             * @example /library
+             */
+            return_to?: string;
         };
         SendMagicLinkResponseBody: {
             /**
@@ -17085,7 +17090,7 @@ export interface components {
              * @example 550e8400-e29b-41d4-a716-446655440000
              */
             request_id?: string;
-            /** @description For a link that connected a provider, where the sign-in that started it was headed, a path on the frontend */
+            /** @description Where the sign-in was headed, a path on the frontend: for a link that connected a provider, the sign-in that started it; for a plain sign-in link, the destination the request for it named, omitted when it named none */
             return_to?: string;
             /**
              * @description Success status

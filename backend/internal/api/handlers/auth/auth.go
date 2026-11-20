@@ -1265,7 +1265,8 @@ func (h *AuthHandler) ConfirmVerificationHandler(ctx context.Context, input *Con
 // SendMagicLinkRequest represents a magic link request
 type SendMagicLinkRequest struct {
 	Body struct {
-		Email string `json:"email" example:"user@example.com" doc:"Email address to send magic link to"`
+		Email    string `json:"email" example:"user@example.com" doc:"Email address to send magic link to"`
+		ReturnTo string `json:"return_to,omitempty" required:"false" example:"/library" doc:"Where the link returns to once followed, a path on the frontend; a value Google sign-in would refuse as a destination is ignored"`
 	}
 }
 
@@ -1351,7 +1352,7 @@ func (h *AuthHandler) SendMagicLinkHandler(ctx context.Context, input *SendMagic
 	// Queue the email rather than send it: the outbox poller mints the token
 	// and sends, so this branch answers in the time the unknown-email branch
 	// does instead of waiting on the email provider.
-	if err := h.emailOutbox.Enqueue(ctx, authm.AuthEmailKindMagicLink, user.ID); err != nil {
+	if err := h.emailOutbox.EnqueueMagicLink(ctx, user.ID, magicLinkReturnTo(input.Body.ReturnTo)); err != nil {
 		logger.AuthError(ctx, "magic_link_enqueue_failed", err,
 			"user_id", user.ID,
 		)
@@ -1364,6 +1365,18 @@ func (h *AuthHandler) SendMagicLinkHandler(ctx context.Context, input *SendMagic
 	)
 
 	return resp, nil
+}
+
+// magicLinkReturnTo is the destination a plain magic link carries for raw: the
+// path sanitizeOAuthReturnTo accepts, the rule Google sign-in applies, or ""
+// when that rule falls back to the site root, so a link that names no
+// destination is the link it was before it could name one. The send applies
+// it to the request's value, and the verify applies it again to the token's.
+func magicLinkReturnTo(raw string) string {
+	if path := sanitizeOAuthReturnTo(raw); path != oauthReturnToFallback {
+		return path
+	}
+	return ""
 }
 
 // VerifyMagicLinkRequest represents the request to verify a magic link
@@ -1383,7 +1396,7 @@ type VerifyMagicLinkResponse struct {
 		User      *authm.User `json:"user,omitempty" doc:"User information"`
 		ErrorCode string      `json:"error_code,omitempty" example:"INVALID_TOKEN" doc:"Error code for programmatic handling"`
 		RequestID string      `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
-		ReturnTo  string      `json:"return_to,omitempty" doc:"For a link that connected a provider, where the sign-in that started it was headed, a path on the frontend"`
+		ReturnTo  string      `json:"return_to,omitempty" doc:"Where the sign-in was headed, a path on the frontend: for a link that connected a provider, the sign-in that started it; for a plain sign-in link, the destination the request for it named, omitted when it named none"`
 	}
 }
 
@@ -1492,6 +1505,7 @@ func (h *AuthHandler) VerifyMagicLinkHandler(ctx context.Context, input *VerifyM
 	resp.Body.Message = "Login successful"
 	resp.Body.Token = token
 	resp.Body.User = user
+	resp.Body.ReturnTo = magicLinkReturnTo(claims.ReturnTo)
 	return resp, nil
 }
 

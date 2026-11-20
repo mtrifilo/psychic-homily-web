@@ -14,9 +14,10 @@ const mockSetUser = vi.fn()
 const mockMutate = vi.fn()
 const mockUseVerifyMagicLink = vi.fn()
 
+let mockSearchParams = new URLSearchParams('token=magic-token')
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
-  useSearchParams: () => new URLSearchParams('token=magic-token'),
+  useSearchParams: () => mockSearchParams,
 }))
 
 vi.mock('@/lib/context/AuthContext', () => ({
@@ -35,6 +36,7 @@ describe('MagicLinkPage', () => {
     mockSetUser.mockReset()
     mockMutate.mockReset()
     mockUseVerifyMagicLink.mockReset()
+    mockSearchParams = new URLSearchParams('token=magic-token')
 
     mockUseVerifyMagicLink.mockImplementation(() => ({
       mutate: mockMutate,
@@ -108,6 +110,52 @@ describe('MagicLinkPage', () => {
 
     renderWithProviders(<MagicLinkPage />)
     await act(async () => {})
+    await act(async () => {
+      vi.advanceTimersByTime(1500)
+    })
+
+    expect(mockPush).toHaveBeenCalledWith(expected)
+  })
+
+  // A plain sign-in link lands where the page that asked for it was headed,
+  // as the verify response names it from the signed link.
+  it('lands a plain sign-in link on its return_to', async () => {
+    vi.useFakeTimers()
+    mockMutate.mockImplementation(
+      (_token: string, options?: { onSuccess?: (data: unknown) => void }) => {
+        options?.onSuccess?.({ success: true, user: { id: 1 }, return_to: '/library?tab=shows' })
+      }
+    )
+
+    renderWithProviders(<MagicLinkPage />)
+    await act(async () => {})
+    await act(async () => {
+      vi.advanceTimersByTime(1500)
+    })
+
+    expect(mockPush).toHaveBeenCalledWith('/library?tab=shows')
+  })
+
+  // The emailed URL is the one part of the link its reader can edit, so a
+  // destination added to it changes nothing: the page sends only the token
+  // and lands where the response says.
+  it.each([
+    ['returnTo, with a response destination', 'token=magic-token&returnTo=%2Fvenues', '/library', '/library'],
+    ['return_to, with a response destination', 'token=magic-token&return_to=%2Fvenues', '/library', '/library'],
+    ['returnTo, with no response destination', 'token=magic-token&returnTo=%2Fvenues', undefined, '/'],
+    ['an off-site returnTo, with no response destination', 'token=magic-token&returnTo=https%3A%2F%2Fevil.example', undefined, '/'],
+  ])('ignores a destination on the emailed URL (%s)', async (_name, query, returnTo, expected) => {
+    vi.useFakeTimers()
+    mockSearchParams = new URLSearchParams(query)
+    mockMutate.mockImplementation(
+      (_token: string, options?: { onSuccess?: (data: unknown) => void }) => {
+        options?.onSuccess?.({ success: true, user: { id: 1 }, return_to: returnTo })
+      }
+    )
+
+    renderWithProviders(<MagicLinkPage />)
+    await act(async () => {})
+    expect(mockMutate).toHaveBeenCalledWith('magic-token', expect.any(Object))
     await act(async () => {
       vi.advanceTimersByTime(1500)
     })

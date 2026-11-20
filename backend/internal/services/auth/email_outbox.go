@@ -147,7 +147,7 @@ type (
 		GetDaysUntilPermanentDeletion(user *authm.User) int
 	}
 	authEmailTokens interface {
-		CreateMagicLinkToken(userID uint, email string) (string, error)
+		CreateMagicLinkToken(userID uint, email, returnTo string) (string, error)
 		CreateOAuthLinkToken(userID uint, email, pendingLink string) (string, error)
 		CreateAccountRecoveryToken(userID uint, email string) (string, error)
 		CreateVerificationToken(userID uint, email string) (string, error)
@@ -329,6 +329,20 @@ func (o *AuthEmailOutbox) Enqueue(ctx context.Context, kind authm.AuthEmailKind,
 // account, a call for any pending link is a no-op.
 func (o *AuthEmailOutbox) EnqueueOAuthLink(ctx context.Context, userID uint, ref string) error {
 	return o.enqueue(ctx, authm.AuthEmailOutboxItem{Kind: authm.AuthEmailKindOAuthLink, UserID: userID, OAuthLinkRef: &ref}, nil)
+}
+
+// EnqueueMagicLink queues the sign-in link for userID on Enqueue's terms, with
+// returnTo, a path the caller has already accepted by the sign-in destination
+// rule, as the destination the poller signs into its token; "" is none. While
+// one is queued for the account, a call is a no-op and the queued row keeps
+// its own destination: the person gets one email, which goes where the first
+// request was headed.
+func (o *AuthEmailOutbox) EnqueueMagicLink(ctx context.Context, userID uint, returnTo string) error {
+	item := authm.AuthEmailOutboxItem{Kind: authm.AuthEmailKindMagicLink, UserID: userID}
+	if returnTo != "" {
+		item.ReturnTo = &returnTo
+	}
+	return o.enqueue(ctx, item, nil)
 }
 
 // EnqueueCalendarSteps queues the calendar steps email for user, the signed-in
@@ -678,7 +692,11 @@ func (o *AuthEmailOutbox) deliver(ctx context.Context, item authm.AuthEmailOutbo
 		if !user.EmailVerified {
 			return authEmailSkipIneligible, nil
 		}
-		token, err := o.tokens.CreateMagicLinkToken(user.ID, email)
+		returnTo := ""
+		if item.ReturnTo != nil {
+			returnTo = *item.ReturnTo
+		}
+		token, err := o.tokens.CreateMagicLinkToken(user.ID, email, returnTo)
 		if err != nil {
 			return "", err
 		}

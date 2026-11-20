@@ -477,6 +477,7 @@ func (m *MockAuditLogService) GetAuditLogs(limit int, offset int, filters contra
 type MockAuthEmailOutbox struct {
 	EnqueueFn              func(context.Context, authm.AuthEmailKind, uint) error
 	EnqueueOAuthLinkFn     func(context.Context, uint, string) error
+	EnqueueMagicLinkFn     func(context.Context, uint, string) error
 	EnqueueCalendarStepsFn func(context.Context, *authm.User) error
 }
 
@@ -489,6 +490,12 @@ func (m *MockAuthEmailOutbox) Enqueue(ctx context.Context, kind authm.AuthEmailK
 func (m *MockAuthEmailOutbox) EnqueueOAuthLink(ctx context.Context, userID uint, ref string) error {
 	if m.EnqueueOAuthLinkFn != nil {
 		return m.EnqueueOAuthLinkFn(ctx, userID, ref)
+	}
+	return nil
+}
+func (m *MockAuthEmailOutbox) EnqueueMagicLink(ctx context.Context, userID uint, returnTo string) error {
+	if m.EnqueueMagicLinkFn != nil {
+		return m.EnqueueMagicLinkFn(ctx, userID, returnTo)
 	}
 	return nil
 }
@@ -2332,7 +2339,7 @@ type MockJWTService struct {
 	ValidateTokenFn                func(string) (*authm.User, error)
 	CreateVerificationTokenFn      func(uint, string) (string, error)
 	ValidateVerificationTokenFn    func(string) (*contracts.VerificationTokenClaims, error)
-	CreateMagicLinkTokenFn         func(uint, string) (string, error)
+	CreateMagicLinkTokenFn         func(uint, string, string) (string, error)
 	ValidateMagicLinkTokenFn       func(string) (*contracts.MagicLinkTokenClaims, error)
 	ValidateOAuthLinkTokenFn       func(string) (*contracts.OAuthLinkTokenClaims, error)
 	CreateAccountRecoveryTokenFn   func(uint, string) (string, error)
@@ -2383,9 +2390,9 @@ func (m *MockJWTService) ValidateVerificationToken(tokenString string) (*contrac
 	}
 	return nil, nil
 }
-func (m *MockJWTService) CreateMagicLinkToken(userID uint, email string) (string, error) {
+func (m *MockJWTService) CreateMagicLinkToken(userID uint, email string, returnTo string) (string, error) {
 	if m.CreateMagicLinkTokenFn != nil {
-		return m.CreateMagicLinkTokenFn(userID, email)
+		return m.CreateMagicLinkTokenFn(userID, email, returnTo)
 	}
 	return "", nil
 }

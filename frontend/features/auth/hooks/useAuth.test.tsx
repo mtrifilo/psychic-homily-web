@@ -1359,6 +1359,30 @@ describe('useAuth hooks', () => {
       )
     })
 
+    // The destination goes out as return_to; the fallback, like no
+    // destination at all, is left off so the body is the one sent before
+    // links carried a destination.
+    it.each([
+      ['a deep page', '/library?tab=shows', { email: 'test@example.com', return_to: '/library?tab=shows' }],
+      ['the fallback', '/', { email: 'test@example.com' }],
+      ['no destination', undefined, { email: 'test@example.com' }],
+    ])('sends the destination for %s', async (_name, returnTo, body) => {
+      mockApiRequest.mockResolvedValueOnce({ success: true, message: 'If eligible, sent' })
+
+      const { result } = renderHook(() => useSendMagicLink(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        await result.current.mutateAsync({ email: 'test@example.com', returnTo })
+      })
+
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/auth/magic-link/send',
+        expect.objectContaining({ method: 'POST', body: JSON.stringify(body) })
+      )
+    })
+
     it('does NOT throw on success=false (enumeration-safe path)', async () => {
       // The backend returns 200 with success=false on cases like
       // EMAIL_NOT_VERIFIED to avoid leaking which addresses exist. The
