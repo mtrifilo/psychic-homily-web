@@ -10,6 +10,7 @@ import (
 
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -33,6 +34,11 @@ func (suite *EntityExistenceServiceIntegrationTestSuite) TearDownSuite() {
 func (suite *EntityExistenceServiceIntegrationTestSuite) TearDownTest() {
 	sqlDB, err := suite.db.DB()
 	suite.Require().NoError(err)
+	_, _ = sqlDB.Exec("DELETE FROM radio_episodes")
+	_, _ = sqlDB.Exec("DELETE FROM radio_shows")
+	_, _ = sqlDB.Exec("DELETE FROM radio_stations")
+	_, _ = sqlDB.Exec("DELETE FROM collection_subscribers")
+	_, _ = sqlDB.Exec("DELETE FROM collections")
 	_, _ = sqlDB.Exec("DELETE FROM entity_tags")
 	_, _ = sqlDB.Exec("DELETE FROM tag_aliases")
 	_, _ = sqlDB.Exec("DELETE FROM tag_votes")
@@ -180,4 +186,129 @@ func (suite *EntityExistenceServiceIntegrationTestSuite) TestExists_UnsupportedE
 	exists, err := suite.svc.Exists("collections", "any")
 	suite.Require().NoError(err)
 	suite.False(exists)
+}
+
+// seedRadioPair creates two stations, a show on the first and one episode of
+// it, returning the first station, the other station, and the show.
+func (suite *EntityExistenceServiceIntegrationTestSuite) seedRadioPair() (*catalogm.RadioStation, *catalogm.RadioStation, *catalogm.RadioShow) {
+	station := &catalogm.RadioStation{Name: "KEXP", Slug: "kexp"}
+	other := &catalogm.RadioStation{Name: "WFMU", Slug: "wfmu"}
+	suite.Require().NoError(suite.db.Create(station).Error)
+	suite.Require().NoError(suite.db.Create(other).Error)
+	show := &catalogm.RadioShow{StationID: station.ID, Name: "The Morning Show", Slug: "the-morning-show"}
+	suite.Require().NoError(suite.db.Create(show).Error)
+	episode := &catalogm.RadioEpisode{ShowID: show.ID, AirDate: "2025-01-15"}
+	suite.Require().NoError(suite.db.Create(episode).Error)
+	return station, other, show
+}
+
+func (suite *EntityExistenceServiceIntegrationTestSuite) TestRadioStationExists_SlugAndID() {
+	station, _, _ := suite.seedRadioPair()
+
+	for _, segment := range []string{"kexp", fmt.Sprintf("%d", station.ID)} {
+		exists, err := suite.svc.RadioStationExists(segment)
+		suite.Require().NoError(err)
+		suite.True(exists, segment)
+	}
+	for _, segment := range []string{"no-such-station", "KEXP", "999999"} {
+		exists, err := suite.svc.RadioStationExists(segment)
+		suite.Require().NoError(err)
+		suite.False(exists, segment)
+	}
+}
+
+// The show must be addressed under the station that carries it. A real show
+// under another real station, or under a station nobody has, is absent.
+func (suite *EntityExistenceServiceIntegrationTestSuite) TestRadioShowExists_RequiresItsOwnStation() {
+	station, other, show := suite.seedRadioPair()
+	stationID := fmt.Sprintf("%d", station.ID)
+	showID := fmt.Sprintf("%d", show.ID)
+
+	present := [][2]string{
+		{"kexp", "the-morning-show"},
+		{stationID, "the-morning-show"},
+		{"kexp", showID},
+		{stationID, showID},
+	}
+	for _, pair := range present {
+		exists, err := suite.svc.RadioShowExists(pair[0], pair[1])
+		suite.Require().NoError(err)
+		suite.True(exists, pair)
+	}
+
+	absent := [][2]string{
+		{"kexp", "no-such-show"},
+		{"wfmu", "the-morning-show"},
+		{fmt.Sprintf("%d", other.ID), "the-morning-show"},
+		{"no-such-station", "the-morning-show"},
+		{"KEXP", "the-morning-show"},
+		{"kexp", "The-Morning-Show"},
+	}
+	for _, pair := range absent {
+		exists, err := suite.svc.RadioShowExists(pair[0], pair[1])
+		suite.Require().NoError(err)
+		suite.False(exists, pair)
+	}
+}
+
+func (suite *EntityExistenceServiceIntegrationTestSuite) TestRadioEpisodeExists_RequiresTheDayAndTheStation() {
+	station, _, _ := suite.seedRadioPair()
+
+	exists, err := suite.svc.RadioEpisodeExists("kexp", "the-morning-show", "2025-01-15")
+	suite.Require().NoError(err)
+	suite.True(exists)
+
+	exists, err = suite.svc.RadioEpisodeExists(fmt.Sprintf("%d", station.ID), "the-morning-show", "2025-01-15")
+	suite.Require().NoError(err)
+	suite.True(exists)
+
+	absent := [][3]string{
+		{"kexp", "the-morning-show", "2025-01-16"},
+		{"wfmu", "the-morning-show", "2025-01-15"},
+		{"kexp", "no-such-show", "2025-01-15"},
+		{"kexp", "the-morning-show", "2025-02-30"},
+		{"kexp", "the-morning-show", "2025-1-15"},
+		{"kexp", "the-morning-show", "not-a-date"},
+	}
+	for _, triple := range absent {
+		exists, err := suite.svc.RadioEpisodeExists(triple[0], triple[1], triple[2])
+		suite.Require().NoError(err)
+		suite.False(exists, triple)
+	}
+}
+
+// A collection exists to the probe exactly when the detail route serves it to a
+// caller without a session: private and closed-creator collections answer as an
+// unused slug does, by slug and by numeric id alike.
+func (suite *EntityExistenceServiceIntegrationTestSuite) TestCollectionExists_RefusesHiddenCollections() {
+	creator := suite.createEntityExistenceUser()
+	closedCreator := suite.createEntityExistenceUser()
+	suite.Require().NoError(suite.db.Model(closedCreator).Update("is_active", false).Error)
+
+	public := &communitym.Collection{Title: "Public", Slug: "public-list", CreatorID: creator.ID, IsPublic: true, DisplayMode: "unranked"}
+	private := &communitym.Collection{Title: "Private", Slug: "private-list", CreatorID: creator.ID, IsPublic: true, DisplayMode: "unranked"}
+	closed := &communitym.Collection{Title: "Closed", Slug: "closed-list", CreatorID: closedCreator.ID, IsPublic: true, DisplayMode: "unranked"}
+	for _, c := range []*communitym.Collection{public, private, closed} {
+		suite.Require().NoError(suite.db.Create(c).Error)
+	}
+	// Written after the create: GORM skips a false bool whose column has a
+	// default, so the create alone would store true.
+	suite.Require().NoError(suite.db.Model(private).Update("is_public", false).Error)
+
+	for _, segment := range []string{"public-list", fmt.Sprintf("%d", public.ID)} {
+		exists, err := suite.svc.CollectionExists(segment)
+		suite.Require().NoError(err)
+		suite.True(exists, segment)
+	}
+
+	hidden := []string{
+		"private-list", fmt.Sprintf("%d", private.ID),
+		"closed-list", fmt.Sprintf("%d", closed.ID),
+		"no-such-list", "999999",
+	}
+	for _, segment := range hidden {
+		exists, err := suite.svc.CollectionExists(segment)
+		suite.Require().NoError(err)
+		suite.False(exists, segment)
+	}
 }
