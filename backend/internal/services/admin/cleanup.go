@@ -141,11 +141,16 @@ func (s *CleanupService) runCleanupLoop(ctx context.Context) {
 // runRetiredCalendarLinkSweep deletes the retired calendar links no longer
 // remembered (engagementsvc.ForgetExpiredRetiredLinks). It runs here, on the
 // daily loop, so the deletion never runs inside the transactions that retire
-// links, which include signing out everywhere and password resets.
+// links, which include signing out everywhere and password resets. A failure
+// is reported as the cycle's outcome, so the loop's run record shows it.
 func (s *CleanupService) runRetiredCalendarLinkSweep(ctx context.Context) {
+	if s.db == nil {
+		return
+	}
 	deleted, err := engagementsvc.ForgetExpiredRetiredLinks(ctx, s.db, time.Now())
 	if err != nil {
-		s.logger.Error("retired calendar link sweep failed", "deleted", deleted, "error", err)
+		shared.LogCycleFailure(s.logger, "retired calendar link sweep failed", err, "deleted", deleted)
+		shared.ReportCycle(ctx, int(deleted), err)
 		return
 	}
 	s.logger.Info("retired calendar link sweep completed", "deleted", deleted)

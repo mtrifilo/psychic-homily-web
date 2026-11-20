@@ -199,7 +199,10 @@ func (suite *CalendarIntegrationTestSuite) TestRetireCalendarTokensTx_StoresTheI
 
 // The calendar answer for each reason, driven from the stored retirement
 // instant: the note on the fetch's date on days 0 and 29, a valid empty
-// calendar on day 31, and nothing remembered on day 366.
+// calendar on day 31, and nothing remembered a moment after a calendar year
+// (day 366 unless the year spans a February 29, which the fixed-date leap
+// test covers). Probing the rule's own boundary keeps the test independent of
+// the date it runs on.
 func (suite *CalendarIntegrationTestSuite) TestRetiredSavedShowsNotice_ThirtyDaysOfNoteThenEmptyThenUnknown() {
 	for _, r := range suite.retirements() {
 		suite.Run(r.name, func() {
@@ -232,9 +235,9 @@ func (suite *CalendarIntegrationTestSuite) TestRetiredSavedShowsNotice_ThirtyDay
 			assertRFC5545Wire(t, empty.Body, 0)
 			suite.Contains(string(empty.Body), "\r\nX-WR-CALNAME:Psychic Homily saved shows\r\n")
 
-			gone, err := suite.svc.retiredNoticeAt(old, row.RetiredAt.Add(366*day), renderRetiredSavedShows)
+			gone, err := suite.svc.retiredNoticeAt(old, row.RetiredAt.AddDate(1, 0, 0).Add(time.Microsecond), renderRetiredSavedShows)
 			suite.Require().NoError(err)
-			suite.Nil(gone, "day 366 is not remembered")
+			suite.Nil(gone, "a moment past a year is not remembered")
 		})
 	}
 }
@@ -295,7 +298,7 @@ func (suite *CalendarIntegrationTestSuite) TestRetiredFollowsNotice_OneStableEnt
 			suite.Equal(first.Body, late.Body, "the entry keeps its id and date")
 			suite.Equal(first.ETag, late.ETag)
 
-			gone, err := suite.svc.retiredNoticeAt(old, row.RetiredAt.Add(366*day), renderRetiredFollows)
+			gone, err := suite.svc.retiredNoticeAt(old, row.RetiredAt.AddDate(1, 0, 0).Add(time.Microsecond), renderRetiredFollows)
 			suite.Require().NoError(err)
 			suite.Nil(gone)
 		})
@@ -365,6 +368,17 @@ func (suite *CalendarIntegrationTestSuite) TestForgetExpiredRetiredLinks_Deletes
 	suite.Equal(int64(2), suite.retiredRowCount(), "the link at the cutoff and today's are kept")
 }
 
+// On fixed dates in a year with no February 29: remembered on days 0, 29, 31
+// and 365, unknown on day 366.
+func TestRetiredLinkRemembered_UnknownOnDay366(t *testing.T) {
+	retiredAt := time.Date(2026, 11, 20, 18, 30, 15, 123456000, time.UTC)
+	link := &engagementm.RetiredCalendarLink{RetiredAt: retiredAt}
+	for _, n := range []int{0, 29, 31, 365} {
+		assert.True(t, retiredLinkRemembered(link, retiredAt.Add(time.Duration(n)*day)), "day %d", n)
+	}
+	assert.False(t, retiredLinkRemembered(link, retiredAt.Add(366*day)), "day 366")
+}
+
 // The sweep never deletes a link a read would still answer for, including
 // across a February 29.
 func TestRetiredLinkSweepCutoff_NeverPrecedesTheRememberedYear(t *testing.T) {
@@ -379,8 +393,9 @@ func TestRetiredLinkSweepCutoff_NeverPrecedesTheRememberedYear(t *testing.T) {
 	}
 }
 
-// "A year" is a calendar year, so a link retired the day after a February 29
-// is still remembered on the same date a year later.
+// "A year" is a calendar year, so a link retired on a date whose following
+// year spans a February 29 is remembered for 366 days, through the same date
+// a year later.
 func (suite *CalendarIntegrationTestSuite) TestRetiredLink_RememberedForACalendarYearAcrossALeapDay() {
 	user := suite.createTestUser(true)
 	old := suite.mintFeedToken(user.ID)
