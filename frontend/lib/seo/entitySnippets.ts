@@ -180,10 +180,12 @@ export function withoutEndedShows<Row extends { event_date: string }>(
 }
 
 /**
- * The upcoming count a description may state: the payload's `total` (the
- * number the page's Upcoming shows header prints), but only when at least one
- * listed row is not cancelled, so a calendar of called-off shows is never
- * described as shows to come. Null when there is nothing to state.
+ * The upcoming count a description may state: the `total` of the payload it is
+ * given, but only when at least one listed row is not cancelled, so a calendar
+ * of called-off shows is never described as shows to come. Null when there is
+ * nothing to state. The pages pass the payload after `withoutEndedShows`, so the
+ * stated count is the header's total less the rows whose venue-local day has
+ * ended.
  */
 export function statedUpcomingCount(
   payload: { total: number; shows: ReadonlyArray<CancellableRow> } | null | undefined
