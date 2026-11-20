@@ -189,8 +189,10 @@ func scanReplicaRows(db *gorm.DB, now time.Time, showIDs []uint) ([]replicaRow, 
 	return rows, nil
 }
 
-// groupReplicaCopies buckets copies by key and classifies every bucket of two
-// or more. Singletons are not groups and are returned in loners.
+// groupReplicaCopies buckets copies by key and classifies every bucket that
+// spans two or more venue-local years. A bucket inside one year (a single
+// show, or same-date duplicates) is not a replicated group and its copies are
+// returned in loners.
 func groupReplicaCopies(copies []ReplicatedShowCopy) (groups []ReplicatedShowGroup, loners []ReplicatedShowCopy) {
 	buckets := make(map[string][]ReplicatedShowCopy)
 	for _, c := range copies {
@@ -202,7 +204,11 @@ func groupReplicaCopies(copies []ReplicatedShowCopy) (groups []ReplicatedShowGro
 		buckets[key] = append(buckets[key], c)
 	}
 	for key, members := range buckets {
-		if len(members) < 2 {
+		years := make(map[int]bool, len(members))
+		for _, c := range members {
+			years[localYear(c.LocalDate)] = true
+		}
+		if len(years) < 2 {
 			loners = append(loners, members...)
 			continue
 		}
