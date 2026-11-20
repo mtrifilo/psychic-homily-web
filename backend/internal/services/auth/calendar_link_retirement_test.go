@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -35,7 +36,7 @@ func (s *JWTIntegrationSuite) requireRetiredAsReset(token, email string) {
 func (s *JWTIntegrationSuite) TestRevokeSessionsAndFeedToken_RetiresTheAddressAsReset() {
 	for _, reason := range engagementm.CalendarLinkResetReasons {
 		for _, read := range []bool{true, false} {
-			email := string(reason) + map[bool]string{true: "-read", false: "-unread"}[read] + "@retire.test"
+			email := fmt.Sprintf("%s-read-%t@retire.test", reason, read)
 			user := s.createActiveUser(email)
 			feed := s.feedToken(user.ID)
 			if read {

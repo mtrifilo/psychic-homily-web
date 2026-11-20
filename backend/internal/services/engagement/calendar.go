@@ -288,7 +288,7 @@ func (s *CalendarService) CreateToken(userID uint, sessionsValidAfter *time.Time
 
 		// The link this one replaces is remembered as replaced.
 		if _, err := RetireCalendarTokensTx(tx, userID, engagementm.CalendarLinkRetiredReplaced, token.CreatedAt); err != nil {
-			return fmt.Errorf("failed to delete existing token: %w", err)
+			return err
 		}
 
 		if err := tx.Create(token).Error; err != nil {
@@ -419,13 +419,13 @@ func (s *CalendarService) ValidateCalendarToken(plainToken string) (*authm.User,
 		// computed; compare against itself to keep timing shape similar).
 		_ = subtle.ConstantTimeCompare([]byte(tokenHash), []byte(tokenHash))
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("invalid calendar token")
+			return nil, contracts.ErrCalendarTokenUnknown
 		}
 		return nil, fmt.Errorf("failed to validate token: %w", err)
 	}
 
 	if subtle.ConstantTimeCompare([]byte(token.TokenHash), []byte(tokenHash)) != 1 {
-		return nil, fmt.Errorf("invalid calendar token")
+		return nil, contracts.ErrCalendarTokenUnknown
 	}
 
 	if !token.User.CanSignIn() {

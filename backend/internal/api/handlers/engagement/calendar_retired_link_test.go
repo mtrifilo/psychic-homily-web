@@ -68,15 +68,20 @@ var logTimestamp = regexp.MustCompile(`time=\S+ `)
 // for a quiet handler.
 const logMarker = "retired-link-test-marker"
 
-// askFeed serves one request for token to feed through a handler whose
-// service refuses the token with refusal, answers the retired-link lookup
-// with lookup, and records nothing after the response unless a read is
-// recorded, which it counts in reads.
+// askFeed serves one request to feed through a handler whose service refuses
+// the token as unknown, answers the retired-link lookup with lookup, and
+// counts in reads every feed read the handler records.
 func askFeed(t *testing.T, feed personalFeed, switchOn bool, lookup func(string) (*contracts.RetiredFeedNotice, error), ifNoneMatch string, reads *int) feedAnswer {
+	t.Helper()
+	return askFeedRefused(t, feed, contracts.ErrCalendarTokenUnknown, switchOn, lookup, ifNoneMatch, reads)
+}
+
+// askFeedRefused is askFeed with the service refusing the token with refusal.
+func askFeedRefused(t *testing.T, feed personalFeed, refusal error, switchOn bool, lookup func(string) (*contracts.RetiredFeedNotice, error), ifNoneMatch string, reads *int) feedAnswer {
 	t.Helper()
 	mock := &testhelpers.MockCalendarService{
 		ValidateCalendarTokenFn: func(string) (*authm.User, error) {
-			return nil, errors.New("invalid calendar token")
+			return nil, refusal
 		},
 		RecordFeedReadFn: func(context.Context, string, string) error {
 			*reads++
@@ -226,6 +231,26 @@ func TestRetiredLink_MatchingValidatorGets304(t *testing.T) {
 			}
 			if answer.header.Get("ETag") != testNotice.ETag {
 				t.Errorf("ETag = %q", answer.header.Get("ETag"))
+			}
+		})
+	}
+}
+
+// A token refused for any reason but being unknown (a live token on a closed
+// account, a failed read) is never looked up as a retired link.
+func TestRetiredLink_OnlyAnUnknownTokenIsLookedUp(t *testing.T) {
+	for _, feed := range personalFeeds {
+		t.Run(feed.name, func(t *testing.T) {
+			var calls, reads int
+			answer := askFeedRefused(t, feed, errors.New("user account is not active"), true, noticeLookup(&calls, testNotice, nil), "", &reads)
+			if calls != 0 {
+				t.Errorf("lookup made %d times for a refusal that is not unknown", calls)
+			}
+			if answer.status != http.StatusUnauthorized {
+				t.Errorf("status = %d, want 401", answer.status)
+			}
+			if !strings.Contains(answer.log, `level=WARN msg=`+feed.invalidLog+` error="user account is not active"`) {
+				t.Errorf("log = %q", answer.log)
 			}
 		})
 	}

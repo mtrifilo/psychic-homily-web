@@ -21,9 +21,7 @@ import (
 
 // The owner-approved wording, spelled out here rather than read from
 // retiredLinkWordings, so a change to the text fails these tests.
-var wantRetiredWording = map[engagementm.CalendarLinkRetiredReason]struct {
-	calendarNote, feedTitle, feedBody string
-}{
+var wantRetiredWording = map[engagementm.CalendarLinkRetiredReason]retiredLinkWording{
 	engagementm.CalendarLinkRetiredReset: {
 		"Psychic Homily: this calendar link was reset. Add it again from your Library.",
 		"This feed link was reset",
@@ -43,16 +41,11 @@ var wantRetiredWording = map[engagementm.CalendarLinkRetiredReason]struct {
 
 const day = 24 * time.Hour
 
+// Every reason has its wording, verbatim, and there is no wording for a
+// reason the model does not name.
 func TestRetiredLinkWordings_CoverEveryReasonVerbatim(t *testing.T) {
-	require.Len(t, retiredLinkWordings, len(engagementm.CalendarLinkRetiredReasons))
-	for _, reason := range engagementm.CalendarLinkRetiredReasons {
-		got, ok := retiredLinkWordings[reason]
-		require.True(t, ok, "no wording for %q", reason)
-		want := wantRetiredWording[reason]
-		assert.Equal(t, want.calendarNote, got.calendarNote, reason)
-		assert.Equal(t, want.feedTitle, got.feedTitle, reason)
-		assert.Equal(t, want.feedBody, got.feedBody, reason)
-	}
+	assert.Equal(t, wantRetiredWording, retiredLinkWordings)
+	assert.Len(t, retiredLinkWordings, len(engagementm.CalendarLinkRetiredReasons))
 }
 
 // phoenixDate is t's date where the notice reads it, as an RFC 5545 DATE.
@@ -214,7 +207,7 @@ func (suite *CalendarIntegrationTestSuite) TestRetiredSavedShowsNotice_ThirtyDay
 
 			for _, n := range []int{0, 29} {
 				now := row.RetiredAt.Add(time.Duration(n) * day)
-				notice, err := suite.svc.retiredSavedShowsNoticeAt(old, now)
+				notice, err := suite.svc.retiredNoticeAt(old, now, renderRetiredSavedShows)
 				suite.Require().NoError(err)
 				suite.Require().NotNil(notice, "day %d", n)
 				assertRFC5545Wire(t, notice.Body, 1)
@@ -229,13 +222,13 @@ func (suite *CalendarIntegrationTestSuite) TestRetiredSavedShowsNotice_ThirtyDay
 				suite.NotEmpty(notice.ETag)
 			}
 
-			empty, err := suite.svc.retiredSavedShowsNoticeAt(old, row.RetiredAt.Add(31*day))
+			empty, err := suite.svc.retiredNoticeAt(old, row.RetiredAt.Add(31*day), renderRetiredSavedShows)
 			suite.Require().NoError(err)
 			suite.Require().NotNil(empty, "day 31 is still remembered")
 			assertRFC5545Wire(t, empty.Body, 0)
 			suite.Contains(string(empty.Body), "\r\nX-WR-CALNAME:Psychic Homily saved shows\r\n")
 
-			gone, err := suite.svc.retiredSavedShowsNoticeAt(old, row.RetiredAt.Add(366*day))
+			gone, err := suite.svc.retiredNoticeAt(old, row.RetiredAt.Add(366*day), renderRetiredSavedShows)
 			suite.Require().NoError(err)
 			suite.Nil(gone, "day 366 is not remembered")
 		})
@@ -273,7 +266,7 @@ func (suite *CalendarIntegrationTestSuite) TestRetiredFollowsNotice_OneStableEnt
 			r.retire(user.ID)
 			row := suite.retiredRow(old)
 
-			first, err := suite.svc.retiredFollowsNoticeAt(old, row.RetiredAt)
+			first, err := suite.svc.retiredNoticeAt(old, row.RetiredAt, renderRetiredFollows)
 			suite.Require().NoError(err)
 			suite.Require().NotNil(first)
 			suite.True(bytes.HasPrefix(first.Body, []byte(xml.Header)))
@@ -292,13 +285,13 @@ func (suite *CalendarIntegrationTestSuite) TestRetiredFollowsNotice_OneStableEnt
 			suite.Equal(row.RetiredAt.UTC().Format(time.RFC3339), entry.Updated)
 			suite.Equal(entry.Updated, feed.Updated)
 
-			late, err := suite.svc.retiredFollowsNoticeAt(old, row.RetiredAt.Add(364*day))
+			late, err := suite.svc.retiredNoticeAt(old, row.RetiredAt.Add(364*day), renderRetiredFollows)
 			suite.Require().NoError(err)
 			suite.Require().NotNil(late)
 			suite.Equal(first.Body, late.Body, "the entry keeps its id and date")
 			suite.Equal(first.ETag, late.ETag)
 
-			gone, err := suite.svc.retiredFollowsNoticeAt(old, row.RetiredAt.Add(366*day))
+			gone, err := suite.svc.retiredNoticeAt(old, row.RetiredAt.Add(366*day), renderRetiredFollows)
 			suite.Require().NoError(err)
 			suite.Nil(gone)
 		})

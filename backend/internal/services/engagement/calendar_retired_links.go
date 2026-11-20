@@ -76,8 +76,8 @@ var retiredLinkWordings = map[engagementm.CalendarLinkRetiredReason]retiredLinkW
 //
 // The delete and the remembering are one statement, so a token is never
 // deleted without its address being remembered, nor remembered while it still
-// works. It also deletes every retired link older than retiredLinkForgetAfter,
-// which no read would answer for any more.
+// works. A call that retires a token also deletes every retired link older
+// than retiredLinkForgetAfter, which no read would answer for any more.
 func RetireCalendarTokensTx(tx *gorm.DB, userID uint, reason engagementm.CalendarLinkRetiredReason, at time.Time) (int64, error) {
 	var deleted int64
 	if err := tx.Raw(`
@@ -92,8 +92,15 @@ func RetireCalendarTokensTx(tx *gorm.DB, userID uint, reason engagementm.Calenda
 		userID, string(reason), at.Truncate(time.Microsecond)).Scan(&deleted).Error; err != nil {
 		return 0, fmt.Errorf("failed to retire calendar token: %w", err)
 	}
-	if err := tx.Exec("DELETE FROM retired_calendar_links WHERE retired_at < ?",
-		retiredLinkRememberedSince(at)).Error; err != nil {
+	if deleted == 0 {
+		return 0, nil
+	}
+	// SKIP LOCKED: a row another retirement is deleting is left to it, so two
+	// retirements never wait on each other here.
+	if err := tx.Exec(`
+		DELETE FROM retired_calendar_links WHERE id IN (
+			SELECT id FROM retired_calendar_links WHERE retired_at < ? FOR UPDATE SKIP LOCKED
+		)`, retiredLinkRememberedSince(at)).Error; err != nil {
 		return 0, fmt.Errorf("failed to forget old retired calendar links: %w", err)
 	}
 	return deleted, nil
@@ -116,52 +123,52 @@ func (s *CalendarService) retiredLinkAt(plainToken string, now time.Time) (*enga
 	if len(links) == 0 {
 		return nil, nil
 	}
-	if _, ok := retiredLinkWordings[links[0].Reason]; !ok {
-		return nil, fmt.Errorf("retired calendar link has unknown reason %q", links[0].Reason)
-	}
 	return &links[0], nil
 }
 
 // RetiredSavedShowsNotice renders the notice calendar for a retired address
 // (contracts.CalendarServiceInterface).
 func (s *CalendarService) RetiredSavedShowsNotice(plainToken string) (*contracts.RetiredFeedNotice, error) {
-	return s.retiredSavedShowsNoticeAt(plainToken, time.Now())
-}
-
-func (s *CalendarService) retiredSavedShowsNoticeAt(plainToken string, now time.Time) (*contracts.RetiredFeedNotice, error) {
-	link, err := s.retiredLinkAt(plainToken, now)
-	if err != nil || link == nil {
-		return nil, err
-	}
-	return retiredFeedNotice(buildRetiredLinkCalendar(link, now)), nil
+	return s.retiredNoticeAt(plainToken, time.Now(), renderRetiredSavedShows)
 }
 
 // RetiredFollowsNotice renders the notice Atom feed for a retired address
 // (contracts.CalendarServiceInterface).
 func (s *CalendarService) RetiredFollowsNotice(plainToken string) (*contracts.RetiredFeedNotice, error) {
-	return s.retiredFollowsNoticeAt(plainToken, time.Now())
+	return s.retiredNoticeAt(plainToken, time.Now(), renderRetiredFollows)
 }
 
-func (s *CalendarService) retiredFollowsNoticeAt(plainToken string, now time.Time) (*contracts.RetiredFeedNotice, error) {
+// retiredNoticeRenderer renders a retired link's notice as of the instant now.
+type retiredNoticeRenderer func(link *engagementm.RetiredCalendarLink, now time.Time) ([]byte, error)
+
+// The notice each retired address answers with.
+var (
+	renderRetiredSavedShows retiredNoticeRenderer = func(link *engagementm.RetiredCalendarLink, now time.Time) ([]byte, error) {
+		return buildRetiredLinkCalendar(link, now), nil
+	}
+	renderRetiredFollows retiredNoticeRenderer = func(link *engagementm.RetiredCalendarLink, _ time.Time) ([]byte, error) {
+		return buildRetiredLinkAtom(link)
+	}
+)
+
+// retiredNoticeAt renders, with render, the notice for the retired link
+// plainToken names as remembered at the instant now, paired with a validator
+// taken from its bytes in the form the public calendar feeds use. It returns
+// nil when plainToken names no remembered retired link.
+func (s *CalendarService) retiredNoticeAt(plainToken string, now time.Time, render retiredNoticeRenderer) (*contracts.RetiredFeedNotice, error) {
 	link, err := s.retiredLinkAt(plainToken, now)
 	if err != nil || link == nil {
 		return nil, err
 	}
-	body, err := buildRetiredLinkAtom(link)
+	body, err := render(link, now)
 	if err != nil {
 		return nil, err
 	}
-	return retiredFeedNotice(body), nil
-}
-
-// retiredFeedNotice pairs body with a validator taken from its bytes, in the
-// form the public calendar feeds use.
-func retiredFeedNotice(body []byte) *contracts.RetiredFeedNotice {
 	sum := sha256.Sum256(body)
 	return &contracts.RetiredFeedNotice{
 		Body: body,
 		ETag: `W/"` + hex.EncodeToString(sum[:16]) + `"`,
-	}
+	}, nil
 }
 
 // retiredLinkNoticeUID is the UID of a retired link's note. It names the

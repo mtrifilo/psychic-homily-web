@@ -2,6 +2,7 @@ package engagement
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -10,7 +11,6 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-chi/chi/v5"
 
-	handlershared "psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/logger"
@@ -77,8 +77,8 @@ func (h *CalendarHandler) GetCalendarFeedHandler(w http.ResponseWriter, r *http.
 
 	user, err := h.calendarService.ValidateCalendarToken(token)
 	if err != nil {
-		if h.answerRetiredLink(w, r, token, h.calendarService.RetiredSavedShowsNotice,
-			"text/calendar; charset=utf-8", savedShowsFeedFilename) {
+		if h.answerRetiredLink(w, r, token, err, h.calendarService.RetiredSavedShowsNotice,
+			icsContentType, savedShowsFeedFilename) {
 			return
 		}
 		logger.FromContext(r.Context()).Warn("calendar_feed_invalid_token",
@@ -128,8 +128,8 @@ func (h *CalendarHandler) GetFollowsActivityFeedHandler(w http.ResponseWriter, r
 
 	user, err := h.calendarService.ValidateCalendarToken(token)
 	if err != nil {
-		if h.answerRetiredLink(w, r, token, h.calendarService.RetiredFollowsNotice,
-			"application/atom+xml; charset=utf-8", followsFeedFilename) {
+		if h.answerRetiredLink(w, r, token, err, h.calendarService.RetiredFollowsNotice,
+			atomContentType, followsFeedFilename) {
 			return
 		}
 		logger.FromContext(r.Context()).Warn("follows_activity_feed_invalid_token",
@@ -167,13 +167,17 @@ const (
 	followsFeedFilename    = "psychic-homily-follows.atom"
 )
 
+// atomContentType is the Content-Type of a retired follows address's notice.
+const atomContentType = "application/atom+xml; charset=utf-8"
+
 // retiredLinkCacheControl lets a client keep a retired address's notice for
 // an hour; the notice's ETag lets it revalidate without the body after that.
 const retiredLinkCacheControl = "private, max-age=3600"
 
 // answerRetiredLink answers a feed request whose token ValidateCalendarToken
-// refused with the notice lookup renders for it, when the retired-link notice
-// is switched on and the token is a remembered retired link, and reports
+// refused with refusal, when the retired-link notice is switched on, the
+// refusal is contracts.ErrCalendarTokenUnknown and lookup finds the token is
+// a remembered retired link, with the notice lookup renders, and reports
 // whether it answered. Otherwise it writes nothing and the caller answers as
 // for any unknown token. With the switch off it calls nothing.
 //
@@ -182,10 +186,10 @@ const retiredLinkCacheControl = "private, max-age=3600"
 // subscribed. A failed lookup is logged as an error and left to the caller's
 // answer, so a degraded database answers a retired address as it would with
 // the switch off.
-func (h *CalendarHandler) answerRetiredLink(w http.ResponseWriter, r *http.Request, token string,
+func (h *CalendarHandler) answerRetiredLink(w http.ResponseWriter, r *http.Request, token string, refusal error,
 	lookup func(plainToken string) (*contracts.RetiredFeedNotice, error), contentType, filename string,
 ) bool {
-	if !h.config.Calendar.RetiredLinkNoticeEnabled {
+	if !h.config.Calendar.RetiredLinkNoticeEnabled || !errors.Is(refusal, contracts.ErrCalendarTokenUnknown) {
 		return false
 	}
 	notice, err := lookup(token)
@@ -198,17 +202,7 @@ func (h *CalendarHandler) answerRetiredLink(w http.ResponseWriter, r *http.Reque
 	if notice == nil {
 		return false
 	}
-
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Disposition", "inline; filename=\""+filename+"\"")
-	w.Header().Set("Cache-Control", retiredLinkCacheControl)
-	w.Header().Set("ETag", notice.ETag)
-	if handlershared.IfNoneMatchCovers(r.Header.Get("If-None-Match"), notice.ETag) {
-		w.WriteHeader(http.StatusNotModified)
-		return true
-	}
-	w.WriteHeader(http.StatusOK)
-	respond.SafeWrite(r.Context(), w, notice.Body)
+	writeCalendarResponse(w, r, contentType, retiredLinkCacheControl, "inline", filename, notice.ETag, notice.Body)
 	return true
 }
 

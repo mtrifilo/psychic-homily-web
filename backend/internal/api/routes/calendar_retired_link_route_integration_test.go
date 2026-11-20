@@ -18,13 +18,42 @@ import (
 	"psychic-homily-backend/internal/testutil"
 )
 
-// The three public feed addresses a token is served at.
-func feedPaths(token string) map[string]string {
-	return map[string]string{
-		"saved-shows.ics": "/feeds/" + token + "/saved-shows.ics",
-		"legacy calendar": "/calendar/" + token,
-		"follows.atom":    "/feeds/" + token + "/follows.atom",
-	}
+// feedRoute is one public address a feed token is served at.
+type feedRoute struct {
+	name       string
+	path       func(token string) string
+	atom       bool   // the follows feed rather than a calendar
+	invalidLog string // the warning an unknown token is logged with
+}
+
+var feedRoutes = []feedRoute{
+	{"saved-shows.ics", func(tok string) string { return "/feeds/" + tok + "/saved-shows.ics" }, false, "msg=calendar_feed_invalid_token"},
+	{"legacy calendar", func(tok string) string { return "/calendar/" + tok }, false, "msg=calendar_feed_invalid_token"},
+	{"follows.atom", func(tok string) string { return "/feeds/" + tok + "/follows.atom" }, true, "msg=follows_activity_feed_invalid_token"},
+}
+
+// retiredWording is the text a retired address answers with for one reason,
+// as it appears on the wire.
+type retiredWording struct {
+	icsSummary, atomTitle, atomContent string
+}
+
+var retiredWordings = map[engagementm.CalendarLinkRetiredReason]retiredWording{
+	engagementm.CalendarLinkRetiredReset: {
+		"SUMMARY:Psychic Homily: this calendar link was reset. Add it again from your Library.",
+		"<title>This feed link was reset</title>",
+		`<content type="text">Add it again from Settings on Psychic Homily.</content>`,
+	},
+	engagementm.CalendarLinkRetiredReplaced: {
+		"SUMMARY:Psychic Homily: this calendar link was replaced. Add the new one from your Library.",
+		"<title>This feed link was replaced</title>",
+		`<content type="text">Copy the new one from Settings on Psychic Homily.</content>`,
+	},
+	engagementm.CalendarLinkRetiredTurnedOff: {
+		"SUMMARY:Psychic Homily: this calendar link was turned off. Turn it on again from your Library.",
+		"<title>This feed link was turned off</title>",
+		`<content type="text">Turn it on again from Settings on Psychic Homily.</content>`,
+	},
 }
 
 // fetchedFeed is one response through the router and what was logged for it.
@@ -63,13 +92,15 @@ func TestRetiredFeedLinksThroughRouter(t *testing.T) {
 	router := chi.NewRouter()
 	SetupRoutes(router, sc, cfg)
 
-	fetch := func(t *testing.T, path string) fetchedFeed {
+	fetch := func(t *testing.T, path, ifNoneMatch string) fetchedFeed {
 		t.Helper()
 		w := httptest.NewRecorder()
-		var r *http.Request
 		log := testlog.Capture(t, func() {
-			r = testlog.Request(t, httptest.NewRequest(http.MethodGet, path, nil))
+			r := testlog.Request(t, httptest.NewRequest(http.MethodGet, path, nil))
 			r.Header.Set("User-Agent", "Google-Calendar-Importer")
+			if ifNoneMatch != "" {
+				r.Header.Set("If-None-Match", ifNoneMatch)
+			}
 			router.ServeHTTP(w, r)
 		})
 		dump, err := httputil.DumpResponse(w.Result(), true)
@@ -88,118 +119,97 @@ func TestRetiredFeedLinksThroughRouter(t *testing.T) {
 		return created.Token
 	}
 
-	type retired struct {
-		name     string
-		reason   engagementm.CalendarLinkRetiredReason // "" for a deletion that remembers nothing
-		oldToken string
-		newToken string
-	}
-	var cases []retired
-
-	{ // New link
-		user := testhelpers.CreateTestUser(td.DB)
-		old := mint(t, user.ID)
-		cases = append(cases, retired{"New link", engagementm.CalendarLinkRetiredReplaced, old, mint(t, user.ID)})
-	}
-	{ // Turn off
-		user := testhelpers.CreateTestUser(td.DB)
-		old := mint(t, user.ID)
-		if err := sc.Calendar.DeleteToken(user.ID); err != nil {
-			t.Fatalf("turn off: %v", err)
-		}
-		cases = append(cases, retired{"Turn off", engagementm.CalendarLinkRetiredTurnedOff, old, ""})
-	}
-	{ // Sign out everywhere
-		user := testhelpers.CreateTestUser(td.DB)
-		old := mint(t, user.ID)
-		if _, err := sc.Auth.SignOutOtherSessions(user, time.Now()); err != nil {
-			t.Fatalf("sign out everywhere: %v", err)
-		}
-		cases = append(cases, retired{"sign out everywhere", engagementm.CalendarLinkRetiredReset, old, ""})
-	}
-	{ // Account deletion
-		user := testhelpers.CreateTestUser(td.DB)
-		old := mint(t, user.ID)
-		if err := sc.User.PermanentlyDeleteUser(user.ID); err != nil {
-			t.Fatalf("delete account: %v", err)
-		}
-		cases = append(cases, retired{"account deletion", "", old, ""})
-	}
-
-	notes := map[engagementm.CalendarLinkRetiredReason][2]string{
-		engagementm.CalendarLinkRetiredReset:     {"SUMMARY:Psychic Homily: this calendar link was reset. Add it again from your Library.", "<title>This feed link was reset</title>"},
-		engagementm.CalendarLinkRetiredReplaced:  {"SUMMARY:Psychic Homily: this calendar link was replaced. Add the new one from your Library.", "<title>This feed link was replaced</title>"},
-		engagementm.CalendarLinkRetiredTurnedOff: {"SUMMARY:Psychic Homily: this calendar link was turned off. Turn it on again from your Library.", "<title>This feed link was turned off</title>"},
-	}
-	feedBodies := map[engagementm.CalendarLinkRetiredReason]string{
-		engagementm.CalendarLinkRetiredReset:     `<content type="text">Add it again from Settings on Psychic Homily.</content>`,
-		engagementm.CalendarLinkRetiredReplaced:  `<content type="text">Copy the new one from Settings on Psychic Homily.</content>`,
-		engagementm.CalendarLinkRetiredTurnedOff: `<content type="text">Turn it on again from Settings on Psychic Homily.</content>`,
+	cases := []struct {
+		name   string
+		reason engagementm.CalendarLinkRetiredReason // "" for a deletion that remembers nothing
+		// retire stops the user's link and returns the new link, if any.
+		retire func(t *testing.T, userID uint) string
+	}{
+		{"New link", engagementm.CalendarLinkRetiredReplaced, func(t *testing.T, userID uint) string {
+			return mint(t, userID)
+		}},
+		{"Turn off", engagementm.CalendarLinkRetiredTurnedOff, func(t *testing.T, userID uint) string {
+			if err := sc.Calendar.DeleteToken(userID); err != nil {
+				t.Fatalf("turn off: %v", err)
+			}
+			return ""
+		}},
+		{"sign out everywhere", engagementm.CalendarLinkRetiredReset, func(t *testing.T, userID uint) string {
+			user, err := sc.User.GetUserByID(userID)
+			if err != nil {
+				t.Fatalf("load user: %v", err)
+			}
+			if _, err := sc.Auth.SignOutOtherSessions(user, time.Now()); err != nil {
+				t.Fatalf("sign out everywhere: %v", err)
+			}
+			return ""
+		}},
+		{"account deletion", "", func(t *testing.T, userID uint) string {
+			if err := sc.User.PermanentlyDeleteUser(userID); err != nil {
+				t.Fatalf("delete account: %v", err)
+			}
+			return ""
+		}},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			for route, path := range feedPaths(c.oldToken) {
-				redacted := strings.ReplaceAll(path, c.oldToken, "phcal_<redacted>")
-				invalidLog := "msg=calendar_feed_invalid_token"
-				if route == "follows.atom" {
-					invalidLog = "msg=follows_activity_feed_invalid_token"
-				}
+			user := testhelpers.CreateTestUser(td.DB)
+			old := mint(t, user.ID)
+			newToken := c.retire(t, user.ID)
+
+			for _, route := range feedRoutes {
+				path := route.path(old)
+				redacted := strings.ReplaceAll(path, old, "phcal_<redacted>")
 
 				cfg.Calendar.RetiredLinkNoticeEnabled = false
-				off := fetch(t, path)
+				off := fetch(t, path, "")
 				t.Logf("switch off, GET %s\n%s", redacted, off.dump)
 				if off.status != http.StatusUnauthorized || off.body != "invalid or expired token\n" {
-					t.Errorf("%s switched off: %d %q", route, off.status, off.body)
+					t.Errorf("%s switched off: %d %q", route.name, off.status, off.body)
 				}
-				if strings.Count(off.log, "level=WARN") != 1 || !strings.Contains(off.log, invalidLog) {
-					t.Errorf("%s switched off logged %q", route, off.log)
+				if strings.Count(off.log, "level=WARN") != 1 || !strings.Contains(off.log, route.invalidLog) {
+					t.Errorf("%s switched off logged %q", route.name, off.log)
 				}
 
 				cfg.Calendar.RetiredLinkNoticeEnabled = true
-				on := fetch(t, path)
+				on := fetch(t, path, "")
 				t.Logf("switch on, GET %s\n%s", redacted, on.dump)
 
 				if c.reason == "" {
 					if on.status != http.StatusUnauthorized || on.body != off.body || on.log != off.log {
-						t.Errorf("%s: a deleted account's address must answer as unknown, got %d %q %q", route, on.status, on.body, on.log)
+						t.Errorf("%s: a deleted account's address must answer as unknown, got %d %q %q", route.name, on.status, on.body, on.log)
 					}
 					continue
 				}
 				if on.status != http.StatusOK {
-					t.Fatalf("%s switched on: status %d", route, on.status)
+					t.Fatalf("%s switched on: status %d", route.name, on.status)
 				}
 				if strings.Contains(on.log, "level=WARN") || strings.Contains(on.log, "level=ERROR") {
-					t.Errorf("%s switched on logged %q", route, on.log)
+					t.Errorf("%s switched on logged %q", route.name, on.log)
 				}
 				if on.header.Get("ETag") == "" || on.header.Get("Cache-Control") != "private, max-age=3600" {
-					t.Errorf("%s cache headers: %v", route, on.header)
+					t.Errorf("%s cache headers: %v", route.name, on.header)
 				}
-				if route == "follows.atom" {
-					if !strings.Contains(on.body, notes[c.reason][1]) || !strings.Contains(on.body, feedBodies[c.reason]) {
-						t.Errorf("%s body lacks the entry for %s: %s", route, c.reason, on.body)
+				want := retiredWordings[c.reason]
+				if route.atom {
+					if !strings.Contains(on.body, want.atomTitle) || !strings.Contains(on.body, want.atomContent) {
+						t.Errorf("%s body lacks the entry for %s: %s", route.name, c.reason, on.body)
 					}
-				} else if !strings.Contains(unfoldICS(on.body), "\r\n"+notes[c.reason][0]+"\r\n") {
-					t.Errorf("%s body lacks the note for %s: %s", route, c.reason, on.body)
+				} else if !strings.Contains(unfoldICS(on.body), "\r\n"+want.icsSummary+"\r\n") {
+					t.Errorf("%s body lacks the note for %s: %s", route.name, c.reason, on.body)
 				}
-				if strings.Contains(on.body, c.oldToken) {
-					t.Errorf("%s notice carries the token", route)
+				if strings.Contains(on.body, old) {
+					t.Errorf("%s notice carries the token", route.name)
 				}
 
-				revalidated := func() fetchedFeed {
-					w := httptest.NewRecorder()
-					r := httptest.NewRequest(http.MethodGet, path, nil)
-					r.Header.Set("If-None-Match", on.header.Get("ETag"))
-					router.ServeHTTP(w, r)
-					return fetchedFeed{status: w.Code, body: w.Body.String()}
-				}()
-				if revalidated.status != http.StatusNotModified || revalidated.body != "" {
-					t.Errorf("%s revalidation: %d %q", route, revalidated.status, revalidated.body)
+				if revalidated := fetch(t, path, on.header.Get("ETag")); revalidated.status != http.StatusNotModified || revalidated.body != "" {
+					t.Errorf("%s revalidation: %d %q", route.name, revalidated.status, revalidated.body)
 				}
 			}
 
-			if c.newToken != "" {
-				live := fetch(t, feedPaths(c.newToken)["saved-shows.ics"])
+			if newToken != "" {
+				live := fetch(t, feedRoutes[0].path(newToken), "")
 				if live.status != http.StatusOK || !strings.Contains(live.body, "DESCRIPTION:Your saved shows from Psychic Homily") {
 					t.Errorf("the new link must serve the live feed: %d %q", live.status, live.body)
 				}

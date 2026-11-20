@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	authm "psychic-homily-backend/internal/models/auth"
@@ -434,6 +435,8 @@ type CalendarServiceInterface interface {
 	// any link-reset marker in one transaction. It reports an error, and
 	// changes nothing, only when there is neither a token nor a marker.
 	DeleteToken(userID uint) error
+	// ValidateCalendarToken returns the user a live feed token belongs to. A
+	// token no live token matches is refused with ErrCalendarTokenUnknown.
 	ValidateCalendarToken(plainToken string) (*authm.User, error)
 	// RecordFeedRead notes that the holder of plainToken fetched the
 	// saved-shows feed with userAgent. It stores the client family only, and
@@ -462,6 +465,11 @@ type CalendarServiceInterface interface {
 	// error, when plainToken is not a link retired within the last year.
 	RetiredFollowsNotice(plainToken string) (*RetiredFeedNotice, error)
 }
+
+// ErrCalendarTokenUnknown is CalendarServiceInterface.ValidateCalendarToken's
+// refusal of a token no live feed token matches. Its text is the error the
+// feed handlers log for such a token.
+var ErrCalendarTokenUnknown = errors.New("invalid calendar token")
 
 // RetiredFeedNotice is the payload a retired feed address answers with, and
 // a validator of it for the 304 path. It holds nothing that names the account
