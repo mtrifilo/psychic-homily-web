@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ReactElement } from 'react'
 import { renderToString } from 'react-dom/server'
-import { hydrateRoot } from 'react-dom/client'
-import { act, cleanup, render } from '@testing-library/react'
+import { act, cleanup } from '@testing-library/react'
 import {
   QueryClient,
   QueryClientProvider,
@@ -37,10 +35,7 @@ vi.mock('nuqs', async importOriginal => {
   }
 })
 
-type Viewer = {
-  authStatus: 'pending' | 'anonymous' | 'authenticated'
-  user: { id: string } | null
-}
+type Viewer = import('@/test/saveControlHydration').ViewerState
 const viewer = vi.hoisted(() => ({
   current: { authStatus: 'anonymous', user: null } as Viewer,
   favoriteCities: [] as Array<{ city: string; state: string }>,
@@ -91,6 +86,16 @@ import {
   SHOWS_MONTHS_FIRST_SCREEN_KEY,
 } from '@/features/shows/api'
 import { GEO_CACHE_KEY } from '@/lib/geo-client'
+import {
+  entriesFor,
+  registeredQueryHashes,
+  renderOnNavigation,
+  warmClient,
+} from '@/test/firstScreenRender'
+import {
+  ANONYMOUS_VIEWER,
+  hydrateCollectingErrors,
+} from '@/test/saveControlHydration'
 import { showsCalendarQueryKey } from '../hooks/useShows'
 import { ShowList } from './ShowList'
 import { ShowListFallback, showListFirstPaintKeys } from './ShowListFallback'
@@ -149,31 +154,21 @@ const ALL_CITIES_ENTRIES: Entry[] = [
   [SHOWS_MONTHS_FIRST_SCREEN_KEY, months],
 ]
 
-function warmClient(entries: readonly Entry[]): QueryClient {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  for (const [key, data] of entries) client.setQueryData(key, data, { updatedAt: 0 })
-  return client
-}
-
 const skeletonHtml = renderToString(<ShowListSkeleton />)
 
-/** A fallback mounted the way a client-side navigation mounts it. */
-function navigate(client: QueryClient, element: ReactElement = <ShowListFallback />) {
-  return render(<QueryClientProvider client={client}>{element}</QueryClientProvider>)
-}
+/** The fallback mounted the way a client-side navigation mounts it. */
+const navigate = (client: QueryClient) => renderOnNavigation(<ShowListFallback />, client)
 
 const geoRequests = (spy: { mock: { calls: unknown[][] } }) =>
   spy.mock.calls.filter(([input]) => String(input).includes('/api/geo'))
 
-const entryFor = (client: QueryClient, key: QueryKey) =>
-  client.getQueryCache().find({ queryKey: key, exact: true })
+const entryFor = (client: QueryClient, key: QueryKey) => entriesFor(client, [key])[0]
 
 function setViewer(next: Viewer, favoriteCities: typeof viewer.favoriteCities = []) {
   viewer.current = next
   viewer.favoriteCities = favoriteCities
 }
 
-const ANONYMOUS: Viewer = { authStatus: 'anonymous', user: null }
 const SIGNED_IN: Viewer = { authStatus: 'authenticated', user: { id: '7' } }
 
 let fetchSpy: { mock: { calls: unknown[][] }; mockRestore: () => void }
@@ -183,7 +178,7 @@ beforeEach(() => {
   apiRequest.mockReturnValue(new Promise(() => {}))
   fetchSpy = vi.spyOn(globalThis, 'fetch').mockReturnValue(new Promise(() => {}))
   nav.params = new URLSearchParams()
-  setViewer(ANONYMOUS)
+  setViewer(ANONYMOUS_VIEWER)
   window.sessionStorage.clear()
 })
 
@@ -217,26 +212,17 @@ describe('ShowListFallback in server HTML', () => {
         <ShowListFallback />
       </QueryClientProvider>
     )
-    const recoverable = vi.fn()
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { root, errors } = await hydrateCollectingErrors(
+      container,
+      <QueryClientProvider client={warmClient(ALL_CITIES_ENTRIES)}>
+        <ShowListFallback />
+      </QueryClientProvider>
+    )
 
-    let root: ReturnType<typeof hydrateRoot> | undefined
-    await act(async () => {
-      root = hydrateRoot(
-        container,
-        <QueryClientProvider client={warmClient(ALL_CITIES_ENTRIES)}>
-          <ShowListFallback />
-        </QueryClientProvider>,
-        { onRecoverableError: recoverable }
-      )
-    })
-
-    expect(recoverable).not.toHaveBeenCalled()
-    expect(consoleError).not.toHaveBeenCalled()
+    expect(errors).toEqual([])
     expect(container.querySelector('[inert]')?.textContent).toContain('All cities row')
 
-    consoleError.mockRestore()
-    act(() => root?.unmount())
+    act(() => root.unmount())
     container.remove()
   })
 })
@@ -391,11 +377,8 @@ describe('showListFirstPaintKeys', () => {
 
   it.each(states)('names the entries the list reads for %s', (_name, arrange, selection) => {
     arrange()
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 
-    navigate(client, <ShowList />)
-
-    const registered = client.getQueryCache().getAll().map(q => q.queryHash)
+    const registered = registeredQueryHashes(<ShowList />)
     for (const key of showListFirstPaintKeys(selection)) {
       expect(registered).toContain(hashKey(key))
     }

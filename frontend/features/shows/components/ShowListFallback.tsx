@@ -1,14 +1,13 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState } from 'react'
 import { useSearchParams } from 'next/navigation'
-import {
-  useQueryClient,
-  type QueryClient,
-  type QueryKey,
-} from '@tanstack/react-query'
+import { useQueryClient, type QueryKey } from '@tanstack/react-query'
 import type { CityState } from '@/components/filters/CityFilters'
-import { CacheDrawnList } from '@/components/shared/CachedListFallback'
+import {
+  CacheDrawnList,
+  everyKeyCached,
+} from '@/components/shared/CachedListFallback'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { readCachedGeoAnswer } from '@/lib/geo-client'
 import { useHydrated } from '@/lib/hooks/common/useHydrated'
@@ -31,7 +30,7 @@ import { ShowListSkeleton } from './ShowListSkeleton'
  * The params that key the list's rows by more than the city selection. On a
  * URL carrying any of them the fallback is always the skeleton.
  */
-export const SHOW_LIST_SKELETON_ONLY_PARAMS: readonly string[] = [
+const SHOW_LIST_SKELETON_ONLY_PARAMS: readonly string[] = [
   'tags',
   'tag_match',
   'page',
@@ -90,17 +89,11 @@ function CachedFacetGate() {
 function CachedSelectionGate({ citiesData }: { citiesData: ShowCitiesResponse }) {
   const queryClient = useQueryClient()
   const { authStatus } = useAuthContext()
-  // Required by the hook's `?cities=` setter, which nothing here calls.
-  const [, startTransition] = useTransition()
   // Read once, at mount. This component renders only after hydration, so the
   // read cannot disagree with server HTML, and it makes no request.
   const [cachedGeo] = useState(readCachedGeoAnswer)
   const { selectedCities, appliedGeoDefault, isResolving, fallsBackToDefault } =
-    useShowListCitySelection({
-      citiesData,
-      startTransition,
-      knownGeo: cachedGeo ?? null,
-    })
+    useShowListCitySelection({ citiesData, knownGeo: cachedGeo ?? null })
 
   // The geo default applies to anonymous viewers only (`useGeoDefaultCity`),
   // so with no cached answer an anonymous viewer's selection is unknown.
@@ -114,7 +107,7 @@ function CachedSelectionGate({ citiesData }: { citiesData: ShowCitiesResponse })
     isResolving ||
     appliedGeoDefault !== null ||
     locationAnswerUnknown ||
-    !allCached(queryClient, showListFirstPaintKeys(selectedCities))
+    !everyKeyCached(queryClient, showListFirstPaintKeys(selectedCities))
   ) {
     return <ShowListSkeleton />
   }
@@ -137,6 +130,3 @@ export function showListFirstPaintKeys(selectedCities: CityState[]): QueryKey[] 
     showMonthsQueryKey(filters),
   ]
 }
-
-const allCached = (queryClient: QueryClient, keys: readonly QueryKey[]) =>
-  keys.every(key => queryClient.getQueryData(key) !== undefined)

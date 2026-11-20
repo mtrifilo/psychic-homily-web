@@ -111,7 +111,7 @@ interface UseUpcomingShowsOptions extends ShowListFilterOptions {
   limit?: number
 }
 
-export interface UseShowsCalendarOptions extends ShowListFilterOptions {
+interface UseShowsCalendarOptions extends ShowListFilterOptions {
   /** Rows to skip. Omitted from the request at 0, which is page 1. */
   offset?: number
   /** Rows per page. Always sent, so the pager's arithmetic and the request agree. */
@@ -270,7 +270,7 @@ export const useShowMonths = (options: ShowListFilterOptions = {}) => {
   const queryString = params.toString()
 
   return useQuery({
-    queryKey: showMonthsQueryKey({ city, state, cities, tags, tagMatch }),
+    queryKey: showMonthsQueryKey(options),
     queryFn: async (): Promise<ShowMonthsResponse> => {
       return apiRequest<ShowMonthsResponse>(
         queryString

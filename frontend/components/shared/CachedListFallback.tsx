@@ -2,7 +2,11 @@
 
 import type { ReactNode } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { useQueryClient, type QueryKey } from '@tanstack/react-query'
+import {
+  useQueryClient,
+  type QueryClient,
+  type QueryKey,
+} from '@tanstack/react-query'
 import { useHydrated } from '@/lib/hooks/common/useHydrated'
 import {
   isFirstScreenRequest,
@@ -97,13 +101,23 @@ function WarmCacheGate({
   )
   // Off the first screen the server seeds nothing, so the list may fetch for
   // itself. On it, the list may run only over seeded keys that already hold
-  // data; `getQueryData` reads an entry without creating one.
+  // data.
   const listCannotPreemptSeed =
-    !onSeededFirstScreen ||
-    seededKeys.every(key => queryClient.getQueryData(key) !== undefined)
+    !onSeededFirstScreen || everyKeyCached(queryClient, seededKeys)
 
   if (!listCannotPreemptSeed) return loader
   return <CacheDrawnList>{children}</CacheDrawnList>
+}
+
+/**
+ * Whether every key holds data in `queryClient`. `getQueryData` reads an entry
+ * without creating one, so the check itself registers nothing.
+ */
+export function everyKeyCached(
+  queryClient: QueryClient,
+  keys: readonly QueryKey[]
+): boolean {
+  return keys.every(key => queryClient.getQueryData(key) !== undefined)
 }
 
 /**

@@ -15,8 +15,11 @@ import type { ShowListFilterOptions } from './useShows'
 interface UseShowListCitySelectionParams {
   /** The city facet the list is rendering, or undefined while it loads. */
   citiesData: ShowCitiesResponse | undefined
-  /** Wraps the `?cities=` writes, so a caller can show them as pending. */
-  startTransition: TransitionStartFunction
+  /**
+   * Wraps the `?cities=` writes, so a caller can show them as pending. A
+   * caller that only reads the selection omits it.
+   */
+  startTransition?: TransitionStartFunction
   /**
    * A location answer the caller already holds (`null` for "no city"). When
    * given, the geo default is derived from it on the first render and no
