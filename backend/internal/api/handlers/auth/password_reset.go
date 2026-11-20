@@ -219,7 +219,7 @@ type CompletePasswordResetResponse struct {
 		Success           bool        `json:"success" example:"true" doc:"Success status"`
 		Message           string      `json:"message" example:"Password reset" doc:"Response message"`
 		User              *authm.User `json:"user,omitempty" doc:"The account, signed in on this browser"`
-		CalendarLinkReset bool        `json:"calendar_link_reset" example:"false" doc:"This reset deleted a calendar feed link that a calendar app had read in the 30 days before, so that calendar stops updating until the link is added again. False otherwise, including on a refusal and when there was no link to delete"`
+		CalendarLinkReset bool        `json:"calendar_link_reset" example:"false" doc:"This reset deleted a calendar feed link that a calendar app had read in the 30 days before, in a read the account had not forgotten (DELETE /calendar/token/reads), so that calendar stops updating until the link is added again. False otherwise, including on a refusal and when there was no link to delete"`
 		ErrorCode         string      `json:"error_code,omitempty" example:"INVALID_TOKEN" doc:"Error code for programmatic handling"`
 		RequestID         string      `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
 	}
