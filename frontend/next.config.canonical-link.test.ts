@@ -548,6 +548,21 @@ describe('the proxy answers for every covered route', () => {
       expect(await headerCanonicalFor(target), target).toBe(pageCanonical)
     }
   })
+
+  // The share identity is the scene the payload loaded, not the request's
+  // spelling: on such a render the canonical names the request and og:url the
+  // scene.
+  it.each([
+    ['/tonight', sceneTonightMetadata, '/scenes/slug-as-stored/2026-01-06'],
+    ['/this-weekend', sceneThisWeekendMetadata, '/scenes/slug-as-stored/this-weekend'],
+    ['/week', sceneWeekMetadata, '/scenes/slug-as-stored/2026-W02'],
+    ['/next-4-weeks', sceneNext4WeeksMetadata, '/scenes/slug-as-stored/next-4-weeks'],
+  ] as const)('names the loaded scene in og:url on %s', async (tail, pageMetadata, ogPath) => {
+    const [, meta] = sceneCase(tail, pageMetadata, 'mesa-az')
+    const og = (await meta()).openGraph as { url?: string | URL } | undefined
+
+    expect(String(og?.url)).toBe(`${SITE_URL}${ogPath}`)
+  })
 })
 
 describe('no canonical Link header where the page declares a different URL', () => {
