@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -185,7 +186,7 @@ func TestRun_DryRunThenConfirmThenRerun(t *testing.T) {
 	if n := strings.Count(string(lines), "\n"); n != 6 {
 		t.Fatalf("backup holds %d lines, want 5 snapshots and 1 outcome\n%s", n, lines)
 	}
-	if !strings.Contains(string(lines), fmt.Sprintf(`"group_kept_show_id":%d,"group_deleted_show_ids":[%d,%d,%d,%d,%d],"committed":"true"`,
+	if !strings.Contains(string(lines), fmt.Sprintf(`"group_kept_show_id":%d,"group_deleted_show_ids":[%d,%d,%d,%d,%d],"applied_by_this_run":"yes","result":"applied"`,
 		ids[0], ids[1], ids[2], ids[3], ids[4], ids[5])) {
 		t.Errorf("backup lacks the committed outcome line\n%s", lines)
 	}
@@ -204,4 +205,87 @@ func TestRun_DryRunThenConfirmThenRerun(t *testing.T) {
 	if got := liveShowIDs(t, database); len(got) != 2 {
 		t.Fatalf("rerun changed shows: %v", got)
 	}
+}
+
+// A group that another actor changes between the plan and the group's
+// transaction is reported as not applied by this run, with the copies now
+// missing named as removed elsewhere and listed for cache revalidation; the
+// group counts as failed exactly once.
+func TestRun_GroupChangedUnderTheRunIsNotApplied(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	for name, removed := range map[string]func(ids []uint) []uint{
+		"some copies removed": func(ids []uint) []uint { return ids[1:3] },
+		"every copy removed":  func(ids []uint) []uint { return ids[1:] },
+	} {
+		t.Run(name, func(t *testing.T) {
+			testDB := testutil.SetupTestPostgres(t)
+			defer testDB.Cleanup()
+			database := testDB.DB
+			ids, _ := seedReplicas(t, database)
+			gone := removed(ids)
+
+			var dry bytes.Buffer
+			if code := run(database, options{beyondMonths: 18, now: testNow, target: "test-db"}, &dry); code != 0 {
+				t.Fatalf("dry run exit %d", code)
+			}
+			backup := filepath.Join(t.TempDir(), "deleted.jsonl")
+			var live bytes.Buffer
+			code := run(database, options{
+				confirm: true, expectPlan: digestIn(t, dry.String()), backupPath: backup,
+				beyondMonths: 18, now: testNow, target: "test-db",
+				beforeGroup: func(catalogGroup catalog.ReplicatedShowGroup) {
+					if err := database.Exec(`DELETE FROM shows WHERE id IN ?`, gone).Error; err != nil {
+						t.Fatal(err)
+					}
+				},
+			}, &live)
+			out := live.String()
+			if code != 1 {
+				t.Fatalf("want exit 1, got %d\n%s", code, out)
+			}
+			for _, want := range []string{
+				"not applied by this run: the group changed since planning",
+				fmt.Sprintf("copies %v were removed by something other than this run", gone),
+				"Groups failed:       1\n",
+				"Copies deleted:      0\n",
+			} {
+				if !strings.Contains(out, want) {
+					t.Errorf("output lacks %q\n%s", want, out)
+				}
+			}
+			for _, id := range gone {
+				if !strings.Contains(out, fmt.Sprintf("/shows/%s-a", time.Date(2026+int(indexOf(ids, id)), 10, 4, 0, 0, 0, 0, time.UTC).Format("2006-01-02"))) {
+					t.Errorf("revalidation list lacks show %d\n%s", id, out)
+				}
+			}
+			lines, err := os.ReadFile(backup)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(lines), `"kept_show_id"`) {
+				t.Errorf("a snapshot was written for a group that never reached its backup\n%s", lines)
+			}
+			if !strings.Contains(string(lines), `"applied_by_this_run":"no","result":"not applied by this run: the group changed since planning"`) {
+				t.Errorf("outcome line\n%s", lines)
+			}
+			// Copies nobody removed are untouched.
+			survivors := liveShowIDs(t, database)
+			for _, id := range ids {
+				if indexOf(gone, id) < 0 && indexOf(survivors, id) < 0 {
+					t.Errorf("show %d was deleted by the run", id)
+				}
+			}
+		})
+	}
+}
+
+func indexOf(ids []uint, id uint) int {
+	for i, v := range ids {
+		if v == id {
+			return i
+		}
+	}
+	return -1
 }

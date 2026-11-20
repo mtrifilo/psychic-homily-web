@@ -629,6 +629,47 @@ func (s *ShowReplicaPurgeSuite) TestSnapshotCarriesEveryRemovedRow() {
 	s.Equal([]uint{pointer}, doc.PointingHere)
 }
 
+// An original that is pending, rejected or private shares the copies' key but
+// is not approved; the group is left for a human and the sibling is named.
+func (s *ShowReplicaPurgeSuite) TestNonApprovedSiblingLeavesTheGroupUntouched() {
+	for _, status := range []string{"pending", "rejected", "private"} {
+		s.Run(status, func() {
+			s.TearDownTest()
+			ids := s.replicate(s.artist("Igorrr "+status), s.venue("Great American Music Hall "+status), 2026, 2027, 2028)
+			s.Require().NoError(s.db.Exec(`UPDATE shows SET status = ? WHERE id = ?`, status, ids[0]).Error)
+
+			plan := s.plan()
+			s.Require().Len(plan.Groups, 1)
+			g := plan.Groups[0]
+			s.Equal(replicaSkipSibling, g.SkipReason)
+			s.False(g.Actionable())
+			s.Require().Len(g.Siblings, 1)
+			s.Equal(ids[0], g.Siblings[0].ShowID)
+			s.Equal(status, g.Siblings[0].Status)
+			s.Equal("2026-10-03", g.Siblings[0].LocalDate)
+			s.Len(g.Copies, 2)
+			s.Error(PurgeReplicatedShowGroup(s.db, replicaNow, g, s.keepBackup))
+			s.Equal(ids, s.existing(ids))
+			s.Empty(plan.Beyond, "a non-approved show is never in the far-future list")
+		})
+	}
+}
+
+// The digest moves when a row the delete would remove lands on a copy to
+// delete, and does not move for rows the delete keeps or rows on the survivor.
+func (s *ShowReplicaPurgeSuite) TestDigestCoversRowsTheDeleteRemoves() {
+	ids := s.replicate(s.artist("Igorrr"), s.venue("Great American Music Hall"), 2026, 2027, 2028)
+	fan := s.user("fan@test.local")
+	before := s.plan().Digest()
+
+	s.Require().NoError(s.db.Exec(`INSERT INTO user_bookmarks (user_id, entity_type, entity_id, action) VALUES (?, 'show', ?, 'save')`, fan, ids[0]).Error)
+	s.Require().NoError(s.db.Exec(`INSERT INTO comments (entity_type, entity_id, user_id, body, body_html) VALUES ('show', ?, ?, 'hi', '<p>hi</p>')`, ids[1], fan).Error)
+	s.Equal(before, s.plan().Digest(), "a save on the survivor and a kept comment do not change what the delete removes")
+
+	s.Require().NoError(s.db.Exec(`INSERT INTO user_bookmarks (user_id, entity_type, entity_id, action) VALUES (?, 'show', ?, 'save')`, fan, ids[2]).Error)
+	s.NotEqual(before, s.plan().Digest(), "a save on a copy to delete does")
+}
+
 func (s *ShowReplicaPurgeSuite) TestPlanDigestNamesTheDeletions() {
 	room := s.venue("Great American Music Hall")
 	s.replicate(s.artist("Igorrr"), room, 2026, 2027, 2028)
