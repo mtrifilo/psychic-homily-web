@@ -10,6 +10,7 @@ import {
   resolveShowTimezone,
 } from '@/lib/utils/formatters'
 import { toZonedDateOnly, toZonedISOString } from '@/lib/utils/timeUtils'
+import { isAnnouncedTimeOfStart } from '@/lib/utils/showTiming'
 import { SITE_DESCRIPTION, SITE_URL } from '@/lib/seo/siteMetadata'
 import { resolveTicketVendor } from '@/lib/tickets/ticketVendors'
 import { renderableSocialLinks } from '@/lib/socialLinks'
@@ -264,13 +265,16 @@ function startDateForSchema(
 /**
  * `MusicEvent.doorTime`, in the offset form {@link startDateForSchema} gives a
  * known zone, or undefined. Only a known zone states a door time: the page
- * withholds DOORS on a guessed one, and a bare date is no door time.
+ * withholds DOORS on a guessed one, and a bare date is no door time. Only a
+ * door time that belongs to `date`'s night is stated, since the instant
+ * carries its date.
  */
 function doorTimeForSchema(
   doorsAt: string | null | undefined,
+  date: string,
   venue: { state?: string; timezone?: string | null } | undefined
 ): string | undefined {
-  if (!venue || !doorsAt || !Number.isFinite(Date.parse(doorsAt))) return undefined
+  if (!venue || !doorsAt || !isAnnouncedTimeOfStart(doorsAt, date, 'doors')) return undefined
   if (!isShowTimezoneResolved(venue.state, venue.timezone)) return undefined
   return toZonedISOString(doorsAt, resolveShowTimezone(venue.state, venue.timezone))
 }
@@ -355,7 +359,7 @@ export function generateMusicEventSchema(show: {
     },
   }
 
-  const doorTime = doorTimeForSchema(show.doors_at, show.venue)
+  const doorTime = doorTimeForSchema(show.doors_at, show.date, show.venue)
   if (doorTime) {
     schema.doorTime = doorTime
   }

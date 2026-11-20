@@ -1,6 +1,7 @@
 import { formatLocation, LOCATION_UNKNOWN } from '@/lib/formatLocation'
 import {
   hasReadableStartDate,
+  isAnnouncedTimeOfStart,
   type ShowTimingInput,
 } from '@/lib/utils/showTiming'
 import {
@@ -269,6 +270,10 @@ function billNames(
  * `features/shows/components/showStatusStripeCopy`; this module's tests run
  * one fixture table through them and through this function to hold the two in
  * step.
+ *
+ * A door or music time stored for another night than the start is not stated
+ * (see `isAnnouncedTimeOfStart`), so the description can say less than the
+ * page, never more.
  */
 export function showEventDescription(
   input: ShowEventDescriptionInput
@@ -285,8 +290,12 @@ export function showEventDescription(
       (city ? `, ${city}` : '')
   )
 
-  const doors = eventClock(input.doorsAt, input)
-  const announcedMusic = eventClock(input.musicAt, input)
+  const doors = isAnnouncedTimeOfStart(input.doorsAt, input.eventDate, 'doors')
+    ? eventClock(input.doorsAt, input)
+    : null
+  const announcedMusic = isAnnouncedTimeOfStart(input.musicAt, input.eventDate, 'music')
+    ? eventClock(input.musicAt, input)
+    : null
   const music =
     announcedMusic &&
     (doors || announcedMusic === eventClock(input.eventDate, input))

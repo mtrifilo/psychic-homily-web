@@ -517,6 +517,23 @@ describe('showEventDescription', () => {
     )
   })
 
+  it('states no time left on another night by a moved start', () => {
+    // The start moved two weeks later; the stored door and music times did not.
+    expect(
+      showEventDescription({
+        ...holyWave,
+        doorsAt: '2026-11-08T02:00:00Z',
+        musicAt: '2026-11-08T03:00:00Z',
+      })
+    ).toBe('Holy Wave at Launchpad, Albuquerque.')
+  })
+
+  it('states no door time after the start', () => {
+    expect(
+      showEventDescription({ ...holyWave, doorsAt: '2026-11-22T05:00:00Z', musicAt: MUSIC })
+    ).toBe('Holy Wave at Launchpad, Albuquerque. Music 8:00 PM.')
+  })
+
   it('states no clock when the venue zone is a guess', () => {
     expect(
       showEventDescription({

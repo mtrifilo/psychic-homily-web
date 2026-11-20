@@ -524,6 +524,16 @@ describe('generateMusicEventSchema', () => {
       expect(schema).not.toHaveProperty('doorTime')
     })
 
+    it('emits no doorTime left on another night by a moved start, or after the start', () => {
+      // Two weeks earlier: the start moved and the door time did not.
+      expect(
+        generateMusicEventSchema({ ...launchpad, doors_at: '2026-11-08T02:00:00Z' })
+      ).not.toHaveProperty('doorTime')
+      expect(
+        generateMusicEventSchema({ ...launchpad, doors_at: '2026-11-22T05:00:00Z' })
+      ).not.toHaveProperty('doorTime')
+    })
+
     it('emits no doorTime for a show with no venue', () => {
       expect(generateMusicEventSchema({ ...launchpad, venue: undefined })).not.toHaveProperty('doorTime')
     })

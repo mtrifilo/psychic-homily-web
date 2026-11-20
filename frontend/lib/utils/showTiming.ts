@@ -115,6 +115,33 @@ export function hasReadableStartDate(
   return startInstantMs(eventDate) !== null
 }
 
+/**
+ * How far an announced door or music time may sit from the show's start and
+ * still be read as that night's.
+ */
+const ANNOUNCED_TIME_WINDOW_MS = 12 * 60 * 60 * 1000
+
+/**
+ * Whether an announced door or music time belongs to the show's current
+ * start: both readable, within {@link ANNOUNCED_TIME_WINDOW_MS} of each
+ * other, and, for doors, not after the start.
+ *
+ * Nothing re-anchors `doors_at` and `music_at` when `event_date` is edited,
+ * so a stored time can name another night. Structured data publishes the
+ * whole instant, date included, and asks this before stating one.
+ */
+export function isAnnouncedTimeOfStart(
+  announced: string | null | undefined,
+  eventDate: string | null | undefined,
+  kind: 'doors' | 'music'
+): boolean {
+  const at = startInstantMs(announced)
+  const start = startInstantMs(eventDate)
+  if (at === null || start === null) return false
+  if (kind === 'doors' && at > start) return false
+  return Math.abs(at - start) <= ANNOUNCED_TIME_WINDOW_MS
+}
+
 export type ShowLifecycleState = 'past' | 'today' | 'upcoming'
 
 /**
