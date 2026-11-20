@@ -2,6 +2,34 @@ import type { APIClient } from "./api";
 import * as display from "./display";
 
 /**
+ * Distributor placeholder shape: five or more digits, then "Records",
+ * optionally a two-letter suffix ("3245973 Records DK"). Real labels that
+ * start with digits ("4AD", "12XU", "2000 Records") have fewer digits or no
+ * "Records" word, so they do not match.
+ */
+const PLACEHOLDER_LABEL_NAME = /^\d{5,}\s+records(?:\s+[a-z]{2})?$/i;
+
+/** True when `name` has the distributor placeholder shape; surrounding whitespace is ignored. */
+export function isPlaceholderLabelName(name: string): boolean {
+  return PLACEHOLDER_LABEL_NAME.test(name.trim());
+}
+
+/**
+ * Dry-run warning for a placeholder-shaped label name, or null for any other
+ * name. A warning only: the name is still submitted if the run is confirmed.
+ */
+export function placeholderLabelWarning(name: unknown): string | null {
+  if (typeof name !== "string" || !isPlaceholderLabelName(name)) return null;
+  return `Label "${name}" looks like a distributor placeholder, not a real label: five or more digits, then "Records"`;
+}
+
+/** Print the placeholder warning for `name` when it has the placeholder shape. */
+export function warnIfPlaceholderLabel(name: unknown): void {
+  const warning = placeholderLabelWarning(name);
+  if (warning) display.warn(warning);
+}
+
+/**
  * Resolve a label name to its ID via the search API.
  * Returns the label ID if an exact (case-insensitive) match is found, or null.
  */

@@ -5,7 +5,7 @@ import { checkDuplicate } from "../lib/duplicates";
 import { validateArtist } from "../lib/schemas";
 import { TagResolver, formatTagsPreview, formatFuzzyWarning } from "../lib/tags";
 import type { TagInput, ResolvedTag } from "../lib/tags";
-import { linkArtistToLabel, resolveLabelByName } from "../lib/labels";
+import { linkArtistToLabel, resolveLabelByName, warnIfPlaceholderLabel } from "../lib/labels";
 import * as display from "../lib/display";
 import { green, yellow, gray, dim } from "../lib/ansi";
 
@@ -212,6 +212,7 @@ export async function submitArtists(
       } else {
         display.kv("label", `${labelField} → will link after label is created (not found yet)`);
       }
+      warnIfPlaceholderLabel(labelField);
     }
 
     // Show tags if any

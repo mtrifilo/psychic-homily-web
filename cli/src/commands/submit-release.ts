@@ -8,7 +8,7 @@ import {
 } from "../lib/duplicates";
 import { TagResolver, formatTagsPreview, formatFuzzyWarning } from "../lib/tags";
 import type { TagInput, ResolvedTag } from "../lib/tags";
-import { resolveAndLinkReleaseLabel } from "../lib/labels";
+import { resolveAndLinkReleaseLabel, warnIfPlaceholderLabel } from "../lib/labels";
 import * as display from "../lib/display";
 import { dim } from "../lib/ansi";
 
@@ -190,6 +190,7 @@ export async function planReleases(
     if (release.labels?.length) {
       for (const label of release.labels) {
         display.info(`Label "${label}" will be linked after create/resolve`);
+        warnIfPlaceholderLabel(label);
       }
     }
 
