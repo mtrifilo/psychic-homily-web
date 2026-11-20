@@ -1,10 +1,11 @@
 'use client'
 
+import { useContext } from 'react'
 import {
+  CalendarAddressShownContext,
   ManageInSettingsLink,
   PanelError,
   PanelNote,
-  useCalendarPanelLayout,
 } from './CalendarPanelParts'
 import { PANEL_COPY } from './savedShowsCalendarCopy'
 import { SETTINGS_CALENDAR_COPY } from './settingsCalendarCopy'
@@ -37,7 +38,7 @@ function NoteContent({
   note: CalendarRowNote
   onNavigate?: () => void
 }) {
-  const layout = useCalendarPanelLayout()
+  const addressShown = useContext(CalendarAddressShownContext)
   switch (note) {
     case 'google_pending':
       return (
@@ -54,8 +55,7 @@ function NoteContent({
     case 'copied':
       return <PanelNote>{PANEL_COPY.copied}</PanelNote>
     case 'copy_failed':
-      // The Settings card already shows the address in a field to copy from.
-      if (layout === 'card') {
+      if (addressShown) {
         return <PanelError>{SETTINGS_CALENDAR_COPY.copyFailed}</PanelError>
       }
       return (

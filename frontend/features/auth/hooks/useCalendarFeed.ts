@@ -30,11 +30,11 @@ export const useCalendarTokenStatus = (
   enabled: boolean = true,
   options: {
     /**
-     * Refetch whenever an observer mounts and whenever the window regains
-     * focus, and retry a failed read on its own, for the surface that shows
-     * the addresses: an address held from before can be one that was since
-     * replaced, and a calendar app's first check is made while the person is
-     * in that app.
+     * Refetch whenever an observer mounts and whenever the page becomes
+     * visible again (the query client's focus signal), and retry a failed read
+     * on its own, for the surface that shows the addresses: an address held
+     * from before can be one that was since replaced, and a calendar app's
+     * first check is made while the person is in that app.
      */
     live?: boolean
   } = {}
@@ -181,7 +181,9 @@ export function forgetRevokedCalendarLink(
 }
 
 /**
- * Hook to create (or regenerate) a calendar feed token
+ * Creates the calendar feed link, replacing any the account holds. Every
+ * calendar read is refetched afterwards, on failure too: a write whose
+ * response was lost may still have committed.
  */
 export const useCreateCalendarToken = () => {
   const queryClient = useQueryClient()
@@ -194,14 +196,16 @@ export const useCreateCalendarToken = () => {
         { method: 'POST' }
       )
     },
-    onSuccess: () => {
+    onSettled: () => {
       invalidateQueries.calendar()
     },
   })
 }
 
 /**
- * Hook to delete (disable) a calendar feed token
+ * Turns the calendar feed link off. Every calendar read is refetched
+ * afterwards, on failure too: a turn-off whose response was lost, or one
+ * refused because the link was already off, leaves the link gone.
  */
 export const useDeleteCalendarToken = () => {
   const queryClient = useQueryClient()
@@ -214,7 +218,7 @@ export const useDeleteCalendarToken = () => {
         { method: 'DELETE' }
       )
     },
-    onSuccess: () => {
+    onSettled: () => {
       invalidateQueries.calendar()
     },
   })

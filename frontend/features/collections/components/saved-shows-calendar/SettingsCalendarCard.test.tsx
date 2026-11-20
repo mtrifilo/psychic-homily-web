@@ -66,8 +66,8 @@ const UA = {
 } as const
 
 interface Server {
-  /** Answers GET /calendar/token; an Error rejects. */
-  token: CalendarTokenStatusResponse | Error
+  /** Answers GET /calendar/token; an Error rejects, a promise holds the answer. */
+  token: CalendarTokenStatusResponse | Error | Promise<CalendarTokenStatusResponse>
   mint: () => Promise<unknown>
   turnOff: () => Promise<unknown>
   newestSavedAt: string | null
@@ -199,9 +199,9 @@ function setupUser() {
   return user
 }
 
-function renderCard() {
+function renderCard(client = createTestQueryClient()) {
   return render(<SettingsCalendarCard id="calendar" />, {
-    wrapper: createWrapperWithClient(createTestQueryClient()),
+    wrapper: createWrapperWithClient(client),
   })
 }
 
@@ -320,6 +320,44 @@ describe('SettingsCalendarCard', () => {
       expect(
         screen.getByText(SETTINGS_RESET_SENTENCE.password_reset)
       ).toBeInTheDocument()
+    })
+
+    it.each([
+      ['New link', COPY.newLink, COPY.confirmNewLinkAction],
+      ['Turn off', COPY.turnOff, COPY.confirmTurnOffAction],
+    ])('ends the reset sentence once %s changes the link', async (_case, open, confirm) => {
+      server.token = {
+        has_token: false,
+        link_reset_at: ago(HOUR),
+        link_reset_reason: 'sign_out_everywhere',
+      }
+      const user = setupUser()
+      await renderReadCard()
+      await user.click(screen.getByRole('button', { name: COPY.addToCalendar }))
+      await waitFor(() => expect(fieldValues()).toHaveLength(2))
+      expect(
+        screen.getByText(SETTINGS_RESET_SENTENCE.sign_out_everywhere)
+      ).toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: open }))
+      await user.click(screen.getByRole('button', { name: confirm }))
+      await waitFor(() =>
+        expect(
+          screen.queryByText(SETTINGS_RESET_SENTENCE.sign_out_everywhere)
+        ).toBeNull()
+      )
+      expect(screen.getByText(COPY.noneChecking)).toBeInTheDocument()
+    })
+
+    it('shows the one approved line when the fresh read before creating fails', async () => {
+      const user = setupUser()
+      await renderReadCard()
+      server.token = new Error('down')
+      await user.click(screen.getByRole('button', { name: COPY.addToCalendar }))
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        PANEL_COPY.createFailed
+      )
+      expect(calls('/calendar/token', 'POST')).toHaveLength(0)
     })
 
     it('does not replace a link another tab made since the card read the status', async () => {
@@ -542,9 +580,30 @@ describe('SettingsCalendarCard', () => {
       const user = setupUser()
       await renderReadCard()
       await user.click(screen.getByRole('button', { name: COPY.addGoogle }))
-      expect(await screen.findByText(COPY.copyFailed)).toBeInTheDocument()
+      // Once under the button (stacked, below sm) and once under the row.
+      expect(await screen.findAllByText(COPY.copyFailed)).toHaveLength(2)
       expect(screen.queryByText(PANEL_COPY.copyFailed)).toBeNull()
       expect(screen.queryByText(PANEL_COPY.manageInSettings)).toBeNull()
+    })
+
+    it("puts a row's note under its own button while the buttons stack", async () => {
+      useDevice(UA.iphoneSafari)
+      withLink()
+      const user = setupUser()
+      await renderReadCard()
+      const apple = screen.getByRole('link', { name: COPY.addApple })
+      await user.click(apple)
+      const [stacked, beside] = await screen.findAllByText(PANEL_COPY.appleOpened)
+      // The stacked copy shares the Apple button's group, ahead of Email me
+      // the steps; the other sits after the whole row.
+      const appleGroup = apple.closest('div.flex.flex-col')!.parentElement!
+      expect(appleGroup).toContainElement(stacked)
+      expect(stacked.closest('.sm\\:hidden')).not.toBeNull()
+      expect(beside.closest('.hidden.sm\\:flex')).not.toBeNull()
+      const email = screen.getByRole('button', { name: PANEL_COPY.emailSteps })
+      expect(
+        stacked.compareDocumentPosition(email) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
     })
 
     it('Outlook opens Microsoft with the address in a new tab', async () => {
@@ -695,6 +754,25 @@ describe('SettingsCalendarCard', () => {
       expect(screen.getByText(COPY.noneChecking)).toBeInTheDocument()
     })
 
+    it('settles on the server when the link was already off', async () => {
+      withLink()
+      // Turned off elsewhere: the DELETE is refused and the link is gone.
+      server.turnOff = async () => {
+        server.token = { has_token: false }
+        throw new Error('no calendar token')
+      }
+      const user = setupUser()
+      await renderReadCard()
+      await user.click(screen.getByRole('button', { name: COPY.turnOff }))
+      await user.click(
+        screen.getByRole('button', { name: COPY.confirmTurnOffAction })
+      )
+      expect(
+        await screen.findByRole('button', { name: COPY.addToCalendar })
+      ).toBeInTheDocument()
+      expect(fieldValues()).toEqual([])
+    })
+
     it('says so when it fails, and tries again', async () => {
       withLink()
       let fail = true
@@ -715,6 +793,65 @@ describe('SettingsCalendarCard', () => {
         await screen.findByRole('button', { name: COPY.addToCalendar })
       ).toBeInTheDocument()
     })
+  })
+
+  it('never paints an address held in the cache from before it mounted', async () => {
+    const client = createTestQueryClient()
+    // Another account's link, left in the tab's cache by an earlier session.
+    client.setQueryData(['calendar', 'tokenStatus'], {
+      has_token: true,
+      url_recoverable: true,
+      feed_url: 'https://api.example.test/feeds/someone-else/saved-shows.ics',
+      follows_feed_url: 'https://api.example.test/feeds/someone-else/follows.atom',
+    })
+    let answer: (value: CalendarTokenStatusResponse) => void = () => {}
+    // The status read is held; the saved-shows read answers at once.
+    server.token = new Promise<CalendarTokenStatusResponse>(resolve => {
+      answer = resolve
+    })
+    renderCard(client)
+    await waitFor(() => expect(calls('/calendar/token', 'GET')).toHaveLength(1))
+    await waitFor(() =>
+      expect(
+        apiRequest.mock.calls.some(([endpoint]) =>
+          String(endpoint).includes('/saved-shows?')
+        )
+      ).toBe(true)
+    )
+    // Give the saved-shows answer a render to land in.
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(screen.getByText(PANEL_COPY.loading)).toBeInTheDocument()
+    expect(fieldValues()).toEqual([])
+    expect(document.body.innerHTML).not.toContain('someone-else')
+
+    server.token = linkStatus()
+    answer(linkStatus())
+    await waitFor(() => expect(fieldValues()).toEqual([FEED_URL, FOLLOWS_URL]))
+    expect(document.body.innerHTML).not.toContain('someone-else')
+  })
+
+  it('reads the status again when the window regains focus', async () => {
+    withLink()
+    await renderReadCard()
+    const before = calls('/calendar/token', 'GET').length
+    withLink([readOf('apple_mac', MINUTE)])
+    window.dispatchEvent(new Event('focus'))
+    expect(await screen.findByText(CALENDAR_CLIENT_NAMES.apple_mac)).toBeInTheDocument()
+    expect(calls('/calendar/token', 'GET').length).toBeGreaterThan(before)
+  })
+
+  it('carries the Settings anchor on the real card: id, focusable, and the ref', async () => {
+    let anchored: HTMLDivElement | null = null
+    render(
+      <SettingsCalendarCard id="calendar" anchorRef={el => { anchored = el }} />,
+      { wrapper: createWrapperWithClient(createTestQueryClient()) }
+    )
+    const card = document.getElementById('calendar')
+    expect(card).not.toBeNull()
+    expect(anchored).toBe(card)
+    expect(card).toHaveAttribute('tabindex', '-1')
+    card!.focus()
+    expect(card).toHaveFocus()
   })
 
   it('says so when the status cannot be read, and reads again', async () => {

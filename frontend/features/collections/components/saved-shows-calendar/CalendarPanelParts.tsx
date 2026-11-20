@@ -12,9 +12,7 @@ import { PANEL_COPY } from './savedShowsCalendarCopy'
  * Where the calendar pieces are drawn. The sheet gives every row a 44px tap
  * target and stacks rows edge to edge; the popover spaces 20px rows 10px
  * apart. The Settings card is responsive by CSS alone: the sheet's targets
- * below `sm`, the popover's rows from `sm` up. It is also the one surface that
- * shows the address, so a refused copy there points to its field rather than
- * to Settings.
+ * below `sm`, the popover's rows from `sm` up.
  */
 export type CalendarPanelLayout = 'popover' | 'sheet' | 'card'
 
@@ -24,6 +22,12 @@ export const CalendarPanelLayoutContext =
 export function useCalendarPanelLayout(): CalendarPanelLayout {
   return useContext(CalendarPanelLayoutContext)
 }
+
+/**
+ * True on a surface that shows the address in a field (the Settings card):
+ * a refused copy there points to that field rather than to Settings.
+ */
+export const CalendarAddressShownContext = createContext(false)
 
 /**
  * On every element that carries or acts on the private calendar link. The
@@ -60,8 +64,7 @@ export function tapTargetClass(layout: CalendarPanelLayout): string | false {
 
 /** The rows' stack: spaced in the popover, edge to edge in the sheet. */
 export function rowStackClass(layout: CalendarPanelLayout): string {
-  if (layout === 'sheet') return 'flex flex-col'
-  return layout === 'card' ? 'flex flex-col sm:gap-2.5' : 'flex flex-col gap-2.5'
+  return layout === 'sheet' ? 'flex flex-col' : 'flex flex-col gap-2.5'
 }
 
 const ROW_CLASS =

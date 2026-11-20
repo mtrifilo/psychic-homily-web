@@ -21,6 +21,7 @@ import {
 import type { CalendarLinkResetReason } from '@/features/shows/types'
 import {
   CALENDAR_SURFACE_PROPS,
+  CalendarAddressShownContext,
   CalendarPanelLayoutContext,
   PRIVATE_LINK_CLASS,
   PanelErrorWithRetry,
@@ -42,11 +43,7 @@ import {
   useSavedShowsCalendarActions,
   type CalendarActions,
 } from './useSavedShowsCalendarActions'
-import {
-  addCalendarFailure,
-  useSettingsCalendar,
-  type CalendarLinks,
-} from './useSettingsCalendar'
+import { useSettingsCalendar, type CalendarLinks } from './useSettingsCalendar'
 
 interface SettingsCalendarCardProps {
   /** The Settings fragment the card answers to. */
@@ -76,6 +73,9 @@ export function SettingsCalendarCard({
       id={id}
       tabIndex={-1}
       {...CALENDAR_SURFACE_PROPS}
+      // The whole card is out of PostHog's autocapture and replay; Sentry's
+      // replay masks text already, so `sentry-block` goes only on the
+      // elements that carry an address (PRIVATE_LINK_CLASS).
       className={cn('ph-no-capture focus:outline-none', className)}
     >
       <CardHeader>
@@ -84,7 +84,9 @@ export function SettingsCalendarCard({
       </CardHeader>
       <CardContent>
         <CalendarPanelLayoutContext.Provider value="card">
-          <SettingsCalendarBody />
+          <CalendarAddressShownContext.Provider value>
+            <SettingsCalendarBody />
+          </CalendarAddressShownContext.Provider>
         </CalendarPanelLayoutContext.Provider>
       </CardContent>
     </Card>
@@ -92,7 +94,7 @@ export function SettingsCalendarCard({
 }
 
 function SettingsCalendarBody() {
-  const { state, add, forgetResetReason } = useSettingsCalendar()
+  const { state, add, onLinkChanged } = useSettingsCalendar()
 
   switch (state.kind) {
     case 'loading':
@@ -122,9 +124,7 @@ function SettingsCalendarBody() {
             </CalendarCardButton>
             {add.isError && !add.isPending ? (
               <PanelErrorWithRetry onRetry={() => add.mutate()}>
-                {addCalendarFailure(add.error) === 'load'
-                  ? PANEL_COPY.loadFailed
-                  : PANEL_COPY.createFailed}
+                {PANEL_COPY.createFailed}
               </PanelErrorWithRetry>
             ) : null}
           </div>
@@ -145,7 +145,7 @@ function SettingsCalendarBody() {
           <div role="separator" className="h-px bg-border" />
           <SettingsCalendarLinks
             links={state.links}
-            onLinkChanged={forgetResetReason}
+            onLinkChanged={onLinkChanged}
           />
         </div>
       )
@@ -228,22 +228,27 @@ function AddBlock({
 }) {
   const buttons = rows.filter((row): row is AddButtonRow => row !== 'copy')
   if (buttons.length === 0) return null
+  // A row's note sits under its own button while the buttons stack (below
+  // `sm`), and under the whole row once they sit side by side, where a note
+  // under one narrow button would wrap to a column. Each note names its app,
+  // so it reads right in either place. Only the visible copy is announced.
   return (
     <div className="flex flex-col">
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start">
         {buttons.map(row => (
-          <AddButton
-            key={row}
-            row={row}
-            device={device}
-            feedUrl={feedUrl}
-            actions={actions}
-          />
+          <div key={row} className="flex flex-col">
+            <AddButton row={row} device={device} feedUrl={feedUrl} actions={actions} />
+            <div className="sm:hidden">
+              <CalendarRowNoteLines note={actions.notes[row]} />
+            </div>
+          </div>
         ))}
       </div>
-      {buttons.map(row => (
-        <CalendarRowNoteLines key={row} note={actions.notes[row]} />
-      ))}
+      <div className="hidden sm:flex sm:flex-col">
+        {buttons.map(row => (
+          <CalendarRowNoteLines key={row} note={actions.notes[row]} />
+        ))}
+      </div>
     </div>
   )
 }

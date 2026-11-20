@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   useMutation,
   useQueryClient,
@@ -59,23 +59,6 @@ export function statusOfNewLink(
   }
 }
 
-/** Which step of "Add to calendar" failed. */
-export type AddCalendarFailure = 'load' | 'create'
-
-const FAILED_STEP = Symbol('settingsCalendarAddFailedStep')
-
-/**
- * Marks the original error with the step that failed rather than wrapping it,
- * so the mutation cache still sees an expired session's AuthError and
- * recovers from it.
- */
-function failedAt(step: AddCalendarFailure, error: unknown): unknown {
-  if (error !== null && typeof error === 'object') {
-    return Object.assign(error, { [FAILED_STEP]: step })
-  }
-  return Object.assign(new Error(String(error)), { [FAILED_STEP]: step })
-}
-
 interface AddedCalendar {
   status: CalendarTokenStatusResponse
   /** The reset marker the account carried before this click created a link. */
@@ -83,42 +66,28 @@ interface AddedCalendar {
 }
 
 /**
- * Reads the link fresh and creates one only when that read says there is none:
- * creating replaces any link the account holds, which would cut off a calendar
- * that another tab set up since this card last read the status.
+ * Reads the link fresh and creates one only when that read says there is none.
+ * Creating replaces any link the account holds, so the read keeps this click
+ * from cutting off a calendar another tab set up since the card last read the
+ * status; a link made between the read and the create is still replaced. Any
+ * failure is the one approved line for this control, so the request's own
+ * error is thrown as it is, which keeps an expired session recoverable.
  */
 async function readOrCreateLink(): Promise<AddedCalendar> {
-  let current: CalendarTokenStatusResponse
-  try {
-    current = await apiRequest<CalendarTokenStatusResponse>(
-      API_ENDPOINTS.CALENDAR.TOKEN,
-      { method: 'GET' }
-    )
-  } catch (error) {
-    throw failedAt('load', error)
-  }
+  const current = await apiRequest<CalendarTokenStatusResponse>(
+    API_ENDPOINTS.CALENDAR.TOKEN,
+    { method: 'GET' }
+  )
   if (current.has_token) return { status: current, resetReason: null }
 
-  try {
-    const created = await apiRequest<CalendarTokenCreateResponse>(
-      API_ENDPOINTS.CALENDAR.TOKEN,
-      { method: 'POST' }
-    )
-    return {
-      status: statusOfNewLink(created),
-      resetReason: calendarResetReason(current),
-    }
-  } catch (error) {
-    throw failedAt('create', error)
+  const created = await apiRequest<CalendarTokenCreateResponse>(
+    API_ENDPOINTS.CALENDAR.TOKEN,
+    { method: 'POST' }
+  )
+  return {
+    status: statusOfNewLink(created),
+    resetReason: calendarResetReason(current),
   }
-}
-
-export function addCalendarFailure(error: unknown): AddCalendarFailure {
-  const step =
-    error !== null && typeof error === 'object'
-      ? (error as { [FAILED_STEP]?: AddCalendarFailure })[FAILED_STEP]
-      : undefined
-  return step ?? 'create'
 }
 
 /**
@@ -152,10 +121,14 @@ function useAddCalendar(onAdded: (resetReason: CalendarLinkResetReason | null) =
 /**
  * Everything the Settings calendar card reads, reduced to its state.
  *
- * The status is read fresh on every mount and whenever the window regains
- * focus (see useCalendarTokenStatus `live`). A connected app's line compares
- * its last check with the newest save; a failed saved-shows read drops that
- * comparison rather than blocking the card, as the panel does.
+ * Only a status read since this mount is shown, so no address held in the
+ * cache from before (one since replaced, or another account's from earlier in
+ * the tab) is ever painted. The status is read again whenever the page becomes
+ * visible or the window regains focus: a calendar app's first check is made
+ * while the person is in that app, and the address may have been replaced in
+ * another window. A connected app's line compares its last check with the
+ * newest save; a failed saved-shows read drops that comparison rather than
+ * blocking the card, as the panel does.
  *
  * The reset sentence keeps showing after "Add to calendar" made a new link in
  * this visit, because creating a link clears the marker on the server and the
@@ -166,6 +139,14 @@ export function useSettingsCalendar() {
   const { user } = useAuthContext()
   const userId = user?.id
   const status = useCalendarTokenStatus(!!userId, { live: true })
+  const refetchStatus = status.refetch
+  // The live option follows page visibility; a window that only loses and
+  // regains focus (a calendar app opened beside the browser) is caught here.
+  useEffect(() => {
+    const onFocus = () => void refetchStatus({ cancelRefetch: false })
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [refetchStatus])
   // Sorted newest save first when no time filter is given.
   const newest = useSavedShows({ limit: 1, userId, retryUntilRead: true })
   const device = useCalendarDevice()
@@ -173,18 +154,26 @@ export function useSettingsCalendar() {
   const [heldResetReason, setHeldResetReason] =
     useState<CalendarLinkResetReason | null>(null)
   const add = useAddCalendar(setHeldResetReason)
-  const forgetResetReason = () => setHeldResetReason(null)
+  // A new link or a turn-off ends the visit's reset sentence, and an earlier
+  // failed "Add to calendar" is no longer news.
+  const onLinkChanged = () => {
+    setHeldResetReason(null)
+    add.reset()
+  }
 
   return {
     state: settingsCalendarState(),
     add,
-    forgetResetReason,
+    onLinkChanged,
   }
 
   function settingsCalendarState(): SettingsCalendarState {
-    const current = status.data
+    const current =
+      status.data && status.dataUpdatedAt >= mountedAt ? status.data : undefined
     if (!current) {
-      return status.isError && !status.isFetching
+      // A failure since this mount, which survives the pending frame of each
+      // retry and ignores one another surface left in the shared cache.
+      return status.errorUpdatedAt >= mountedAt
         ? { kind: 'load_failed', retry: () => void status.refetch() }
         : { kind: 'loading' }
     }
@@ -192,8 +181,6 @@ export function useSettingsCalendar() {
       return { kind: 'no_link', resetReason: calendarResetReason(current) }
     }
 
-    // A failure since this mount, which survives the pending frame of each
-    // retry and ignores one another surface left in the shared cache.
     const newestSettled =
       !!newest.data || newest.errorUpdatedAt >= mountedAt
     if (!device || !newestSettled) return { kind: 'loading' }

@@ -338,7 +338,7 @@ describe('useCreateCalendarToken', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect(result.current.error).toBeTruthy()
     expect((result.current.error as { status?: number }).status).toBe(500)
-    expect(mockInvalidateCalendar).not.toHaveBeenCalled()
+    expect(mockInvalidateCalendar).toHaveBeenCalled()
   })
 
   it('surfaces 401 auth errors with the original error preserved', async () => {
@@ -362,7 +362,7 @@ describe('useCreateCalendarToken', () => {
 
     expect(result.current.error).toBe(authError)
     expect((result.current.error as { status?: number }).status).toBe(401)
-    expect(mockInvalidateCalendar).not.toHaveBeenCalled()
+    expect(mockInvalidateCalendar).toHaveBeenCalled()
   })
 
   it('isPending toggles during in-flight mutation', async () => {
@@ -452,10 +452,10 @@ describe('useDeleteCalendarToken', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect(result.current.error).toBeTruthy()
     expect((result.current.error as { status?: number }).status).toBe(404)
-    expect(mockInvalidateCalendar).not.toHaveBeenCalled()
+    expect(mockInvalidateCalendar).toHaveBeenCalled()
   })
 
-  it('does not invalidate on 500 server errors', async () => {
+  it('re-reads the calendar on 500 server errors, since the write may have committed', async () => {
     const error = new Error('Internal Server Error')
     Object.assign(error, { status: 500 })
     mockApiRequest.mockRejectedValueOnce(error)
@@ -469,7 +469,7 @@ describe('useDeleteCalendarToken', () => {
     })
 
     await waitFor(() => expect(result.current.isError).toBe(true))
-    expect(mockInvalidateCalendar).not.toHaveBeenCalled()
+    expect(mockInvalidateCalendar).toHaveBeenCalled()
   })
 })
 
