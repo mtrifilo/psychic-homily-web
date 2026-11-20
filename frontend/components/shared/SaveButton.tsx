@@ -1,7 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
-import dynamic from 'next/dynamic'
+import { useCallback, useRef, useState } from 'react'
 import { Heart } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { BracketLink } from './BracketLink'
@@ -20,41 +19,13 @@ import { useAuthGatedAction } from '@/lib/hooks/common/useAuthGatedAction'
 import { useShouldOpenFirstSaveHint } from '@/features/shows/hooks/useFirstSaveHint'
 import { FirstSaveHint } from './FirstSaveHint'
 
-// Loaded when the one-time hint opens, the panel's only way in, so it is
-// usually ready by the time the hint's link is chosen; every list row renders
-// a SaveButton, and none pays for it otherwise. A chunk that fails to load renders
-// nothing (returning focus to Save) rather than throwing into the page's
-// error boundary and replacing the page the person is on.
-const loadCalendarPanel = () =>
-  import(
-    '@/features/collections/components/saved-shows-calendar/SavedShowsCalendarPanel'
-  )
-const SavedShowsCalendarPanel = dynamic(
-  () =>
-    loadCalendarPanel()
-      .then(m => m.SavedShowsCalendarPanel)
-      .catch(() => NoCalendarPanel),
-  { ssr: false }
-)
-
-/**
- * Stands in for a panel whose code failed to load. The hint that opened it is
- * already gone, so focus goes back to the Save control rather than <body>.
- */
-function NoCalendarPanel({
-  anchorRef,
-}: {
-  anchorRef: RefObject<HTMLElement | null>
-}) {
-  useEffect(() => {
-    // Only when focus is lost: the person may have moved on while it loaded.
-    if (document.activeElement && document.activeElement !== document.body) return
-    anchorRef.current
-      ?.querySelector<HTMLElement>('button, a')
-      ?.focus({ preventScroll: true })
-  }, [anchorRef])
-  return null
-}
+// Loaded when the one-time hint opens, so it is usually ready by the time the
+// hint's link is chosen; every list row renders a SaveButton, and none pays
+// for the panel otherwise. Concrete module path, not the collections barrel.
+import {
+  LazySavedShowsCalendarPanel,
+  preloadSavedShowsCalendarPanel,
+} from '@/features/collections/components/saved-shows-calendar/LazySavedShowsCalendarPanel'
 
 // How long a save failure stays on screen before auto-hiding.
 const ERROR_DISMISS_MS = 3000
@@ -214,7 +185,7 @@ export function SaveButton({
       const isStillCurrent = () => click === latestClick.current
       if (await shouldOpenFirstSaveHint(isStillCurrent)) {
         setIsHintOpen(true)
-        void loadCalendarPanel().catch(() => {})
+        preloadSavedShowsCalendarPanel()
       }
     } catch {}
   })
@@ -232,7 +203,7 @@ export function SaveButton({
         />
       ) : null}
       {isCalendarOpen !== undefined ? (
-        <SavedShowsCalendarPanel
+        <LazySavedShowsCalendarPanel
           open={isCalendarOpen}
           onOpenChange={setIsCalendarOpen}
           anchorRef={wrapperRef}

@@ -3,7 +3,8 @@
 // and three react-query hooks via the `@/features/auth` barrel — all already
 // multi-route-reachable), unlike CollectionDetail's `@dnd-kit`/`marked`/
 // `dompurify` dynamic-import boundaries. If it ever grows heavy deps, evict it
-// to a direct file import like CollectionDetail (sole consumer: app/library).
+// to a direct file import like CollectionDetail (sole consumer: the Settings
+// panel).
 export { CalendarFeedSection } from './CalendarFeedSection'
 export { FollowsActivityFeedSection } from './FollowsActivityFeedSection'
 export { CollectionCard } from './CollectionCard'

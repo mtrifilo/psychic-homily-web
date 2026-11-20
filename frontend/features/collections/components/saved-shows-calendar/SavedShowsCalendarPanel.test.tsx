@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useRef, useState } from 'react'
 import { createTestQueryClient, createWrapperWithClient } from '@/test/utils'
@@ -1080,6 +1087,78 @@ describe('SavedShowsCalendarPanel: focus', () => {
       expect(screen.queryByTestId('saved-shows-calendar-panel')).not.toBeInTheDocument()
     )
     expect(screen.getByRole('textbox', { name: 'search' })).toHaveFocus()
+  })
+
+  // A control that toggles the panel names itself as the trigger. Its press
+  // must not dismiss the popover as an outside press, or the click that
+  // follows would open it again.
+  function ToggleHarness({ withTrigger }: { withTrigger: boolean }) {
+    const anchorRef = useRef<HTMLDivElement>(null)
+    const [open, setOpen] = useState(true)
+    return (
+      <>
+        <div ref={anchorRef}>
+          <button type="button" onClick={() => setOpen(!open)}>
+            Calendar
+          </button>
+        </div>
+        <SavedShowsCalendarPanel
+          open={open}
+          onOpenChange={setOpen}
+          anchorRef={anchorRef}
+          triggerRef={withTrigger ? anchorRef : undefined}
+        />
+      </>
+    )
+  }
+
+  // A browser runs the press and the click as separate tasks, rendering in
+  // between, so the click sees whatever the press left; each is flushed here
+  // on its own for the same reason.
+  async function pressThenClick(control: HTMLElement) {
+    // Radix starts listening for outside presses a tick after the popover
+    // mounts.
+    await act(() => new Promise(resolve => setTimeout(resolve, 0)))
+    await act(async () => {
+      fireEvent.pointerDown(control)
+    })
+    const openAfterPress = !!screen.queryByTestId('saved-shows-calendar-panel')
+    await act(async () => {
+      fireEvent.click(control)
+    })
+    return { openAfterPress }
+  }
+
+  it('lets a press on its trigger close it, rather than dismiss and reopen', async () => {
+    render(<ToggleHarness withTrigger />, {
+      wrapper: createWrapperWithClient(createTestQueryClient()),
+    })
+    await screen.findByTestId('saved-shows-calendar-panel')
+
+    const { openAfterPress } = await pressThenClick(
+      screen.getByRole('button', { name: 'Calendar' })
+    )
+
+    // The press left it open for the control's own click, which closed it.
+    expect(openAfterPress).toBe(true)
+    await waitFor(() =>
+      expect(screen.queryByTestId('saved-shows-calendar-panel')).not.toBeInTheDocument()
+    )
+  })
+
+  it('treats a press on its anchor as outside when no trigger is named', async () => {
+    render(<ToggleHarness withTrigger={false} />, {
+      wrapper: createWrapperWithClient(createTestQueryClient()),
+    })
+    await screen.findByTestId('saved-shows-calendar-panel')
+
+    const { openAfterPress } = await pressThenClick(
+      screen.getByRole('button', { name: 'Calendar' })
+    )
+
+    // The press dismissed it before the control's click could act: what a
+    // Save control anchoring the panel relies on.
+    expect(openAfterPress).toBe(false)
   })
 })
 

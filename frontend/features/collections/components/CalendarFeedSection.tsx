@@ -1,7 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import Link from 'next/link'
+import { useEffect, useState, type FC } from 'react'
 import {
   CalendarDays,
   Copy,
@@ -31,16 +30,15 @@ import { FeedMintErrorNotice } from './FeedMintErrorNotice'
 // How long the "copied ✓" confirmation stays up after copying the feed URL.
 const COPIED_DISMISS_MS = 2000
 
-export type CalendarFeedVariant = 'settings' | 'library'
-
 interface CalendarFeedSectionProps {
-  /** settings owns regenerate/disable; library is subscribe/copy + link to settings */
-  variant?: CalendarFeedVariant
+  /**
+   * The card's one surface, Settings, which owns regenerate and disable. Kept
+   * as a prop so the Settings call site names it; nothing else renders it.
+   */
+  variant?: 'settings'
 }
 
-export function CalendarFeedSection({
-  variant = 'library',
-}: CalendarFeedSectionProps) {
+export const CalendarFeedSection: FC<CalendarFeedSectionProps> = () => {
   const { data: tokenStatus, isLoading } = useCalendarTokenStatus()
   const createToken = useCreateCalendarToken()
   const deleteToken = useDeleteCalendarToken()
@@ -117,8 +115,6 @@ export function CalendarFeedSection({
     return null
   }
 
-  const isSettings = variant === 'settings'
-
   const mintErrorNotice = <FeedMintErrorNotice error={createToken.error} />
 
   // Just created or regenerated: show the feed URL from the mint response.
@@ -130,9 +126,7 @@ export function CalendarFeedSection({
       <div className="rounded-md border border-border bg-card p-4">
         <div className="flex items-center gap-2 mb-3">
           <CalendarDays className="h-5 w-5 text-primary" />
-          <h3 className="text-sm font-semibold">
-            {isSettings ? 'Saved shows calendar feed' : 'Calendar Feed Active'}
-          </h3>
+          <h3 className="text-sm font-semibold">Saved shows calendar feed</h3>
         </div>
         <p className="text-xs text-muted-foreground mb-3">
           Copy this URL and subscribe in Google Calendar or Apple Calendar. Your
@@ -181,20 +175,78 @@ export function CalendarFeedSection({
           </a>
         </div>
 
-        {isSettings && (
-          <div className="flex items-start gap-2 mb-3 text-xs text-muted-foreground">
-            <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-            <span>
-              Anyone with this URL can see your saved shows. Regenerate
-              immediately if it leaks — the old URL stops working right away
-              (and rotates the follows activity feed URL too). Copy it now; it
-              won&apos;t be shown again until you regenerate.
-            </span>
-          </div>
-        )}
+        <div className="flex items-start gap-2 mb-3 text-xs text-muted-foreground">
+          <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <span>
+            Anyone with this URL can see your saved shows. Regenerate
+            immediately if it leaks — the old URL stops working right away
+            (and rotates the follows activity feed URL too). Copy it now; it
+            won&apos;t be shown again until you regenerate.
+          </span>
+        </div>
 
-        {isSettings ? (
-          <div className="flex gap-2">
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRegenerate}
+            disabled={createToken.isPending}
+            className="text-xs"
+          >
+            {createToken.isPending ? (
+              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3 w-3 mr-1" />
+            )}
+            Regenerate
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDelete}
+            disabled={deleteToken.isPending}
+            className="text-xs text-destructive hover:text-destructive"
+          >
+            {deleteToken.isPending ? (
+              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+            ) : (
+              <Trash2 className="h-3 w-3 mr-1" />
+            )}
+            Disable
+          </Button>
+        </div>
+        {mintErrorNotice}
+      </div>
+    )
+  }
+
+  // Token exists from an earlier visit. This card does not read feed_url from
+  // the status response, so it offers only Regenerate and Disable.
+  if (tokenStatus?.has_token) {
+    return (
+      <div className="rounded-md border border-border bg-card p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 items-start gap-2">
+            <CalendarDays className="h-5 w-5 text-primary mt-0.5" />
+            <div>
+              <h3 className="text-sm font-semibold">
+                Saved shows calendar feed
+              </h3>
+              <p className="text-xs text-muted-foreground mt-1">
+                Your feed is enabled. The subscribe URL was shown when you
+                created it — regenerate to get a new URL (invalidates the old
+                one immediately).
+              </p>
+              <div className="flex items-start gap-2 mt-2 text-xs text-muted-foreground">
+                <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span>
+                  Anyone with the URL can see your saved shows. Regenerate if
+                  it may have leaked.
+                </span>
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2 shrink-0">
             <Button
               variant="outline"
               size="sm"
@@ -224,140 +276,26 @@ export function CalendarFeedSection({
               Disable
             </Button>
           </div>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            Regenerate or disable from{' '}
-            <Link
-              href="/profile?tab=settings"
-              className="text-link underline underline-offset-2"
-            >
-              Settings
-            </Link>
-            .
-          </p>
-        )}
+        </div>
         {mintErrorNotice}
-      </div>
-    )
-  }
-
-  // Token exists from an earlier visit. This card does not read feed_url from
-  // the status response, so it offers only Regenerate and Disable.
-  if (tokenStatus?.has_token) {
-    if (isSettings) {
-      return (
-        <div className="rounded-md border border-border bg-card p-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex min-w-0 items-start gap-2">
-              <CalendarDays className="h-5 w-5 text-primary mt-0.5" />
-              <div>
-                <h3 className="text-sm font-semibold">
-                  Saved shows calendar feed
-                </h3>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Your feed is enabled. The subscribe URL was shown when you
-                  created it — regenerate to get a new URL (invalidates the old
-                  one immediately).
-                </p>
-                <div className="flex items-start gap-2 mt-2 text-xs text-muted-foreground">
-                  <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                  <span>
-                    Anyone with the URL can see your saved shows. Regenerate if
-                    it may have leaked.
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2 shrink-0">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleRegenerate}
-                disabled={createToken.isPending}
-                className="text-xs"
-              >
-                {createToken.isPending ? (
-                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-3 w-3 mr-1" />
-                )}
-                Regenerate
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleDelete}
-                disabled={deleteToken.isPending}
-                className="text-xs text-destructive hover:text-destructive"
-              >
-                {deleteToken.isPending ? (
-                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                ) : (
-                  <Trash2 className="h-3 w-3 mr-1" />
-                )}
-                Disable
-              </Button>
-            </div>
-          </div>
-          {mintErrorNotice}
-        </div>
-      )
-    }
-
-    // Library: subscribe affordance + point to Settings for manage
-    return (
-      <div className="rounded-md border border-border bg-card px-5 py-3.5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-2">
-            <CalendarDays className="h-5 w-5 text-primary shrink-0" />
-            <div>
-              <h3 className="text-sm font-semibold">Calendar feed enabled</h3>
-              <p className="text-xs text-muted-foreground">
-                Copy or regenerate your subscribe URL in{' '}
-                <Link
-                  href="/profile?tab=settings"
-                  className="text-link underline underline-offset-2"
-                >
-                  Settings
-                </Link>
-                .
-              </p>
-            </div>
-          </div>
-          <Button variant="outline" size="sm" className="text-xs shrink-0" asChild>
-            <Link href="/profile?tab=settings">Manage feed</Link>
-          </Button>
-        </div>
       </div>
     )
   }
 
   // No token — setup prompt
   return (
-    <div
-      className={
-        isSettings
-          ? 'rounded-md border border-border bg-card p-4'
-          : 'rounded-md border border-border bg-card px-5 py-3.5'
-      }
-    >
+    <div className="rounded-md border border-border bg-card p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h3 className="text-sm font-medium">
-            {isSettings
-              ? 'Saved shows calendar feed'
-              : 'Subscribe to calendar'}
-          </h3>
+          <h3 className="text-sm font-medium">Saved shows calendar feed</h3>
           <p className="text-xs text-muted-foreground">
             Sync your saved shows to Google Calendar, Apple Calendar, or
             Outlook.
           </p>
-          {isSettings && (
-            <p className="text-xs text-muted-foreground mt-1">
-              Uses a dedicated feed token (not your login). Anyone with the URL
-              can see your saved shows.
-            </p>
-          )}
+          <p className="text-xs text-muted-foreground mt-1">
+            Uses a dedicated feed token (not your login). Anyone with the URL
+            can see your saved shows.
+          </p>
         </div>
         <Button
           variant="outline"

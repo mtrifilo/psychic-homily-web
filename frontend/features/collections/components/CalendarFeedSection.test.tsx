@@ -53,43 +53,6 @@ describe('CalendarFeedSection', () => {
     expect(screen.queryByRole('link', { name: 'Sign in again' })).toBeNull()
   })
 
-  it('renders the compact library setup card and keeps Enable functional', async () => {
-    const { container } = renderWithProviders(
-      <CalendarFeedSection variant="library" />
-    )
-
-    expect(screen.getByText('Subscribe to calendar')).toBeTruthy()
-    expect(
-      screen.getByText(
-        'Sync your saved shows to Google Calendar, Apple Calendar, or Outlook.'
-      )
-    ).toBeTruthy()
-
-    const card = container.firstElementChild as HTMLElement
-    expect(card.className).toContain('rounded-md')
-    expect(card.className).toContain('border-border')
-    expect(card.className).not.toContain('border-dashed')
-
-    fireEvent.click(screen.getByRole('button', { name: 'Enable' }))
-
-    await waitFor(() => expect(mockCreateToken).toHaveBeenCalledTimes(1))
-    expect(screen.getByText('Calendar Feed Active')).toBeTruthy()
-    expect(screen.getByDisplayValue(/feeds\/phcal_test\/saved-shows\.ics/)).toBeTruthy()
-    expect(screen.getByText('Google Calendar')).toBeTruthy()
-    expect(screen.getByText(/Regenerate or disable from/)).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Regenerate' })).toBeNull()
-  })
-
-  it('library active-token state links to Settings instead of regenerating', () => {
-    mockHasToken = true
-    renderWithProviders(<CalendarFeedSection variant="library" />)
-
-    expect(screen.getByText('Calendar feed enabled')).toBeTruthy()
-    const manage = screen.getByRole('link', { name: 'Manage feed' })
-    expect(manage.getAttribute('href')).toBe('/profile?tab=settings')
-    expect(screen.queryByRole('button', { name: 'Regenerate' })).toBeNull()
-  })
-
   it('settings variant owns regenerate and shows leakage warning', async () => {
     renderWithProviders(<CalendarFeedSection variant="settings" />)
 
@@ -130,7 +93,7 @@ describe('CalendarFeedSection', () => {
       Object.assign(navigator, { clipboard: { writeText } })
 
       const { unmount } = renderWithProviders(
-        <CalendarFeedSection variant="library" />
+        <CalendarFeedSection variant="settings" />
       )
 
       // Enabling reveals the plaintext URL (the only state with a copy button).

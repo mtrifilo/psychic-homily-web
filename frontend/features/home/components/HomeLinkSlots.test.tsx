@@ -104,6 +104,12 @@ vi.mock('@/components/shared/SaveButton', () => ({
   SaveButton: () => <button type="button">save</button>,
 }))
 
+// The saved module's footer calendar link reads the calendar status and owns
+// no link slot.
+vi.mock('@/features/auth/hooks/useCalendarFeed', () => ({
+  useCalendarFeedStatus: () => ({ data: undefined }),
+}))
+
 const SECTIONS = {
   saved_shows: <SavedShowsModule />,
   library_updates: <div>library_updates</div>,

@@ -129,9 +129,35 @@ vi.mock('@/features/venues', () => ({
   VenueDeniedDialog: () => null,
 }))
 
-vi.mock('@/features/collections', () => ({
-  CalendarFeedSection: () => <div data-testid="calendar-feed" />,
+// The Upcoming header's calendar link reads the status with no feed address;
+// the panel it opens has its own suite and stands in here as a marker.
+const mockUseCalendarFeedStatus = vi.fn<
+  (enabled?: boolean) => { data: undefined; isFetched: boolean }
+>(() => ({ data: undefined, isFetched: true }))
+vi.mock('@/features/auth/hooks/useCalendarFeed', () => ({
+  useCalendarFeedStatus: (enabled?: boolean) =>
+    mockUseCalendarFeedStatus(enabled),
 }))
+vi.mock(
+  '@/features/collections/components/saved-shows-calendar/LazySavedShowsCalendarPanel',
+  () => ({
+    preloadSavedShowsCalendarPanel: () => {},
+    LazySavedShowsCalendarPanel: ({
+      open,
+      onOpenChange,
+    }: {
+      open: boolean
+      onOpenChange: (open: boolean) => void
+    }) =>
+      open ? (
+        <div role="dialog" aria-label="Saved shows calendar">
+          <button type="button" onClick={() => onOpenChange(false)}>
+            Close
+          </button>
+        </div>
+      ) : null,
+  })
+)
 
 vi.mock('@/features/charts/hooks', () => ({
   usePersonalChartsStats: () => ({
@@ -1274,7 +1300,7 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       ).toBeTruthy()
     })
 
-    it('orders the Shows tab as Upcoming, the calendar card, then Past', () => {
+    it('puts the calendar link in the Upcoming header after the view toggle, and no calendar card', () => {
       mockUseSavedShows.mockImplementation((timeFilter: 'upcoming' | 'past') =>
         savedShowsResult([
           makeSavedShow({
@@ -1288,61 +1314,61 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
 
       const { container } = renderWithProviders(<LibraryPage />)
 
-      const anchor = container.querySelector('#calendar-feed')
-      expect(anchor?.className).toContain('scroll-mt-24')
+      const link = screen.getByRole('button', { name: 'Add to calendar' })
+      const upcoming = screen
+        .getByRole('heading', { name: 'Upcoming' })
+        .closest('section') as HTMLElement
+      const past = screen
+        .getByRole('heading', { name: 'Past' })
+        .closest('section') as HTMLElement
+      expect(upcoming).toContainElement(link)
       expect(
-        within(anchor as HTMLElement).getByTestId('calendar-feed')
-      ).toBeVisible()
+        within(past).queryByRole('button', { name: /calendar/i })
+      ).toBeNull()
+      expect(
+        screen
+          .getByRole('radiogroup', { name: 'Library view' })
+          .compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+      expect(container.querySelector('#calendar-feed')).toBeNull()
 
-      const upcoming = screen.getByRole('heading', { name: 'Upcoming' })
-      const past = screen.getByRole('heading', { name: 'Past' })
+      // Opening it stays on the page.
+      fireEvent.click(link)
       expect(
-        upcoming.compareDocumentPosition(anchor as Node) &
-          Node.DOCUMENT_POSITION_FOLLOWING
-      ).toBeTruthy()
-      expect(
-        (anchor as Node).compareDocumentPosition(past) &
-          Node.DOCUMENT_POSITION_FOLLOWING
-      ).toBeTruthy()
+        screen.getByRole('dialog', { name: 'Saved shows calendar' })
+      ).toBeInTheDocument()
+      expect(mockReplace).not.toHaveBeenCalled()
     })
 
-    it('keeps the calendar anchor mounted but holds the card while saved shows load', () => {
+    it.each([
+      ['while saved shows load', savedShowsResult()],
+      [
+        'when a list fails',
+        { ...savedShowsResult(), isLoading: false, error: new Error('boom') },
+      ],
+    ])('shows no calendar link %s', (_when, result) => {
+      mockUseSavedShows.mockReturnValue(result)
+
+      renderWithProviders(<LibraryPage />)
+
+      expect(screen.queryByRole('button', { name: /calendar/i })).toBeNull()
+      expect(screen.queryByRole('heading', { name: 'Upcoming' })).toBeNull()
+    })
+
+    // The link mounts only once the lists settle; its status read starts with
+    // them, so the label is usually in by then.
+    it('starts the calendar status read while saved shows load', () => {
       mockUseSavedShows.mockReturnValue(savedShowsResult())
 
-      const { container } = renderWithProviders(<LibraryPage />)
+      renderWithProviders(<LibraryPage />)
 
-      expect(container.querySelector('#calendar-feed')).toBeVisible()
-      // Mounted, so its own read starts now, but hidden until the lists land.
-      expect(screen.getByTestId('calendar-feed')).not.toBeVisible()
-      expect(screen.queryByRole('heading', { name: 'Upcoming' })).toBeNull()
-      expect(screen.queryByRole('heading', { name: 'Past' })).toBeNull()
+      expect(screen.queryByRole('button', { name: /calendar/i })).toBeNull()
+      expect(mockUseCalendarFeedStatus).toHaveBeenCalledWith(true)
     })
 
-    it('shows the error, then the calendar card, and no buckets when a list fails', () => {
-      mockUseSavedShows.mockReturnValue({
-        ...savedShowsResult(),
-        isLoading: false,
-        error: new Error('boom'),
-      })
-
-      const { container } = renderWithProviders(<LibraryPage />)
-
-      const message = screen.getByText(
-        'Failed to load your shows. Please try again later.'
-      )
-      const anchor = container.querySelector('#calendar-feed') as Node
-      expect(within(anchor as HTMLElement).getByTestId('calendar-feed')).toBeVisible()
-      expect(
-        message.compareDocumentPosition(anchor) &
-          Node.DOCUMENT_POSITION_FOLLOWING
-      ).toBeTruthy()
-      expect(screen.queryByRole('heading', { name: 'Upcoming' })).toBeNull()
-      expect(screen.queryByRole('heading', { name: 'Past' })).toBeNull()
-    })
-
-    it('re-anchors a #calendar-feed arrival once the lists finish loading', () => {
-      const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
+    it('focuses the calendar link for a #calendar-feed arrival once the lists finish loading, and opens nothing', () => {
       window.history.replaceState(null, '', '/library#calendar-feed')
+      const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
       const loadedShows = [
         makeSavedShow({
           id: 1,
@@ -1357,27 +1383,31 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       )
 
       try {
-        const { container, rerender } = renderWithProviders(<LibraryPage />)
+        const { rerender } = renderWithProviders(<LibraryPage />)
+        // Nothing to scroll to while the lists load.
         expect(scrollIntoView).not.toHaveBeenCalled()
 
         loaded = true
         rerender(<LibraryPage />)
 
-        expect(scrollIntoView).toHaveBeenCalledTimes(1)
-        expect(scrollIntoView.mock.contexts[0]).toBe(
-          container.querySelector('#calendar-feed')
-        )
+        const link = screen.getByRole('button', { name: 'Add to calendar' })
+        expect(link).toHaveFocus()
+        expect(scrollIntoView.mock.contexts).toEqual([link])
+        expect(link).toHaveAttribute('aria-expanded', 'false')
+        expect(screen.queryByRole('dialog')).toBeNull()
+        expect(window.location.hash).toBe('')
 
-        rerender(<LibraryPage />)
-        expect(scrollIntoView).toHaveBeenCalledTimes(1)
+        // A click then opens it.
+        fireEvent.click(link)
+        expect(
+          screen.getByRole('dialog', { name: 'Saved shows calendar' })
+        ).toBeInTheDocument()
       } finally {
         window.history.replaceState(null, '', '/')
       }
     })
 
-    it('does not re-anchor a mount whose lists are already settled', () => {
-      const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
-      window.history.replaceState(null, '', '/library#calendar-feed')
+    it('leaves the panel closed when the URL does not target the calendar', () => {
       mockUseSavedShows.mockReturnValue(
         savedShowsResult([
           makeSavedShow({
@@ -1389,41 +1419,12 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
         ])
       )
 
-      try {
-        renderWithProviders(<LibraryPage />)
-        expect(scrollIntoView).not.toHaveBeenCalled()
-      } finally {
-        window.history.replaceState(null, '', '/')
-      }
-    })
-
-    it('does not re-anchor after the viewer scrolls during the load', () => {
-      const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
-      window.history.replaceState(null, '', '/library#calendar-feed')
-      let loaded = false
-      mockUseSavedShows.mockImplementation(() =>
-        savedShowsResult(loaded ? [] : undefined)
-      )
-
-      try {
-        const { rerender } = renderWithProviders(<LibraryPage />)
-        fireEvent.wheel(window)
-
-        loaded = true
-        rerender(<LibraryPage />)
-
-        expect(scrollIntoView).not.toHaveBeenCalled()
-      } finally {
-        window.history.replaceState(null, '', '/')
-      }
-    })
-
-    it('leaves the scroll alone when the URL does not target the calendar card', () => {
-      const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
-
       renderWithProviders(<LibraryPage />)
 
-      expect(scrollIntoView).not.toHaveBeenCalled()
+      expect(
+        screen.getByRole('button', { name: 'Add to calendar' })
+      ).toHaveAttribute('aria-expanded', 'false')
+      expect(screen.queryByRole('dialog')).toBeNull()
     })
 
     it('unsaves an upcoming row with its heart and leaves a past row as a record', () => {

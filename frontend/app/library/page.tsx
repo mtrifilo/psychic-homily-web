@@ -36,7 +36,9 @@ import {
   type HomeMetroState,
 } from '@/components/shared/followAlertChoices'
 import { useHomeMetroState } from '@/features/auth/hooks/useAlertPreferences'
-import { CalendarFeedSection } from '@/features/collections'
+import { useCalendarFeedStatus } from '@/features/auth/hooks/useCalendarFeed'
+// Concrete module path, not the collections barrel.
+import { SavedShowsCalendarLink } from '@/features/collections/components/saved-shows-calendar/SavedShowsCalendarLink'
 import {
   LibraryTasteSidebar,
   LibraryViewToggle,
@@ -121,7 +123,7 @@ function SavedShowsSection({
   isPast,
   view,
   onViewChange,
-  showViewToggle,
+  showHeaderControls,
   hasNextPage,
   isFetchingNextPage,
   onExpand,
@@ -135,7 +137,8 @@ function SavedShowsSection({
   isPast: boolean
   view: LibraryView
   onViewChange: (view: LibraryView) => void
-  showViewToggle: boolean
+  /** The view toggle and the calendar link, which govern the whole tab. */
+  showHeaderControls: boolean
   hasNextPage: boolean
   isFetchingNextPage: boolean
   onExpand: () => Promise<void>
@@ -170,12 +173,15 @@ function SavedShowsSection({
             </span>
           )}
         </p>
-        {showViewToggle && (
-          <LibraryViewToggle
-            view={view}
-            onViewChange={onViewChange}
-            className="ml-auto"
-          />
+        {showHeaderControls && (
+          <>
+            <LibraryViewToggle
+              view={view}
+              onViewChange={onViewChange}
+              className="ml-auto"
+            />
+            <SavedShowsCalendarLink placement="section-header" focusesFromHash />
+          </>
         )}
         {isPast && (
           <p className="w-full font-data text-xs text-muted-foreground md:hidden">
@@ -243,48 +249,6 @@ function SavedShowsSection({
   )
 }
 
-const REANCHOR_CANCEL_EVENTS = [
-  'wheel',
-  'touchmove',
-  'keydown',
-  'pointerdown',
-] as const
-
-// The Upcoming list renders above the calendar card, so a `#calendar-feed`
-// hash scroll that lands while the lists load ends short once they fill in.
-// Returns the anchor's ref and scrolls it into view once, when that initial
-// load settles. A mount whose lists are already settled (a Back navigation, a
-// cached revisit) never re-anchors, and neither does a load during which the
-// viewer scrolled, swiped, pressed a key or a pointer (a scrollbar drag).
-function useCalendarFeedReanchor(isInitialLoading: boolean) {
-  const anchorRef = useRef<HTMLDivElement | null>(null)
-  const isReanchorPendingRef = useRef(isInitialLoading)
-
-  useEffect(() => {
-    if (!isInitialLoading || !isReanchorPendingRef.current) return
-    const cancel = () => {
-      isReanchorPendingRef.current = false
-    }
-    for (const type of REANCHOR_CANCEL_EVENTS) {
-      window.addEventListener(type, cancel, { passive: true })
-    }
-    return () => {
-      for (const type of REANCHOR_CANCEL_EVENTS) {
-        window.removeEventListener(type, cancel)
-      }
-    }
-  }, [isInitialLoading])
-
-  useEffect(() => {
-    if (isInitialLoading || !isReanchorPendingRef.current) return
-    isReanchorPendingRef.current = false
-    if (window.location.hash !== '#calendar-feed') return
-    anchorRef.current?.scrollIntoView({ block: 'start' })
-  }, [isInitialLoading])
-
-  return anchorRef
-}
-
 function ShowsTab({ currentUserId }: { currentUserId?: string }) {
   const { view, setView } = useLibraryView()
   const upcoming = useInfiniteSavedShows(
@@ -297,6 +261,10 @@ function ShowsTab({ currentUserId }: { currentUserId?: string }) {
     currentUserId,
     currentUserId !== undefined
   )
+  // The header's calendar link reads this status, but mounts only once the
+  // lists settle; started here, alongside them, it is usually in by then, so
+  // the link rarely shows the no-calendar label before the real one.
+  useCalendarFeedStatus(currentUserId !== undefined)
   const unsaveShow = useUnsaveShow({
     syncMode: 'patch-infinite',
     userId: currentUserId,
@@ -317,7 +285,6 @@ function ShowsTab({ currentUserId }: { currentUserId?: string }) {
   const isUnsavePending =
     useIsMutating({ mutationKey: unsaveShowMutationKey }) > 0
   const hasShowBuckets = !isInitialLoading && !error && !isEmpty
-  const calendarFeedRef = useCalendarFeedReanchor(isInitialLoading)
   const isSavedShowActionPending =
     isUnsavePending || upcoming.isFetching || past.isFetching
 
@@ -340,7 +307,7 @@ function ShowsTab({ currentUserId }: { currentUserId?: string }) {
           isPast={false}
           view={view}
           onViewChange={setView}
-          showViewToggle
+          showHeaderControls
           hasNextPage={upcoming.hasNextPage}
           isFetchingNextPage={upcoming.isFetchingNextPage}
           onExpand={() => fetchAllPages(upcoming)}
@@ -372,23 +339,6 @@ function ShowsTab({ currentUserId }: { currentUserId?: string }) {
         />
       )}
 
-      {/* Anchor target: the signed-in home's "Subscribe to calendar →" links
-          here, and CalendarFeedSection returns a different root per state, so
-          the id lives on the wrapper rather than inside it. The wrapper is
-          visible in every load state so the hash always resolves. The card
-          mounts with the tab, so its own read starts at once, but stays hidden
-          until the initial load settles, so the list arriving above it cannot
-          push it out from under a tap. */}
-      <div
-        id="calendar-feed"
-        ref={calendarFeedRef}
-        className="scroll-mt-24"
-      >
-        <div hidden={isInitialLoading}>
-          <CalendarFeedSection variant="library" />
-        </div>
-      </div>
-
       {hasShowBuckets && (
         <SavedShowsSection
           title="Past"
@@ -397,7 +347,7 @@ function ShowsTab({ currentUserId }: { currentUserId?: string }) {
           isPast
           view={view}
           onViewChange={setView}
-          showViewToggle={false}
+          showHeaderControls={false}
           hasNextPage={past.hasNextPage}
           isFetchingNextPage={past.isFetchingNextPage}
           onExpand={() => fetchAllPages(past)}
