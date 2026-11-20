@@ -82,9 +82,6 @@ export function useCalendarStepsPage({
   const create = useCreateCalendarToken()
   const [keptResetReason, setKeptResetReason] =
     useState<CalendarLinkResetReason | null>(null)
-  // When this visit's Add to calendar last finished (a link made, or found
-  // made elsewhere); 0 until it has. Reads older than it are not trusted.
-  const [addedAt, setAddedAt] = useState(0)
   // Add to calendar reads the link fresh and makes one only if that read says
   // there is none: making a link replaces any the account holds, so a link
   // made elsewhere since the page last read (another device, another tab)
@@ -109,8 +106,10 @@ export function useCalendarStepsPage({
       }
       await create.mutateAsync()
     },
-    onSuccess: () => setAddedAt(Date.now()),
   })
+  // When this visit's Add to calendar was last clicked; 0 before. A status
+  // read from before it is not trusted to say anything about the link.
+  const addedAt = add.submittedAt
 
   const readSinceOpen = <T>(query: {
     data: T | undefined
@@ -121,10 +120,11 @@ export function useCalendarStepsPage({
       : undefined
 
   const currentToken = readSinceOpen(token)
-  // A link this visit created stands until a read finished after it says
-  // otherwise (a later turn-off or replacement elsewhere).
+  // A link this visit created stands until a link read finished after its
+  // create was sent says otherwise (a later turn-off or replacement
+  // elsewhere). The click's own fresh read lands before the create is sent.
   const created =
-    create.data && addedAt > token.dataUpdatedAt ? create.data : null
+    create.data && create.submittedAt > token.dataUpdatedAt ? create.data : null
   const heldUrl = created
     ? created.feed_url
     : currentToken?.has_token && currentToken.url_recoverable
