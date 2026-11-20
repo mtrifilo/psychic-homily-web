@@ -10,14 +10,36 @@ import (
 	"psychic-homily-backend/internal/services/catalog"
 )
 
-// The reviewed worklist is a CSV with a header row. Columns are found by name,
-// so a worklist can carry its evidence columns alongside the ones read here.
+// The reviewed worklist is a CSV with a header row. Columns are found by name.
 const (
 	colShowSlug  = "show_slug"
 	colRoomSlug  = "correct_room_slug"
 	colMergeInto = "merge_into_show_slug"
 	colNote      = "note"
 )
+
+// evidenceColumns are the columns a worklist may carry for its reviewer, which
+// this tool reads past. They are the evidence columns of the reviewed
+// worklist format. Every header must be one of these or one of the columns
+// above, so a misspelt merge column refuses the file instead of turning every
+// merge into a plain move.
+var evidenceColumns = []string{
+	"section", "current_room", "room_on_page", "page_read", "date_time_on_page",
+	"verdict", "copy_at_target", "not_confirmed",
+}
+
+func knownColumn(name string) bool {
+	switch name {
+	case colShowSlug, colRoomSlug, colMergeInto, colNote:
+		return true
+	}
+	for _, c := range evidenceColumns {
+		if name == c {
+			return true
+		}
+	}
+	return false
+}
 
 // worklistRow is one data row of the worklist. Line is the file line the row
 // starts on, so a reviewer can find it.
@@ -49,6 +71,10 @@ func parseWorklist(r io.Reader) ([]worklistRow, error) {
 		name = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(name, "\ufeff")))
 		if _, dup := index[name]; dup {
 			return nil, fmt.Errorf("header names column %q twice", name)
+		}
+		if !knownColumn(name) {
+			return nil, fmt.Errorf("header has an unknown column %q; the columns are %s, %s, %s, %s and the evidence columns %s",
+				name, colShowSlug, colRoomSlug, colMergeInto, colNote, strings.Join(evidenceColumns, ", "))
 		}
 		index[name] = i
 	}

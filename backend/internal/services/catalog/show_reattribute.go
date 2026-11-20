@@ -66,6 +66,7 @@ const (
 
 // ReattributionRoom is a room as the result reports it.
 type ReattributionRoom struct {
+	ID    uint
 	Slug  string
 	Name  string
 	City  string
@@ -525,5 +526,5 @@ func sameCity(a, b *catalogm.Venue) bool {
 }
 
 func reportRoom(v *catalogm.Venue) *ReattributionRoom {
-	return &ReattributionRoom{Slug: shared.DerefOrEmpty(v.Slug), Name: v.Name, City: v.City, State: v.State}
+	return &ReattributionRoom{ID: v.ID, Slug: shared.DerefOrEmpty(v.Slug), Name: v.Name, City: v.City, State: v.State}
 }

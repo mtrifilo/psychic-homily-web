@@ -3,12 +3,22 @@
 //
 // Usage:
 //
-//	go run ./cmd/reattribute-shows worklist.csv            # dry run (default)
-//	go run ./cmd/reattribute-shows --dry-run worklist.csv  # the same, said out loud
-//	go run ./cmd/reattribute-shows --confirm worklist.csv  # apply
+//	go run ./cmd/reattribute-shows --env FILE worklist.csv                          # dry run (default)
+//	go run ./cmd/reattribute-shows --env FILE --dry-run worklist.csv                # the same, said out loud
+//	go run ./cmd/reattribute-shows --env FILE --confirm --record FILE worklist.csv  # apply
 //
-// The worklist has a header row. Columns are found by name and any others are
-// ignored, so a worklist can carry its evidence:
+// --env is required on every run, dry run included: the file names the
+// database, overrides an exported DATABASE_URL, and is refused when it sets no
+// DATABASE_URL. Dry-run with the same --env you will confirm with. The target
+// (ENVIRONMENT and host/dbname, no credentials) is printed before any row runs.
+//
+// --confirm requires --record: a file opened for append (never truncated) that
+// gets one JSON line per applied row (when, the show, the room it left, the room
+// it moved to, and for a merge the show kept and the show deleted). A room
+// change writes no revision, so this file is the record of what the run did.
+// Each line is written and synced to disk before its row commits.
+//
+// The worklist has a header row, and every column must be one this tool knows:
 //
 //	show_slug             the show to move (required)
 //	correct_room_slug     the room it belongs in (required)
@@ -22,31 +32,39 @@
 //	                      show's bill states no roles).
 //	note                  optional, printed with the row
 //
+// plus the evidence columns listed in evidenceColumns, which are read past.
+//
 // A moved show keeps its slug, so its URL keeps answering and names the old
 // room. A merged show's URL stops answering; the show it was merged into keeps
 // its own.
 //
-// Rows run in file order, each in its own transaction under --confirm. The dry
-// run holds the whole file in one transaction, runs every row in a savepoint
-// exactly as --confirm would, and rolls the lot back at the end, so a row that
-// depends on an earlier one (a merge into a show an earlier row moved) is
-// previewed against the state the earlier row leaves, and a row the database
-// would reject is reported as failed. Until it rolls back, the dry run holds a
-// lock on every row it wrote, and site writes to those rows wait; keep a
-// worklist to a few dozen rows. Its output is printed after the rollback, and
-// it gives up on a lock it would wait on for more than 5 seconds, on a
-// statement running past 60 seconds, and when left idle for 60 seconds.
+// Rows run in file order. Under --confirm each row is its own transaction, with
+// a 5 second lock timeout, a 60 second statement timeout and a 60 second idle
+// timeout, so a dropped connection cannot leave show rows locked. A row that
+// fails is rolled back and the run stops there; so does a row whose record line
+// or report output cannot be written. A refused row writes nothing and the run
+// goes on.
+//
+// The dry run holds the whole file in one transaction with the same timeouts,
+// runs every row in a savepoint exactly as --confirm would, and rolls the lot
+// back at the end, so a row that depends on an earlier one (a merge into a show
+// an earlier row moved) is previewed against the state the earlier row leaves,
+// and a row the database would reject is reported as failed. Until it rolls
+// back, the dry run holds a lock on every row it wrote, and site writes to
+// those rows wait; keep a worklist to a few dozen rows. Its output is printed
+// after the rollback.
 //
 // A row is refused, before anything is written, when another show at the
 // target room bills one of its acts at the same time: the database admits one
 // of the two. A merged row run a second time finds no show and is refused, so
-// re-running an applied worklist that holds merges exits 1; its reason names
-// the merge target that still exists.
+// re-running an applied worklist that holds merges exits 1 by design; its
+// reason names the merge target that still exists.
 //
 // Exit status: 0 when every row applied or was already in place, 1 when any row
-// was refused or failed, 2 when the command line or the worklist cannot be
-// used, 3 when the configuration cannot be loaded, the database cannot be
-// reached, or the dry run's transaction cannot be set up.
+// was refused or failed or the run stopped, 2 when the command line, the env
+// file, the record file or the worklist cannot be used, 3 when the
+// configuration cannot be loaded, the database cannot be reached, or the dry
+// run's transaction cannot be set up.
 package main
 
 import (
@@ -61,6 +79,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/joho/godotenv"
@@ -79,11 +98,13 @@ const (
 )
 
 func main() {
-	confirm := flag.Bool("confirm", false, "Apply the worklist, each row in its own transaction")
+	confirm := flag.Bool("confirm", false, "Apply the worklist, each row in its own transaction (requires --record)")
 	dryRun := flag.Bool("dry-run", false, "Preview the worklist and roll it back (the default without --confirm)")
-	envFile := flag.String("env", "", "Path to .env file (defaults to .env.development / .env)")
+	envFile := flag.String("env", "", "Path to the .env file that names the database (required, on dry runs too)")
+	recordPath := flag.String("record", "", "With --confirm: file the applied rows are appended to (required)")
 	flag.Usage = func() {
-		_, _ = fmt.Fprintln(flag.CommandLine.Output(), "usage: reattribute-shows [--dry-run | --confirm] [--env FILE] WORKLIST.csv")
+		_, _ = fmt.Fprintln(flag.CommandLine.Output(),
+			"usage: reattribute-shows --env FILE [--dry-run | --confirm --record FILE] WORKLIST.csv")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -91,24 +112,32 @@ func main() {
 		flag.Usage()
 		os.Exit(exitUsage)
 	}
-	if *confirm && *dryRun {
-		_, _ = fmt.Fprintln(os.Stderr, "--dry-run and --confirm cannot be combined")
-		os.Exit(exitUsage)
+	if err := validateFlags(*confirm, *dryRun, *envFile, *recordPath); err != nil {
+		usageFail("%v", err)
 	}
 
 	f, err := os.Open(flag.Arg(0))
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "open worklist: %v\n", err)
-		os.Exit(exitUsage)
+		usageFail("open worklist: %v", err)
 	}
 	rows, err := parseWorklist(f)
 	_ = f.Close()
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "worklist %s: %v\n", flag.Arg(0), err)
-		os.Exit(exitUsage)
+		usageFail("worklist %s: %v", flag.Arg(0), err)
 	}
 
-	loadEnv(*envFile)
+	var record *os.File
+	if *confirm {
+		if record, err = openRecord(*recordPath); err != nil {
+			usageFail("%v", err)
+		}
+		defer func() { _ = record.Close() }()
+	}
+
+	if err := loadNamedEnv(*envFile); err != nil {
+		usageFail("%v", err)
+	}
+	log.Printf("loaded env from %s (authoritative)", *envFile)
 	cfg, err := config.Load()
 	if err != nil {
 		fatal("load config: %v", err)
@@ -117,9 +146,9 @@ func main() {
 		fatal("connect db: %v", err)
 	}
 
-	// Named before any row runs, in both modes: an exported DATABASE_URL wins
-	// over the --env file, so the file loaded is not proof of the target.
-	target := fmt.Sprintf("Target: ENVIRONMENT=%q  db=%s\n\n",
+	// The resolved target is printed before anything runs, so a run aimed at
+	// the wrong database is visible. Credentials are not printed.
+	target := fmt.Sprintf("Target: ENVIRONMENT=%q db=%s\n\n",
 		os.Getenv(config.EnvEnvironment), redactDBHost(cfg.Database.URL))
 	if _, err := os.Stdout.WriteString(target); err != nil {
 		fatal("write the report: %v", err)
@@ -133,23 +162,23 @@ func main() {
 	var tally runTally
 	if *confirm {
 		live := &report{w: os.Stdout}
-		tally = run(live, rows, true, func(r catalog.ShowReattribution) catalog.ShowReattributionResult {
-			return catalog.ReattributeShow(database, r)
+		rec := &recorder{w: record, sync: record.Sync, now: time.Now}
+		tally = run(live, rows, true, func(row worklistRow) (catalog.ShowReattributionResult, error) {
+			return applyConfirmedRow(database, rec, row, transactionTimeouts)
 		})
 		if live.err != nil {
-			fatal("write the report (every row processed before the failure is applied): %v", live.err)
+			_, _ = fmt.Fprintf(os.Stderr, "the report could not be written (%v); the run stopped there. %s\n",
+				live.err, tally.appliedSentence())
 		}
 	} else {
 		var buf bytes.Buffer
 		out := &report{w: &buf}
 		err := database.Transaction(func(tx *gorm.DB) error {
-			for _, stmt := range dryRunTimeouts {
-				if err := tx.Exec(stmt).Error; err != nil {
-					return err
-				}
+			if err := setTimeouts(tx, transactionTimeouts); err != nil {
+				return err
 			}
-			tally = run(out, rows, false, func(r catalog.ShowReattribution) catalog.ShowReattributionResult {
-				return catalog.ReattributeShow(tx, r)
+			tally = run(out, rows, false, func(row worklistRow) (catalog.ShowReattributionResult, error) {
+				return catalog.ReattributeShow(tx, row.Row), nil
 			})
 			return errDryRun
 		})
@@ -160,24 +189,82 @@ func main() {
 			fatal("write the dry-run report: %v", err)
 		}
 	}
-	if tally.refused+tally.failed > 0 {
+	if tally.refused+tally.failed > 0 || tally.stopped != nil {
 		os.Exit(exitRowsRefused)
 	}
 }
 
-// dryRunTimeouts bound the dry run's one transaction. The lock timeout stops it
-// waiting on a site write; the other two stop it holding its own locks when a
-// statement runs away or the process stops reading. None of them shortens how
-// long a site write waits on a lock the dry run already holds.
-var dryRunTimeouts = []string{
+// validateFlags checks the command line before anything is opened or
+// connected.
+func validateFlags(confirm, dryRun bool, envFile, recordPath string) error {
+	if confirm && dryRun {
+		return errors.New("--dry-run and --confirm cannot be combined")
+	}
+	if err := requireEnvFlag(envFile); err != nil {
+		return err
+	}
+	if confirm && strings.TrimSpace(recordPath) == "" {
+		return errors.New("--confirm requires --record: the file the applied rows are appended to")
+	}
+	if !confirm && recordPath != "" {
+		return errors.New("--record is written only by --confirm; a dry run applies nothing")
+	}
+	return nil
+}
+
+// requireEnvFlag refuses a run with no --env. A dry run and a confirmed run both
+// name their database, so a dry run cannot preview one database (whichever env
+// file sits in the working directory, or the shell's) while the confirmed run
+// writes to another.
+func requireEnvFlag(envFile string) error {
+	if strings.TrimSpace(envFile) == "" {
+		return fmt.Errorf("--env is required on every run, dry run included: the file that names the database; " +
+			"dry-run with the same --env you will confirm with")
+	}
+	return nil
+}
+
+// loadNamedEnv makes the file named by --env decide the database. It uses
+// Overload, not Load, because Load skips keys already set in the process, so an
+// exported DATABASE_URL would win over the file. Overload sets only the keys
+// the file defines, so a file without DATABASE_URL is refused rather than
+// leaving the shell's or the default database in charge.
+func loadNamedEnv(envFile string) error {
+	values, err := godotenv.Read(envFile)
+	if err != nil {
+		return fmt.Errorf("read env file %s: %w", envFile, err)
+	}
+	if strings.TrimSpace(values["DATABASE_URL"]) == "" {
+		return fmt.Errorf("env file %s sets no DATABASE_URL; it must name the database", envFile)
+	}
+	if err := godotenv.Overload(envFile); err != nil {
+		return fmt.Errorf("load env file %s: %w", envFile, err)
+	}
+	return nil
+}
+
+// transactionTimeouts bound every transaction this tool opens: the dry run's
+// one, and each confirmed row's. The lock timeout stops it waiting on a site
+// write; the other two stop it holding its own locks when a statement runs away
+// or the connection stops talking. None of them shortens how long a site write
+// waits on a lock already held.
+var transactionTimeouts = []string{
 	"SET LOCAL lock_timeout = '5s'",
 	"SET LOCAL statement_timeout = '60s'",
 	"SET LOCAL idle_in_transaction_session_timeout = '60s'",
 }
 
-// report writes the run's report and keeps the first write error, so a report
-// that could not be written is noticed once, at the end, rather than at every
-// line.
+func setTimeouts(tx *gorm.DB, timeouts []string) error {
+	for _, stmt := range timeouts {
+		if err := tx.Exec(stmt).Error; err != nil {
+			return fmt.Errorf("set transaction timeouts: %w", err)
+		}
+	}
+	return nil
+}
+
+// report writes the run's report and keeps the first write error; run stops at
+// the next row once one is kept.
 type report struct {
 	w   io.Writer
 	err error
@@ -193,19 +280,33 @@ func (r *report) f(format string, args ...interface{}) {
 // errDryRun rolls back the dry run's outer transaction.
 var errDryRun = errors.New("dry run: roll back")
 
-// reattributeFunc applies one row. Under the dry run it runs inside the run's
-// outer transaction, as a savepoint.
-type reattributeFunc func(catalog.ShowReattribution) catalog.ShowReattributionResult
+// reattributeFunc applies one row. A non-nil error stops the run after that
+// row is reported; the row's own result says whether it was applied.
+type reattributeFunc func(worklistRow) (catalog.ShowReattributionResult, error)
 
 type runTally struct {
 	moved, merged, unchanged, refused, failed int
 	roomRowsCleared                           int64
 	mergeSummary                              catalog.ShowDedupSummary
+	// applied names every row that moved or merged, in file order.
+	applied []string
+	// stopped is why the run ended before the last row, or nil.
+	stopped error
+}
+
+// appliedSentence says exactly which rows were applied, for a run that
+// stopped or whose report could not be written.
+func (t *runTally) appliedSentence() string {
+	if len(t.applied) == 0 {
+		return "No row was applied."
+	}
+	return fmt.Sprintf("Applied, and only these: %s.", strings.Join(t.applied, "; "))
 }
 
 // run applies, or previews, every row in file order and prints one block per
-// row followed by the totals. confirm only chooses the wording; what is written
-// is decided by reattribute.
+// row followed by the totals. It stops before the next row when reattribute
+// returns an error or the report cannot be written. confirm only chooses the
+// wording; what is written is decided by reattribute.
 func run(w *report, rows []worklistRow, confirm bool, reattribute reattributeFunc) runTally {
 	mode := "DRY RUN: the whole file runs and is rolled back"
 	if confirm {
@@ -214,29 +315,46 @@ func run(w *report, rows []worklistRow, confirm bool, reattribute reattributeFun
 	w.f("=== Re-attribute shows (%s) ===\n\n", mode)
 
 	var tally runTally
-	for _, row := range rows {
+	for i, row := range rows {
+		if w.err != nil {
+			tally.stopped = fmt.Errorf("the report could not be written: %w", w.err)
+			break
+		}
 		var res catalog.ShowReattributionResult
+		var stop error
 		if row.Refusal != "" {
 			res = catalog.ShowReattributionResult{
 				ShowSlug: row.Row.ShowSlug, Outcome: catalog.ReattributionRefused, Reason: row.Refusal}
 		} else {
-			res = reattribute(row.Row)
+			res, stop = reattribute(row)
 		}
 		printResult(w, row, res, confirm)
-		tally.count(res)
+		tally.count(row, res)
+		if stop != nil {
+			tally.stopped = stop
+			w.f("STOPPED at line %d: %s\n", row.Line, clean(stop.Error()))
+			if left := len(rows) - i - 1; left > 0 {
+				w.f("%d row(s) after it were not run.\n", left)
+			}
+			w.f("\n")
+			break
+		}
 	}
 	printTotals(w, &tally, confirm)
 	return tally
 }
 
-func (t *runTally) count(res catalog.ShowReattributionResult) {
+func (t *runTally) count(row worklistRow, res catalog.ShowReattributionResult) {
 	switch res.Outcome {
 	case catalog.ReattributionMoved:
 		t.moved++
+		t.applied = append(t.applied, fmt.Sprintf("line %d %s (moved)", row.Line, clean(res.ShowSlug)))
 	case catalog.ReattributionMerged:
 		t.merged++
 		t.roomRowsCleared += res.RoomRowsCleared
 		t.mergeSummary.Add(res.MergeSummary)
+		t.applied = append(t.applied, fmt.Sprintf("line %d %s (merged into %s)",
+			row.Line, clean(res.ShowSlug), clean(res.MergeIntoSlug)))
 	case catalog.ReattributionUnchanged:
 		t.unchanged++
 	case catalog.ReattributionRefused:
@@ -348,10 +466,17 @@ func printTotals(w *report, t *runTally, confirm bool) {
 		w.f("  %-22s %d\n", "RoomRowsCleared:", t.roomRowsCleared)
 		printMergeSummary(w, &t.mergeSummary)
 	}
-	if !confirm {
-		w.f("\nDRY RUN: nothing was written. Log lines printed above this report describe the rolled-back preview.\n")
-		w.f("Re-run with --confirm to apply.\n")
+	if confirm {
+		if t.stopped != nil {
+			w.f("\nThe run stopped early (%s). %s\n", clean(t.stopped.Error()), t.appliedSentence())
+		}
+		return
 	}
+	w.f("\nDRY RUN: nothing was written. Log lines printed above this report describe the rolled-back preview.\n")
+	if t.stopped != nil {
+		w.f("The preview stopped early: %s\n", clean(t.stopped.Error()))
+	}
+	w.f("Re-run with --confirm to apply.\n")
 }
 
 // mergeSummaryFieldsNotSet are ShowDedupSummary counters a reattribution merge
@@ -392,35 +517,25 @@ func printMergeSummary(w *report, s *catalog.ShowDedupSummary) {
 	}
 }
 
-// redactDBHost reduces a database URL to host[:port]/dbname, dropping any
-// credentials, so the target can be printed.
+// redactDBHost returns "host[/dbname]" from a database URL, dropping the
+// credentials, so the target can be printed for confirmation.
 func redactDBHost(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" {
-		return "<unparseable>"
+		return "(unparseable)"
 	}
-	return u.Host + u.Path
+	if name := strings.TrimPrefix(u.Path, "/"); name != "" {
+		return u.Host + "/" + name
+	}
+	return u.Host
+}
+
+func usageFail(format string, args ...interface{}) {
+	_, _ = fmt.Fprintf(os.Stderr, format+"\n", args...)
+	os.Exit(exitUsage)
 }
 
 func fatal(format string, args ...interface{}) {
 	log.Printf(format, args...)
 	os.Exit(exitDatabase)
-}
-
-func loadEnv(envFile string) {
-	if envFile != "" {
-		if err := godotenv.Load(envFile); err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "load env file %s: %v\n", envFile, err)
-			os.Exit(exitUsage)
-		}
-		log.Printf("loaded env from %s", envFile)
-		return
-	}
-	for _, ef := range []string{".env.development", ".env"} {
-		if err := godotenv.Load(ef); err == nil {
-			log.Printf("loaded env from %s", ef)
-			return
-		}
-	}
-	log.Println("no .env loaded; using process environment")
 }

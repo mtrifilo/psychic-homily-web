@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -65,6 +68,7 @@ func TestParseWorklist_RejectsAnUnusableFile(t *testing.T) {
 		"no room column":   "show_slug,room\nx,y\n",
 		"no show column":   "slug,correct_room_slug\nx,y\n",
 		"duplicate header": "show_slug,correct_room_slug,show_slug\nx,y,z\n",
+		"unknown column":   "show_slug,correct_room_slug,merge_into\nx,y,z\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := parseWorklist(strings.NewReader(in))
@@ -85,12 +89,13 @@ func TestRun_ReportsRefusedRowsAndSendsTheRestInOrder(t *testing.T) {
 	var out bytes.Buffer
 	var sent []string
 
-	tally := run(&report{w: &out}, rows, false, func(r catalog.ShowReattribution) catalog.ShowReattributionResult {
+	tally := run(&report{w: &out}, rows, false, func(row worklistRow) (catalog.ShowReattributionResult, error) {
+		r := row.Row
 		sent = append(sent, r.ShowSlug)
 		if r.MergeIntoSlug != "" {
-			return catalog.ShowReattributionResult{ShowSlug: r.ShowSlug, Outcome: catalog.ReattributionFailed, Reason: "boom"}
+			return catalog.ShowReattributionResult{ShowSlug: r.ShowSlug, Outcome: catalog.ReattributionFailed, Reason: "boom"}, nil
 		}
-		return catalog.ShowReattributionResult{ShowSlug: r.ShowSlug, Outcome: catalog.ReattributionMoved}
+		return catalog.ShowReattributionResult{ShowSlug: r.ShowSlug, Outcome: catalog.ReattributionMoved}, nil
 	})
 
 	assert.Equal(t, []string{"cenit", "cenit-mezz"}, sent)
@@ -240,5 +245,155 @@ func TestPrintResult_ARefusedMergeRowStillNamesItsTarget(t *testing.T) {
 
 func TestRedactDBHost_DropsCredentials(t *testing.T) {
 	assert.Equal(t, "db.example:5432/app", redactDBHost("postgres://user:secret@db.example:5432/app?sslmode=require"))
-	assert.Equal(t, "<unparseable>", redactDBHost("not a url"))
+	assert.Equal(t, "(unparseable)", redactDBHost("not a url"))
+}
+
+// A misspelt column refuses the whole file and is named, so a merge column typed
+// wrong cannot turn every merge into a plain move.
+func TestParseWorklist_RefusesAnUnknownColumnByName(t *testing.T) {
+	_, err := parseWorklist(strings.NewReader("show_slug,correct_room_slug,merge_into\nx,y,z\n"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `unknown column "merge_into"`)
+}
+
+// The evidence columns of the reviewed worklist format are read past.
+func TestParseWorklist_AcceptsTheEvidenceColumns(t *testing.T) {
+	header := "section,show_slug,correct_room_slug,merge_into_show_slug,note," + strings.Join(evidenceColumns[1:], ",")
+	rows, err := parseWorklist(strings.NewReader(header + "\nA,x,y,,n,a,b,c,d,e,f,g\n"))
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "x", rows[0].Row.ShowSlug)
+}
+
+// A row's stop error ends the run after that row is reported; the rows after it
+// are not run, and the report says exactly which rows were applied.
+func TestRun_StopsAtTheFirstRowThatStopsTheRun(t *testing.T) {
+	rows := []worklistRow{
+		{Line: 2, Row: catalog.ShowReattribution{ShowSlug: "a", RoomSlug: "r"}},
+		{Line: 3, Row: catalog.ShowReattribution{ShowSlug: "b", RoomSlug: "r"}},
+		{Line: 4, Row: catalog.ShowReattribution{ShowSlug: "c", RoomSlug: "r"}},
+	}
+	var out bytes.Buffer
+	var sent []string
+
+	tally := run(&report{w: &out}, rows, true, func(row worklistRow) (catalog.ShowReattributionResult, error) {
+		sent = append(sent, row.Row.ShowSlug)
+		if row.Row.ShowSlug == "b" {
+			return catalog.ShowReattributionResult{ShowSlug: "b", Outcome: catalog.ReattributionFailed, Reason: "lock timeout"},
+				errors.New("the row failed and was rolled back: lock timeout")
+		}
+		return catalog.ShowReattributionResult{ShowSlug: row.Row.ShowSlug, Outcome: catalog.ReattributionMoved}, nil
+	})
+
+	assert.Equal(t, []string{"a", "b"}, sent, "the row after the stop is not run")
+	require.Error(t, tally.stopped)
+	text := out.String()
+	assert.Contains(t, text, "STOPPED at line 3: the row failed and was rolled back: lock timeout")
+	assert.Contains(t, text, "1 row(s) after it were not run.")
+	assert.Contains(t, text, "Applied, and only these: line 2 a (moved).")
+}
+
+// failingWriter accepts n writes and fails every one after.
+type failingWriter struct {
+	out  bytes.Buffer
+	left int
+}
+
+func (w *failingWriter) Write(p []byte) (int, error) {
+	if w.left <= 0 {
+		return 0, errors.New("broken pipe")
+	}
+	w.left--
+	return w.out.Write(p)
+}
+
+// When the report cannot be written, no further row is applied, and the
+// applied rows are known exactly.
+func TestRun_StopsBeforeTheNextRowWhenTheReportCannotBeWritten(t *testing.T) {
+	rows := []worklistRow{
+		{Line: 2, Row: catalog.ShowReattribution{ShowSlug: "a", RoomSlug: "r"}},
+		{Line: 3, Row: catalog.ShowReattribution{ShowSlug: "b", RoomSlug: "r"}},
+	}
+	w := &failingWriter{left: 3} // the header and part of row a's block
+	var sent []string
+
+	tally := run(&report{w: w}, rows, true, func(row worklistRow) (catalog.ShowReattributionResult, error) {
+		sent = append(sent, row.Row.ShowSlug)
+		return catalog.ShowReattributionResult{ShowSlug: row.Row.ShowSlug, Outcome: catalog.ReattributionMoved}, nil
+	})
+
+	assert.Equal(t, []string{"a"}, sent, "row b is not applied once the report fails")
+	require.Error(t, tally.stopped)
+	assert.Contains(t, tally.stopped.Error(), "the report could not be written")
+	assert.Equal(t, "Applied, and only these: line 2 a (moved).", tally.appliedSentence())
+}
+
+// --env is required on every run, dry run and confirmed run alike, and
+// --record goes with --confirm only.
+func TestValidateFlags(t *testing.T) {
+	for _, confirm := range []bool{false, true} {
+		err := validateFlags(confirm, false, "", "run.jsonl")
+		require.ErrorContains(t, err, "--env is required on every run, dry run included", "confirm=%v", confirm)
+	}
+	require.ErrorContains(t, validateFlags(true, false, "prod.env", ""), "--confirm requires --record")
+	require.ErrorContains(t, validateFlags(false, false, "prod.env", "run.jsonl"), "--record is written only by --confirm")
+	require.ErrorContains(t, validateFlags(true, true, "prod.env", "run.jsonl"), "cannot be combined")
+	require.NoError(t, validateFlags(false, true, "prod.env", ""))
+	require.NoError(t, validateFlags(true, false, "prod.env", "run.jsonl"))
+}
+
+func TestEnvIsRequiredOnEveryRun(t *testing.T) {
+	for _, envFile := range []string{"", "   "} {
+		require.ErrorContains(t, requireEnvFlag(envFile), "--env is required on every run, dry run included")
+	}
+	require.NoError(t, requireEnvFlag("prod.env"))
+}
+
+func TestLoadNamedEnvOverridesAnExportedDatabaseURL(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://exported.example/prod")
+	file := filepath.Join(t.TempDir(), "stage.env")
+	require.NoError(t, os.WriteFile(file, []byte("DATABASE_URL=postgres://named.example/stage\n"), 0o600))
+
+	require.NoError(t, loadNamedEnv(file))
+
+	assert.Equal(t, "postgres://named.example/stage", os.Getenv("DATABASE_URL"))
+}
+
+// A named env file that does not set DATABASE_URL is refused, and the process
+// environment is left as it was.
+func TestLoadNamedEnvRefusesAFileWithoutADatabaseURL(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://exported.example/prod")
+	t.Setenv("ENVIRONMENT", "development")
+	file := filepath.Join(t.TempDir(), "partial.env")
+	require.NoError(t, os.WriteFile(file, []byte("ENVIRONMENT=stage\n"), 0o600))
+
+	err := loadNamedEnv(file)
+
+	require.ErrorContains(t, err, "sets no DATABASE_URL")
+	assert.Equal(t, "postgres://exported.example/prod", os.Getenv("DATABASE_URL"))
+	assert.Equal(t, "development", os.Getenv("ENVIRONMENT"), "nothing from the refused file is loaded")
+}
+
+func TestLoadNamedEnvRefusesAMissingFile(t *testing.T) {
+	require.ErrorContains(t, loadNamedEnv(filepath.Join(t.TempDir(), "absent.env")), "read env file")
+}
+
+// The record file is opened for append: an existing file keeps its lines, and
+// a path that cannot be opened is refused.
+func TestOpenRecord_AppendsAndNeverTruncates(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "run.jsonl")
+	require.NoError(t, os.WriteFile(path, []byte("earlier line\n"), 0o600))
+
+	f, err := openRecord(path)
+	require.NoError(t, err)
+	_, err = f.WriteString("new line\n")
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "earlier line\nnew line\n", string(got))
+
+	_, err = openRecord(filepath.Join(t.TempDir(), "missing-dir", "run.jsonl"))
+	require.ErrorContains(t, err, "cannot be opened for append")
 }
