@@ -287,6 +287,7 @@ func TestPasswordResetRoutesThroughRouter(t *testing.T) {
 
 	// A second reset finds the first's link-reset marker still on the account
 	// and no link to delete, so it reports no reset of its own.
+	requireLinkResetMarker(t, f.sc, owner.ID)
 	again := f.post(t, "/auth/password-reset/complete", fmt.Sprintf(`{"token":%q,"new_password":"owners-newer-password-1!"}`, ownLink), "")
 	if reply := decodeResetReply(t, again); !reply.Success {
 		t.Fatalf("second complete = %+v, want success", reply)

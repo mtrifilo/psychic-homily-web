@@ -33,7 +33,9 @@ const feedReadRecordInterval = 10 * time.Minute
 // same observable effect. The API docs state the period in words (the reads and link_reset_at
 // doc tags on contracts.CalendarTokenStatusResponse and
 // contracts.CalendarFeedStatusResponse, CalendarServiceInterface.GetTokenStatus,
-// and the hand-written CalendarTokenStatusResponse in
+// the calendar_link_reset doc tags on the auth handlers'
+// SignOutEverywhereElseResponse and CompletePasswordResetResponse, and the
+// hand-written CalendarTokenStatusResponse in
 // frontend/features/shows/types.ts), so a change here must be copied to them.
 const feedReadForgetAfter = 30 * 24 * time.Hour
 

@@ -9487,7 +9487,7 @@ export interface components {
         };
         CompletePasswordResetResponseBody: {
             /**
-             * @description This reset deleted a calendar feed link that a calendar app had been reading, so that calendar stops updating until the link is added again. False on a refusal, and when there was no link, nothing had read it, or an earlier action reset it
+             * @description This reset deleted a calendar feed link that a calendar app had read in the 30 days before, so that calendar stops updating until the link is added again. False otherwise, including on a refusal and when there was no link to delete
              * @example false
              */
             calendar_link_reset: boolean;
@@ -15671,7 +15671,7 @@ export interface components {
         };
         SignOutEverywhereElseResponseBody: {
             /**
-             * @description This call deleted a calendar feed link that a calendar app had been reading, so that calendar stops updating until the link is added again. False when there was no link, nothing had read it, or an earlier action reset it
+             * @description This call deleted a calendar feed link that a calendar app had read in the 30 days before, so that calendar stops updating until the link is added again. False otherwise, including when there was no link to delete
              * @example false
              */
             calendar_link_reset: boolean;

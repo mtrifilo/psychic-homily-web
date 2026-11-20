@@ -119,6 +119,19 @@ func recordCalendarAppRead(t *testing.T, sc *services.ServiceContainer, token st
 	}
 }
 
+// requireLinkResetMarker fails unless userID's account holds a calendar
+// link-reset marker, so a call after it is judged with a stale marker present.
+func requireLinkResetMarker(t *testing.T, sc *services.ServiceContainer, userID uint) {
+	t.Helper()
+	status, err := sc.Calendar.GetTokenStatus(userID, "http://localhost:8080")
+	if err != nil {
+		t.Fatalf("read calendar token status: %v", err)
+	}
+	if status.LinkResetAt == nil {
+		t.Fatal("the account holds no link-reset marker; the earlier call should have left one")
+	}
+}
+
 // calendarLinkResetIn decodes a success body's calendar_link_reset, failing
 // when the body does not carry it.
 func calendarLinkResetIn(t *testing.T, w *httptest.ResponseRecorder) bool {
@@ -236,6 +249,7 @@ func TestSignOutEverywhereElseRouteThroughRouter(t *testing.T) {
 	})
 
 	t.Run("the renewed session can sign out the rest again", func(t *testing.T) {
+		requireLinkResetMarker(t, f.sc, f.user.ID)
 		w := signOutEverywhereElse(t, f.router, "203.0.113.193:1234", renewed)
 		if w.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())

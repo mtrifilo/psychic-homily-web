@@ -33,7 +33,7 @@ type SignOutEverywhereElseResponse struct {
 	SetCookie http.Cookie `header:"Set-Cookie" doc:"Authentication cookie carrying the caller's renewed session"`
 	Body      struct {
 		Success           bool   `json:"success" example:"true" doc:"Every other session is signed out and this one is renewed"`
-		CalendarLinkReset bool   `json:"calendar_link_reset" example:"false" doc:"This call deleted a calendar feed link that a calendar app had been reading, so that calendar stops updating until the link is added again. False when there was no link, nothing had read it, or an earlier action reset it"`
+		CalendarLinkReset bool   `json:"calendar_link_reset" example:"false" doc:"This call deleted a calendar feed link that a calendar app had read in the 30 days before, so that calendar stops updating until the link is added again. False otherwise, including when there was no link to delete"`
 		RequestID         string `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
 	}
 }
