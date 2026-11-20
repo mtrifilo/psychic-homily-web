@@ -725,8 +725,8 @@ func (o *AuthEmailOutbox) deliver(ctx context.Context, item authm.AuthEmailOutbo
 		if !user.EmailVerified {
 			return authEmailSkipIneligible, nil
 		}
-		// A row without a destination mints the token it always did, with
-		// no ref, so its verify reads nothing back.
+		// A row with no destination mints a token with no ref, so its
+		// verify reads nothing.
 		var destinationRef uint
 		if item.ReturnTo != nil {
 			destinationRef = item.ID

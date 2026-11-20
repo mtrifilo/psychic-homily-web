@@ -129,7 +129,7 @@ func (s *AuthHandlerIntegrationSuite) TestMagicLinkReturnTo_TheRequestsDestinati
 	s.Equal(float64(user.ID), body["user"].(map[string]any)["id"])
 }
 
-func (s *AuthHandlerIntegrationSuite) TestMagicLinkReturnTo_NoDestinationBehavesAsBefore() {
+func (s *AuthHandlerIntegrationSuite) TestMagicLinkReturnTo_NoDestinationCarriesNoRef() {
 	user := s.verifiedMagicLinkUser("ml-none@test.com")
 	env := s.newMagicLinkEnv()
 
@@ -153,13 +153,14 @@ func (s *AuthHandlerIntegrationSuite) TestMagicLinkReturnTo_TheLinkIsTheSameLeng
 	env := s.newMagicLinkEnv()
 
 	lengths := map[string]int{}
-	for email, destination := range map[string]string{"ml-short@test.com": "/library", "ml-long@test.com": long} {
+	// The two addresses are the same length, so the tokens differ only by the
+	// digits of their user and row ids: at most a few base64 characters, where
+	// a destination carried in the token would add thousands.
+	for email, destination := range map[string]string{"ml-shrt@test.com": "/library", "ml-long@test.com": long} {
 		user := s.verifiedMagicLinkUser(email)
 		s.askForMagicLink(env, map[string]any{"email": email, "return_to": destination})
 		s.Require().NotNil(s.latestOutboxRow(user.ID).ReturnTo)
 		token := s.deliverMagicLink(env)
-		// The two accounts' emails are the same length, so the tokens differ
-		// only in the row ids they name.
 		lengths[destination] = len(token)
 		s.Equal(destination, s.openMagicLink(env, token)["return_to"])
 	}
