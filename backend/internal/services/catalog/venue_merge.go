@@ -72,14 +72,24 @@ var venueFKTables = []string{
 // PreviewMergeVenues reports what MergeVenues(canonicalID, mergeFromID) would
 // change, without committing any of it.
 func (s *VenueService) PreviewMergeVenues(canonicalID, mergeFromID uint) (*contracts.MergeVenueResult, error) {
-	result, _, err := s.mergeVenues(canonicalID, mergeFromID, true, false)
+	result, _, err := s.mergeVenues(canonicalID, mergeFromID, mergeOptions{preview: true})
 	return result, err
 }
 
-// VenuePlaceKey is a venue's city and state as the merge and rename checks
-// compare them: trimmed and case-insensitive, because that is how the rows are
-// written by hand and by ingest alike. Two venues are in the same place when
-// their keys are equal.
+// mergeOptions selects how mergeVenues runs.
+type mergeOptions struct {
+	// preview rolls the transaction back once every mutation has run and every
+	// count has been taken.
+	preview bool
+	// samePlace refuses, on the locked rows, venues whose VenuePlaceKey differs.
+	samePlace bool
+}
+
+// VenuePlaceKey is a venue's city and state compared trimmed and
+// case-insensitively, because rows written by hand and by ingest differ in
+// both. Two venues are in the same place when their keys are equal; the
+// same-place merge and FindOrCreateVenue's city-suffixed twin match decide
+// with it.
 func VenuePlaceKey(v *catalogm.Venue) string {
 	return strings.ToLower(strings.TrimSpace(v.City)) + "|" + strings.ToLower(strings.TrimSpace(v.State))
 }
@@ -95,7 +105,7 @@ func errDifferentPlaces(canonical, mergeFrom *catalogm.Venue) error {
 // PreviewMergeVenuesInSamePlace is PreviewMergeVenues that refuses venues in
 // different cities or states, deciding on the locked rows.
 func (s *VenueService) PreviewMergeVenuesInSamePlace(canonicalID, mergeFromID uint) (*contracts.MergeVenueResult, error) {
-	result, _, err := s.mergeVenues(canonicalID, mergeFromID, true, true)
+	result, _, err := s.mergeVenues(canonicalID, mergeFromID, mergeOptions{preview: true, samePlace: true})
 	return result, err
 }
 
@@ -103,7 +113,7 @@ func (s *VenueService) PreviewMergeVenuesInSamePlace(canonicalID, mergeFromID ui
 // or states. The check runs on the rows the merge has locked, so a venue cannot
 // move between the check and the merge.
 func (s *VenueService) MergeVenuesInSamePlace(canonicalID, mergeFromID, actorUserID uint) (*contracts.MergeVenueResult, error) {
-	return s.commitMergeVenues(canonicalID, mergeFromID, actorUserID, true)
+	return s.commitMergeVenues(canonicalID, mergeFromID, actorUserID, mergeOptions{samePlace: true})
 }
 
 // auditMergedVenueSlugKey is the merge audit metadata key holding the merged
@@ -153,13 +163,14 @@ func (s *VenueService) WasMergedInto(mergedSlug string, canonicalID uint) (bool,
 // to redactVenueRevision, which masks the private fields and drops the summary,
 // so nothing here has to be taught about prose.
 func (s *VenueService) MergeVenues(canonicalID, mergeFromID, actorUserID uint) (*contracts.MergeVenueResult, error) {
-	return s.commitMergeVenues(canonicalID, mergeFromID, actorUserID, false)
+	return s.commitMergeVenues(canonicalID, mergeFromID, actorUserID, mergeOptions{})
 }
 
 // commitMergeVenues runs the merge for real and, once it has committed, queues
-// its audit row.
-func (s *VenueService) commitMergeVenues(canonicalID, mergeFromID, actorUserID uint, samePlace bool) (*contracts.MergeVenueResult, error) {
-	result, mergedSlug, err := s.mergeVenues(canonicalID, mergeFromID, false, samePlace)
+// its audit row. opts.preview is ignored.
+func (s *VenueService) commitMergeVenues(canonicalID, mergeFromID, actorUserID uint, opts mergeOptions) (*contracts.MergeVenueResult, error) {
+	opts.preview = false
+	result, mergedSlug, err := s.mergeVenues(canonicalID, mergeFromID, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -174,8 +185,9 @@ func (s *VenueService) commitMergeVenues(canonicalID, mergeFromID, actorUserID u
 }
 
 // mergeVenues is the single implementation behind both the preview and the
-// commit. When preview is true the transaction is rolled back after every
-// mutation has run and every count has been taken.
+// commit. With opts.preview the transaction is rolled back after every
+// mutation has run and every count has been taken; with opts.samePlace venues
+// in different places are refused before any write.
 //
 // A preview therefore costs the same work as a real merge and holds the same
 // row locks for its duration. That is a deliberate trade: this is an admin-only
@@ -189,7 +201,7 @@ func (s *VenueService) commitMergeVenues(canonicalID, mergeFromID, actorUserID u
 // NOTE: result is accumulated in place inside the closure (EntityRefsMoved sums
 // across tables). The closure is therefore NOT safe to retry — wrapping this in
 // a retry loop would double the counts. GORM's Transaction does not retry.
-func (s *VenueService) mergeVenues(canonicalID, mergeFromID uint, preview, samePlace bool) (result *contracts.MergeVenueResult, mergedSlug string, err error) {
+func (s *VenueService) mergeVenues(canonicalID, mergeFromID uint, opts mergeOptions) (result *contracts.MergeVenueResult, mergedSlug string, err error) {
 	if s.db == nil {
 		return nil, "", fmt.Errorf("database not initialized")
 	}
@@ -210,7 +222,7 @@ func (s *VenueService) mergeVenues(canonicalID, mergeFromID uint, preview, sameP
 		if err != nil {
 			return err
 		}
-		if samePlace && VenuePlaceKey(canonical) != VenuePlaceKey(mergeFrom) {
+		if opts.samePlace && VenuePlaceKey(canonical) != VenuePlaceKey(mergeFrom) {
 			return errDifferentPlaces(canonical, mergeFrom)
 		}
 		result.CanonicalVenueName = canonical.Name
@@ -261,7 +273,7 @@ func (s *VenueService) mergeVenues(canonicalID, mergeFromID uint, preview, sameP
 			return fmt.Errorf("failed to delete merged venue: %w", err)
 		}
 
-		if preview {
+		if opts.preview {
 			return errPreviewRollback
 		}
 		return nil

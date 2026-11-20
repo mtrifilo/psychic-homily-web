@@ -189,18 +189,20 @@ type runReport struct {
 // against.
 //
 // Every verdict is reached before the first write. The file-level checks
-// (refuseEntangledRows, refuseCollidingRenames) refuse every pair of rows whose
-// outcome would depend on the other, so a row's preview is what its write does
-// and the dry run accepts the same rows the confirmed run applies. A write can
-// still fail if the database changes between the plan and the write; that row
-// is reported as refused.
+// (refuseRepeatedRooms, refuseEntangledMerges, refuseCollidingRenames) refuse
+// every pair of rows whose verdict would depend on the other, so the dry run
+// accepts the same rows the confirmed run applies. A write can still fail if
+// the database changes between the plan and the write; that row is reported as
+// refused. A merge preview's counts can differ from its write's when one show is
+// booked at rooms of two different merges, which is why a confirmed merge
+// prints the counts it actually applied.
 func runWorklist(db *gorm.DB, rows []worklistRow, actorID uint, confirm bool, out io.Writer) runReport {
 	plans := make([]*rowPlan, len(rows))
 	for i, row := range rows {
 		plans[i] = &rowPlan{Row: row}
 	}
 	refuseMalformedRows(plans)
-	refuseEntangledRows(plans)
+	refuseRepeatedRooms(plans)
 
 	venues := catalog.NewVenueService(db).WithAddressGeocoder(nil)
 	for _, p := range plans {
@@ -208,6 +210,7 @@ func runWorklist(db *gorm.DB, rows []worklistRow, actorID uint, confirm bool, ou
 			planRow(db, venues, actorID, p)
 		}
 	}
+	refuseEntangledMerges(plans)
 	refuseCollidingRenames(plans)
 
 	report := runReport{Summary: runSummary{}}
@@ -278,14 +281,9 @@ func refuseMalformedRows(plans []*rowPlan) {
 // of a slug, which a venue's display name never has.
 var slugShaped = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)+$`)
 
-// refuseEntangledRows refuses rows whose outcome would depend on another row of
-// the same file: a room named on two rows, a merge into a room that another row
-// merges away, and two merges into one room (the second merge's preview cannot
-// see the shows the first one moves, so its duplicate count would be wrong).
-// Every side of each conflict is refused, so none is applied by the accident of
-// file order. A merge already refused merges nothing, so it entangles no other
-// row.
-func refuseEntangledRows(plans []*rowPlan) {
+// refuseRepeatedRooms refuses every row of a room named on more than one row:
+// which decision wins would otherwise depend on file order.
+func refuseRepeatedRooms(plans []*rowPlan) {
 	linesBySlug := map[string][]int{}
 	for _, p := range plans {
 		if p.Row.RoomSlug != "" {
@@ -297,15 +295,36 @@ func refuseEntangledRows(plans []*rowPlan) {
 			p.refuse("room %s appears on %d rows (lines %s); decide it once", p.Row.RoomSlug, len(lines), joinInts(lines))
 		}
 	}
+}
+
+// refuseEntangledMerges refuses merges whose write would depend on another
+// merge of the same run: a merge into a room that another row merges away, and
+// two merges into one room (the second merge's preview cannot see the shows the
+// first one moves, so its duplicate count would be wrong). Every side of each
+// conflict is refused, so none is applied by the accident of file order.
+//
+// It runs after planning and counts only merges that would apply: a merge that
+// is already done or refused moves nothing in this run, so it entangles no
+// other row, and a file whose first merges were applied by an earlier run can
+// go on to apply the rest.
+func refuseEntangledMerges(plans []*rowPlan) {
+	pending := func(p *rowPlan) bool { return p.Status == statusWouldApply && p.Row.Action == actionMerge }
 
 	mergedAwayOn := map[string]*rowPlan{}
 	for _, p := range plans {
-		if p.Status == "" && p.Row.Action == actionMerge {
+		if pending(p) {
 			mergedAwayOn[p.Row.RoomSlug] = p
 		}
 	}
+	mergesInto := map[string][]*rowPlan{}
 	for _, p := range plans {
-		if p.Status != "" || p.Row.Action != actionMerge {
+		if pending(p) {
+			mergesInto[p.Row.Target] = append(mergesInto[p.Row.Target], p)
+		}
+	}
+
+	for _, p := range plans {
+		if !pending(p) {
 			continue
 		}
 		other, ok := mergedAwayOn[p.Row.Target]
@@ -314,13 +333,6 @@ func refuseEntangledRows(plans []*rowPlan) {
 		}
 		p.refuse("target %s is itself merged away on line %d; merge both rooms into the final room instead", p.Row.Target, other.Row.Line)
 		other.refuse("room %s is the merge target on line %d; merge both rooms into the final room instead", other.Row.RoomSlug, p.Row.Line)
-	}
-
-	mergesInto := map[string][]*rowPlan{}
-	for _, p := range plans {
-		if p.Status == "" && p.Row.Action == actionMerge {
-			mergesInto[p.Row.Target] = append(mergesInto[p.Row.Target], p)
-		}
 	}
 	refuseGroups(mergesInto, func(lines string, p *rowPlan) {
 		p.refuse("target %s receives merges on lines %s; apply one of them per run so each preview is exact", p.Row.Target, lines)
@@ -486,7 +498,7 @@ func renameInTx(tx *gorm.DB, actorID, roomID uint, name string) error {
 	}
 
 	var sameCity []catalogm.Venue
-	if err := tx.Where("id <> ? AND LOWER(city) = LOWER(?)", room.ID, room.City).
+	if err := tx.Where("id <> ? AND LOWER(TRIM(city)) = LOWER(TRIM(?))", room.ID, room.City).
 		Order("id").Find(&sameCity).Error; err != nil {
 		return fmt.Errorf("load rooms in %s: %w", room.City, err)
 	}
@@ -521,7 +533,15 @@ func applyRow(db *gorm.DB, venues *catalog.VenueService, actorID uint, p *rowPla
 	case actionMerge:
 		result, err := venues.MergeVenuesInSamePlace(p.Into.ID, p.Room.ID, actorID)
 		if err != nil {
-			p.refuse("merge failed, nothing changed: %v", err)
+			// An error at COMMIT does not prove the commit failed. The merged room's
+			// row is deleted only by a committed merge, so its presence decides.
+			gone, lookupErr := venueGone(db, p.Room.ID)
+			if lookupErr != nil || !gone {
+				p.refuse("merge failed, room %s is still there: %v", p.Row.RoomSlug, err)
+				return
+			}
+			p.Detail = append(p.Detail, fmt.Sprintf("merge reported an error but room %s is gone, so it committed: %v", p.Row.RoomSlug, err))
+			p.Status = statusApplied
 			return
 		}
 		p.Detail = append(p.Detail, "merged: "+describeMergeResult(result))
@@ -535,6 +555,15 @@ func applyRow(db *gorm.DB, venues *catalog.VenueService, actorID uint, p *rowPla
 		}
 	}
 	p.Status = statusApplied
+}
+
+// venueGone reports whether no room has this id.
+func venueGone(db *gorm.DB, id uint) (bool, error) {
+	var n int64
+	if err := db.Model(&catalogm.Venue{}).Where("id = ?", id).Count(&n).Error; err != nil {
+		return false, err
+	}
+	return n == 0, nil
 }
 
 // venueBySlug returns the room with this slug, or nil when none has it.

@@ -124,10 +124,13 @@ func main() {
 
 func loadEnv(envFile string) {
 	if envFile != "" {
-		if err := godotenv.Load(envFile); err != nil {
+		// Overload, not Load: Load skips keys already set in the process, so an
+		// exported DATABASE_URL would win over the named file and a confirmed run
+		// could write to a database the operator did not name.
+		if err := godotenv.Overload(envFile); err != nil {
 			log.Fatalf("load env file %s: %v", envFile, err)
 		}
-		log.Printf("loaded env from %s", envFile)
+		log.Printf("loaded env from %s (authoritative)", envFile)
 		return
 	}
 	for _, ef := range []string{".env.development", ".env"} {

@@ -733,8 +733,9 @@ func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipc
 	// venue row means a second venue_id. Matching here RESOLVES to the existing
 	// room instead of rejecting the write, which is what ingest needs.
 	//
-	// Scoped to the same city, so normalization can never join rooms in
-	// different places.
+	// Scoped by city name only, not state, so two rooms of one name in
+	// same-named cities of different states (Portland, ME and Portland, OR) can
+	// still meet here.
 	//
 	// The same scan then looks for a city-suffixed twin: a name that is an
 	// existing room's name followed by its own city ("Rialto Theatre Tucson" in

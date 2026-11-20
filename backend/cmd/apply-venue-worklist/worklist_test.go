@@ -422,6 +422,36 @@ func (s *WorklistSuite) TestRenamesCollidingOnTheCityNameAcrossStatesAreRefused(
 	s.Equal("Den Portland", s.venueByID(oregon.ID).Name)
 }
 
+// Two renames whose names differ in more than case but normalize alike ("The
+// Den" and "Den") are refused on the same-place key; the index would accept
+// both, and the second would then fail the tool's own check under --confirm.
+func (s *WorklistSuite) TestRenamesCollidingAfterNormalizationAreRefused() {
+	x := s.venue("X Room Tucson", "Tucson", "AZ")
+	y := s.venue("Y Room Tucson", "Tucson", "AZ")
+	csv := "room_slug,action,target\n" + *x.Slug + ",rename,The Den\n" + *y.Slug + ",rename,Den\n"
+
+	out, summary := s.run(csv, true)
+
+	s.Equal(2, summary[statusRefused], out)
+	s.Contains(out, "renames on lines 2, 3 would give two rooms in Tucson the same name")
+	s.Equal("X Room Tucson", s.venueByID(x.ID).Name)
+	s.Equal("Y Room Tucson", s.venueByID(y.ID).Name)
+}
+
+// The rename's same-place check finds a room whose city is stored with stray
+// whitespace, because the place comparison is trimmed.
+func (s *WorklistSuite) TestRenameCollisionCheckIgnoresCityPadding() {
+	padded := s.venue("Rialto Theatre", "Tucson ", "AZ")
+	room := s.venue("Rialto Theatre Tucson", "Tucson", "AZ")
+	csv := "room_slug,action,target\n" + *room.Slug + ",rename,The Rialto Theater\n"
+
+	out, summary := s.run(csv, true)
+
+	s.True(summary.Refused(), out)
+	s.Contains(out, `already has "Rialto Theatre" (slug `+*padded.Slug+`)`)
+	s.Equal("Rialto Theatre Tucson", s.venueByID(room.ID).Name)
+}
+
 // Two merges into one room are refused: the second merge's preview cannot see
 // the shows the first one moves.
 func (s *WorklistSuite) TestTwoMergesIntoOneRoomAreRefused() {
@@ -436,6 +466,19 @@ func (s *WorklistSuite) TestTwoMergesIntoOneRoomAreRefused() {
 	s.Contains(out, "receives merges on lines 2, 3")
 	s.NotNil(s.venueByID(a.ID))
 	s.NotNil(s.venueByID(b.ID))
+
+	// Applying one of them on its own, then running the whole file again, applies
+	// the other: a merge already done moves nothing and entangles nothing.
+	_, summary = s.run("room_slug,action,target\n"+*a.Slug+",merge,"+*kept.Slug+"\n", true)
+	s.Require().False(summary.Refused())
+	s.waitForMergeAudit(kept.ID)
+
+	out, summary = s.run(csv, true)
+
+	s.False(summary.Refused(), out)
+	s.Equal(1, summary[statusDone], out)
+	s.Equal(1, summary[statusApplied], out)
+	s.Nil(s.venueByID(b.ID))
 }
 
 func (s *WorklistSuite) TestRenameTargetShapedLikeASlugIsRefused() {
