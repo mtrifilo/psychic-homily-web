@@ -95,3 +95,26 @@ func NormalizeVenueName(name string) string {
 	}
 	return strings.Join(out, " ")
 }
+
+// VenueNameWithoutTrailingCity returns the normalized key of name with the
+// normalized words of city removed from its end, and true when name did end
+// with them. It returns false when name does not end with city, and when name is
+// nothing but the city, so the key is never empty when ok is true.
+//
+// Both sides go through NormalizeVenueName, so "Myth Live St Paul" in
+// "St. Paul" strips to "myth live", a key comparable with NormalizeVenueName of
+// any other room's name.
+func VenueNameWithoutTrailingCity(name, city string) (string, bool) {
+	nameWords := strings.Fields(NormalizeVenueName(name))
+	cityWords := strings.Fields(NormalizeVenueName(city))
+	if len(cityWords) == 0 || len(nameWords) <= len(cityWords) {
+		return "", false
+	}
+	head := len(nameWords) - len(cityWords)
+	for i, w := range cityWords {
+		if nameWords[head+i] != w {
+			return "", false
+		}
+	}
+	return strings.Join(nameWords[:head], " "), true
+}

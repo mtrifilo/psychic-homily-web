@@ -94,3 +94,34 @@ func TestNormalizeVenueName_LeavesAmbiguousAbbreviationsAlone(t *testing.T) {
 		})
 	}
 }
+
+func TestVenueNameWithoutTrailingCity(t *testing.T) {
+	tests := []struct {
+		name, venue, city string
+		want              string
+		wantOK            bool
+	}{
+		{"one-word city", "Rialto Theatre Tucson", "Tucson", "rialto theater", true},
+		{"two-word city", "Cafe Du Nord San Francisco", "San Francisco", "cafe du nord", true},
+		{"abbreviated city on both sides", "Myth Live St Paul", "St. Paul", "myth live", true},
+		{"spelled-out name, abbreviated city", "Myth Live Street Paul", "St. Paul", "myth live", true},
+		{"case and punctuation", "the cobalt, VANCOUVER", "Vancouver", "cobalt", true},
+		{"accented city", "Le Dropkick Bar Orléans", "Orléans", "le dropkick bar", true},
+		{"city not at the end", "Brooklyn Steel", "Brooklyn", "", false},
+		{"city only as a word fragment", "Mesa Arts Centermesa", "Mesa", "", false},
+		{"partial city words", "Lake Hall Charles", "Lake Charles", "", false},
+		{"name is only the city", "Phoenix", "Phoenix", "", false},
+		{"name is the city with an article", "The Phoenix", "Phoenix", "", false},
+		{"empty city", "Valley Bar", "", "", false},
+		{"empty name", "", "Phoenix", "", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := VenueNameWithoutTrailingCity(tc.venue, tc.city)
+			if got != tc.want || ok != tc.wantOK {
+				t.Errorf("VenueNameWithoutTrailingCity(%q, %q) = (%q, %v), want (%q, %v)",
+					tc.venue, tc.city, got, ok, tc.want, tc.wantOK)
+			}
+		})
+	}
+}

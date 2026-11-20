@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -71,7 +72,43 @@ var venueFKTables = []string{
 // PreviewMergeVenues reports what MergeVenues(canonicalID, mergeFromID) would
 // change, without committing any of it.
 func (s *VenueService) PreviewMergeVenues(canonicalID, mergeFromID uint) (*contracts.MergeVenueResult, error) {
-	return s.mergeVenues(canonicalID, mergeFromID, true)
+	result, _, err := s.mergeVenues(canonicalID, mergeFromID, true, nil)
+	return result, err
+}
+
+// venueMergeRequirement is a precondition checked against both venues AFTER
+// they are row-locked inside the merge transaction, so the rows it approves are
+// the rows the merge then rewrites. A non-nil error aborts the merge before any
+// write.
+type venueMergeRequirement func(canonical, mergeFrom *catalogm.Venue) error
+
+// requireSamePlace refuses a merge between venues whose city or state differ.
+// Both are compared trimmed and case-insensitively, because that is how the
+// rows are written by hand and by ingest alike.
+func requireSamePlace(canonical, mergeFrom *catalogm.Venue) error {
+	sameCity := strings.EqualFold(strings.TrimSpace(canonical.City), strings.TrimSpace(mergeFrom.City))
+	sameState := strings.EqualFold(strings.TrimSpace(canonical.State), strings.TrimSpace(mergeFrom.State))
+	if sameCity && sameState {
+		return nil
+	}
+	return apperrors.ErrVenueMergeInvalid(fmt.Sprintf(
+		"venues are in different places: %q is in %s, %s and %q is in %s, %s",
+		mergeFrom.Name, mergeFrom.City, mergeFrom.State,
+		canonical.Name, canonical.City, canonical.State))
+}
+
+// PreviewMergeVenuesInSamePlace is PreviewMergeVenues that refuses venues in
+// different cities or states, deciding on the locked rows.
+func (s *VenueService) PreviewMergeVenuesInSamePlace(canonicalID, mergeFromID uint) (*contracts.MergeVenueResult, error) {
+	result, _, err := s.mergeVenues(canonicalID, mergeFromID, true, requireSamePlace)
+	return result, err
+}
+
+// MergeVenuesInSamePlace is MergeVenues that refuses venues in different cities
+// or states. The check runs on the rows the merge has locked, so a venue cannot
+// move between the check and the merge.
+func (s *VenueService) MergeVenuesInSamePlace(canonicalID, mergeFromID, actorUserID uint) (*contracts.MergeVenueResult, error) {
+	return s.commitMergeVenues(canonicalID, mergeFromID, actorUserID, requireSamePlace)
 }
 
 // MergeVenues folds mergeFromID into canonicalID: every reference to the losing
@@ -96,7 +133,13 @@ func (s *VenueService) PreviewMergeVenues(canonicalID, mergeFromID uint) (*contr
 // to redactVenueRevision, which masks the private fields and drops the summary,
 // so nothing here has to be taught about prose.
 func (s *VenueService) MergeVenues(canonicalID, mergeFromID, actorUserID uint) (*contracts.MergeVenueResult, error) {
-	result, err := s.mergeVenues(canonicalID, mergeFromID, false)
+	return s.commitMergeVenues(canonicalID, mergeFromID, actorUserID, nil)
+}
+
+// commitMergeVenues runs the merge for real and, once it has committed, queues
+// its audit row.
+func (s *VenueService) commitMergeVenues(canonicalID, mergeFromID, actorUserID uint, require venueMergeRequirement) (*contracts.MergeVenueResult, error) {
+	result, mergedSlug, err := s.mergeVenues(canonicalID, mergeFromID, false, require)
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +147,7 @@ func (s *VenueService) MergeVenues(canonicalID, mergeFromID, actorUserID uint) (
 	// Fire-and-forget audit log after the transaction commits, matching
 	// MergeTags. Errors are logged, never surfaced to the caller.
 	shared.SubmitAuditWrite("venue_merge_audit_log", func() {
-		s.writeMergeAuditLog(actorUserID, result)
+		s.writeMergeAuditLog(actorUserID, result, mergedSlug)
 	})
 
 	return result, nil
@@ -119,32 +162,44 @@ func (s *VenueService) MergeVenues(canonicalID, mergeFromID, actorUserID uint) (
 // path used a handful of times, and paying it buys a preview that cannot
 // disagree with the merge it previews.
 //
+// mergedSlug is the losing venue's slug as it was locked, empty when it had
+// none. It is returned beside the result rather than inside it because it is
+// recorded in the audit row, not reported to the API.
+//
 // NOTE: result is accumulated in place inside the closure (EntityRefsMoved sums
 // across tables). The closure is therefore NOT safe to retry — wrapping this in
 // a retry loop would double the counts. GORM's Transaction does not retry.
-func (s *VenueService) mergeVenues(canonicalID, mergeFromID uint, preview bool) (*contracts.MergeVenueResult, error) {
+func (s *VenueService) mergeVenues(canonicalID, mergeFromID uint, preview bool, require venueMergeRequirement) (result *contracts.MergeVenueResult, mergedSlug string, err error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, "", fmt.Errorf("database not initialized")
 	}
 	if canonicalID == 0 || mergeFromID == 0 {
-		return nil, apperrors.ErrVenueMergeInvalid("canonical_venue_id and merge_from_venue_id are required")
+		return nil, "", apperrors.ErrVenueMergeInvalid("canonical_venue_id and merge_from_venue_id are required")
 	}
 	if canonicalID == mergeFromID {
-		return nil, apperrors.ErrVenueMergeInvalid("cannot merge a venue into itself")
+		return nil, "", apperrors.ErrVenueMergeInvalid("cannot merge a venue into itself")
 	}
 
-	result := &contracts.MergeVenueResult{
+	result = &contracts.MergeVenueResult{
 		CanonicalVenueID: canonicalID,
 		MergedVenueID:    mergeFromID,
 	}
 
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	err = s.db.Transaction(func(tx *gorm.DB) error {
 		canonical, mergeFrom, err := lockMergeVenues(tx, canonicalID, mergeFromID)
 		if err != nil {
 			return err
 		}
+		if require != nil {
+			if err := require(canonical, mergeFrom); err != nil {
+				return err
+			}
+		}
 		result.CanonicalVenueName = canonical.Name
 		result.MergedVenueName = mergeFrom.Name
+		if mergeFrom.Slug != nil {
+			mergedSlug = *mergeFrom.Slug
+		}
 
 		if err := buildDuplicateShowMap(tx, canonicalID, mergeFromID); err != nil {
 			return err
@@ -196,17 +251,17 @@ func (s *VenueService) mergeVenues(canonicalID, mergeFromID uint, preview bool) 
 
 	// A preview rolled back on purpose; everything it measured is still valid.
 	if errors.Is(err, errPreviewRollback) {
-		return result, nil
+		return result, mergedSlug, nil
 	}
 	if err != nil {
 		var venueErr *apperrors.VenueError
 		if errors.As(err, &venueErr) {
-			return nil, err
+			return nil, "", err
 		}
-		return nil, fmt.Errorf("venue merge failed: %w", err)
+		return nil, "", fmt.Errorf("venue merge failed: %w", err)
 	}
 
-	return result, nil
+	return result, mergedSlug, nil
 }
 
 // lockMergeVenues loads both venues under a row lock so two concurrent merges
@@ -671,7 +726,11 @@ func reassignVenueAlertRows(tx *gorm.DB, canonicalID, mergeFromID uint, result *
 
 // writeMergeAuditLog records a venue merge in the audit log.
 // Fire-and-forget — errors are logged but never fail the parent operation.
-func (s *VenueService) writeMergeAuditLog(actorID uint, result *contracts.MergeVenueResult) {
+//
+// merged_venue_slug is the losing venue's address at the moment it was deleted.
+// Nothing else keeps it once the row is gone, and it is how a reviewed merge
+// list recognises a row it has already applied.
+func (s *VenueService) writeMergeAuditLog(actorID uint, result *contracts.MergeVenueResult, mergedSlug string) {
 	if s.db == nil {
 		return
 	}
@@ -679,6 +738,7 @@ func (s *VenueService) writeMergeAuditLog(actorID uint, result *contracts.MergeV
 	metadata := map[string]interface{}{
 		"merged_venue_id":        result.MergedVenueID,
 		"merged_venue_name":      result.MergedVenueName,
+		"merged_venue_slug":      mergedSlug,
 		"canonical_venue_name":   result.CanonicalVenueName,
 		"duplicate_shows":        result.DuplicateShows,
 		"support_acts_rescued":   result.SupportActsRescued,
