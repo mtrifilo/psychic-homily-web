@@ -1,10 +1,12 @@
 'use client'
 
+import { useLayoutEffect, useRef } from 'react'
 import type React from 'react'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { CalendarSendControlProps } from './CalendarEmailStepsAction'
+import { holdFocusInPanel } from './CalendarPanelParts'
 
 /**
  * A Settings calendar card button: full width with a 44px target below `sm`,
@@ -60,4 +62,21 @@ export function CalendarCardSendButton({
   ...props
 }: CalendarSendControlProps) {
   return <CalendarCardButton data-testid={testId} {...props} />
+}
+
+/**
+ * A ref for a block of the card that can leave while focus is inside it (a
+ * refetch finds the link changed or gone, a question closes): focus moves to
+ * the card first, so it never drops to the page. A layout cleanup runs while
+ * the block's nodes are still in the page.
+ */
+export function useHoldFocusOnLeave<T extends HTMLElement>() {
+  const ref = useRef<T>(null)
+  useLayoutEffect(() => {
+    const block = ref.current
+    return () => {
+      if (block?.contains(document.activeElement)) holdFocusInPanel(block)
+    }
+  }, [])
+  return ref
 }

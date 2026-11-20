@@ -228,8 +228,11 @@ export function useSettingsCalendar() {
     const model = buildSavedShowsCalendarModel({
       status: current,
       unrecoverable: !links,
+      // An unbound reason (feedUrl unknown) never matches, not even a link
+      // whose address cannot be shown.
       resetReasonBeforeCreate:
-        heldResetReason && heldResetReason.feedUrl === current.feed_url
+        heldResetReason?.feedUrl !== undefined &&
+        heldResetReason.feedUrl === current.feed_url
           ? heldResetReason.reason
           : null,
       // Unknown reads as no saved shows: the line then names only the check.

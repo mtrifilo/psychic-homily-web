@@ -26,7 +26,6 @@ import {
   PRIVATE_LINK_CLASS,
   PanelErrorWithRetry,
   PanelNote,
-  holdFocusInPanel,
 } from './CalendarPanelParts'
 import { CalendarConnectedApps, CalendarStoppedApp } from './CalendarAppStatus'
 import { CalendarEmailStepsAction } from './CalendarEmailStepsAction'
@@ -37,7 +36,11 @@ import {
   SETTINGS_CALENDAR_COPY as COPY,
   SETTINGS_RESET_SENTENCE,
 } from './settingsCalendarCopy'
-import { CalendarCardButton, CalendarCardSendButton } from './SettingsCalendarParts'
+import {
+  CalendarCardButton,
+  CalendarCardSendButton,
+  useHoldFocusOnLeave,
+} from './SettingsCalendarParts'
 import { SettingsCalendarLinks } from './SettingsCalendarLinks'
 import {
   useSavedShowsCalendarActions,
@@ -105,32 +108,8 @@ function SettingsCalendarBody() {
           {PANEL_COPY.loadFailed}
         </PanelErrorWithRetry>
       )
-    case 'no_link': {
-      const addLink = (control: HTMLElement) =>
-        add.mutate(state.resetReason, {
-          // The button is replaced by the add buttons and the links.
-          onSuccess: () => holdFocusInPanel(control),
-        })
-      return (
-        <div className="flex flex-col gap-4">
-          <StatusSentence>{statusSentence(state.resetReason)}</StatusSentence>
-          <div className="flex flex-col gap-1">
-            <CalendarCardButton
-              working={add.isPending}
-              onClick={event => addLink(event.currentTarget)}
-              className="sm:self-start"
-            >
-              {COPY.addToCalendar}
-            </CalendarCardButton>
-            {add.isError && !add.isPending ? (
-              <PanelErrorWithRetry onRetry={() => add.mutate(state.resetReason)}>
-                {PANEL_COPY.createFailed}
-              </PanelErrorWithRetry>
-            ) : null}
-          </div>
-        </div>
-      )
-    }
+    case 'no_link':
+      return <NoLink resetReason={state.resetReason} add={add} />
     case 'link':
       return (
         <div className="flex flex-col gap-4">
@@ -153,6 +132,41 @@ function SettingsCalendarBody() {
 }
 
 /** The status sentence: why the link was reset, or that nothing checks it. */
+/**
+ * No link: the status sentence and the one "Add to calendar". The block is
+ * replaced by the add buttons and the links once a link is read, including
+ * one an attempt whose answer was lost did make, so focus inside it moves to
+ * the card as it leaves.
+ */
+function NoLink({
+  resetReason,
+  add,
+}: {
+  resetReason: CalendarLinkResetReason | null
+  add: ReturnType<typeof useSettingsCalendar>['add']
+}) {
+  const blockRef = useHoldFocusOnLeave<HTMLDivElement>()
+  return (
+    <div ref={blockRef} className="flex flex-col gap-4">
+      <StatusSentence>{statusSentence(resetReason)}</StatusSentence>
+      <div className="flex flex-col gap-1">
+        <CalendarCardButton
+          working={add.isPending}
+          onClick={() => add.mutate(resetReason)}
+          className="sm:self-start"
+        >
+          {COPY.addToCalendar}
+        </CalendarCardButton>
+        {add.isError && !add.isPending ? (
+          <PanelErrorWithRetry onRetry={() => add.mutate(resetReason)}>
+            {PANEL_COPY.createFailed}
+          </PanelErrorWithRetry>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 function statusSentence(resetReason: CalendarLinkResetReason | null): string {
   return resetReason ? SETTINGS_RESET_SENTENCE[resetReason] : COPY.noneChecking
 }
@@ -177,9 +191,12 @@ function CalendarAppsAndAdd({
   const feedUrl = links?.feedUrl ?? null
   const actions = useSavedShowsCalendarActions(feedUrl ?? '')
   const anyApp = model.connected.length + model.stopped.length > 0
+  // Remounted when the address changes; focus on an add button moves to the
+  // card rather than dropping to the page.
+  const blockRef = useHoldFocusOnLeave<HTMLDivElement>()
 
   return (
-    <div className="flex flex-col gap-4">
+    <div ref={blockRef} className="flex flex-col gap-4">
       <div className="flex flex-col gap-3">
         {model.resetReason || !anyApp ? (
           <StatusSentence>{statusSentence(model.resetReason)}</StatusSentence>

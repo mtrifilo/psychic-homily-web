@@ -1,13 +1,6 @@
 'use client'
 
-import {
-  useCallback,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react'
+import { useCallback, useId, useRef, useState, type ReactNode } from 'react'
 import { AlertCircle } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Input } from '@/components/ui/input'
@@ -22,12 +15,11 @@ import {
   PanelError,
   PanelErrorWithRetry,
   PanelNote,
-  holdFocusInPanel,
 } from './CalendarPanelParts'
 import { copyText } from './calendarPanelBrowser'
 import { PANEL_COPY } from './savedShowsCalendarCopy'
 import { SETTINGS_CALENDAR_COPY as COPY } from './settingsCalendarCopy'
-import { CalendarCardButton } from './SettingsCalendarParts'
+import { CalendarCardButton, useHoldFocusOnLeave } from './SettingsCalendarParts'
 import {
   showCalendarStatus,
   statusOfNewLink,
@@ -73,17 +65,9 @@ export function SettingsCalendarLinks({
   const returnFocusTo = useRef<Confirming | null>(null)
   const calendarFieldId = useId()
   const followsFieldId = useId()
-  const blockRef = useRef<HTMLDivElement>(null)
   // The block leaves whenever the link does, also when a refetch finds it
-  // gone (turned off elsewhere, or a turn-off whose answer was lost). Focus
-  // inside it moves to the card first; a layout cleanup runs while the
-  // block's nodes are still in the page.
-  useLayoutEffect(() => {
-    const block = blockRef.current
-    return () => {
-      if (block?.contains(document.activeElement)) holdFocusInPanel(block)
-    }
-  }, [])
+  // gone (turned off elsewhere, or a turn-off whose answer was lost).
+  const blockRef = useHoldFocusOnLeave<HTMLDivElement>()
 
   const open = (which: Confirming) => {
     createLink.reset()
@@ -99,10 +83,14 @@ export function SettingsCalendarLinks({
     createLink.mutate(undefined, {
       onSuccess: created => {
         showCalendarStatus(queryClient, statusOfNewLink(created))
-        returnFocusTo.current = 'new_link'
         setAsked(null)
       },
-      onSettled: onLinkWritten,
+      onSettled: () => {
+        // Also after a failure: a create whose answer was lost may have
+        // replaced the link, which closes the question.
+        returnFocusTo.current = 'new_link'
+        onLinkWritten()
+      },
     })
   }
 
@@ -285,8 +273,17 @@ function InlineConfirmation({
   failure: ReactNode
 }) {
   const sentenceId = useId()
+  // The question can close under focus when a refetch finds the address
+  // changed (another window, or a write whose answer was lost).
+  const leaveRef = useHoldFocusOnLeave<HTMLDivElement>()
   // Stable, so it focuses once, as the confirmation opens.
-  const focusOnOpen = useCallback((el: HTMLDivElement | null) => el?.focus(), [])
+  const focusOnOpen = useCallback(
+    (el: HTMLDivElement | null) => {
+      leaveRef.current = el
+      el?.focus()
+    },
+    [leaveRef]
+  )
   return (
     <div
       role="group"

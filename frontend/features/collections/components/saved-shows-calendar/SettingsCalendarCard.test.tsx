@@ -374,6 +374,7 @@ describe('SettingsCalendarCard', () => {
       await user.click(screen.getByRole('button', { name: COPY.addToCalendar }))
       // The re-read after the failure finds the link the create made.
       await waitFor(() => expect(fieldValues()).toEqual([NEW_FEED_URL, NEW_FOLLOWS_URL]))
+      expect(document.getElementById('calendar')).toHaveFocus()
       expect(
         screen.getByText(SETTINGS_RESET_SENTENCE.password_reset)
       ).toBeInTheDocument()
@@ -762,6 +763,7 @@ describe('SettingsCalendarCard', () => {
       await waitFor(() => expect(fieldValues()).toEqual([NEW_FEED_URL, NEW_FOLLOWS_URL]))
       expect(screen.queryByRole('group', { name: COPY.confirmNewLink })).toBeNull()
       expect(screen.queryByText(PANEL_COPY.createFailed)).toBeNull()
+      expect(screen.getByRole('button', { name: COPY.newLink })).toHaveFocus()
     })
 
     it('keeps asking, with the create line, when it fails', async () => {
@@ -879,6 +881,32 @@ describe('SettingsCalendarCard', () => {
     answer(linkStatus())
     await waitFor(() => expect(fieldValues()).toEqual([FEED_URL, FOLLOWS_URL]))
     expect(document.body.innerHTML).not.toContain('someone-else')
+  })
+
+  it('shows the link on a return visit when the status has not changed', async () => {
+    withLink()
+    const client = createTestQueryClient()
+    const first = renderCard(client)
+    await waitFor(() => expect(fieldValues()).toEqual([FEED_URL, FOLLOWS_URL]))
+    first.unmount()
+
+    // Back to the card with the same answer waiting and the cache still warm.
+    renderCard(client)
+    await waitFor(() => expect(fieldValues()).toEqual([FEED_URL, FOLLOWS_URL]))
+    expect(screen.queryByText(PANEL_COPY.loading)).toBeNull()
+  })
+
+  it('says it could not load on a return visit whose read fails', async () => {
+    withLink()
+    const client = createTestQueryClient()
+    const first = renderCard(client)
+    await waitFor(() => expect(fieldValues()).toHaveLength(2))
+    first.unmount()
+
+    server.token = new Error('down')
+    renderCard(client)
+    expect(await screen.findByRole('alert')).toHaveTextContent(PANEL_COPY.loadFailed)
+    expect(fieldValues()).toEqual([])
   })
 
   it('reads the status again when the window regains focus', async () => {

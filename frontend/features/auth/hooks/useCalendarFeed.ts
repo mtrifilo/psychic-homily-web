@@ -54,6 +54,11 @@ export const useCalendarTokenStatus = (
           refetchOnMount: 'always',
           refetchOnWindowFocus: 'always',
           refetchInterval: retryWhileFailed,
+          // A live surface decides from the query's state (which read it is
+          // showing, whether one failed), not only from `data`; a read that
+          // returns the data already held, or one that fails, still has to
+          // re-render it.
+          notifyOnChangeProps: 'all',
         }
       : {}),
   })
