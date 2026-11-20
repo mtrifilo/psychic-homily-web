@@ -1,5 +1,5 @@
 import { existsSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, relative, sep } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 import { clearExistenceVerdictsForTests, proxy, RESERVED_SEGMENTS } from './proxy'
@@ -146,47 +146,61 @@ describe('proxy: radio routes', () => {
     expect(missing).toHaveBeenCalledTimes(2)
   })
 
-  // `radioCheck` encodes the app/radio route tree at each depth: the static
-  // pages one level down, `channel` as the only static segment under a
-  // station, nothing static under a show, and no page below a static page. A
-  // new route in any of those places has to be taught to `radioCheck` (and to
-  // the radio rules in next.config.ts) before this passes.
-  describe('agrees with the app/radio route tree', () => {
+  it('reserves exactly the static pages under app/radio', () => {
     const appRadio = join(__dirname, 'app', 'radio')
-    /** Child directories of `dir` that are URL segments: not `[param]`, `_private` or `(group)`. */
-    const staticChildren = (dir: string) =>
-      readdirSync(dir, { withFileTypes: true })
-        .filter(entry => entry.isDirectory() && !/^[[_(]/.test(entry.name))
-        .map(entry => entry.name)
-        .sort()
-    /** Whether any `page.tsx` sits below `dir`, excluding `dir` itself. */
-    const hasNestedPage = (dir: string): boolean =>
-      readdirSync(dir, { withFileTypes: true }).some(
-        entry =>
-          entry.isDirectory() &&
-          (existsSync(join(dir, entry.name, 'page.tsx')) || hasNestedPage(join(dir, entry.name)))
-      )
+    const staticPages = readdirSync(appRadio, { withFileTypes: true })
+      .filter(entry => entry.isDirectory() && !/^[[_(]/.test(entry.name))
+      .filter(entry => existsSync(join(appRadio, entry.name, 'page.tsx')))
+      .map(entry => entry.name)
+      .sort()
 
-    it('reserves exactly the static pages under app/radio', () => {
-      const staticPages = staticChildren(appRadio).filter(name =>
-        existsSync(join(appRadio, name, 'page.tsx'))
-      )
-      expect([...RESERVED_SEGMENTS.radio].sort()).toEqual(staticPages)
-    })
+    expect([...RESERVED_SEGMENTS.radio].sort()).toEqual(staticPages)
+  })
+})
 
-    it('has no page below a static radio page', () => {
-      for (const name of RESERVED_SEGMENTS.radio) {
-        expect(hasNestedPage(join(appRadio, name)), name).toBe(false)
-      }
-    })
+/**
+ * Every file under `dir` that makes a URL answer: a page, a route handler, or a
+ * metadata file such as `opengraph-image`. Private (`_x`) folders hold no
+ * routes and are skipped.
+ */
+function routeFiles(dir: string, base = dir): string[] {
+  const routeFile = /^(page|route|opengraph-image|twitter-image|icon|apple-icon|sitemap|manifest)\.[a-z]+$/
+  const found: string[] = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      if (!entry.name.startsWith('_')) found.push(...routeFiles(path, base))
+    } else if (routeFile.test(entry.name)) {
+      found.push(relative(base, path).split(sep).join('/'))
+    }
+  }
+  return found.sort()
+}
 
-    it('has `channel` as the only static segment under a station', () => {
-      expect(staticChildren(join(appRadio, '[station-slug]'))).toEqual(['channel'])
-    })
+// `radioCheck` and `collectionCheck` decide every URL under their prefix by
+// depth and by the literal segments below, so a route file added anywhere
+// under app/radio or app/collections (a page, a handler, an OG image) would be
+// probed as a station, show or collection and 404. Adding one fails here until
+// the proxy branch, and the radio and collection rules in next.config.ts, are
+// taught about it.
+describe('proxy: the route trees its radio and collection branches encode', () => {
+  it('knows every route file under app/radio', () => {
+    expect(routeFiles(join(__dirname, 'app', 'radio'))).toEqual([
+      '[station-slug]/[show-slug]/[date]/page.tsx',
+      '[station-slug]/[show-slug]/page.tsx',
+      '[station-slug]/channel/[sub-slug]/page.tsx',
+      '[station-slug]/page.tsx',
+      'new-releases/page.tsx',
+      'page.tsx',
+      'playlists/page.tsx',
+    ])
+  })
 
-    it('has no static segment under a show', () => {
-      expect(staticChildren(join(appRadio, '[station-slug]', '[show-slug]'))).toEqual([])
-    })
+  it('knows every route file under app/collections', () => {
+    expect(routeFiles(join(__dirname, 'app', 'collections'))).toEqual([
+      '[slug]/page.tsx',
+      'page.tsx',
+    ])
   })
 })
 

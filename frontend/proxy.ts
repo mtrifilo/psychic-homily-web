@@ -188,8 +188,10 @@ export const RESERVED_SEGMENTS: Record<string, ReadonlySet<string>> = {
 /**
  * The cookie that carries a session; the collection page forwards it to read
  * the collection as the viewer. `config.matcher` and the collection `Link`
- * header rule in next.config.ts spell it too. All three count the cookie only
- * with a non-empty value, as Next's `missing` condition does.
+ * header rule in next.config.ts spell it too. For a single well-formed cookie
+ * all three count it only with a non-empty value, as Next's `missing`
+ * condition does; a repeated or value-less `auth_token` can be read
+ * differently by the proxy's parser and the router's.
  */
 const SESSION_COOKIE = 'auth_token'
 
