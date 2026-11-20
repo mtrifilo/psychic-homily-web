@@ -90,8 +90,8 @@ jobs:
     name: Sitemap vs API
     # Pinned for the same reason as the Bun version below.
     runs-on: ubuntu-24.04
-    # Walking every shard means tens of thousands of URLs across 33 documents
-    # (the index, 32 shards), plus one projection-feed request per entity shard
+    # Walking every shard means tens of thousands of URLs across 35 documents
+    # (the index, 34 shards), plus one projection-feed request per entity shard
     # and per sub-sharded family, and the sampled probes; a couple of minutes is
     # normal, so this ceiling only catches a genuinely wedged endpoint.
     #
@@ -106,7 +106,7 @@ jobs:
     #   (1 index + ceil(N / SHARD_FETCH_CONCURRENCY)
     #      + ceil(E / SHARD_FETCH_CONCURRENCY) + 1 probe wave) x 65s
     #
-    # At N=32 documents, E=34 count requests and a pool of 6 that is 14 x 65s =
+    # At N=34 documents, E=36 count requests and a pool of 6 that is 14 x 65s =
     # 15.2 minutes. 25 holds it with room for another family split, and each 6
     # shards added costs two more waves, i.e. ~2 minutes rather than ~6.5.
     #

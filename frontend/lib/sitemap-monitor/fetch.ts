@@ -8,6 +8,7 @@
 import {
   ALL_SHARD_IDS,
   ENTITY_SHARD_IDS,
+  RETIRED_SHARD_IDS,
   shardFamily,
   shardIdsFor,
   SITEMAP_FAMILIES,
@@ -388,10 +389,14 @@ export async function walkSitemap(config: MonitorConfig): Promise<SitemapObserva
     return observation
   }
 
-  const shardUrls = parseSitemapIndex(entryXml).map(loc => rebaseOnTarget(loc, config.target))
+  const known = new Set<string>(ALL_SHARD_IDS)
+  // A retired document is dropped before the walk: not fetched, counted under
+  // no family, and not an unknown shard. See RETIRED_SHARD_IDS.
+  const shardUrls = parseSitemapIndex(entryXml)
+    .map(loc => rebaseOnTarget(loc, config.target))
+    .filter(shardUrl => !RETIRED_SHARD_IDS.has(shardIdFromUrl(shardUrl)))
   observation.shardCount = shardUrls.length
 
-  const known = new Set<string>(ALL_SHARD_IDS)
   const listed = new Set<string>()
 
   // Fetched with bounded concurrency, folded in index order.
@@ -550,7 +555,7 @@ const UNSERVED_SHARD_STATUSES = new Set([400, 422])
  * from the index. The unbucketed query is a different predicate over the same
  * table, which is what makes it an oracle rather than an echo.
  *
- * One request per entity shard plus one per sub-sharded family, so 34 today,
+ * One request per entity shard plus one per sub-sharded family, so 36 today,
  * against an API that rate-limits anonymous callers per IP. That is why they go
  * through the same bounded pool the document walk uses, and why
  * .github/workflows/sitemap-freshness.yml counts these waves in its timeout

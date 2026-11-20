@@ -166,7 +166,7 @@ async function dehydratedFirstScreen(
 const EMPTY_DEHYDRATED_STATE: DehydratedState = { mutations: [], queries: [] }
 
 /**
- * The `ItemList` await stays in the page body, matching `/shows` and `/venues`.
+ * The `ItemList` await stays in the page body, matching `/shows`.
  * Moving it under the `Suspense` boundary was considered and buys nothing:
  * `fetchSeoList` fetches with a `revalidate` hint, so the block is prerenderable
  * and Next bakes it in wherever the await sits. Suspense does not postpone what
@@ -177,7 +177,7 @@ const EMPTY_DEHYDRATED_STATE: DehydratedState = { mutations: [], queries: [] }
  * the fallback shell (`.next/server/app/artists.html`) contains NO `ItemList`;
  * the block is in the per-segment prefetch payload
  * (`artists.segments/artists/__PAGE__.segment.rsc`), which is also what `<Link>`
- * prefetch downloads. `/venues` and `/shows` behave identically, so this is PPR,
+ * prefetch downloads. `/shows` behaves identically, so this is PPR,
  * not anything this route does. A crawler still receives the block, because the
  * composed response it gets is shell plus resume — verify against `curl`, never
  * against the `.html` artifact, which is the trap here.

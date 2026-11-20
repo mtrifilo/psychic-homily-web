@@ -26,11 +26,9 @@
  *
  * The route mode is CONDITIONAL on whether the build-time fetch succeeds, and
  * the build's fetch Data Cache is a second input. All four rows measured by
- * build → `next start` → kill the backend → curl. Rows 1 and 3 were last
- * measured at the current 32 shards, against a database holding the production
- * catalogue (`32 of 32 shards have a fallback document`, and `31 of 32 shards
- * have no fallback document` with the backend down); rows 2 and 4 were not, so
- * read their counts as the count they were taken at:
+ * build → `next start` → kill the backend → curl. Rows 1 and 3 have a
+ * last-measured shard count recorded in lib/sitemap-prerender/check.ts; rows 2
+ * and 4 were not counted:
  *
  *   Backend reachable at build time (the normal production path):
  *     ├ ● /sitemap/[__metadata_id__]         1h      1y
@@ -179,9 +177,9 @@ type SitemapEntry = components['schemas']['SitemapEntry']
  * schema makes tsc emit TS2741 on this declaration. Without it a new family
  * would be fetched, ignored, and silently absent from the XML.
  *
- * The URL shape is deliberately NOT here: it lives in FAMILY_URL_PREFIXES and
- * FAMILY_QUERY_PARAMS in sitemap-shards.ts because lib/sitemap-monitor has to
- * map served URLs back onto families with the same tables. `changeFrequency` and `priority` stay
+ * The URL shape is deliberately NOT here: it lives in FAMILY_URL_PREFIXES in
+ * sitemap-shards.ts because lib/sitemap-monitor has to map served URLs back
+ * onto families with the same table. `changeFrequency` and `priority` stay
  * local because nothing outside this generator has any use for them.
  *
  * Public collections are deliberately absent — see contracts.SitemapEntries.
@@ -206,12 +204,6 @@ const FAMILY_ROUTES: Record<
   // below the list root, which is the entry point, and level with the scene
   // week pages, which are the same kind of dated window onto the same shows.
   shows_months: { changeFrequency: 'daily', priority: 0.6 },
-  // A city's directory page changes whenever a room in it is added, verified or
-  // edited, and whenever one of its rooms announces a show, which on the busiest
-  // cities is weekly rather than daily. Priority sits level with the venue pages
-  // it lists, because for a reader arriving on a city name it is the entry
-  // point and the venue page is the detail.
-  venue_cities: { changeFrequency: 'weekly', priority: 0.6 },
   scenes: { changeFrequency: 'weekly', priority: 0.7 },
   scene_weeks: { changeFrequency: 'weekly', priority: 0.6 },
   // The rolling window pages list a different stretch of nights every day, and
@@ -315,7 +307,7 @@ const UNKNOWN_FAMILY_STATUSES = new Set([400, 422])
  * (TestSitemapFamilyEnumMatchesTheService), so neither side can drift alone.
  *
  * `shardId` is what goes on the wire and `family` is which key of the response
- * carries the rows: they are the same string for the seven single-document
+ * carries the rows: they are the same string for the nine single-document
  * families, and differ for every bucket of the other three. Passing both rather
  * than deriving one
  * from the other keeps this function ignorant of which families are sharded.

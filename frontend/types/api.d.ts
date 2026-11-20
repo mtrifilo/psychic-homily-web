@@ -7313,23 +7313,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/venues/listing": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get venues listing */
-        get: operations["get-venues-listing"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/venues/search": {
         parameters: {
             query?: never;
@@ -12630,20 +12613,6 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
-        ListVenueListingResponseBody: {
-            /**
-             * Format: int64
-             * @description Number of venues in this response
-             */
-            count: number;
-            /**
-             * Format: int64
-             * @description Size of the browse set this was projected from, read in the same snapshot as the rows. Not pagination metadata: this endpoint has no next page. Equal to count unless some venue cannot form a URL.
-             */
-            total: number;
-            /** @description Venues reduced to slug and name, ordered by name */
-            venues: components["schemas"]["VenueListingEntry"][] | null;
-        };
         ListVenuesResponseBody: {
             /**
              * Format: int64
@@ -15780,7 +15749,6 @@ export interface components {
             shows: components["schemas"]["SitemapEntry"][] | null;
             shows_months: components["schemas"]["SitemapEntry"][] | null;
             tags: components["schemas"]["SitemapEntry"][] | null;
-            venue_cities: components["schemas"]["SitemapEntry"][] | null;
             venue_years: components["schemas"]["SitemapEntry"][] | null;
             venues: components["schemas"]["SitemapEntry"][] | null;
         };
@@ -16921,12 +16889,6 @@ export interface components {
             slug: string;
             /** @description The show's own title. Empty for most shows. */
             title: string;
-        };
-        VenueListingEntry: {
-            /** @description Venue display name */
-            name: string;
-            /** @description URL slug for the venue */
-            slug: string;
         };
         VenueMatchResult: {
             city: string;
@@ -33955,7 +33917,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description When set, only this family is populated; others are empty arrays. */
-                family?: "shows" | "artists" | "venues" | "venue_years" | "shows_months" | "venue_cities" | "scenes" | "scene_weeks" | "scene_periods" | "labels" | "releases" | "festivals" | "tags" | "shows-b0" | "shows-b1" | "shows-b2" | "shows-b3" | "shows-b4" | "shows-b5" | "shows-b6" | "shows-b7" | "artists-b0" | "artists-b1" | "artists-b2" | "artists-b3" | "artists-b4" | "artists-b5" | "artists-b6" | "artists-b7" | "releases-b0" | "releases-b1" | "releases-b2" | "releases-b3" | "releases-b4" | "releases-b5" | "releases-b6" | "releases-b7";
+                family?: "shows" | "artists" | "venues" | "venue_years" | "shows_months" | "scenes" | "scene_weeks" | "scene_periods" | "labels" | "releases" | "festivals" | "tags" | "shows-b0" | "shows-b1" | "shows-b2" | "shows-b3" | "shows-b4" | "shows-b5" | "shows-b6" | "shows-b7" | "artists-b0" | "artists-b1" | "artists-b2" | "artists-b3" | "artists-b4" | "artists-b5" | "artists-b6" | "artists-b7" | "releases-b0" | "releases-b1" | "releases-b2" | "releases-b3" | "releases-b4" | "releases-b5" | "releases-b6" | "releases-b7";
             };
             header?: never;
             path?: never;
@@ -35213,36 +35175,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GetVenueCitiesResponseBody"];
-                };
-            };
-            /** @description Error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ErrorModel"];
-                };
-            };
-        };
-    };
-    "get-venues-listing": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    "Cache-Control"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ListVenueListingResponseBody"];
                 };
             };
             /** @description Error */

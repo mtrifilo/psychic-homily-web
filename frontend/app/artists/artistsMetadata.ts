@@ -27,21 +27,14 @@ export type ArtistListItem = components['schemas']['ArtistListingEntry']
  * catalogue grew. What belongs here is why the bound exists, which does not
  * change with the row count.
  *
- * WHY 100. A product default, and nothing in this file constrains it — a larger
- * number would work. `VENUE_LIST_LIMIT` is also 100, but for an unrelated
- * reason (it is `GET /venues`' declared `maximum`, which huma 422s past), so the
- * agreement is a coincidence and not a convention to preserve. What an SEO
- * `ItemList` is worth on a route whose URLs are already in a sitemap shard is
- * the question all three list pages defer; PSY-1794 is where it gets settled.
+ * WHY 100. A product default, and nothing in this file constrains it; a larger
+ * number would work. What an SEO `ItemList` is worth on a route whose URLs are
+ * already in a sitemap family is an open question for this page.
  *
  * WHAT IT COSTS. 100 of ~6,200 is a real truncation and nothing reports the
- * shortfall — the same defect PSY-1764 tracks on `/venues` at 100 of 198, an
- * order of magnitude larger. It does NOT cost discoverability: every slugged
- * artist is in the `/sitemap/artists-b0.xml` shard, a superset of this
- * activity-gated set. That is not an advantage over `/venues`, which has its own
- * shard on the same footing; sitemap coverage is why the truncation is
- * survivable on both, not why it is cheaper here. What is lost is `ItemList`
- * enrichment on the least active artists. Tracked in PSY-1794.
+ * shortfall. It does NOT cost discoverability: every slugged artist is in the
+ * `artists` sitemap family, a superset of this activity-gated set. What is lost
+ * is `ItemList` enrichment on the least active artists.
  *
  * WHICH 100. `GET /artists/listing` shares `artistBrowseOrder` with the browse
  * page (upcoming show count DESC, then name ASC), so taking the HEAD keeps the
