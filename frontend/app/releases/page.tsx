@@ -7,11 +7,13 @@ import {
   RELEASE_LIST_FIRST_SCREEN_URL,
 } from '@/features/releases/listFirstScreen'
 import { LoadingSpinner } from '@/components/shared'
+import { CachedListFallback } from '@/components/shared/CachedListFallback'
 import { listRootCanonical } from '@/lib/seo/siteMetadata'
 import {
   dehydrateListFirstScreen,
-  type RouteSearchParams,
+  type FirstScreenRead,
 } from '@/lib/ssr/firstScreenSeed'
+import type { RouteSearchParams } from '@/lib/ssr/firstScreenParams'
 
 /**
  * The canonical is fixed at `/releases` for every query variant of this page.
@@ -33,6 +35,19 @@ export const metadata = {
   },
 }
 
+/** The reads that seed a bare `/releases`. */
+const FIRST_SCREEN_READS: readonly FirstScreenRead[] = [
+  {
+    url: RELEASE_LIST_FIRST_SCREEN_URL,
+    queryKey: RELEASE_LIST_FIRST_SCREEN_KEY,
+    collection: 'releases',
+    service: 'releases-first-screen',
+  },
+]
+
+/** The keys those reads seed: what the page's fallback gates on. */
+const FIRST_SCREEN_KEYS = FIRST_SCREEN_READS.map(read => read.queryKey)
+
 /**
  * `ReleaseList` under a boundary seeded with the first page of releases on a
  * bare `/releases`, so the rows are in the server HTML.
@@ -53,14 +68,7 @@ export async function HydratedReleaseList({
   const dehydratedState = await dehydrateListFirstScreen(
     await searchParams,
     RELEASE_LIST_FIRST_SCREEN_DEFEATING_PARAMS,
-    [
-      {
-        url: RELEASE_LIST_FIRST_SCREEN_URL,
-        queryKey: RELEASE_LIST_FIRST_SCREEN_KEY,
-        collection: 'releases',
-        service: 'releases-first-screen',
-      },
-    ],
+    FIRST_SCREEN_READS,
   )
 
   return (
@@ -81,9 +89,17 @@ export default function ReleasesPage({
         <h1 className="text-3xl font-bold text-center mb-8">Releases</h1>
         <Suspense
           fallback={
-            <div className="flex justify-center items-center py-12">
-              <LoadingSpinner />
-            </div>
+            <CachedListFallback
+              seededKeys={FIRST_SCREEN_KEYS}
+              defeatingParams={RELEASE_LIST_FIRST_SCREEN_DEFEATING_PARAMS}
+              loader={
+                <div className="flex justify-center items-center py-12">
+                  <LoadingSpinner />
+                </div>
+              }
+            >
+              <ReleaseList />
+            </CachedListFallback>
           }
         >
           <HydratedReleaseList searchParams={searchParams} />

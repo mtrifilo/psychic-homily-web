@@ -7,10 +7,12 @@ import {
   FESTIVAL_LIST_FIRST_SCREEN_URL,
 } from '@/features/festivals/listFirstScreen'
 import { LoadingSpinner } from '@/components/shared'
+import { CachedListFallback } from '@/components/shared/CachedListFallback'
 import {
   dehydrateListFirstScreen,
-  type RouteSearchParams,
+  type FirstScreenRead,
 } from '@/lib/ssr/firstScreenSeed'
+import type { RouteSearchParams } from '@/lib/ssr/firstScreenParams'
 
 export const metadata = {
   title: 'Festivals',
@@ -25,6 +27,19 @@ export const metadata = {
     type: 'website',
   },
 }
+
+/** The reads that seed a bare `/festivals`. */
+const FIRST_SCREEN_READS: readonly FirstScreenRead[] = [
+  {
+    url: FESTIVAL_LIST_FIRST_SCREEN_URL,
+    queryKey: FESTIVAL_LIST_FIRST_SCREEN_KEY,
+    collection: 'festivals',
+    service: 'festivals-first-screen',
+  },
+]
+
+/** The keys those reads seed: what the page's fallback gates on. */
+const FIRST_SCREEN_KEYS = FIRST_SCREEN_READS.map(read => read.queryKey)
 
 /**
  * `FestivalList` under a boundary seeded with the festivals on a bare
@@ -46,14 +61,7 @@ export async function HydratedFestivalList({
   const dehydratedState = await dehydrateListFirstScreen(
     await searchParams,
     FESTIVAL_LIST_FIRST_SCREEN_DEFEATING_PARAMS,
-    [
-      {
-        url: FESTIVAL_LIST_FIRST_SCREEN_URL,
-        queryKey: FESTIVAL_LIST_FIRST_SCREEN_KEY,
-        collection: 'festivals',
-        service: 'festivals-first-screen',
-      },
-    ],
+    FIRST_SCREEN_READS,
   )
 
   return (
@@ -74,9 +82,17 @@ export default function FestivalsPage({
         <h1 className="text-3xl font-bold text-center mb-8">Festivals</h1>
         <Suspense
           fallback={
-            <div className="flex justify-center items-center py-12">
-              <LoadingSpinner />
-            </div>
+            <CachedListFallback
+              seededKeys={FIRST_SCREEN_KEYS}
+              defeatingParams={FESTIVAL_LIST_FIRST_SCREEN_DEFEATING_PARAMS}
+              loader={
+                <div className="flex justify-center items-center py-12">
+                  <LoadingSpinner />
+                </div>
+              }
+            >
+              <FestivalList />
+            </CachedListFallback>
           }
         >
           <HydratedFestivalList searchParams={searchParams} />

@@ -18,8 +18,8 @@ import {
   EMPTY_DEHYDRATED_STATE,
   dehydrateFirstScreen,
   dehydrateListFirstScreen,
-  isFirstScreenRequest,
 } from './firstScreenSeed'
+import { isFirstScreenRequest } from './firstScreenParams'
 
 const DEFEATING = ['page', 'tags'] as const
 

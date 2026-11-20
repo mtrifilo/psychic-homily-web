@@ -7,7 +7,9 @@ import {
   RecordingSearchParams,
   registeredQueryHashes,
   serverRenderFirstScreen as serverRender,
+  cachedListFallbackOf,
 } from '@/test/firstScreenRender'
+import { describeCachedListFallback } from '@/test/cachedListFallbackSuite'
 
 const { fetchListPayload } = vi.hoisted(() => ({ fetchListPayload: vi.fn() }))
 vi.mock('@/lib/ssr/fetchListPayload', () => ({ fetchListPayload }))
@@ -55,6 +57,7 @@ import {
   RELEASE_LIST_FIRST_SCREEN_KEY,
   RELEASE_LIST_FIRST_SCREEN_URL,
 } from '@/features/releases/listFirstScreen'
+import { releaseQueryKeys } from '@/features/releases/api'
 
 
 const release = (id: number, title: string, slug: string) => ({
@@ -219,4 +222,38 @@ describe('/releases first-screen request pairing', () => {
       )
     }
   )
+})
+
+describeCachedListFallback({
+  route: '/releases',
+  fallback: () =>
+    cachedListFallbackOf(ReleasesPage({ searchParams: Promise.resolve({}) })),
+  seededBoundary: () => {
+    fetchListPayload.mockResolvedValue(releasesPayload)
+    return renderBoundary()
+  },
+  list: ReleaseList,
+  seeded: [[RELEASE_LIST_FIRST_SCREEN_KEY, releasesPayload]],
+  defeatingParams: RELEASE_LIST_FIRST_SCREEN_DEFEATING_PARAMS,
+  seededRow: 'href="/releases/in-rainbows"',
+  loaders: [LOADER],
+  otherQuery: {
+    // Page 2 of the default view: the first-screen key with the next offset.
+    entry: [
+      releaseQueryKeys.list({
+        ...(RELEASE_LIST_FIRST_SCREEN_KEY[2] as Record<string, unknown>),
+        offset: 50,
+      }),
+      {
+        releases: [release(51, 'Spiderland', 'spiderland')],
+        total: 51,
+        limit: 50,
+        offset: 50,
+      },
+    ],
+    row: 'href="/releases/spiderland"',
+    search: 'page=2',
+  },
+  nav,
+  apiRequest,
 })

@@ -1,12 +1,16 @@
 import { Suspense } from 'react'
 import { Metadata } from 'next'
 import { HydrationBoundary } from '@tanstack/react-query'
-import RadioHub, { CachedRadioDial, RadioDial } from './_components/RadioHub'
+import RadioHub, { RadioDial, RadioDialLoader } from './_components/RadioHub'
+import { CachedListFallback } from '@/components/shared/CachedListFallback'
 import {
   RADIO_DIAL_FIRST_SCREEN_KEY,
   RADIO_DIAL_FIRST_SCREEN_URL,
 } from '@/features/radio/dialFirstScreen'
-import { dehydrateFirstScreen } from '@/lib/ssr/firstScreenSeed'
+import {
+  dehydrateFirstScreen,
+  type FirstScreenRead,
+} from '@/lib/ssr/firstScreenSeed'
 
 export const metadata: Metadata = {
   title: 'Radio',
@@ -18,6 +22,19 @@ export const metadata: Metadata = {
     url: '/radio',
   },
 }
+
+/** The read that seeds the dial. */
+const FIRST_SCREEN_READS: readonly FirstScreenRead[] = [
+  {
+    url: RADIO_DIAL_FIRST_SCREEN_URL,
+    queryKey: RADIO_DIAL_FIRST_SCREEN_KEY,
+    collection: 'stations',
+    service: 'radio-stations-first-screen',
+  },
+]
+
+/** The keys that read seeds: what the dial's fallback gates on. */
+const FIRST_SCREEN_KEYS = FIRST_SCREEN_READS.map(read => read.queryKey)
 
 /**
  * `RadioDial` under a boundary seeded with the station list, so every dial
@@ -31,14 +48,7 @@ export const metadata: Metadata = {
  * error states. The element is a `HydrationBoundary` on every path.
  */
 export async function HydratedRadioDial() {
-  const dehydratedState = await dehydrateFirstScreen([
-    {
-      url: RADIO_DIAL_FIRST_SCREEN_URL,
-      queryKey: RADIO_DIAL_FIRST_SCREEN_KEY,
-      collection: 'stations',
-      service: 'radio-stations-first-screen',
-    },
-  ])
+  const dehydratedState = await dehydrateFirstScreen(FIRST_SCREEN_READS)
 
   return (
     <HydrationBoundary state={dehydratedState}>
@@ -50,15 +60,24 @@ export async function HydratedRadioDial() {
 /**
  * Only the dial waits on the server read: the page head, the latest playlists
  * and the sidebar sit outside the boundary and start their own reads at
- * hydration. The fallback is the dial drawn from the browser's cache without
- * the dial's queries, which a fallback must not run (see `seedFirstScreen`):
- * the loader on a cold cache, the cached strips on a navigation back.
+ * hydration. The fallback is the dial's loader on the server and on a cold
+ * cache, and the dial itself over the cached stations on a navigation back
+ * (see `CachedListFallback`).
  */
 export default function RadioPage() {
   return (
     <RadioHub
       dial={
-        <Suspense fallback={<CachedRadioDial />}>
+        <Suspense
+          fallback={
+            <CachedListFallback
+              seededKeys={FIRST_SCREEN_KEYS}
+              loader={<RadioDialLoader />}
+            >
+              <RadioDial />
+            </CachedListFallback>
+          }
+        >
           <HydratedRadioDial />
         </Suspense>
       }

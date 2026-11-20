@@ -5,39 +5,15 @@ import {
   fetchListPayload,
   type ListPayloadCollection,
 } from '@/lib/ssr/fetchListPayload'
-
-/** A route's `searchParams`, as Next hands them to a page. */
-export type RouteSearchParams = Record<string, string | string[] | undefined>
+import {
+  isFirstScreenRequest,
+  type RouteSearchParams,
+} from '@/lib/ssr/firstScreenParams'
 
 /** What `dehydrate()` produces for an empty client: hydrates nothing. */
 export const EMPTY_DEHYDRATED_STATE: DehydratedState = {
   mutations: [],
   queries: [],
-}
-
-/**
- * Whether a URL's params keep it on a list's seeded first screen: true when
- * none of `defeatingParams` carries a non-empty value.
- *
- * The test is for a non-empty value, not for a value that moves the client
- * hook's cache key, so a param restating the default (`?page=1`) still skips a
- * seed it would have hit. That is the safe direction: a false positive costs a
- * server-rendered loader, while a false negative would seed a key the hook
- * never reads.
- *
- * Empty values (`?tags=`, `?page=`) read as absent, because the list
- * components parse them as absent. A repeated param is an array; any non-empty
- * member counts.
- */
-export function isFirstScreenRequest(
-  params: RouteSearchParams,
-  defeatingParams: readonly string[],
-): boolean {
-  return !defeatingParams.some(key => {
-    const value = params[key]
-    if (Array.isArray(value)) return value.some(v => v !== '')
-    return value !== undefined && value !== ''
-  })
 }
 
 /** One cache entry a list blocks its first paint on, and the read that fills it. */

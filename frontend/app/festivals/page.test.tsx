@@ -7,7 +7,9 @@ import {
   RecordingSearchParams,
   registeredQueryHashes,
   serverRenderFirstScreen as serverRender,
+  cachedListFallbackOf,
 } from '@/test/firstScreenRender'
+import { describeCachedListFallback } from '@/test/cachedListFallbackSuite'
 
 const { fetchListPayload } = vi.hoisted(() => ({ fetchListPayload: vi.fn() }))
 vi.mock('@/lib/ssr/fetchListPayload', () => ({ fetchListPayload }))
@@ -47,6 +49,7 @@ import {
   FESTIVAL_LIST_FIRST_SCREEN_KEY,
   FESTIVAL_LIST_FIRST_SCREEN_URL,
 } from '@/features/festivals/listFirstScreen'
+import { festivalQueryKeys } from '@/features/festivals/api'
 
 const festivalsPayload = {
   festivals: [
@@ -192,4 +195,46 @@ describe('/festivals first-screen request pairing', () => {
       name => !(FESTIVAL_LIST_FIRST_SCREEN_DEFEATING_PARAMS as readonly string[]).includes(name)
     )).toEqual([])
   })
+})
+
+describeCachedListFallback({
+  route: '/festivals',
+  fallback: () =>
+    cachedListFallbackOf(FestivalsPage({ searchParams: Promise.resolve({}) })),
+  seededBoundary: () => {
+    fetchListPayload.mockResolvedValue(festivalsPayload)
+    return renderBoundary()
+  },
+  list: FestivalList,
+  seeded: [[FESTIVAL_LIST_FIRST_SCREEN_KEY, festivalsPayload]],
+  defeatingParams: FESTIVAL_LIST_FIRST_SCREEN_DEFEATING_PARAMS,
+  seededRow: 'href="/festivals/form-arcosanti-2026"',
+  loaders: [LOADER],
+  otherQuery: {
+    entry: [
+      festivalQueryKeys.list({
+        status: 'cancelled',
+        year: undefined,
+        city: undefined,
+        tags: undefined,
+        tagMatch: 'all',
+      }),
+      {
+        festivals: [
+          {
+            ...festivalsPayload.festivals[0],
+            id: 9,
+            name: 'Called Off Fest',
+            slug: 'called-off-fest-2026',
+            status: 'cancelled',
+          },
+        ],
+        count: 1,
+      },
+    ],
+    row: 'href="/festivals/called-off-fest-2026"',
+    search: 'status=cancelled',
+  },
+  nav,
+  apiRequest,
 })

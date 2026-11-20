@@ -7,10 +7,12 @@ import {
   LABEL_LIST_FIRST_SCREEN_URL,
 } from '@/features/labels/listFirstScreen'
 import { LoadingSpinner } from '@/components/shared'
+import { CachedListFallback } from '@/components/shared/CachedListFallback'
 import {
   dehydrateListFirstScreen,
-  type RouteSearchParams,
+  type FirstScreenRead,
 } from '@/lib/ssr/firstScreenSeed'
+import type { RouteSearchParams } from '@/lib/ssr/firstScreenParams'
 
 export const metadata = {
   title: 'Labels',
@@ -25,6 +27,19 @@ export const metadata = {
     type: 'website',
   },
 }
+
+/** The reads that seed a bare `/labels`. */
+const FIRST_SCREEN_READS: readonly FirstScreenRead[] = [
+  {
+    url: LABEL_LIST_FIRST_SCREEN_URL,
+    queryKey: LABEL_LIST_FIRST_SCREEN_KEY,
+    collection: 'labels',
+    service: 'labels-first-screen',
+  },
+]
+
+/** The keys those reads seed: what the page's fallback gates on. */
+const FIRST_SCREEN_KEYS = FIRST_SCREEN_READS.map(read => read.queryKey)
 
 /**
  * `LabelList` under a boundary seeded with the labels on a bare `/labels`, so
@@ -46,14 +61,7 @@ export async function HydratedLabelList({
   const dehydratedState = await dehydrateListFirstScreen(
     await searchParams,
     LABEL_LIST_FIRST_SCREEN_DEFEATING_PARAMS,
-    [
-      {
-        url: LABEL_LIST_FIRST_SCREEN_URL,
-        queryKey: LABEL_LIST_FIRST_SCREEN_KEY,
-        collection: 'labels',
-        service: 'labels-first-screen',
-      },
-    ],
+    FIRST_SCREEN_READS,
   )
 
   return (
@@ -74,9 +82,17 @@ export default function LabelsPage({
         <h1 className="text-3xl font-bold text-center mb-8">Labels</h1>
         <Suspense
           fallback={
-            <div className="flex justify-center items-center py-12">
-              <LoadingSpinner />
-            </div>
+            <CachedListFallback
+              seededKeys={FIRST_SCREEN_KEYS}
+              defeatingParams={LABEL_LIST_FIRST_SCREEN_DEFEATING_PARAMS}
+              loader={
+                <div className="flex justify-center items-center py-12">
+                  <LoadingSpinner />
+                </div>
+              }
+            >
+              <LabelList />
+            </CachedListFallback>
           }
         >
           <HydratedLabelList searchParams={searchParams} />

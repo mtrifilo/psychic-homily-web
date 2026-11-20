@@ -1,7 +1,6 @@
 'use client'
 
 import type { ReactNode } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
 import { Loader2, Radio } from 'lucide-react'
 import { BracketLink } from '@/components/shared/BracketLink'
 import {
@@ -13,12 +12,7 @@ import {
   isStationVisibleOnIndex,
   sortDialStations,
 } from '@/features/radio'
-import { radioQueryKeys } from '@/features/radio/api'
-import type {
-  RadioGuideResponse,
-  RadioStationListItem,
-  RadioStationsListResponse,
-} from '@/features/radio/types'
+import type { RadioStationListItem } from '@/features/radio/types'
 import { DialStationStrip } from './DialStationStrip'
 import { LatestPlaylistsTable } from './LatestPlaylistsTable'
 import { NewReleaseRadarBox, DialStatsBox } from './DialSidebarBoxes'
@@ -118,36 +112,17 @@ export function RadioDial() {
   return <DialView stationsQuery={stationsQuery} guideQuery={guideQuery} />
 }
 
-/** A station list read that has not answered yet. */
-const PENDING_STATIONS = { data: undefined, isLoading: true, error: null } as const
-
 /**
- * `RadioDial` drawn from what the browser's query cache already holds, with
- * no query behind it, so it can stand as the fallback above a seeded dial
- * (see `seedFirstScreen`). `getQueryData` and `getQueryState` read an entry
- * without creating one.
- *
- * On the server, and on a first load, the cache is empty and this is the dial
- * as it renders before its reads answer, loader and all (the guide renders
- * nothing while loading). On a client-side navigation back to the hub, the
- * cache holds the stations, and the dial shows them while the route's server
- * render streams.
+ * The dial as it renders before its station read answers: the dial loader,
+ * and no guide (the guide renders nothing while loading). It is the `loader`
+ * of the dial's `CachedListFallback`, which renders it wherever the cache
+ * cannot answer the dial's first screen, so it must create no query.
  */
-export function CachedRadioDial() {
-  const queryClient = useQueryClient()
-  const stations = queryClient.getQueryData<RadioStationsListResponse>(
-    radioQueryKeys.stations()
-  )
-  const guide = queryClient.getQueryState<RadioGuideResponse>(
-    radioQueryKeys.guide()
-  )
-
+export function RadioDialLoader() {
   return (
     <DialView
-      stationsQuery={
-        stations ? { data: stations, isLoading: false, error: null } : PENDING_STATIONS
-      }
-      guideQuery={{ data: guide?.data, isError: guide?.status === 'error' }}
+      stationsQuery={{ data: undefined, isLoading: true, error: null }}
+      guideQuery={{ data: undefined, isError: false }}
     />
   )
 }
