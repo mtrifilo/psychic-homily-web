@@ -27,6 +27,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -179,19 +180,29 @@ func ticketSuffix(g catalog.ReplicatedShowGroup, c catalog.ReplicatedShowCopy) s
 	if g.Actionable() {
 		return ""
 	}
-	if c.TicketURL == "" {
-		return "  ticket=(none)"
-	}
-	return "  ticket=" + c.TicketURL
+	return "  ticket=" + orNone(c.TicketURL)
 }
 
-// refSuffix names the references a copy carries. Bookmarks and crate items are
-// dropped with a deleted copy; comments are kept as tombstones.
+// refSuffix names the reference rows a copy carries, split by what DeleteShow
+// does with them.
 func refSuffix(c catalog.ReplicatedShowCopy) string {
-	if c.Bookmarks == 0 && c.CollectionItems == 0 && c.Comments == 0 {
-		return ""
+	var drops, keeps []string
+	for _, r := range c.Refs {
+		entry := fmt.Sprintf("%s=%d", r.Table, r.Rows)
+		if r.Dropped {
+			drops = append(drops, entry)
+		} else {
+			keeps = append(keeps, entry)
+		}
 	}
-	return fmt.Sprintf("  [bookmarks=%d crate_items=%d comments=%d]", c.Bookmarks, c.CollectionItems, c.Comments)
+	out := ""
+	if len(drops) > 0 {
+		out += "  [deletes " + strings.Join(drops, " ") + "]"
+	}
+	if len(keeps) > 0 {
+		out += "  [keeps as tombstones " + strings.Join(keeps, " ") + "]"
+	}
+	return out
 }
 
 func printBeyond(w io.Writer, plan *catalog.ReplicatedShowPlan) {

@@ -167,8 +167,9 @@ func (s *ShowReplicaPurgeSuite) TestReplicatedGroup_KeepsCurrentYearCopyAndDelet
 	s.Equal(ids[1:], g.DeleteIDs)
 	s.Require().Len(g.Copies, 6)
 	s.Equal("2026-10-03", g.Copies[0].LocalDate, "grouped on the venue-local day, not the UTC one")
-	s.Equal(int64(1), g.Copies[2].Bookmarks)
-	s.Equal(int64(1), g.Copies[3].Comments)
+	s.Equal([]ReplicaRefCount{{Table: "user_bookmarks", Dropped: true, Rows: 1}}, g.Copies[2].Refs)
+	s.Equal([]ReplicaRefCount{{Table: "comments", Dropped: false, Rows: 1}}, g.Copies[3].Refs)
+	s.Empty(g.Copies[1].Refs)
 	s.Empty(plan.Beyond, "every far-future copy belongs to the group")
 
 	s.Require().NoError(PurgeReplicatedShowGroup(s.db, replicaNow, g))
@@ -328,7 +329,7 @@ func (s *ShowReplicaPurgeSuite) TestUnapprovedCopyIsNotGrouped() {
 func (s *ShowReplicaPurgeSuite) TestCreateShow_EventDateBound() {
 	room := s.venue("Great American Music Hall")
 	svc := NewShowService(s.db)
-	bound := ShowEventDateBound(time.Now())
+	bound := showEventDateBound(time.Now())
 	request := func(name string, at time.Time, admin, override bool) *contracts.CreateShowRequest {
 		return &contracts.CreateShowRequest{
 			Title:              name,

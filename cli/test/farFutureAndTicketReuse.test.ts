@@ -152,13 +152,15 @@ describe("ticket URL reuse", () => {
   });
 
   test("flags shows in the same run at the same room and ticket URL on other dates", async () => {
-    const { get } = catalog();
+    const { get, calls } = catalog();
     const result = await submitShows(
       client(get),
       JSON.stringify([show("2026-10-03"), show("2027-10-03"), show("2027-10-04", "https://tix.example/other")]),
       false,
       { now: NOW },
     );
+    const lookups = calls.filter((c) => c.params?.ticket_url).map((c) => c.params?.ticket_url);
+    expect(lookups).toEqual([TICKET, "https://tix.example/other"]);
     expect(result.plans[0].batchTicketReuse).toEqual([1]);
     expect(result.plans[1].batchTicketReuse).toEqual([0]);
     expect(result.plans[2].batchTicketReuse).toBeUndefined();
