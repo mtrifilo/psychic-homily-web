@@ -297,6 +297,16 @@ describe('ShowListFallback on a client-side navigation, warm for the viewer', ()
     expect(geoRequests(fetchSpy)).toHaveLength(0)
   })
 
+  it('draws all cities for an explicit ?cities=all, with no cached location answer', () => {
+    nav.params = new URLSearchParams('cities=all')
+    const client = warmClient(ALL_CITIES_ENTRIES)
+
+    const { container } = navigate(client)
+
+    expectDrawn(container, 'All cities row')
+    expect(geoRequests(fetchSpy)).toHaveLength(0)
+  })
+
   // This list's geo default is for anonymous viewers only, so a signed-in
   // viewer with no favourites lists all cities whatever the session cache holds.
   it('draws all cities for a signed-in viewer with no favourites and no cached location answer', () => {
@@ -380,6 +390,21 @@ describe('ShowListFallback on a client-side navigation, skeleton', () => {
 
   it('is the skeleton, and requests nothing, for an anonymous viewer with no cached location answer', () => {
     const client = warmClient(ALL_CITIES_ENTRIES)
+
+    const { container } = navigate(client)
+
+    expectSkeleton(container)
+    expect(geoRequests(fetchSpy)).toHaveLength(0)
+  })
+
+  // A legacy city with no state is no selection, so the geo default can still
+  // decide it.
+  it('is the skeleton for a legacy ?city= with no state and no cached location answer', () => {
+    nav.params = new URLSearchParams('city=Tucson')
+    const client = warmClient([
+      ...ALL_CITIES_ENTRIES,
+      ...entriesForSelection([TUCSON], TUCSON_ROWS),
+    ])
 
     const { container } = navigate(client)
 
@@ -538,6 +563,10 @@ describe('useShowListCitySelection', () => {
   it('in request mode, counts the default as possible for an eligible viewer', () => {
     cacheGeoAnswer(null)
 
+    expect(read('request').geoDefaultPossible).toBe(true)
+  })
+
+  it('in request mode with nothing cached, counts the default as possible', () => {
     expect(read('request').geoDefaultPossible).toBe(true)
   })
 
