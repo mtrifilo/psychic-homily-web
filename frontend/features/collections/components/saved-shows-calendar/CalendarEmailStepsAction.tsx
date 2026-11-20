@@ -84,7 +84,7 @@ export function CalendarEmailStepsAction() {
         <PanelError>{PANEL_COPY.emailRateLimited}</PanelError>
       ) : null}
       {outcome === 'failed' ? (
-        <PanelErrorWithRetry onRetry={onSend}>
+        <PanelErrorWithRetry onRetry={onSend} retrying={send.isPending}>
           {PANEL_COPY.emailFailed}
         </PanelErrorWithRetry>
       ) : null}

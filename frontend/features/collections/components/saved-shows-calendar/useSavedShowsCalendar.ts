@@ -78,7 +78,12 @@ export function useSavedShowsCalendar(): SavedShowsCalendarState {
 
   const currentStatus =
     status.data && status.dataUpdatedAt >= openedAt ? status.data : undefined
-  if (link.data && !currentStatus && status.isError) {
+  // "Failed since this open", which survives the pending frame of each retry
+  // (a retry clears the query's error until it settles) and ignores a failure
+  // another surface left in the shared cache before this open.
+  const failedSinceOpen = (query: { errorUpdatedAt: number }) =>
+    query.errorUpdatedAt >= openedAt
+  if (link.data && !currentStatus && failedSinceOpen(status)) {
     return {
       kind: 'link_failed',
       failure: 'load',
@@ -86,8 +91,8 @@ export function useSavedShowsCalendar(): SavedShowsCalendarState {
     }
   }
 
-  const newestSettled = !!newest.data || newest.isError
-  const upcomingSettled = !!upcoming.data || upcoming.isError
+  const newestSettled = !!newest.data || failedSinceOpen(newest)
+  const upcomingSettled = !!upcoming.data || failedSinceOpen(upcoming)
   if (!link.data || !currentStatus || !newestSettled || !upcomingSettled || !device) {
     return { kind: 'loading' }
   }

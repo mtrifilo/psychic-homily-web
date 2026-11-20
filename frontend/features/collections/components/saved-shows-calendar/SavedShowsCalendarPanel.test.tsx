@@ -856,11 +856,18 @@ describe('SavedShowsCalendarPanel: keeps this open together', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     try {
       withLink([google(2 * HOUR)])
-      let failSaves = true
+      let saves: 'fail' | 'hang' | 'ok' = 'fail'
+      const hung: Array<() => void> = []
       const base = apiRequest.getMockImplementation()!
       apiRequest.mockImplementation(async (endpoint: string, options: unknown) => {
-        if (String(endpoint).includes('/saved-shows?') && failSaves) {
-          throw new Error('502')
+        if (String(endpoint).includes('/saved-shows?')) {
+          if (saves === 'fail') throw new Error('502')
+          if (saves === 'hang') {
+            await new Promise<void>(resolve => {
+              hung.push(resolve)
+            })
+            throw new Error('502')
+          }
         }
         return base(endpoint, options)
       })
@@ -870,7 +877,18 @@ describe('SavedShowsCalendarPanel: keeps this open together', () => {
       expect(within(panel).queryByText(/Download/)).not.toBeInTheDocument()
       expect(rowNames(panel)).toContain('Copy link')
 
-      failSaves = false
+      // While a retry is in flight, the panel stays as it is.
+      saves = 'hang'
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000)
+      })
+      expect(within(panel).queryByText(PANEL_COPY.loading)).not.toBeInTheDocument()
+      expect(rowNames(panel)).toContain('Copy link')
+      await act(async () => {
+        for (const release of hung) release()
+      })
+
+      saves = 'ok'
       await act(async () => {
         await vi.advanceTimersByTimeAsync(10_000)
       })

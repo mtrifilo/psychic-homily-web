@@ -174,9 +174,12 @@ export function endsWithRetry(line: string): boolean {
 export function PanelErrorWithRetry({
   children,
   onRetry,
+  retrying = false,
 }: {
   children: string
   onRetry: () => void
+  /** A retry is in flight; the control waits rather than sending another. */
+  retrying?: boolean
 }) {
   const layout = useCalendarPanelLayout()
   if (!endsWithRetry(children)) return <PanelError>{children}</PanelError>
@@ -186,12 +189,13 @@ export function PanelErrorWithRetry({
       {lead}
       <button
         type="button"
+        disabled={retrying}
         onClick={event => {
           holdFocusInPanel(event.currentTarget)
           onRetry()
         }}
         className={cn(
-          'rounded-sm underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          'rounded-sm underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50',
           // The sheet's 44px tap target, without changing how the line reads.
           layout === 'sheet' &&
             "relative after:absolute after:-inset-x-1 after:-inset-y-4 after:content-['']"
