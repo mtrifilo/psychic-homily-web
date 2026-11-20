@@ -307,9 +307,11 @@ func (s *DiscoveryService) importEvent(event *contracts.DiscoveredEvent, dryRun 
 	}
 
 	// The far-future bound CreateShow applies, with no override: a scraped
-	// calendar never carries a human's confirmation that the date is real.
+	// calendar never carries a human's confirmation that the date is real. A
+	// refusal is counted as rejected, not as an error: it is the designed
+	// outcome for this event on every run, not a failed import.
 	if err := catalog.CheckShowEventDateBound(eventDate, time.Now(), false); err != nil {
-		return fmt.Sprintf("SKIP: %s (ID: %s): %v", event.Title, event.ID, err), "error"
+		return fmt.Sprintf("REJECTED: %s (ID: %s): %v", event.Title, event.ID, err), "rejected"
 	}
 
 	// Check if there's a rejected show at the same venue at the same exact

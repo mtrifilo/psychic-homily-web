@@ -262,7 +262,10 @@ export interface ShowPlan {
 }
 
 export interface SubmitShowsOptions {
-  /** Send the far-future override for every show past the bound. */
+  /**
+   * Permit the far-future override. It is sent only for a show past the bound
+   * whose input also carries "allow_far_future_date": true.
+   */
   allowFarFuture?: boolean;
   /** The instant the bound is measured from; tests pin it. */
   now?: Date;
@@ -1063,6 +1066,14 @@ function quoteSourceValue(value: string): string {
 }
 
 /**
+ * quoteSourceValue for a value printed inside one warning line: tabs and line
+ * breaks become spaces, so a stored name cannot print a line of its own.
+ */
+export function quoteLineValue(value: string): string {
+  return quoteSourceValue(value.replace(/[\t\n\u2028\u2029]/g, " "));
+}
+
+/**
  * One line saying which stated time is not being stored, and why.
  *
  * The wording lives here rather than in `resolveShowTimes` because it is dry-run
@@ -1186,9 +1197,9 @@ function displayPreview(plans: ShowPlan[], resolvedTags?: ResolvedTag[][]): void
       display.kv("Tickets", quoteSourceValue(plan.input.ticket_url));
     }
     for (const reuse of plan.ticketReuse ?? []) {
-      const slug = reuse.slug ? ` (${quoteSourceValue(reuse.slug)})` : "";
+      const slug = reuse.slug ? ` (${quoteLineValue(reuse.slug)})` : "";
       display.warn(
-        `ticket URL already sells show ${reuse.showId}${slug} at ${quoteSourceValue(reuse.venueName ?? "this room")} on ${quoteSourceValue(reuse.eventDate)}; a residency can share one link, and so does a year-replicated copy: check before --confirm`,
+        `ticket URL already sells show ${reuse.showId}${slug} at ${quoteLineValue(reuse.venueName ?? "this room")} on ${quoteLineValue(reuse.eventDate)}; a residency can share one link, and so does a year-replicated copy: check before --confirm`,
       );
     }
     if (plan.batchTicketReuse && plan.batchTicketReuse.length > 0) {

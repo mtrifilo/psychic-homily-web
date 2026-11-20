@@ -174,7 +174,7 @@ func ErrInvalidEventDate(message string) *ShowError {
 func ErrShowEventDateBeyondBound(eventDate, bound time.Time, boundMonths int) *ShowError {
 	return NewShowError(CodeShowEventDateBeyondBound, fmt.Sprintf(
 		"event_date %s is more than %d months ahead (the latest date accepted today is %s). "+
-			"Only an admin can create it, by sending allow_far_future_date: true with the show",
+			"Only an admin can create it, through POST /shows with allow_far_future_date: true",
 		eventDate.UTC().Format(time.RFC3339), boundMonths, bound.UTC().Format(time.RFC3339)), nil)
 }
 

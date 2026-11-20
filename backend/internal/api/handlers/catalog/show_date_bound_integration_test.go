@@ -49,7 +49,7 @@ func (s *ShowHandlerIntegrationSuite) TestCreateShow_FarFutureDateRefusedWithBou
 
 	se := s.requireStatus(err, http.StatusUnprocessableEntity)
 	s.Contains(se.Error(), "more than 18 months ahead")
-	s.Contains(se.Error(), "allow_far_future_date")
+	s.Contains(se.Error(), "POST /shows with allow_far_future_date: true")
 	s.Contains(se.Error(), "SHOW_EVENT_DATE_BEYOND_BOUND")
 	s.Equal(int64(0), s.showCount())
 }

@@ -124,11 +124,13 @@ func TestRun_DryRunThenConfirmThenRerun(t *testing.T) {
 	}
 	digest := digestIn(t, out)
 
-	// Confirm without the reviewed digest and a backup is refused outright.
+	// Confirm without the reviewed digest and a backup, or against another
+	// target, is refused outright.
 	for name, opts := range map[string]options{
-		"no digest":    {confirm: true, backupPath: backup, beyondMonths: 18, now: testNow},
-		"no backup":    {confirm: true, expectPlan: digest, beyondMonths: 18, now: testNow},
-		"wrong digest": {confirm: true, expectPlan: "0000000000000000", backupPath: backup, beyondMonths: 18, now: testNow},
+		"no digest":      {confirm: true, backupPath: backup, beyondMonths: 18, now: testNow, target: "test-db"},
+		"no backup":      {confirm: true, expectPlan: digest, beyondMonths: 18, now: testNow, target: "test-db"},
+		"wrong digest":   {confirm: true, expectPlan: "0000000000000000", backupPath: backup, beyondMonths: 18, now: testNow, target: "test-db"},
+		"another target": {confirm: true, expectPlan: digest, backupPath: backup, beyondMonths: 18, now: testNow, target: "other-db"},
 	} {
 		var refused bytes.Buffer
 		if code := run(database, opts, &refused); code != 1 {
@@ -142,9 +144,28 @@ func TestRun_DryRunThenConfirmThenRerun(t *testing.T) {
 		t.Fatalf("a refused run created the backup file: %v", err)
 	}
 
+	// An existing backup file is never overwritten, even on a matching plan.
+	existing := filepath.Join(t.TempDir(), "earlier.jsonl")
+	if err := os.WriteFile(existing, []byte("prior\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var clash bytes.Buffer
+	if code := run(database, options{confirm: true, expectPlan: digest, backupPath: existing, beyondMonths: 18, now: testNow, target: "test-db"}, &clash); code != 1 {
+		t.Fatalf("existing backup file: want exit 1, got %d\n%s", code, clash.String())
+	}
+	if !strings.Contains(clash.String(), "backup file:") {
+		t.Errorf("existing backup file: output\n%s", clash.String())
+	}
+	if kept, _ := os.ReadFile(existing); string(kept) != "prior\n" {
+		t.Fatalf("existing backup file was changed: %q", kept)
+	}
+	if got := liveShowIDs(t, database); len(got) != len(all) {
+		t.Fatalf("existing backup file: shows were deleted: %v", got)
+	}
+
 	// Confirm with the reviewed digest deletes the five later copies and nothing else.
 	var live bytes.Buffer
-	if code := run(database, options{confirm: true, expectPlan: digest, backupPath: backup, beyondMonths: 18, now: testNow}, &live); code != 0 {
+	if code := run(database, options{confirm: true, expectPlan: digest, backupPath: backup, beyondMonths: 18, now: testNow, target: "test-db"}, &live); code != 0 {
 		t.Fatalf("confirm exit %d\n%s", code, live.String())
 	}
 	if !strings.Contains(live.String(), fmt.Sprintf("[DELETED] 5 copies; kept show %d", ids[0])) {
@@ -161,17 +182,15 @@ func TestRun_DryRunThenConfirmThenRerun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := strings.Count(string(lines), "\n"); n != 5 {
-		t.Fatalf("backup holds %d lines, want 5\n%s", n, lines)
+	if n := strings.Count(string(lines), "\n"); n != 6 {
+		t.Fatalf("backup holds %d lines, want 5 snapshots and 1 outcome\n%s", n, lines)
+	}
+	if !strings.Contains(string(lines), fmt.Sprintf(`"group_kept_show_id":%d,"group_deleted_show_ids":[%d,%d,%d,%d,%d],"committed":true`,
+		ids[0], ids[1], ids[2], ids[3], ids[4], ids[5])) {
+		t.Errorf("backup lacks the committed outcome line\n%s", lines)
 	}
 	if !strings.Contains(string(lines), fmt.Sprintf(`"kept_show_id":%d`, ids[0])) {
 		t.Errorf("backup does not name the survivor\n%s", lines)
-	}
-
-	// The backup file must be new: a second confirmed run with the same path is refused.
-	var reused bytes.Buffer
-	if code := run(database, options{confirm: true, expectPlan: digest, backupPath: backup, beyondMonths: 18, now: testNow}, &reused); code != 1 {
-		t.Errorf("reusing the backup path: want exit 1, got %d\n%s", code, reused.String())
 	}
 
 	// A second run finds nothing to do.
