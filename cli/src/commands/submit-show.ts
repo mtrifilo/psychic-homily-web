@@ -1,4 +1,4 @@
-import { APIClient } from "../lib/api";
+import { APIClient, APIError } from "../lib/api";
 import type { EnvironmentConfig } from "../lib/types";
 import { validateShow } from "../lib/schemas";
 import { searchArtistsByName, searchVenuesByName, similarityScore, checkShowDuplicate, compareFields } from "../lib/duplicates";
@@ -575,6 +575,19 @@ export function applyEventDateBound(plans: ShowPlan[], options: SubmitShowsOptio
   }
 }
 
+/** The API's error code for a show refused for its far-future date. */
+export const SHOW_EVENT_DATE_BEYOND_BOUND = "SHOW_EVENT_DATE_BEYOND_BOUND";
+
+/**
+ * ph's own hint for the API's far-future refusal, recognised by its code
+ * rather than its sentence, which is worded for every surface. Null for any
+ * other error.
+ */
+export function farFutureRefusalHint(err: unknown): string | null {
+  if (!(err instanceof APIError) || err.errorCode !== SHOW_EVENT_DATE_BEYOND_BOUND) return null;
+  return `if the date is confirmed, add "allow_far_future_date": true to this show and re-run with --allow-far-future`;
+}
+
 /** How a venue is matched across shows in one run: its id, else its name and city. */
 function venueKeys(plan: ShowPlan): string[] {
   return plan.venues.map((v, i) =>
@@ -901,6 +914,8 @@ export async function submitShows(
       const label = plan.input.title || `${plan.input.event_date} show`;
       const message = err instanceof Error ? err.message : "Unknown error";
       display.error(`Failed to create ${label}: ${message}`);
+      const hint = farFutureRefusalHint(err);
+      if (hint) display.info(`  ${hint}`);
     }
   }
 

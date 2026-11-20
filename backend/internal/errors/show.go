@@ -168,13 +168,22 @@ func ErrInvalidEventDate(message string) *ShowError {
 	return NewShowError(CodeInvalidEventDate, message, nil)
 }
 
+// ShowEventDateBeyondBoundSentence is the refusal a person reads, on every
+// surface, when a show is dated past the far-future bound: the web form, the
+// admin import, the request fulfiller and the API. Its verbs, in order, are the
+// requested event_date, the bound in months and the latest date accepted; they
+// are indexed, so a wording may use any of them in any order, but it must use at
+// least one or fmt reports the unused arguments. Clients that know their own
+// way past the bound (the ph CLI)
+// add their hint by recognising CodeShowEventDateBeyondBound, not by reading
+// this text.
+const ShowEventDateBeyondBoundSentence = "event_date %[1]s is more than %[2]d months ahead (the latest date accepted today is %[3]s). " +
+	"Only an admin can create it, through POST /shows with allow_far_future_date: true"
+
 // ErrShowEventDateBeyondBound creates the refusal for a show dated more than
-// boundMonths after now. The message is user-facing and names the bound and the
-// API's override; it names no client, so every surface can show it as is.
+// boundMonths after now, worded by ShowEventDateBeyondBoundSentence.
 func ErrShowEventDateBeyondBound(eventDate, bound time.Time, boundMonths int) *ShowError {
-	return NewShowError(CodeShowEventDateBeyondBound, fmt.Sprintf(
-		"event_date %s is more than %d months ahead (the latest date accepted today is %s). "+
-			"Only an admin can create it, through POST /shows with allow_far_future_date: true",
+	return NewShowError(CodeShowEventDateBeyondBound, fmt.Sprintf(ShowEventDateBeyondBoundSentence,
 		eventDate.UTC().Format(time.RFC3339), boundMonths, bound.UTC().Format(time.RFC3339)), nil)
 }
 
