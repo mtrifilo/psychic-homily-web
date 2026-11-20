@@ -210,7 +210,12 @@ func TestRetiredFeedLinksThroughRouter(t *testing.T) {
 					t.Errorf("%s notice carries the token", route.name)
 				}
 
-				if revalidated := fetch(t, path, on.header.Get("ETag")); revalidated.status != http.StatusNotModified || revalidated.body != "" {
+				// The calendar notice changes when the date does, so a
+				// revalidation that crosses midnight in the notice's zone gets
+				// the new day's notice with a new validator instead of a 304.
+				revalidated := fetch(t, path, on.header.Get("ETag"))
+				crossedMidnight := revalidated.status == http.StatusOK && revalidated.header.Get("ETag") != on.header.Get("ETag")
+				if !crossedMidnight && (revalidated.status != http.StatusNotModified || revalidated.body != "") {
 					t.Errorf("%s revalidation: %d %q", route.name, revalidated.status, revalidated.body)
 				}
 			}

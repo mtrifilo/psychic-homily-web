@@ -77,7 +77,7 @@ var retiredLinkWordings = map[engagementm.CalendarLinkRetiredReason]retiredLinkW
 // are deleted with it (calendar_feed_reads cascades from calendar_tokens).
 // Nothing but the token's hash, the reason and the instant is kept. It writes
 // no link-reset marker. Signing out everywhere and a password reset retire
-// through RevokeCalendarLinkTx, which writes one; the mailbox-proof reclaim
+// through RevokeCalendarLinkTx, which may write one; the mailbox-proof reclaim
 // calls this directly because it must leave none.
 //
 // A retired token is refused by ValidateCalendarToken before any feed is

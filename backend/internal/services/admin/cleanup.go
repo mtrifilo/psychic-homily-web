@@ -150,7 +150,8 @@ func (s *CleanupService) runRetiredCalendarLinkSweep(ctx context.Context) {
 	deleted, err := engagementsvc.ForgetExpiredRetiredLinks(ctx, s.db, time.Now())
 	if err != nil {
 		shared.LogCycleFailure(s.logger, "retired calendar link sweep failed", err, "deleted", deleted)
-		shared.ReportCycle(ctx, int(deleted), err)
+		// No row count: the loop's count is its accounts, not these rows.
+		shared.ReportCycle(ctx, 0, err)
 		return
 	}
 	s.logger.Info("retired calendar link sweep completed", "deleted", deleted)

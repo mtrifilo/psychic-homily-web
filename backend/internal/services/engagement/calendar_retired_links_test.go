@@ -200,9 +200,9 @@ func (suite *CalendarIntegrationTestSuite) TestRetireCalendarTokensTx_StoresTheI
 // The calendar answer for each reason, driven from the stored retirement
 // instant: the note on the fetch's date on days 0 and 29, a valid empty
 // calendar on day 31, and nothing remembered a moment after a calendar year
-// (day 366 unless the year spans a February 29, which the fixed-date leap
-// test covers). Probing the rule's own boundary keeps the test independent of
-// the date it runs on.
+// (a moment past day 365, or past day 366 across a February 29). Probing the
+// rule's own boundary keeps the test independent of the date it runs on;
+// TestRetiredLinkRemembered_UnknownOnDay366 pins day 366 on fixed dates.
 func (suite *CalendarIntegrationTestSuite) TestRetiredSavedShowsNotice_ThirtyDaysOfNoteThenEmptyThenUnknown() {
 	for _, r := range suite.retirements() {
 		suite.Run(r.name, func() {
