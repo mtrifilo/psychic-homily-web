@@ -1367,18 +1367,6 @@ func (h *AuthHandler) SendMagicLinkHandler(ctx context.Context, input *SendMagic
 	return resp, nil
 }
 
-// magicLinkReturnTo is the destination a plain magic link carries for raw: the
-// path sanitizeOAuthReturnTo accepts, the rule Google sign-in applies, or ""
-// when that rule falls back to the site root, so a link that names no
-// destination is the link it was before it could name one. The send applies
-// it to the request's value, and the verify applies it again to the token's.
-func magicLinkReturnTo(raw string) string {
-	if path := sanitizeOAuthReturnTo(raw); path != oauthReturnToFallback {
-		return path
-	}
-	return ""
-}
-
 // VerifyMagicLinkRequest represents the request to verify a magic link
 type VerifyMagicLinkRequest struct {
 	Body struct {

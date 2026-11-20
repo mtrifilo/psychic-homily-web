@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"sync"
 
@@ -58,13 +57,6 @@ func (e *magicLinkEnv) sent() []string {
 	return append([]string(nil), e.tokens...)
 }
 
-func (s *AuthHandlerIntegrationSuite) decodeBody(resp *httptest.ResponseRecorder) map[string]any {
-	s.T().Helper()
-	var body map[string]any
-	s.Require().NoError(json.Unmarshal(resp.Body.Bytes(), &body), resp.Body.String())
-	return body
-}
-
 // verifiedMagicLinkUser creates an account a magic link is sent to.
 func (s *AuthHandlerIntegrationSuite) verifiedMagicLinkUser(email string) *authm.User {
 	user := s.createUserWithPassword(email, "strong-password-123!")
@@ -77,10 +69,8 @@ func (s *AuthHandlerIntegrationSuite) verifiedMagicLinkUser(email string) *authm
 func (s *AuthHandlerIntegrationSuite) askForMagicLink(env *magicLinkEnv, body map[string]any) map[string]any {
 	s.T().Helper()
 	resp := env.api.Post("/auth/magic-link/send", body)
-	s.Require().Equal(http.StatusOK, resp.Code, resp.Body.String())
-	got := s.decodeBody(resp)
-	s.Require().Equal(true, got["success"], got)
-	return got
+	requireWireSuccess(s.T(), resp)
+	return decodeWireBody(s.T(), resp.Body.Bytes())
 }
 
 // deliverMagicLink runs the outbox and returns the one link it sent.
@@ -97,11 +87,9 @@ func (s *AuthHandlerIntegrationSuite) deliverMagicLink(env *magicLinkEnv) string
 func (s *AuthHandlerIntegrationSuite) openMagicLink(env *magicLinkEnv, token string) map[string]any {
 	s.T().Helper()
 	resp := env.api.Post("/auth/magic-link/verify", map[string]any{"token": token})
-	s.Require().Equal(http.StatusOK, resp.Code, resp.Body.String())
-	body := s.decodeBody(resp)
-	s.Require().Equal(true, body["success"], body)
-	s.Require().NotEmpty(sessionCookieValue(resp), "a sign-in sets the session cookie")
-	return body
+	requireWireSuccess(s.T(), resp)
+	s.Require().NotNil(setCookies(resp)[config.AuthCookieName], "a sign-in sets the session cookie")
+	return decodeWireBody(s.T(), resp.Body.Bytes())
 }
 
 // latestOutboxRow is the newest auth_email_outbox row of userID.
@@ -110,15 +98,6 @@ func (s *AuthHandlerIntegrationSuite) latestOutboxRow(userID uint) authm.AuthEma
 	rows := s.outboxRows(userID)
 	s.Require().NotEmpty(rows)
 	return rows[len(rows)-1]
-}
-
-func sessionCookieValue(resp *httptest.ResponseRecorder) string {
-	for _, c := range resp.Result().Cookies() {
-		if c.Name == config.AuthCookieName {
-			return c.Value
-		}
-	}
-	return ""
 }
 
 func (s *AuthHandlerIntegrationSuite) TestMagicLinkReturnTo_TheRequestsDestinationComesBackOnVerify() {
@@ -140,7 +119,7 @@ func (s *AuthHandlerIntegrationSuite) TestMagicLinkReturnTo_TheRequestsDestinati
 	s.Require().NoError(err)
 	s.Equal(destination, claims.ReturnTo, "the poller signs the row's destination into the token")
 
-	body := s.openMagicLink(s.newMagicLinkEnv(), token)
+	body := s.openMagicLink(env, token)
 	s.Equal(destination, body["return_to"])
 	s.Equal(float64(user.ID), body["user"].(map[string]any)["id"])
 }
@@ -160,12 +139,20 @@ func (s *AuthHandlerIntegrationSuite) TestMagicLinkReturnTo_NoDestinationBehaves
 	s.NotContains(body, "return_to", "the verify answer names no destination, as before")
 }
 
+// One case of each kind, end to end; the handler unit tests run every case of
+// refusedMagicLinkDestinations and the shared corpus.
 func (s *AuthHandlerIntegrationSuite) TestMagicLinkReturnTo_ARefusedDestinationIsDropped() {
 	user := s.verifiedMagicLinkUser("ml-refused@test.com")
 	env := s.newMagicLinkEnv()
-	for _, tc := range refusedMagicLinkDestinations {
-		s.Run(tc.name, func() {
-			s.askForMagicLink(env, map[string]any{"email": "ml-refused@test.com", "return_to": tc.input})
+	for name, destination := range map[string]string{
+		"absolute URL off the site":            "https://evil.example/library",
+		"protocol-relative":                    "//evil.example",
+		"scheme-carrying":                      "javascript:alert(1)",
+		"backslash after the slash":            `/\evil.example`,
+		"encoded spelling of the sign-in page": "/%61uth",
+	} {
+		s.Run(name, func() {
+			s.askForMagicLink(env, map[string]any{"email": "ml-refused@test.com", "return_to": destination})
 			s.Nil(s.latestOutboxRow(user.ID).ReturnTo, "a refused destination is not stored")
 			body := s.openMagicLink(env, s.deliverMagicLink(env))
 			s.NotContains(body, "return_to")
@@ -195,10 +182,10 @@ func (s *AuthHandlerIntegrationSuite) TestMagicLinkReturnTo_EditingTheTokensDest
 
 	for _, edited := range []any{"//evil.example", "/venues", nil} {
 		resp := env.api.Post("/auth/magic-link/verify", map[string]any{"token": withEditedReturnTo(s, token, edited)})
-		body := s.decodeBody(resp)
+		body := decodeWireBody(s.T(), resp.Body.Bytes())
 		s.Equal(false, body["success"], "an edited destination %v", edited)
 		s.Equal("INVALID_TOKEN", body["error_code"])
-		s.Empty(sessionCookieValue(resp))
+		s.Nil(setCookies(resp)[config.AuthCookieName])
 	}
 
 	s.Equal("/library", s.openMagicLink(env, token)["return_to"], "the unedited link still works")
@@ -214,7 +201,7 @@ func (s *AuthHandlerIntegrationSuite) TestMagicLinkReturnTo_TheVerifyRequestCann
 
 	resp := env.api.Post("/auth/magic-link/verify", map[string]any{"token": token, "return_to": "/library"})
 	s.Equal(http.StatusUnprocessableEntity, resp.Code, resp.Body.String())
-	s.Empty(sessionCookieValue(resp))
+	s.Nil(setCookies(resp)[config.AuthCookieName])
 }
 
 // A second request while the first is still queued sends no second email, so

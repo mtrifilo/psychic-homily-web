@@ -40,18 +40,17 @@ var refusedMagicLinkDestinations = []struct {
 	{"the site root", "/"},
 }
 
-// sendMagicLinkTo runs the send handler for a verified account with
-// returnTo as the request's destination and returns what it queued.
-func sendMagicLinkTo(t *testing.T, returnTo string) []queuedAuthEmail {
+// sendMagicLinkFor runs the send handler for the account the lookup finds
+// (nil for none) with returnTo as the request's destination, and returns
+// what it queued and the response.
+func sendMagicLinkFor(t *testing.T, user *authm.User, returnTo string) ([]queuedAuthEmail, SendMagicLinkResponse) {
 	t.Helper()
 	var queued []queuedAuthEmail
 	h := authHandler(func(ah *AuthHandler) {
 		ah.emailService = forbidSends(t)
 		ah.emailOutbox = recordingOutbox(&queued, nil)
 		ah.userService = &testhelpers.MockUserService{
-			GetUserByEmailFn: func(e string) (*authm.User, error) {
-				return &authm.User{ID: 7, Email: &e, EmailVerified: true}, nil
-			},
+			GetUserByEmailFn: func(string) (*authm.User, error) { return user, nil },
 		}
 	})
 	input := &SendMagicLinkRequest{}
@@ -64,6 +63,15 @@ func sendMagicLinkTo(t *testing.T, returnTo string) []queuedAuthEmail {
 	if !resp.Body.Success {
 		t.Fatalf("expected success=true, got message=%q", resp.Body.Message)
 	}
+	return queued, *resp
+}
+
+// sendMagicLinkTo is sendMagicLinkFor a verified account, returning what it
+// queued.
+func sendMagicLinkTo(t *testing.T, returnTo string) []queuedAuthEmail {
+	t.Helper()
+	email := "verified@example.com"
+	queued, _ := sendMagicLinkFor(t, &authm.User{ID: 7, Email: &email, EmailVerified: true}, returnTo)
 	return queued
 }
 
@@ -109,34 +117,19 @@ func TestSendMagicLinkHandler_DestinationFollowsTheSharedCorpus(t *testing.T) {
 // A request that names a destination gets the body one that names none gets,
 // so the destination changes nothing an asker can read.
 func TestSendMagicLinkHandler_DestinationLeavesTheResponseAlone(t *testing.T) {
-	respFor := func(returnTo string, user *authm.User) SendMagicLinkResponse {
-		var queued []queuedAuthEmail
-		h := authHandler(func(ah *AuthHandler) {
-			ah.emailService = forbidSends(t)
-			ah.emailOutbox = recordingOutbox(&queued, nil)
-			ah.userService = &testhelpers.MockUserService{
-				GetUserByEmailFn: func(string) (*authm.User, error) { return user, nil },
-			}
-		})
-		input := &SendMagicLinkRequest{}
-		input.Body.Email = "verified@example.com"
-		input.Body.ReturnTo = returnTo
-		resp, err := h.SendMagicLinkHandler(context.Background(), input)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		return *resp
-	}
 	email := "verified@example.com"
 	verified := &authm.User{ID: 7, Email: &email, EmailVerified: true}
-	want := respFor("", nil)
-	for name, got := range map[string]SendMagicLinkResponse{
-		"known, with a destination":    respFor("/library", verified),
-		"known, refused destination":   respFor("//evil.example", verified),
-		"unknown, with a destination":  respFor("/library", nil),
-		"known, without a destination": respFor("", verified),
+	_, want := sendMagicLinkFor(t, nil, "")
+	for name, tc := range map[string]struct {
+		user     *authm.User
+		returnTo string
+	}{
+		"known, with a destination":    {verified, "/library"},
+		"known, refused destination":   {verified, "//evil.example"},
+		"unknown, with a destination":  {nil, "/library"},
+		"known, without a destination": {verified, ""},
 	} {
-		if got.Body != want.Body {
+		if _, got := sendMagicLinkFor(t, tc.user, tc.returnTo); got.Body != want.Body {
 			t.Errorf("%s: body differs from the unknown-email body:\n  got  %+v\n  want %+v", name, got.Body, want.Body)
 		}
 	}
@@ -173,15 +166,13 @@ func verifyMagicLinkWithClaims(t *testing.T, returnTo string) *VerifyMagicLinkRe
 }
 
 func TestVerifyMagicLinkHandler_ReturnsTheTokensDestination(t *testing.T) {
-	const destination = "/library?tab=shows#saved"
-	if got := verifyMagicLinkWithClaims(t, destination).Body.ReturnTo; got != destination {
-		t.Errorf("return_to = %q, want %q", got, destination)
-	}
-}
-
-func TestVerifyMagicLinkHandler_NoDestinationReturnsNone(t *testing.T) {
-	if got := verifyMagicLinkWithClaims(t, "").Body.ReturnTo; got != "" {
-		t.Errorf("return_to = %q, want none", got)
+	for name, destination := range map[string]string{
+		"a destination":  "/library?tab=shows#saved",
+		"no destination": "",
+	} {
+		if got := verifyMagicLinkWithClaims(t, destination).Body.ReturnTo; got != destination {
+			t.Errorf("%s: return_to = %q, want %q", name, got, destination)
+		}
 	}
 }
 
