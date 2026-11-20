@@ -27,7 +27,7 @@ func TestParseWorklist_ReadsColumnsByNameAndIgnoresEvidence(t *testing.T) {
 	assert.Equal(t, 2, rows[0].Line)
 	assert.Equal(t, "amity", rows[1].Row.ShowSlug, "cells are trimmed")
 	assert.Empty(t, rows[1].Row.MergeIntoSlug)
-	assert.True(t, rows[2].Skip, "a checked row with no target room is skipped, not refused")
+	assert.True(t, rows[2].skip(), "a checked row with no target room is skipped, not refused")
 	assert.Empty(t, rows[2].Refusal)
 }
 
@@ -78,7 +78,7 @@ func TestParseWorklist_RejectsAnUnusableFile(t *testing.T) {
 func TestRun_ReportsRefusedAndSkippedRowsAndSendsTheRestInOrder(t *testing.T) {
 	rows := []worklistRow{
 		{Line: 2, Row: catalog.ShowReattribution{RoomSlug: "sunshine"}, Refusal: "no show slug"},
-		{Line: 3, Row: catalog.ShowReattribution{ShowSlug: "locked-shut"}, Skip: true, Note: "right room"},
+		{Line: 3, Row: catalog.ShowReattribution{ShowSlug: "locked-shut"}, Note: "right room"},
 		{Line: 4, Row: catalog.ShowReattribution{ShowSlug: "cenit", RoomSlug: "el-rey"}},
 		{Line: 5, Row: catalog.ShowReattribution{ShowSlug: "cenit-mezz", RoomSlug: "el-rey", MergeIntoSlug: "cenit"}},
 	}
@@ -145,4 +145,20 @@ func TestPrintResult_WarnsAboutAShowAlreadyAtTheTargetThatNight(t *testing.T) {
 	assert.Contains(t, text, "line 9  MOVED  cenit")
 	assert.Contains(t, text, "slug: kept as cenit (it names the old room)")
 	assert.Contains(t, text, "WARNING: cenit-mezz (show 11, Cenit / The Mezzanine) is also at the target room that night")
+}
+
+func TestPrintMergeSummary_PrintsEveryCounterAndEveryTable(t *testing.T) {
+	var out bytes.Buffer
+	printMergeSummary(&out, &catalog.ShowDedupSummary{
+		LosersMerged:      2,
+		PendingEditsMoved: 3,
+		EntityRefsMoved:   map[string]int64{"user_bookmarks": 4, "comments": 1},
+		EntityRefsDropped: map[string]int64{"user_bookmarks": 1},
+	})
+	text := out.String()
+	assert.Contains(t, text, "LosersMerged:          2")
+	assert.Contains(t, text, "PendingEditsMoved:     3")
+	assert.Contains(t, text, "ShowVenuesSkipped:     0", "a zero counter is printed too")
+	assert.Contains(t, text, "user_bookmarks:        moved=4 dropped=1")
+	assert.Less(t, strings.Index(text, "comments:"), strings.Index(text, "user_bookmarks:"), "tables in name order")
 }

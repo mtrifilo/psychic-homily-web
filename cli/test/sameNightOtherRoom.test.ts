@@ -113,6 +113,30 @@ describe("reportSameNightOtherRooms", () => {
     expect(calls.map((x) => x.path)).toEqual(["/artists/2/shows"]);
   });
 
+  test("a stated role outranks the legacy flag, as in the payload", async () => {
+    const { client: c, calls } = client(() => ({ shows: [] }));
+    await reportSameNightOtherRooms(
+      c,
+      [plan({ artists: [{ id: 1, name: "Opener", set_type: "opener", is_headliner: true }, { id: 2, name: "Top", set_type: "headliner" }] })],
+      denver,
+    );
+    expect(calls.map((x) => x.path)).toEqual(["/artists/2/shows"]);
+  });
+
+  test("reads each artist's year once across the batch", async () => {
+    const { client: c, calls } = client(() => ({
+      shows: [at(954, "Sunshine Theater Albuquerque", "Albuquerque", "2026-11-26T03:00:00Z")],
+      total: 1,
+    }));
+    await reportSameNightOtherRooms(
+      c,
+      [plan(), plan({ input: { event_date: "2026-11-26" } }), plan({ input: { event_date: "2027-01-05" } })],
+      denver,
+    );
+    expect(calls.map((x) => x.params?.year)).toEqual(["2026", "2027"]);
+    expect(warnings).toHaveLength(1);
+  });
+
   test("skips invalid, duplicate and new-headliner plans without a request", async () => {
     const { client: c, calls } = client(() => ({ shows: [] }));
     await reportSameNightOtherRooms(

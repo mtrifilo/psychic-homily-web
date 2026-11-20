@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -140,6 +141,21 @@ func (s *ShowReattributeTestSuite) snapshot() string {
 	return out
 }
 
+// errTestRollback ends a preview transaction.
+var errTestRollback = errors.New("test: roll back")
+
+// preview runs a row inside a transaction it then rolls back, which is how the
+// CLI's dry run calls ReattributeShow.
+func (s *ShowReattributeTestSuite) preview(row ShowReattribution) ShowReattributionResult {
+	var res ShowReattributionResult
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		res = ReattributeShow(tx, row)
+		return errTestRollback
+	})
+	s.Require().ErrorIs(err, errTestRollback)
+	return res
+}
+
 // --- plain move ---
 
 func (s *ShowReattributeTestSuite) TestPlainMove_RepointsTheRoomAndKeepsTheSlug() {
@@ -149,10 +165,9 @@ func (s *ShowReattributeTestSuite) TestPlainMove_RepointsTheRoomAndKeepsTheSlug(
 	id := s.show("2026-11-17-the-amity-affliction-at-launchpad", albuquerqueEvening, launchpad.ID, act.ID)
 
 	res := ReattributeShow(s.db, ShowReattribution{
-		ShowSlug: "2026-11-17-the-amity-affliction-at-launchpad", RoomSlug: "sunshine"}, true)
+		ShowSlug: "2026-11-17-the-amity-affliction-at-launchpad", RoomSlug: "sunshine"})
 
 	s.Require().Equal(ReattributionMoved, res.Outcome, res.Reason)
-	s.True(res.Committed)
 	s.Equal("Launchpad", res.CurrentRoom.Name)
 	s.Equal("Sunshine Theater", res.TargetRoom.Name)
 	s.Equal("2026-11-25", res.VenueLocalDate)
@@ -171,10 +186,9 @@ func (s *ShowReattributeTestSuite) TestPreview_RunsTheMoveAndWritesNothing() {
 	id := s.show("bodysnatcher", albuquerqueEvening, launchpad.ID, act.ID)
 	before := s.snapshot()
 
-	res := ReattributeShow(s.db, ShowReattribution{ShowSlug: "bodysnatcher", RoomSlug: "sunshine"}, false)
+	res := s.preview(ShowReattribution{ShowSlug: "bodysnatcher", RoomSlug: "sunshine"})
 
 	s.Equal(ReattributionMoved, res.Outcome, res.Reason)
-	s.False(res.Committed)
 	s.Equal([]uint{launchpad.ID}, s.roomsOf(id))
 	s.Equal(before, s.snapshot())
 }
@@ -186,12 +200,11 @@ func (s *ShowReattributeTestSuite) TestPlainMove_SecondRunChangesNothing() {
 	id := s.show("soty", albuquerqueEvening, launchpad.ID, act.ID)
 	row := ShowReattribution{ShowSlug: "soty", RoomSlug: "sunshine"}
 
-	s.Require().Equal(ReattributionMoved, ReattributeShow(s.db, row, true).Outcome)
+	s.Require().Equal(ReattributionMoved, ReattributeShow(s.db, row).Outcome)
 	after := s.snapshot()
 
-	again := ReattributeShow(s.db, row, true)
+	again := ReattributeShow(s.db, row)
 	s.Equal(ReattributionUnchanged, again.Outcome)
-	s.False(again.Committed)
 	s.Equal(after, s.snapshot())
 	s.Equal([]uint{sunshine.ID}, s.roomsOf(id))
 }
@@ -207,7 +220,7 @@ func (s *ShowReattributeTestSuite) TestPlainMove_WarnsAboutAnotherShowAtTheTarge
 	s.show("next-night", albuquerqueEvening.Add(24*time.Hour), elRey.ID, other.ID)
 	s.show("cenit", albuquerqueEvening, launchpad.ID, cenit.ID)
 
-	res := ReattributeShow(s.db, ShowReattribution{ShowSlug: "cenit", RoomSlug: "el-rey"}, false)
+	res := s.preview(ShowReattribution{ShowSlug: "cenit", RoomSlug: "el-rey"})
 
 	s.Require().Equal(ReattributionMoved, res.Outcome, res.Reason)
 	s.Require().Len(res.SameNightAtTarget, 1)
@@ -226,7 +239,7 @@ func (s *ShowReattributeTestSuite) TestPlainMove_SameNightIsVenueLocal() {
 	s.show("early", time.Date(2026, 11, 26, 8, 0, 0, 0, time.UTC), elRey.ID, a.ID) // 1am on the 26th
 	s.show("mover", time.Date(2026, 11, 25, 20, 0, 0, 0, time.UTC), launchpad.ID, b.ID)
 
-	res := ReattributeShow(s.db, ShowReattribution{ShowSlug: "mover", RoomSlug: "el-rey"}, false)
+	res := s.preview(ShowReattribution{ShowSlug: "mover", RoomSlug: "el-rey"})
 
 	s.Require().Equal(ReattributionMoved, res.Outcome, res.Reason)
 	s.Require().Len(res.SameNightAtTarget, 1)
@@ -244,11 +257,13 @@ func (s *ShowReattributeTestSuite) TestPlainMove_OntoAnExactDuplicateFailsAndRol
 	id := s.show("aild-2", albuquerqueEvening, launchpad.ID, act.ID)
 	before := s.snapshot()
 
-	for _, apply := range []bool{false, true} {
-		res := ReattributeShow(s.db, ShowReattribution{ShowSlug: "aild-2", RoomSlug: "sunshine"}, apply)
-		s.Equal(ReattributionFailed, res.Outcome, "apply=%v", apply)
+	row := ShowReattribution{ShowSlug: "aild-2", RoomSlug: "sunshine"}
+	for name, res := range map[string]ShowReattributionResult{
+		"preview": s.preview(row),
+		"apply":   ReattributeShow(s.db, row),
+	} {
+		s.Equal(ReattributionFailed, res.Outcome, name)
 		s.NotEmpty(res.Reason)
-		s.False(res.Committed)
 		s.Require().Len(res.SameNightAtTarget, 1, "the failure names the show it collided with")
 		s.Equal("aild", res.SameNightAtTarget[0].Slug)
 	}
@@ -287,15 +302,14 @@ func (s *ShowReattributeTestSuite) TestMerge_FoldsTheShowIntoTheNamedCopyWithIts
 		MergeIntoSlug: "2026-11-25-as-i-lay-dying-at-launchpad",
 	}
 	before := s.snapshot()
-	preview := ReattributeShow(s.db, row, false)
+	preview := s.preview(row)
 	s.Require().Equal(ReattributionMerged, preview.Outcome, preview.Reason)
 	s.Equal([]string{"Kill The Lights"}, preview.ActsAddedToWinner)
 	s.Require().NotNil(preview.MergeSummary)
 	s.Equal(before, s.snapshot(), "the preview writes nothing")
 
-	res := ReattributeShow(s.db, row, true)
+	res := ReattributeShow(s.db, row)
 	s.Require().Equal(ReattributionMerged, res.Outcome, res.Reason)
-	s.True(res.Committed)
 	s.Equal(winner, res.MergeIntoID)
 	s.Equal(1, res.MergeSummary.LosersMerged)
 
@@ -314,7 +328,7 @@ func (s *ShowReattributeTestSuite) TestMerge_FoldsTheShowIntoTheNamedCopyWithIts
 	s.Zero(s.count("user_bookmarks", "entity_type = 'show' AND entity_id = ?", loser))
 	s.Zero(s.count("comments", "entity_type = 'show' AND entity_id = ?", loser))
 
-	again := ReattributeShow(s.db, row, true)
+	again := ReattributeShow(s.db, row)
 	s.Equal(ReattributionRefused, again.Outcome)
 	s.Contains(again.Reason, "may have been merged by an earlier run")
 }
@@ -329,7 +343,7 @@ func (s *ShowReattributeTestSuite) TestMerge_RefusesATargetThatIsNotAtTheRoom() 
 	before := s.snapshot()
 
 	res := ReattributeShow(s.db, ShowReattribution{
-		ShowSlug: "wolves", RoomSlug: "sunshine", MergeIntoSlug: "demon-hunter"}, true)
+		ShowSlug: "wolves", RoomSlug: "sunshine", MergeIntoSlug: "demon-hunter"})
 
 	s.Equal(ReattributionRefused, res.Outcome)
 	s.Contains(res.Reason, "is not at room sunshine")
@@ -345,7 +359,7 @@ func (s *ShowReattributeTestSuite) TestMerge_RefusesAnotherVenueLocalDate() {
 	before := s.snapshot()
 
 	res := ReattributeShow(s.db, ShowReattribution{
-		ShowSlug: "cenit", RoomSlug: "el-rey", MergeIntoSlug: "cenit-next-night"}, true)
+		ShowSlug: "cenit", RoomSlug: "el-rey", MergeIntoSlug: "cenit-next-night"})
 
 	s.Equal(ReattributionRefused, res.Outcome)
 	s.Contains(res.Reason, "2026-11-26")
@@ -359,11 +373,11 @@ func (s *ShowReattributeTestSuite) TestMerge_RefusesUnknownTargetAndSelf() {
 	s.show("fea", albuquerqueEvening, launchpad.ID, a.ID)
 	before := s.snapshot()
 
-	unknown := ReattributeShow(s.db, ShowReattribution{ShowSlug: "fea", RoomSlug: "sunshine", MergeIntoSlug: "nope"}, true)
+	unknown := ReattributeShow(s.db, ShowReattribution{ShowSlug: "fea", RoomSlug: "sunshine", MergeIntoSlug: "nope"})
 	s.Equal(ReattributionRefused, unknown.Outcome)
 	s.Contains(unknown.Reason, "merge target nope not found")
 
-	self := ReattributeShow(s.db, ShowReattribution{ShowSlug: "fea", RoomSlug: "sunshine", MergeIntoSlug: "fea"}, true)
+	self := ReattributeShow(s.db, ShowReattribution{ShowSlug: "fea", RoomSlug: "sunshine", MergeIntoSlug: "fea"})
 	s.Equal(ReattributionRefused, self.Outcome)
 	s.Equal(before, s.snapshot())
 }
@@ -387,12 +401,12 @@ func (s *ShowReattributeTestSuite) TestRowsInsideAnOuterTransactionSeeEarlierRow
 			{ShowSlug: "missing", RoomSlug: "el-rey"},
 			{ShowSlug: "cenit-mezz", RoomSlug: "el-rey", MergeIntoSlug: "cenit"},
 		} {
-			outcomes = append(outcomes, ReattributeShow(tx, row, true).Outcome)
+			outcomes = append(outcomes, ReattributeShow(tx, row).Outcome)
 		}
-		return errReattributionRollback
+		return errTestRollback
 	})
 
-	s.ErrorIs(err, errReattributionRollback)
+	s.ErrorIs(err, errTestRollback)
 	s.Equal([]ReattributionOutcome{ReattributionMoved, ReattributionRefused, ReattributionMerged}, outcomes)
 	s.Equal(before, s.snapshot(), "the outer rollback takes every row with it")
 }
@@ -405,15 +419,15 @@ func (s *ShowReattributeTestSuite) TestRefusesUnknownSlugs() {
 	s.show("dweezil", albuquerqueEvening, launchpad.ID, a.ID)
 	before := s.snapshot()
 
-	noShow := ReattributeShow(s.db, ShowReattribution{ShowSlug: "missing", RoomSlug: "launchpad"}, true)
+	noShow := ReattributeShow(s.db, ShowReattribution{ShowSlug: "missing", RoomSlug: "launchpad"})
 	s.Equal(ReattributionRefused, noShow.Outcome)
 	s.Equal("show not found", noShow.Reason)
 
-	noRoom := ReattributeShow(s.db, ShowReattribution{ShowSlug: "dweezil", RoomSlug: "nhcc"}, true)
+	noRoom := ReattributeShow(s.db, ShowReattribution{ShowSlug: "dweezil", RoomSlug: "nhcc"})
 	s.Equal(ReattributionRefused, noRoom.Outcome)
 	s.Equal("room nhcc not found", noRoom.Reason)
 
-	blank := ReattributeShow(s.db, ShowReattribution{ShowSlug: "dweezil", RoomSlug: "  "}, true)
+	blank := ReattributeShow(s.db, ShowReattribution{ShowSlug: "dweezil", RoomSlug: "  "})
 	s.Equal(ReattributionRefused, blank.Outcome)
 	s.Equal(before, s.snapshot())
 }
@@ -426,11 +440,11 @@ func (s *ShowReattributeTestSuite) TestRefusesACrossCityMove() {
 	s.show("sage", albuquerqueEvening, launchpad.ID, a.ID)
 	before := s.snapshot()
 
-	city := ReattributeShow(s.db, ShowReattribution{ShowSlug: "sage", RoomSlug: "meow-wolf"}, true)
+	city := ReattributeShow(s.db, ShowReattribution{ShowSlug: "sage", RoomSlug: "meow-wolf"})
 	s.Equal(ReattributionRefused, city.Outcome)
 	s.Contains(city.Reason, "Santa Fe")
 
-	state := ReattributeShow(s.db, ShowReattribution{ShowSlug: "sage", RoomSlug: "launchpad-tx"}, true)
+	state := ReattributeShow(s.db, ShowReattribution{ShowSlug: "sage", RoomSlug: "launchpad-tx"})
 	s.Equal(ReattributionRefused, state.Outcome, "the same city name in another state is another city")
 	s.Equal(before, s.snapshot())
 }
@@ -444,7 +458,7 @@ func (s *ShowReattributeTestSuite) TestRefusesAShowWithTwoRooms() {
 	s.Require().NoError(s.db.Exec(`INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)`, id, sunshine.ID).Error)
 	before := s.snapshot()
 
-	res := ReattributeShow(s.db, ShowReattribution{ShowSlug: "two-rooms", RoomSlug: "el-rey"}, true)
+	res := ReattributeShow(s.db, ShowReattribution{ShowSlug: "two-rooms", RoomSlug: "el-rey"})
 
 	s.Equal(ReattributionRefused, res.Outcome)
 	s.Contains(res.Reason, "2 rooms")

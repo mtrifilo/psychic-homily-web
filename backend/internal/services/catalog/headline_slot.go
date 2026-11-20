@@ -65,7 +65,9 @@ import (
 //     reporting "no headline slot"). Four sites, in two shapes:
 //
 //     tag_service.enrichShows, explore.headlinerNameByShow, and
-//     show_dedup.RecanonicaliseShowSlug RANK the bill. The required shape is
+//     show_dedup.RecanonicaliseShowSlug RANK the bill. The last one's clause is
+//     the constant showBillHeadlinerRank, which the show reattribution's
+//     headliner reads (show_reattribute.go) share. The required shape is
 //     rank, then position, then a stable id:
 //
 //     CASE WHEN set_type = 'headliner' THEN 0 ELSE 1 END, position ASC, <id> ASC

@@ -2,6 +2,7 @@ import type { APIClient } from "./api";
 import * as display from "./display";
 import { readEventDate } from "./showTimes";
 import { resolveVenueTimezone } from "./timezone";
+import { statedSlot } from "./setType";
 
 /**
  * Flag-only QA check for the dry run: a show whose headliner already has a show
@@ -34,11 +35,17 @@ export interface ArtistShowForSameNight {
 /** The most shows `GET /artists/{id}/shows` returns in one page. */
 const ARTIST_SHOWS_PAGE = 200;
 
-/** The act the show is billed under: the stated headliner, else the first act. */
+/**
+ * The act the show is billed under: the act whose own signal says headliner
+ * (read the way the payload is built), else the first act.
+ */
 function headlinerOf(plan: SameNightPlan) {
-  return (
-    plan.artists.find((a) => a.set_type === "headliner" || a.is_headliner === true) ?? plan.artists[0]
-  );
+  return plan.artists.find((a) => statedSlot(a) === "headliner") ?? plan.artists[0];
+}
+
+interface ArtistYearPage {
+  shows: ArtistShowForSameNight[];
+  total: number;
 }
 
 const fold = (s: string | undefined) => (s ?? "").trim().toLowerCase();
@@ -76,6 +83,24 @@ export async function reportSameNightOtherRooms<P extends SameNightPlan>(
   zoneOf: (plan: P) => { state?: string; timezone?: string },
 ): Promise<void> {
   const lines: string[] = [];
+  // One read per artist and year: a residency or a repeated act is many plans
+  // over the same page.
+  const pages = new Map<string, Promise<ArtistYearPage>>();
+  const pageFor = (artistId: number, year: string) => {
+    const key = `${artistId}:${year}`;
+    let page = pages.get(key);
+    if (!page) {
+      page = client
+        .get<{ shows?: ArtistShowForSameNight[]; total?: number }>(`/artists/${artistId}/shows`, {
+          time_filter: "all",
+          year,
+          limit: String(ARTIST_SHOWS_PAGE),
+        })
+        .then((r) => ({ shows: r?.shows ?? [], total: r?.total ?? 0 }));
+      pages.set(key, page);
+    }
+    return page;
+  };
   for (const plan of plans) {
     if (!plan.valid || plan.duplicate?.isDuplicate) continue;
     const headliner = headlinerOf(plan);
@@ -89,14 +114,11 @@ export async function reportSameNightOtherRooms<P extends SameNightPlan>(
 
     let shows: ArtistShowForSameNight[];
     try {
-      const page = await client.get<{ shows?: ArtistShowForSameNight[]; total?: number }>(
-        `/artists/${headliner.id}/shows`,
-        { time_filter: "all", year: day.slice(0, 4), limit: String(ARTIST_SHOWS_PAGE) },
-      );
-      shows = page?.shows ?? [];
-      if ((page?.total ?? 0) > shows.length) {
+      const page = await pageFor(headliner.id, day.slice(0, 4));
+      shows = page.shows;
+      if (page.total > shows.length) {
         lines.push(
-          `${headliner.name} on ${day}: read ${shows.length} of the artist's ${page!.total} shows that year; the rest were not checked`,
+          `${headliner.name} on ${day}: read ${shows.length} of the artist's ${page.total} shows that year; the rest were not checked`,
         );
       }
     } catch (err) {

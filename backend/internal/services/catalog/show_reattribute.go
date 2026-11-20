@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
-	"psychic-homily-backend/internal/utils"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // This file moves a show that was recorded at the wrong room onto the right
@@ -28,9 +28,9 @@ import (
 //   - A merge is explicit. The named show is the winner and keeps its slug; the
 //     row's show is deleted through MergeDuplicateShow, so its URL stops
 //     answering.
-//   - Every row runs in its own transaction. A preview runs the same statements
-//     and rolls back, so a dry run and a confirmed run cannot disagree about
-//     what a row does.
+//   - Every row runs in its own transaction (a savepoint when the caller passes
+//     one in). A caller previews by passing a transaction it rolls back, so a
+//     preview runs exactly the statements a real run does.
 //   - Nothing crosses a city. The room a show moves to must be in the city and
 //     state of the room it leaves.
 
@@ -44,7 +44,7 @@ type ShowReattribution struct {
 	MergeIntoSlug string
 }
 
-// ReattributionOutcome is what one row did, or would do under a preview.
+// ReattributionOutcome is what one row did.
 type ReattributionOutcome string
 
 const (
@@ -52,7 +52,7 @@ const (
 	ReattributionMoved ReattributionOutcome = "moved"
 	// ReattributionMerged: the show was merged into the named show and deleted.
 	ReattributionMerged ReattributionOutcome = "merged"
-	// ReattributionUnchanged: the show is already at the room; nothing to do.
+	// ReattributionUnchanged: the show is already at the room; nothing written.
 	ReattributionUnchanged ReattributionOutcome = "unchanged"
 	// ReattributionRefused: the row failed a check and nothing was written.
 	ReattributionRefused ReattributionOutcome = "refused"
@@ -63,7 +63,6 @@ const (
 
 // ReattributionRoom is a room as the result reports it.
 type ReattributionRoom struct {
-	ID    uint
 	Slug  string
 	Name  string
 	City  string
@@ -99,7 +98,7 @@ type ShowReattributionResult struct {
 	// not bill yet. MergeDuplicateShow moves them onto the winner with their own
 	// position and role, so a reviewer sees here what the winner's bill becomes.
 	ActsAddedToWinner []string
-	// MergeSummary is filled for a merge, with the counts of the merge itself.
+	// MergeSummary is set only when Outcome is merged.
 	MergeSummary *ShowDedupSummary
 
 	// SameNightAtTarget lists the other shows at the target room on the same
@@ -107,14 +106,7 @@ type ShowReattributionResult struct {
 	// duplicate is born, so the CLI prints them as a warning for the reviewer
 	// to decide on. Never acted upon here.
 	SameNightAtTarget []ReattributionNeighbour
-
-	// Committed is true only when the row's transaction committed a change.
-	Committed bool
 }
-
-// errReattributionRollback ends a row's transaction without committing, for a
-// preview and for a row that writes nothing.
-var errReattributionRollback = errors.New("reattribution: roll back")
 
 // reattributionRefusal carries a refusal out of the transaction.
 type reattributionRefusal struct{ reason string }
@@ -125,38 +117,28 @@ func refuse(format string, args ...interface{}) error {
 	return &reattributionRefusal{reason: fmt.Sprintf(format, args...)}
 }
 
-// ReattributeShow applies one reviewed row in its own transaction, or, with
-// apply false, runs the same statements and rolls them back.
-func ReattributeShow(db *gorm.DB, row ShowReattribution, apply bool) ShowReattributionResult {
+// ReattributeShow applies one reviewed row in its own transaction, nested as a
+// savepoint when db is already a transaction. A refused or failed row writes
+// nothing.
+func ReattributeShow(db *gorm.DB, row ShowReattribution) ShowReattributionResult {
 	row.ShowSlug = strings.TrimSpace(row.ShowSlug)
 	row.RoomSlug = strings.TrimSpace(row.RoomSlug)
 	row.MergeIntoSlug = strings.TrimSpace(row.MergeIntoSlug)
 
 	res := ShowReattributionResult{ShowSlug: row.ShowSlug, MergeIntoSlug: row.MergeIntoSlug}
 	err := db.Transaction(func(tx *gorm.DB) error {
-		if err := reattributeInTx(tx, row, &res); err != nil {
-			return err
-		}
-		if res.Outcome == ReattributionUnchanged || !apply {
-			return errReattributionRollback
-		}
-		return nil
+		return reattributeInTx(tx, row, &res)
 	})
 
 	var refusal *reattributionRefusal
 	switch {
 	case err == nil:
-		res.Committed = true
-	case errors.Is(err, errReattributionRollback):
 	case errors.As(err, &refusal):
 		res.Outcome = ReattributionRefused
 		res.Reason = refusal.reason
 	default:
 		res.Outcome = ReattributionFailed
 		res.Reason = err.Error()
-	}
-	if res.Outcome != ReattributionMerged {
-		res.MergeSummary = nil
 	}
 	return res
 }
@@ -194,20 +176,17 @@ func reattributeInTx(tx *gorm.DB, row ShowReattribution, res *ShowReattributionR
 		return refuse("merge target %s not found", row.MergeIntoSlug)
 	}
 
-	// Lock the shows in ascending id order, one statement each (IN ignores
-	// order), so two runs touching the same pair cannot deadlock.
+	// Lock and load the shows in ascending id order, one statement each (IN
+	// ignores order), so two runs touching the same pair cannot deadlock.
+	locked := map[uint]*catalogm.Show{}
 	for _, id := range ascendingNonZero(showID, winnerID) {
-		var locked catalogm.Show
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Select("id").First(&locked, id).Error; err != nil {
+		var s catalogm.Show
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&s, id).Error; err != nil {
 			return fmt.Errorf("lock show %d: %w", id, err)
 		}
+		locked[id] = &s
 	}
-
-	var show catalogm.Show
-	if err := tx.First(&show, showID).Error; err != nil {
-		return fmt.Errorf("load show %d: %w", showID, err)
-	}
+	show := locked[showID]
 	res.ShowID = show.ID
 	if res.Headliner, err = showHeadlinerName(tx, show.ID); err != nil {
 		return err
@@ -237,12 +216,11 @@ func reattributeInTx(tx *gorm.DB, row ShowReattribution, res *ShowReattributionR
 			target.City, target.State, current.City, current.State)
 	}
 
-	zone := utils.EventLocation(target.Timezone, target.State)
-	localDate := show.EventDate.In(zone).Format("2006-01-02")
+	localDate := venueRowLocalDate(show.EventDate, target.Timezone, target.State)
 	res.VenueLocalDate = localDate
 
 	if winnerID != 0 {
-		return mergeIntoCopy(tx, &show, winnerID, &target, zone, res)
+		return mergeIntoCopy(tx, show, locked[winnerID], &target, localDate, res)
 	}
 
 	if current.ID == target.ID {
@@ -251,7 +229,7 @@ func reattributeInTx(tx *gorm.DB, row ShowReattribution, res *ShowReattributionR
 		return nil
 	}
 
-	if res.SameNightAtTarget, err = showsAtRoomOnLocalDate(tx, target.ID, show.ID, localDate, zone); err != nil {
+	if res.SameNightAtTarget, err = showsAtRoomOnLocalDate(tx, &target, show.ID, localDate); err != nil {
 		return err
 	}
 
@@ -264,9 +242,8 @@ func reattributeInTx(tx *gorm.DB, row ShowReattribution, res *ShowReattributionR
 	if err := syncShowArtistDedupColumns(tx, show.ID); err != nil {
 		return fmt.Errorf("show_artists dedup-column resync: %w", err)
 	}
-	if err := tx.Model(&catalogm.Show{}).Where("id = ?", show.ID).
-		Update("updated_at", time.Now()).Error; err != nil {
-		return fmt.Errorf("touch show: %w", err)
+	if err := stampShowUpdatedAt(tx, show); err != nil {
+		return err
 	}
 	res.Outcome = ReattributionMoved
 	return nil
@@ -280,12 +257,8 @@ func reattributeInTx(tx *gorm.DB, row ShowReattribution, res *ShowReattributionR
 // winner the wrong room as a second room. With them gone the loser holds no
 // room and so no show_dedup_keys, and its bill can move onto the winner
 // without colliding.
-func mergeIntoCopy(tx *gorm.DB, loser *catalogm.Show, winnerID uint, target *catalogm.Venue,
-	zone *time.Location, res *ShowReattributionResult) error {
-	var winner catalogm.Show
-	if err := tx.First(&winner, winnerID).Error; err != nil {
-		return fmt.Errorf("load merge target %d: %w", winnerID, err)
-	}
+func mergeIntoCopy(tx *gorm.DB, loser, winner *catalogm.Show, target *catalogm.Venue,
+	localDate string, res *ShowReattributionResult) error {
 	res.MergeIntoID = winner.ID
 
 	var atTarget int64
@@ -295,12 +268,13 @@ func mergeIntoCopy(tx *gorm.DB, loser *catalogm.Show, winnerID uint, target *cat
 		return fmt.Errorf("check merge target room: %w", err)
 	}
 	if atTarget == 0 {
-		return refuse("merge target %s is not at room %s", res.MergeIntoSlug, venueSlug(target))
+		return refuse("merge target %s is not at room %s",
+			shared.DerefOrEmpty(winner.Slug), shared.DerefOrEmpty(target.Slug))
 	}
 
-	winnerDate := winner.EventDate.In(zone).Format("2006-01-02")
-	if winnerDate != res.VenueLocalDate {
-		return refuse("merge target is on %s and the show is on %s (venue-local)", winnerDate, res.VenueLocalDate)
+	winnerDate := venueRowLocalDate(winner.EventDate, target.Timezone, target.State)
+	if winnerDate != localDate {
+		return refuse("merge target is on %s and the show is on %s (venue-local)", winnerDate, localDate)
 	}
 
 	added, err := actsMissingFromWinner(tx, loser.ID, winner.ID)
@@ -356,13 +330,14 @@ func showRooms(tx *gorm.DB, showID uint) ([]catalogm.Venue, error) {
 	return rooms, nil
 }
 
-// showHeadlinerName ranks the bill the way RecanonicaliseShowSlug does.
+// showHeadlinerName ranks the bill with showBillHeadlinerRank, as the slug
+// writer does.
 func showHeadlinerName(tx *gorm.DB, showID uint) (string, error) {
 	var names []string
 	if err := tx.Table("artists").
 		Joins("JOIN show_artists ON show_artists.artist_id = artists.id").
 		Where("show_artists.show_id = ?", showID).
-		Order("CASE WHEN show_artists.set_type='headliner' THEN 0 ELSE 1 END, show_artists.position ASC, artists.id ASC").
+		Order(showBillHeadlinerRank).
 		Limit(1).
 		Pluck("artists.name", &names).Error; err != nil {
 		return "", fmt.Errorf("load headliner of show %d: %w", showID, err)
@@ -389,11 +364,12 @@ func actsMissingFromWinner(tx *gorm.DB, loserID, winnerID uint) ([]string, error
 }
 
 // showsAtRoomOnLocalDate lists the other shows at a room whose event_date falls
-// on localDate in zone. The SQL window is a coarse bound two days wide on each
-// side; the exact venue-local comparison is made here.
-func showsAtRoomOnLocalDate(tx *gorm.DB, roomID, exceptShowID uint, localDate string,
-	zone *time.Location) ([]ReattributionNeighbour, error) {
-	day, err := time.ParseInLocation("2006-01-02", localDate, zone)
+// on localDate in the room's zone. The SQL window is a coarse bound a day wider
+// than any UTC offset on each side; the exact venue-local comparison is made
+// here, in the same zone the moved show's date was read in.
+func showsAtRoomOnLocalDate(tx *gorm.DB, room *catalogm.Venue, exceptShowID uint,
+	localDate string) ([]ReattributionNeighbour, error) {
+	day, err := time.Parse("2006-01-02", localDate)
 	if err != nil {
 		return nil, fmt.Errorf("parse local date %s: %w", localDate, err)
 	}
@@ -401,56 +377,47 @@ func showsAtRoomOnLocalDate(tx *gorm.DB, roomID, exceptShowID uint, localDate st
 		ID        uint
 		Slug      *string
 		EventDate time.Time
+		Headliner *string
 	}
 	if err := tx.Raw(`
-		SELECT s.id, s.slug, s.event_date
+		SELECT s.id, s.slug, s.event_date, h.name AS headliner
 		FROM shows s
 		JOIN show_venues sv ON sv.show_id = s.id
+		LEFT JOIN LATERAL (
+			SELECT artists.name
+			FROM show_artists JOIN artists ON artists.id = show_artists.artist_id
+			WHERE show_artists.show_id = s.id
+			ORDER BY `+showBillHeadlinerRank+`
+			LIMIT 1
+		) h ON TRUE
 		WHERE sv.venue_id = ? AND s.id <> ?
 		  AND s.event_date >= ? AND s.event_date < ?
 		ORDER BY s.event_date, s.id
-	`, roomID, exceptShowID, day.AddDate(0, 0, -2), day.AddDate(0, 0, 3)).Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("shows at room %d near %s: %w", roomID, localDate, err)
+	`, room.ID, exceptShowID, day.AddDate(0, 0, -2), day.AddDate(0, 0, 3)).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("shows at room %d near %s: %w", room.ID, localDate, err)
 	}
 	var out []ReattributionNeighbour
 	for _, r := range rows {
-		if r.EventDate.In(zone).Format("2006-01-02") != localDate {
+		if venueRowLocalDate(r.EventDate, room.Timezone, room.State) != localDate {
 			continue
 		}
-		headliner, err := showHeadlinerName(tx, r.ID)
-		if err != nil {
-			return nil, err
-		}
-		n := ReattributionNeighbour{ID: r.ID, Headliner: headliner}
-		if r.Slug != nil {
-			n.Slug = *r.Slug
-		}
-		out = append(out, n)
+		out = append(out, ReattributionNeighbour{
+			ID: r.ID, Slug: shared.DerefOrEmpty(r.Slug), Headliner: shared.DerefOrEmpty(r.Headliner)})
 	}
 	return out, nil
 }
 
-// sameCity compares the way the catalogue audit's same-night statement does:
-// trimmed and case-folded city and state, plus country when both rooms state
-// one.
+// sameCity compares trimmed and case-folded city and state, plus country when
+// both rooms state one.
 func sameCity(a, b *catalogm.Venue) bool {
 	fold := func(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
 	if fold(a.City) != fold(b.City) || fold(a.State) != fold(b.State) {
 		return false
 	}
-	if a.Country != nil && b.Country != nil && fold(*a.Country) != "" && fold(*b.Country) != "" {
-		return fold(*a.Country) == fold(*b.Country)
-	}
-	return true
+	ac, bc := fold(shared.DerefOrEmpty(a.Country)), fold(shared.DerefOrEmpty(b.Country))
+	return ac == "" || bc == "" || ac == bc
 }
 
 func reportRoom(v *catalogm.Venue) *ReattributionRoom {
-	return &ReattributionRoom{ID: v.ID, Slug: venueSlug(v), Name: v.Name, City: v.City, State: v.State}
-}
-
-func venueSlug(v *catalogm.Venue) string {
-	if v.Slug == nil {
-		return ""
-	}
-	return *v.Slug
+	return &ReattributionRoom{Slug: shared.DerefOrEmpty(v.Slug), Name: v.Name, City: v.City, State: v.State}
 }

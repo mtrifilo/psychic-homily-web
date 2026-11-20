@@ -884,6 +884,12 @@ func moveShowFKRows(tx *gorm.DB, table, showCol, dedupeOn string, winnerID, lose
 	return moved, skipped, nil
 }
 
+// showBillHeadlinerRank orders a join of show_artists and artists so the
+// show's headliner comes first: curated rank, then position, then a stable id.
+// See headline_slot.go for why each part is required.
+const showBillHeadlinerRank = "CASE WHEN show_artists.set_type='headliner' THEN 0 ELSE 1 END, " +
+	"show_artists.position ASC, artists.id ASC"
+
 // RecanonicaliseShowSlug recomputes the show's slug using the canonical
 // venue-timezone-aware GenerateShowSlug helper. Idempotent: if the
 // computed slug already matches the stored slug, no DB write happens.
@@ -906,7 +912,7 @@ func RecanonicaliseShowSlug(tx *gorm.DB, showID uint) (bool, error) {
 	if err := tx.Table("artists").
 		Joins("JOIN show_artists ON show_artists.artist_id = artists.id").
 		Where("show_artists.show_id = ?", showID).
-		Order("CASE WHEN show_artists.set_type='headliner' THEN 0 ELSE 1 END, show_artists.position ASC, artists.id ASC").
+		Order(showBillHeadlinerRank).
 		Find(&artists).Error; err != nil {
 		return false, fmt.Errorf("load show artists: %w", err)
 	}

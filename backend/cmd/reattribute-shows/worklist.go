@@ -25,11 +25,14 @@ type worklistRow struct {
 	Line int
 	Row  catalog.ShowReattribution
 	Note string
-	// Skip is set for a row with no target room and no merge target: a row the
-	// reviewer checked and left in place. It is reported, never sent on.
-	Skip bool
 	// Refusal is set for a row refused before it reaches the database.
 	Refusal string
+}
+
+// skip reports a row the reviewer checked and left in place: no target room and
+// nothing refused. It is reported, never sent on.
+func (r worklistRow) skip() bool {
+	return r.Refusal == "" && r.Row.RoomSlug == ""
 }
 
 // parseWorklist reads the whole worklist. An error means the FILE is unusable
@@ -96,8 +99,6 @@ func parseWorklist(r io.Reader) ([]worklistRow, error) {
 			row.Refusal = "no show slug"
 		case row.Row.RoomSlug == "" && row.Row.MergeIntoSlug != "":
 			row.Refusal = "a merge target is named but no target room"
-		case row.Row.RoomSlug == "":
-			row.Skip = true
 		}
 		if row.Row.ShowSlug != "" {
 			// A show named twice is refused on every row after the first, so
@@ -105,7 +106,6 @@ func parseWorklist(r io.Reader) ([]worklistRow, error) {
 			// last.
 			if first, dup := seen[row.Row.ShowSlug]; dup {
 				row.Refusal = fmt.Sprintf("show already named on line %d", first)
-				row.Skip = false
 			} else {
 				seen[row.Row.ShowSlug] = line
 			}

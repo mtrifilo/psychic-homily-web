@@ -24,7 +24,9 @@
 // exactly as --confirm would, and rolls the lot back at the end. A row that
 // depends on an earlier one (a merge into a show an earlier row moved) is
 // therefore previewed against the state the earlier row leaves, and a row the
-// database would reject is reported as failed. A refused or failed row is
+// database would reject is reported as failed. The preview holds the listed
+// shows' row locks until it ends; a row that would wait more than five seconds
+// on a lock held elsewhere fails instead of waiting. A refused or failed row is
 // reported and the run goes on; the exit status is 1 when any row was refused
 // or failed, 2 when the worklist itself cannot be read.
 package main
@@ -36,6 +38,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -85,12 +88,18 @@ func main() {
 	var tally runTally
 	if *confirm {
 		tally = run(os.Stdout, rows, true, func(r catalog.ShowReattribution) catalog.ShowReattributionResult {
-			return catalog.ReattributeShow(database, r, true)
+			return catalog.ReattributeShow(database, r)
 		})
 	} else {
 		err := database.Transaction(func(tx *gorm.DB) error {
+			// The preview keeps every row's locks until the final rollback. A
+			// row that would wait on a live edit fails fast instead, and is
+			// reported as failed rather than stalling the site's writes.
+			if err := tx.Exec("SET LOCAL lock_timeout = '5s'").Error; err != nil {
+				return err
+			}
 			tally = run(os.Stdout, rows, false, func(r catalog.ShowReattribution) catalog.ShowReattributionResult {
-				return catalog.ReattributeShow(tx, r, true)
+				return catalog.ReattributeShow(tx, r)
 			})
 			return errDryRun
 		})
@@ -132,7 +141,7 @@ func run(w io.Writer, rows []worklistRow, confirm bool, reattribute reattributeF
 		case row.Refusal != "":
 			res = catalog.ShowReattributionResult{
 				ShowSlug: row.Row.ShowSlug, Outcome: catalog.ReattributionRefused, Reason: row.Refusal}
-		case row.Skip:
+		case row.skip():
 			fmt.Fprintf(w, "line %d  SKIPPED  %s: no target room given\n", row.Line, row.Row.ShowSlug)
 			printNote(w, row.Note)
 			fmt.Fprintln(w)
@@ -232,24 +241,35 @@ func printTotals(w io.Writer, t *runTally, confirm bool) {
 	fmt.Fprintf(w, "refused:   %d\n", t.refused)
 	fmt.Fprintf(w, "failed:    %d\n", t.failed)
 	if t.merged > 0 {
-		s := &t.mergeSummary
 		fmt.Fprintln(w, "merge references (from the merges above):")
-		fmt.Fprintf(w, "  show_artists moved=%d skipped=%d, show_reports moved=%d skipped=%d\n",
-			s.ShowArtistsMoved, s.ShowArtistsSkipped, s.ShowReportsMoved, s.ShowReportsSkipped)
-		fmt.Fprintf(w, "  revisions moved=%d, alerts moved=%d, notify jobs dropped=%d\n",
-			s.RevisionsMoved, s.AlertRowsMoved, s.NotifyJobsDropped)
-		tables := make([]string, 0, len(s.EntityRefsMoved))
-		for table := range s.EntityRefsMoved {
-			tables = append(tables, table)
-		}
-		sort.Strings(tables)
-		for _, table := range tables {
-			fmt.Fprintf(w, "  %s moved=%d dropped=%d\n", table, s.EntityRefsMoved[table], s.EntityRefsDropped[table])
-		}
+		printMergeSummary(w, &t.mergeSummary)
 	}
 	if !confirm {
 		fmt.Fprintln(w, "\nDRY RUN: nothing was written. A merge's own log lines above describe the rolled-back preview.")
 		fmt.Fprintln(w, "Re-run with --confirm to apply.")
+	}
+}
+
+// printMergeSummary prints every counter in the summary, one per line, in field
+// order, then the per-table reference counts in name order. It walks the struct
+// rather than naming fields, so a counter added to ShowDedupSummary is printed
+// without a change here.
+func printMergeSummary(w io.Writer, s *catalog.ShowDedupSummary) {
+	v := reflect.ValueOf(*s)
+	for i := 0; i < v.NumField(); i++ {
+		f := v.Field(i)
+		switch f.Kind() {
+		case reflect.Int, reflect.Int64:
+			fmt.Fprintf(w, "  %-22s %d\n", v.Type().Field(i).Name+":", f.Int())
+		}
+	}
+	tables := make([]string, 0, len(s.EntityRefsMoved))
+	for table := range s.EntityRefsMoved {
+		tables = append(tables, table)
+	}
+	sort.Strings(tables)
+	for _, table := range tables {
+		fmt.Fprintf(w, "  %-22s moved=%d dropped=%d\n", table+":", s.EntityRefsMoved[table], s.EntityRefsDropped[table])
 	}
 }
 
