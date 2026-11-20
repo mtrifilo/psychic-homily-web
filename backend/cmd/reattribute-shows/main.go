@@ -12,11 +12,14 @@
 //
 //	show_slug             the show to move (required)
 //	correct_room_slug     the room it belongs in (required)
-//	merge_into_show_slug  optional: an approved show already at that room that is
-//	                      the same event. The row's show is merged into it and
+//	merge_into_show_slug  optional: a show already at that room, on the same
+//	                      venue-local date, that is the same event. Both shows
+//	                      must be approved. The row's show is merged into it and
 //	                      deleted; the named show keeps its slug, headliner and
 //	                      bill order, and the merged show's other acts join the
-//	                      end of its bill as they are.
+//	                      end of its bill in their own order, a headliner billed
+//	                      as performer (every act as performer when the named
+//	                      show's bill states no roles).
 //	note                  optional, printed with the row
 //
 // A moved show keeps its slug, so its URL keeps answering and names the old
@@ -34,13 +37,16 @@
 // it gives up on a lock it would wait on for more than 5 seconds, on a
 // statement running past 60 seconds, and when left idle for 60 seconds.
 //
-// A merged row run a second time finds no show and is refused, so re-running
-// an applied worklist that holds merges exits 1; its reason names the merge
-// target that still exists.
+// A row is refused, before anything is written, when another show at the
+// target room bills one of its acts at the same time: the database admits one
+// of the two. A merged row run a second time finds no show and is refused, so
+// re-running an applied worklist that holds merges exits 1; its reason names
+// the merge target that still exists.
 //
 // Exit status: 0 when every row applied or was already in place, 1 when any row
 // was refused or failed, 2 when the command line or the worklist cannot be
-// used, 3 when the database cannot be reached or the dry run did not roll back.
+// used, 3 when the configuration cannot be loaded, the database cannot be
+// reached, or the dry run's transaction cannot be set up.
 package main
 
 import (
@@ -61,6 +67,7 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/catalog"
 )
 
@@ -110,6 +117,9 @@ func main() {
 	}
 
 	database := db.GetDB()
+	// A failed row reports the database's own error, constraint name and detail
+	// included, rather than the bare sentinel GORM translates it to.
+	database.TranslateError = false
 	var tally runTally
 	if *confirm {
 		tally = run(os.Stdout, rows, true, func(r catalog.ShowReattribution) catalog.ShowReattributionResult {
@@ -129,7 +139,7 @@ func main() {
 			return errDryRun
 		})
 		if !errors.Is(err, errDryRun) {
-			fatal("dry run did not roll back cleanly: %v", err)
+			fatal("dry run could not start: %v", err)
 		}
 		_, _ = os.Stdout.Write(out.Bytes())
 	}
@@ -157,6 +167,7 @@ type reattributeFunc func(catalog.ShowReattribution) catalog.ShowReattributionRe
 
 type runTally struct {
 	moved, merged, unchanged, refused, failed int
+	roomRowsCleared                           int64
 	mergeSummary                              catalog.ShowDedupSummary
 }
 
@@ -192,6 +203,7 @@ func (t *runTally) count(res catalog.ShowReattributionResult) {
 		t.moved++
 	case catalog.ReattributionMerged:
 		t.merged++
+		t.roomRowsCleared += res.RoomRowsCleared
 		t.mergeSummary.Add(res.MergeSummary)
 	case catalog.ReattributionUnchanged:
 		t.unchanged++
@@ -227,6 +239,7 @@ func printResult(w io.Writer, row worklistRow, res catalog.ShowReattributionResu
 		fmt.Fprintf(w, "    merge into: %s (show %d, %s, %s)\n",
 			clean(res.MergeIntoSlug), res.MergeIntoID, res.MergeIntoStatus, clean(res.MergeIntoHeadliner))
 	}
+	merging := res.MergeIntoID != 0
 	switch res.Outcome {
 	case catalog.ReattributionMoved:
 		fmt.Fprintf(w, "    slug: kept as %s (it names the old room)\n", clean(res.ShowSlug))
@@ -238,8 +251,8 @@ func printResult(w io.Writer, row worklistRow, res catalog.ShowReattributionResu
 		}
 	}
 	for _, n := range res.SameNightAtTarget {
-		fmt.Fprintf(w, "    WARNING: %s (show %d, %s, %s) is also at the target room that night; "+
-			"add it as merge_into_show_slug if it is the same event\n", clean(n.Slug), n.ID, n.Status, clean(n.Headliner))
+		fmt.Fprintf(w, "    WARNING: %s (show %d, %s, %s) is also at the target room that night; %s\n",
+			clean(n.Slug), n.ID, n.Status, clean(n.Headliner), neighbourAdvice(n, merging))
 	}
 	if res.Reason != "" {
 		fmt.Fprintf(w, "    reason: %s\n", clean(res.Reason))
@@ -250,6 +263,20 @@ func printResult(w io.Writer, row worklistRow, res catalog.ShowReattributionResu
 	fmt.Fprintln(w)
 }
 
+// neighbourAdvice says what a reviewer can do about another show at the target
+// room that night. A merge needs both shows approved, so only an approved
+// neighbour is offered as a merge target.
+func neighbourAdvice(n catalog.ReattributionNeighbour, merging bool) string {
+	switch {
+	case n.Status != catalogm.ShowStatusApproved:
+		return fmt.Sprintf("it is %s, so it cannot be merged with; moderate it first if it is the same event", n.Status)
+	case merging:
+		return "it stays after this merge; give it a row of its own if it is the same event"
+	default:
+		return "add it as merge_into_show_slug if it is the same event"
+	}
+}
+
 func roomLabel(r *catalog.ReattributionRoom) string {
 	if r == nil {
 		return "?"
@@ -257,11 +284,13 @@ func roomLabel(r *catalog.ReattributionRoom) string {
 	return fmt.Sprintf("%s [%s] (%s, %s)", clean(r.Name), clean(r.Slug), clean(r.City), clean(r.State))
 }
 
-// clean replaces control characters in text that came from the database or the
-// worklist, so a name cannot rewrite the terminal the operator reviews from.
+// clean replaces control and format characters (bidirectional overrides among
+// them) and the Unicode line separators in text that came from the database or
+// the worklist, so a name cannot rewrite or reorder the terminal line the
+// operator reviews from.
 func clean(s string) string {
 	return strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '\u2028' || r == '\u2029' {
 			return '?'
 		}
 		return r
@@ -281,6 +310,7 @@ func printTotals(w io.Writer, t *runTally, confirm bool) {
 	fmt.Fprintf(w, "failed:    %d\n", t.failed)
 	if t.merged > 0 {
 		fmt.Fprintln(w, "merge references (from the merges above):")
+		fmt.Fprintf(w, "  %-22s %d\n", "merged shows' rooms cleared:", t.roomRowsCleared)
 		printMergeSummary(w, &t.mergeSummary)
 	}
 	if !confirm {
@@ -290,8 +320,15 @@ func printTotals(w io.Writer, t *runTally, confirm bool) {
 }
 
 // mergeSummaryFieldsNotSet are ShowDedupSummary counters a reattribution merge
-// never fills: it merges one named pair, not clusters, and rewrites no slug.
-var mergeSummaryFieldsNotSet = map[string]bool{"ClustersFound": true, "SlugsRewritten": true}
+// never fills: it merges one named pair, not clusters, rewrites no slug, and
+// clears the merged show's rooms before the merge, so the merge itself moves or
+// skips no show_venues row (the cleared rows are printed on their own line).
+var mergeSummaryFieldsNotSet = map[string]bool{
+	"ClustersFound":     true,
+	"SlugsRewritten":    true,
+	"ShowVenuesMoved":   true,
+	"ShowVenuesSkipped": true,
+}
 
 // printMergeSummary prints every counter in the summary except the ones a
 // reattribution never fills, one per line, then the per-table reference counts

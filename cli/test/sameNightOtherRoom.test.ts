@@ -140,6 +140,23 @@ describe("reportSameNightOtherRooms", () => {
     expect(warnings[0]).toContain("already has a show that night");
   });
 
+  test("a matched room with no stored city is not checked, whatever the batch typed", async () => {
+    const { client: c, calls } = client(() => ({ shows: [] }), { "/venues/184": { id: 184, city: "", state: "NM" } });
+    await reportSameNightOtherRooms(c, [plan()], denver);
+    expect(artistReads(calls)).toEqual([]);
+    expect(warnings).toEqual(["As I Lay Dying on 2026-11-25 at Launchpad: the room's city is not known; not checked"]);
+  });
+
+  test("bidirectional overrides in stored names are replaced", async () => {
+    const { client: c } = client(() => ({
+      shows: [{ ...at(954, "Sunshine\u202e Theater", "Albuquerque", "2026-11-26T03:00:00Z") }],
+      total: 1,
+    }));
+    await reportSameNightOtherRooms(c, [plan()], denver);
+    expect(warnings[0]).toContain("Sunshine? Theater");
+    expect(warnings[0]).not.toContain("\u202e");
+  });
+
   test("says not checked when no city is known for the room", async () => {
     const { client: c, calls } = client(() => ({ shows: [] }));
     await reportSameNightOtherRooms(

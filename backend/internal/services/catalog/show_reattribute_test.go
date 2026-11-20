@@ -255,9 +255,9 @@ func (s *ShowReattributeTestSuite) TestPlainMove_SameNightIsVenueLocal() {
 }
 
 // A plain move onto a room that already bills the same act at the same instant
-// is refused by the derived dedup key. The row fails, and its transaction takes
-// the room re-point down with it.
-func (s *ShowReattributeTestSuite) TestPlainMove_OntoAnExactDuplicateFailsAndRollsBack() {
+// would break the derived dedup key, so it is refused before any write, naming
+// the show it would collide with.
+func (s *ShowReattributeTestSuite) TestPlainMove_OntoAnExactDuplicateIsRefusedNamingTheOtherShow() {
 	launchpad := s.room("launchpad", "Launchpad", "Albuquerque", "NM")
 	sunshine := s.room("sunshine", "Sunshine Theater", "Albuquerque", "NM")
 	act := s.artist("As I Lay Dying")
@@ -270,10 +270,11 @@ func (s *ShowReattributeTestSuite) TestPlainMove_OntoAnExactDuplicateFailsAndRol
 		"preview": s.preview(row),
 		"apply":   ReattributeShow(s.db, row),
 	} {
-		s.Equal(ReattributionFailed, res.Outcome, name)
-		s.NotEmpty(res.Reason)
-		s.Require().Len(res.SameNightAtTarget, 1, "the failure names the show it collided with")
-		s.Equal("aild", res.SameNightAtTarget[0].Slug)
+		s.Equal(ReattributionRefused, res.Outcome, name)
+		s.Contains(res.Reason, "aild (show ")
+		s.Contains(res.Reason, "approved) at the target room bills one of this show's acts at the same time")
+		s.Require().Len(res.SameNightAtTarget, 1)
+		s.True(res.SameNightAtTarget[0].Collides)
 	}
 	s.Equal(before, s.snapshot())
 	s.Equal([]uint{launchpad.ID}, s.roomsOf(id))
@@ -320,6 +321,7 @@ func (s *ShowReattributeTestSuite) TestMerge_FoldsTheShowIntoTheNamedCopyWithIts
 	s.Require().Equal(ReattributionMerged, res.Outcome, res.Reason)
 	s.Equal(winner, res.MergeIntoID)
 	s.Equal(1, res.MergeSummary.LosersMerged)
+	s.Equal(int64(1), res.RoomRowsCleared, "the merged show's one room row is cleared")
 
 	s.False(s.showExists(loser), "the merged show is deleted")
 	s.Equal("2026-11-25-as-i-lay-dying-at-launchpad", s.slugOf(winner), "the winner keeps its slug")
@@ -436,8 +438,10 @@ func (s *ShowReattributeTestSuite) TestMerge_KeepsTheWinnersHeadlinerAndBillOrde
 	winner := s.show("cenit", albuquerqueEvening, elRey.ID, cenit.ID, support.ID)
 	loserSupport := s.artist("Loser Support")
 	s.show("cenit-mezz", albuquerqueEvening, launchpad.ID, mezz.ID, loserSupport.ID, support.ID)
-	var stampedBefore time.Time
-	s.Require().NoError(s.db.Raw(`SELECT updated_at FROM shows WHERE id = ?`, winner).Row().Scan(&stampedBefore))
+	// A fixed past instant, so the assertion below compares two values the
+	// test controls rather than the database clock with the Go one.
+	stampedBefore := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	s.Require().NoError(s.db.Exec(`UPDATE shows SET updated_at = ? WHERE id = ?`, stampedBefore, winner).Error)
 
 	res := ReattributeShow(s.db, ShowReattribution{ShowSlug: "cenit-mezz", RoomSlug: "el-rey", MergeIntoSlug: "cenit"})
 
@@ -543,6 +547,89 @@ func (s *ShowReattributeTestSuite) TestAWorklistRunTwiceChangesNothingTheSecondT
 	after := s.snapshot()
 	s.Equal([]ReattributionOutcome{ReattributionUnchanged, ReattributionRefused, ReattributionRefused, ReattributionUnchanged}, outcomes())
 	s.Equal(after, s.snapshot())
+}
+
+// An uncurated winner stays uncurated: an opener arriving from the merged show
+// would otherwise make the bill read as curated, and a curated bill's headline
+// slot is its headliner rows, of which this one has none.
+func (s *ShowReattributeTestSuite) TestMerge_AnUncuratedWinnerKeepsItsHeadlineSlot() {
+	launchpad := s.room("launchpad", "Launchpad", "Albuquerque", "NM")
+	elRey := s.room("el-rey", "El Rey Theater", "Albuquerque", "NM")
+	cenit := s.artist("Cenit")
+	mezz := s.artist("Cenit / The Mezzanine")
+	opener := s.artist("Early Opener")
+	winner := s.show("cenit", albuquerqueEvening, elRey.ID, cenit.ID)
+	s.Require().NoError(s.db.Exec(`UPDATE show_artists SET set_type = 'performer' WHERE show_id = ?`, winner).Error)
+	loser := s.show("cenit-mezz", albuquerqueEvening, launchpad.ID, mezz.ID, opener.ID)
+	s.Require().NoError(s.db.Exec(
+		`UPDATE show_artists SET set_type = 'opener' WHERE show_id = ? AND artist_id = ?`, loser, opener.ID).Error)
+
+	res := ReattributeShow(s.db, ShowReattribution{ShowSlug: "cenit-mezz", RoomSlug: "el-rey", MergeIntoSlug: "cenit"})
+
+	s.Require().Equal(ReattributionMerged, res.Outcome, res.Reason)
+	s.Equal([]ReattributionAct{
+		{Name: "Cenit / The Mezzanine", SetType: "performer", Position: 1},
+		{Name: "Early Opener", SetType: "performer", Position: 2},
+	}, res.ActsAddedToWinner)
+	var inHeadlineSlot []string
+	s.Require().NoError(s.db.Raw(`SELECT a.name FROM show_artists sa JOIN artists a ON a.id = sa.artist_id
+		WHERE sa.show_id = ? AND `+headlineSlotSQL("sa"), winner).Scan(&inHeadlineSlot).Error)
+	s.Equal([]string{"Cenit"}, inHeadlineSlot)
+}
+
+// A merge the database rejects part way, after the merged show's rooms are
+// cleared and its bill rewritten, leaves both shows exactly as they were.
+func (s *ShowReattributeTestSuite) TestMerge_AFailureLeavesBothShowsAsTheyWere() {
+	launchpad := s.room("launchpad", "Launchpad", "Albuquerque", "NM")
+	sunshine := s.room("sunshine", "Sunshine Theater", "Albuquerque", "NM")
+	aild := s.artist("As I Lay Dying")
+	support := s.artist("Kill The Lights")
+	s.show("aild", albuquerqueEvening, sunshine.ID, aild.ID)
+	loser := s.show("aild-2", albuquerqueEvening, launchpad.ID, aild.ID, support.ID)
+	u := s.user("commenter@test.local")
+	var commentID uint
+	s.Require().NoError(s.db.Raw(`INSERT INTO comments (entity_type, entity_id, user_id, body, body_html)
+		VALUES ('show', ?, ?, 'hi', '<p>hi</p>') RETURNING id`, loser, u.ID).Row().Scan(&commentID))
+	before := s.snapshot()
+
+	// Another session holds the loser's comment, which the merge re-points
+	// after the rooms and bill have already been rewritten.
+	holder := s.db.Begin()
+	s.Require().NoError(holder.Error)
+	s.Require().NoError(holder.Exec(`SELECT id FROM comments WHERE id = ? FOR UPDATE`, commentID).Error)
+
+	var res ShowReattributionResult
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		s.Require().NoError(tx.Exec(`SET LOCAL lock_timeout = '200ms'`).Error)
+		res = ReattributeShow(tx, ShowReattribution{ShowSlug: "aild-2", RoomSlug: "sunshine", MergeIntoSlug: "aild"})
+		return nil // commit the outer transaction, as --confirm does
+	})
+	s.Require().NoError(holder.Rollback().Error)
+	s.Require().NoError(err)
+
+	s.Equal(ReattributionFailed, res.Outcome)
+	s.Contains(res.Reason, "lock")
+	s.Equal(before, s.snapshot())
+	s.Equal([]uint{launchpad.ID}, s.roomsOf(loser))
+}
+
+// A merge row also reports the other shows left at the target room that
+// night, leaving out the show it merges into.
+func (s *ShowReattributeTestSuite) TestMerge_ReportsOtherShowsAtTheTargetThatNight() {
+	launchpad := s.room("launchpad", "Launchpad", "Albuquerque", "NM")
+	sunshine := s.room("sunshine", "Sunshine Theater", "Albuquerque", "NM")
+	a := s.artist("Merge Act")
+	other := s.artist("Third Act")
+	s.show("winner", albuquerqueEvening, sunshine.ID, a.ID)
+	s.show("third", albuquerqueEvening.Add(time.Hour), sunshine.ID, other.ID)
+	s.show("loser", albuquerqueEvening, launchpad.ID, a.ID)
+
+	res := s.preview(ShowReattribution{ShowSlug: "loser", RoomSlug: "sunshine", MergeIntoSlug: "winner"})
+
+	s.Require().Equal(ReattributionMerged, res.Outcome, res.Reason)
+	s.Require().Len(res.SameNightAtTarget, 1)
+	s.Equal("third", res.SameNightAtTarget[0].Slug)
+	s.False(res.SameNightAtTarget[0].Collides)
 }
 
 // --- refusals ---

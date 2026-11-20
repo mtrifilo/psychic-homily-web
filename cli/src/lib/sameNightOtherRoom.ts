@@ -56,8 +56,12 @@ interface ArtistYearPage {
 
 const fold = (s: string | undefined | null) => (s ?? "").trim().toLowerCase();
 
-/** Replaces control characters, so a stored name cannot rewrite the terminal. */
-const clean = (s: string) => s.replace(/\p{Cc}/gu, "?");
+/**
+ * Replaces control and format characters (bidirectional overrides among them)
+ * and the Unicode line separators, so a stored name cannot rewrite or reorder
+ * the terminal line the operator reads.
+ */
+const clean = (s: string) => s.replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, "?");
 
 /**
  * The shows in `shows` that sit at another room of `roomCity` on the plan's
@@ -88,8 +92,8 @@ export function sameNightOtherRoomShows(
  * night the show will be stored on.
  *
  * A matched room is compared by the city and state stored on it, read once per
- * room; a room this run would create, by the city the batch gives it, else the
- * show's own.
+ * room, and is not checked when either is blank; a room this run would create
+ * is compared by the city the batch gives it, else the show's own.
  */
 export async function reportSameNightOtherRooms<P extends SameNightPlan>(
   client: APIClient,
@@ -141,11 +145,15 @@ export async function reportSameNightOtherRooms<P extends SameNightPlan>(
     let shows: ArtistShowForSameNight[];
     let roomCity: RoomCity;
     try {
-      const stated = room.id !== undefined ? await storedRoom(room.id) : room;
-      roomCity = {
-        city: stated.city?.trim() || plan.input.city?.trim() || "",
-        state: stated.state?.trim() || plan.input.state?.trim() || "",
-      };
+      if (room.id !== undefined) {
+        const stored = await storedRoom(room.id);
+        roomCity = { city: stored.city?.trim() ?? "", state: stored.state?.trim() ?? "" };
+      } else {
+        roomCity = {
+          city: room.city?.trim() || plan.input.city?.trim() || "",
+          state: room.state?.trim() || plan.input.state?.trim() || "",
+        };
+      }
       if (!roomCity.city || !roomCity.state) {
         lines.push(`${label}: the room's city is not known; not checked`);
         continue;

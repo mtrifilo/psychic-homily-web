@@ -78,6 +78,11 @@ type ReattributionNeighbour struct {
 	Slug      string
 	Headliner string
 	Status    catalogm.ShowStatus
+	// Collides is true when the neighbour bills one of the row's acts at the
+	// instant those acts will hold at the target room. The derived dedup key
+	// (act, room, instant) admits one show, so the row is refused rather than
+	// sent to fail on it.
+	Collides bool
 }
 
 // ReattributionAct is one act the merge adds to the winner's bill, with the
@@ -109,16 +114,20 @@ type ShowReattributionResult struct {
 	MergeIntoStatus    catalogm.ShowStatus
 	MergeIntoHeadliner string
 	// ActsAddedToWinner are the acts on the merged show's bill that the winner
-	// does not bill yet, as they land: after the winner's last act, with a
-	// headliner role turned into performer.
+	// does not bill yet, as they land: see appendLoserActsToWinnerBill.
 	ActsAddedToWinner []ReattributionAct
+	// RoomRowsCleared counts the merged show's show_venues rows deleted before
+	// the merge; MergeDuplicateShow's own show_venues counters see none of them.
+	RoomRowsCleared int64
 	// MergeSummary is set only when Outcome is merged.
 	MergeSummary *ShowDedupSummary
 
 	// SameNightAtTarget lists the other shows at the target room on the same
-	// venue-local date. A plain move that leaves one of these behind is how a
-	// duplicate is born, so the CLI prints them as a warning for the reviewer
-	// to decide on. Never acted upon here.
+	// venue-local date, apart from the row's show and its merge target, for a
+	// move or a merge that got as far as reading them. A row that leaves one
+	// of these behind can leave a duplicate, so the CLI prints them as a
+	// warning for the reviewer to decide on. A neighbour that Collides refuses
+	// the row; nothing else here acts on them.
 	SameNightAtTarget []ReattributionNeighbour
 }
 
@@ -234,18 +243,31 @@ func reattributeInTx(tx *gorm.DB, row ShowReattribution, res *ShowReattributionR
 	localDate := venueRowLocalDate(show.EventDate, target.Timezone, target.State)
 	res.VenueLocalDate = localDate
 
-	if winnerID != 0 {
-		return mergeIntoCopy(tx, show, locked[winnerID], &target, localDate, res)
-	}
-
-	if current.ID == target.ID {
+	if winnerID == 0 && current.ID == target.ID {
 		res.Outcome = ReattributionUnchanged
 		res.Reason = "already at the target room"
 		return nil
 	}
 
-	if res.SameNightAtTarget, err = showsAtRoomOnLocalDate(tx, &target, show.ID, localDate); err != nil {
+	// The instant the row's acts will hold at the target room: the winner's for
+	// a merge, the show's own for a move.
+	arrivesAt := show.EventDate
+	if winnerID != 0 {
+		arrivesAt = locked[winnerID].EventDate
+	}
+	if res.SameNightAtTarget, err = showsAtRoomOnLocalDate(
+		tx, &target, localDate, show.ID, winnerID, arrivesAt); err != nil {
 		return err
+	}
+	for _, n := range res.SameNightAtTarget {
+		if n.Collides {
+			return refuse("%s (show %d, %s) at the target room bills one of this show's acts at the same time; "+
+				"the database admits one of the two", n.Slug, n.ID, n.Status)
+		}
+	}
+
+	if winnerID != 0 {
+		return mergeIntoCopy(tx, show, locked[winnerID], &target, localDate, res)
 	}
 
 	if err := tx.Exec(`UPDATE show_venues SET venue_id = ? WHERE show_id = ? AND venue_id = ?`,
@@ -301,9 +323,11 @@ func mergeIntoCopy(tx *gorm.DB, loser, winner *catalogm.Show, target *catalogm.V
 		return refuse("merge target is on %s and the show is on %s (venue-local)", winnerDate, localDate)
 	}
 
-	if err := tx.Exec(`DELETE FROM show_venues WHERE show_id = ?`, loser.ID).Error; err != nil {
-		return fmt.Errorf("clear merged show's room: %w", err)
+	cleared := tx.Exec(`DELETE FROM show_venues WHERE show_id = ?`, loser.ID)
+	if cleared.Error != nil {
+		return fmt.Errorf("clear merged show's room: %w", cleared.Error)
 	}
+	res.RoomRowsCleared = cleared.RowsAffected
 	if res.ActsAddedToWinner, err = appendLoserActsToWinnerBill(tx, loser.ID, winner.ID); err != nil {
 		return err
 	}
@@ -321,18 +345,27 @@ func mergeIntoCopy(tx *gorm.DB, loser, winner *catalogm.Show, target *catalogm.V
 
 // appendLoserActsToWinnerBill rewrites, on the loser, the bill rows of acts the
 // winner does not bill, so that MergeDuplicateShow moves them in BEHIND the
-// winner's bill: positions after the winner's last one, in the loser's order,
-// and a headliner role turned into performer. MergeDuplicateShow moves bill
-// rows as they stand, so without this the loser's headliner would arrive as a
-// second headliner at position 0 and could outrank the winner's own. Acts the
-// winner already bills are left alone; the merge keeps the winner's row for
-// them. Runs after the loser's rooms are cleared, so the loser holds no dedup
-// keys these updates could collide with.
+// winner's bill: positions after the winner's last one, in the loser's order.
+// MergeDuplicateShow moves bill rows as they stand, so without this the
+// loser's headliner would arrive as a second headliner at position 0 and could
+// outrank the winner's own.
+//
+// Roles follow the winner's bill, so its headline slot (headlineSlotSQL) stays
+// where it was. On a curated winner the moved acts keep their roles, except a
+// headliner, which becomes performer. On an uncurated winner every moved act
+// becomes performer: one curated role arriving would make the bill read as
+// curated, and a curated bill's headline slot is its headliner rows, of which
+// it has none.
+//
+// Acts the winner already bills are left alone; the merge keeps the winner's
+// row for them.
 func appendLoserActsToWinnerBill(tx *gorm.DB, loserID, winnerID uint) ([]ReattributionAct, error) {
 	var acts []ReattributionAct
 	if err := tx.Raw(`
 		WITH next AS (
-			SELECT COALESCE(MAX(position), -1) + 1 AS base FROM show_artists WHERE show_id = ?
+			SELECT COALESCE(MAX(position), -1) + 1 AS base,
+			       COALESCE(BOOL_OR(COALESCE(set_type, '') NOT IN `+headlineSlotUnknownValues+`), FALSE) AS curated
+			FROM show_artists WHERE show_id = ?
 		), moving AS (
 			SELECT l.artist_id,
 			       ROW_NUMBER() OVER (ORDER BY l.position, l.artist_id) - 1 AS ord
@@ -342,7 +375,10 @@ func appendLoserActsToWinnerBill(tx *gorm.DB, loserID, winnerID uint) ([]Reattri
 		)
 		UPDATE show_artists sa
 		SET position = next.base + moving.ord,
-		    set_type = CASE WHEN sa.set_type = 'headliner' THEN 'performer' ELSE sa.set_type END
+		    set_type = CASE
+		        WHEN NOT next.curated OR sa.set_type = 'headliner' THEN 'performer'
+		        ELSE sa.set_type
+		    END
 		FROM moving, next, artists a
 		WHERE sa.show_id = ? AND sa.artist_id = moving.artist_id AND a.id = sa.artist_id
 		RETURNING a.name AS name, sa.set_type AS set_type, sa.position AS position
@@ -406,12 +442,14 @@ func showHeadlinerName(tx *gorm.DB, showID uint) (string, error) {
 	return names[0], nil
 }
 
-// showsAtRoomOnLocalDate lists the other shows at a room whose event_date falls
-// on localDate in the room's zone. The SQL window is a coarse bound a day wider
-// than any UTC offset on each side; the exact venue-local comparison is made
-// here, in the same zone the moved show's date was read in.
-func showsAtRoomOnLocalDate(tx *gorm.DB, room *catalogm.Venue, exceptShowID uint,
-	localDate string) ([]ReattributionNeighbour, error) {
+// showsAtRoomOnLocalDate lists the shows at a room, other than the row's show
+// and its merge target (0 for none), whose event_date falls on localDate in the
+// room's zone. Each is marked Collides when it bills one of the row's show's
+// acts at arrivesAt. The SQL window is a coarse bound a day wider than any UTC
+// offset on each side; the exact venue-local comparison is made here, in the
+// same zone the row's date was read in.
+func showsAtRoomOnLocalDate(tx *gorm.DB, room *catalogm.Venue, localDate string,
+	showID, mergeIntoID uint, arrivesAt time.Time) ([]ReattributionNeighbour, error) {
 	day, err := time.Parse("2006-01-02", localDate)
 	if err != nil {
 		return nil, fmt.Errorf("parse local date %s: %w", localDate, err)
@@ -422,9 +460,15 @@ func showsAtRoomOnLocalDate(tx *gorm.DB, room *catalogm.Venue, exceptShowID uint
 		Status    catalogm.ShowStatus
 		EventDate time.Time
 		Headliner *string
+		Collides  bool
 	}
 	if err := tx.Raw(`
-		SELECT s.id, s.slug, s.status, s.event_date, h.name AS headliner
+		SELECT s.id, s.slug, s.status, s.event_date, h.name AS headliner,
+		       (s.event_date = ? AND EXISTS (
+		           SELECT 1 FROM show_artists na
+		           JOIN show_artists ra ON ra.artist_id = na.artist_id AND ra.show_id = ?
+		           WHERE na.show_id = s.id
+		       )) AS collides
 		FROM shows s
 		JOIN show_venues sv ON sv.show_id = s.id
 		LEFT JOIN LATERAL (
@@ -434,10 +478,11 @@ func showsAtRoomOnLocalDate(tx *gorm.DB, room *catalogm.Venue, exceptShowID uint
 			ORDER BY `+showBillHeadlinerRank+`
 			LIMIT 1
 		) h ON TRUE
-		WHERE sv.venue_id = ? AND s.id <> ?
+		WHERE sv.venue_id = ? AND s.id <> ? AND s.id <> ?
 		  AND s.event_date >= ? AND s.event_date < ?
 		ORDER BY s.event_date, s.id
-	`, room.ID, exceptShowID, day.AddDate(0, 0, -2), day.AddDate(0, 0, 3)).Scan(&rows).Error; err != nil {
+	`, arrivesAt, showID, room.ID, showID, mergeIntoID,
+		day.AddDate(0, 0, -2), day.AddDate(0, 0, 3)).Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("shows at room %d near %s: %w", room.ID, localDate, err)
 	}
 	var out []ReattributionNeighbour
@@ -446,7 +491,8 @@ func showsAtRoomOnLocalDate(tx *gorm.DB, room *catalogm.Venue, exceptShowID uint
 			continue
 		}
 		out = append(out, ReattributionNeighbour{
-			ID: r.ID, Slug: shared.DerefOrEmpty(r.Slug), Headliner: shared.DerefOrEmpty(r.Headliner), Status: r.Status})
+			ID: r.ID, Slug: shared.DerefOrEmpty(r.Slug), Headliner: shared.DerefOrEmpty(r.Headliner),
+			Status: r.Status, Collides: r.Collides})
 	}
 	return out, nil
 }

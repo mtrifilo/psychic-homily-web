@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -140,7 +141,8 @@ func TestPrintResult_WarnsAboutAShowAlreadyAtTheTargetThatNight(t *testing.T) {
 		Outcome:  catalog.ReattributionMoved,
 		ShowSlug: "cenit",
 		SameNightAtTarget: []catalog.ReattributionNeighbour{
-			{ID: 11, Slug: "cenit-mezz", Headliner: "Cenit / The Mezzanine", Status: "pending"},
+			{ID: 11, Slug: "cenit-mezz", Headliner: "Cenit / The Mezzanine", Status: "approved"},
+			{ID: 12, Slug: "cenit-rejected", Headliner: "Cenit", Status: "rejected"},
 		},
 	}, true)
 
@@ -148,7 +150,24 @@ func TestPrintResult_WarnsAboutAShowAlreadyAtTheTargetThatNight(t *testing.T) {
 	assert.Contains(t, text, "line 9  MOVED  cenit")
 	assert.Contains(t, text, "slug: kept as cenit (it names the old room)")
 	assert.Contains(t, text,
-		"WARNING: cenit-mezz (show 11, pending, Cenit / The Mezzanine) is also at the target room that night")
+		"WARNING: cenit-mezz (show 11, approved, Cenit / The Mezzanine) is also at the target room that night; "+
+			"add it as merge_into_show_slug if it is the same event")
+	assert.Contains(t, text,
+		"WARNING: cenit-rejected (show 12, rejected, Cenit) is also at the target room that night; "+
+			"it is rejected, so it cannot be merged with")
+}
+
+func TestPrintResult_AMergeRowsNeighbourIsNotOfferedAsAMergeTarget(t *testing.T) {
+	var out bytes.Buffer
+	printResult(&out, worklistRow{Line: 4}, catalog.ShowReattributionResult{
+		Outcome:           catalog.ReattributionMerged,
+		ShowSlug:          "a",
+		MergeIntoID:       2,
+		MergeIntoSlug:     "b",
+		SameNightAtTarget: []catalog.ReattributionNeighbour{{ID: 3, Slug: "c", Headliner: "C", Status: "approved"}},
+	}, true)
+
+	assert.Contains(t, out.String(), "WARNING: c (show 3, approved, C) is also at the target room that night; it stays after this merge")
 }
 
 func TestPrintResult_ReplacesControlCharactersFromTheDatabase(t *testing.T) {
@@ -167,6 +186,11 @@ func TestPrintResult_ReplacesControlCharactersFromTheDatabase(t *testing.T) {
 	assert.Contains(t, text, "Act?]0;owned?")
 }
 
+func TestClean_ReplacesBidiOverridesAndLineSeparators(t *testing.T) {
+	assert.Equal(t, "A?B?C?D", clean("A\u202eB\u2066C\u2028D"))
+	assert.Equal(t, "Mot\u00f6rhead", clean("Mot\u00f6rhead"), "ordinary letters are kept")
+}
+
 func TestPrintMergeSummary_PrintsEveryCounterTheMergeFillsAndEveryTable(t *testing.T) {
 	var out bytes.Buffer
 	printMergeSummary(&out, &catalog.ShowDedupSummary{
@@ -178,9 +202,20 @@ func TestPrintMergeSummary_PrintsEveryCounterTheMergeFillsAndEveryTable(t *testi
 	text := out.String()
 	assert.Contains(t, text, "LosersMerged:          2")
 	assert.Contains(t, text, "PendingEditsMoved:     3")
-	assert.Contains(t, text, "ShowVenuesSkipped:     0", "a zero counter is printed too")
+	assert.Contains(t, text, "EnrichmentMoved:       0", "a zero counter is printed too")
 	assert.NotContains(t, text, "ClustersFound", "a counter this tool never fills is left out")
 	assert.NotContains(t, text, "SlugsRewritten")
+	assert.NotContains(t, text, "ShowVenuesSkipped")
 	assert.Contains(t, text, "user_bookmarks:        moved=4 skipped=1")
 	assert.Less(t, strings.Index(text, "comments:"), strings.Index(text, "user_bookmarks:"), "tables in name order")
+}
+
+// The left-out counters are named by string; each must still be a field, or a
+// rename would quietly print it again.
+func TestMergeSummaryFieldsNotSet_NameRealFields(t *testing.T) {
+	typ := reflect.TypeOf(catalog.ShowDedupSummary{})
+	for name := range mergeSummaryFieldsNotSet {
+		_, ok := typ.FieldByName(name)
+		assert.True(t, ok, "ShowDedupSummary has no field %s", name)
+	}
 }
