@@ -666,9 +666,25 @@ const positiveExistenceVerdicts = createPositiveVerdictCache({
   maxEntries: EXISTENCE_VERDICT_MAX_ENTRIES,
 })
 
+/**
+ * How long a positive verdict whose probe named no canonical path (see
+ * `existenceCheck`'s `canonicalPath`) is reused: short, because the request it
+ * answers renders where it may later be redirected, and long enough that a
+ * backend which names no paths (one older than the frontend) is not probed by
+ * every request.
+ */
+const UNNAMED_CANONICAL_VERDICT_TTL_MS = 30_000
+
+/** Positive verdicts whose probe named no canonical path, keyed by probe URL. */
+const unnamedCanonicalVerdicts = createPositiveVerdictCache({
+  ttlMs: UNNAMED_CANONICAL_VERDICT_TTL_MS,
+  maxEntries: EXISTENCE_VERDICT_MAX_ENTRIES,
+})
+
 /** Forget every remembered verdict, so one test's probes cannot answer another's. */
 export function clearExistenceVerdictsForTests(): void {
   positiveExistenceVerdicts.clear()
+  unnamedCanonicalVerdicts.clear()
 }
 
 /**
@@ -773,10 +789,11 @@ function failedProbeResponse(
  *
  * `canonicalPath`, when given, reads the canonical spelling of the request's
  * path off a successful probe's HEADERS, or null when the probe names none. A
- * request spelled any other way is permanently redirected to it, a request the
- * probe names no path for renders, and only a request already spelled the
- * canonical way is remembered, so a remembered probe URL is one whose request
- * needs no redirect.
+ * request spelled any other way is permanently redirected to it and is not
+ * remembered, so a probe URL remembered for the full verdict window is one
+ * whose request needs no redirect. A request the probe names no path for
+ * renders, and its verdict is remembered only for
+ * `UNNAMED_CANONICAL_VERDICT_TTL_MS`.
  */
 async function existenceCheck(
   request: NextRequest,
@@ -786,7 +803,7 @@ async function existenceCheck(
     canonicalPath?: (res: Response) => string | null
   }
 ): Promise<NextResponse> {
-  if (positiveExistenceVerdicts.has(url)) {
+  if (positiveExistenceVerdicts.has(url) || unnamedCanonicalVerdicts.has(url)) {
     return NextResponse.next()
   }
   try {
@@ -811,8 +828,9 @@ async function existenceCheck(
     if (options.canonicalPath) {
       const canonical = options.canonicalPath(res)
       if (canonical === null) {
-        // Not remembered, so the next request asks again and is redirected
-        // as soon as the probe names a canonical path.
+        // Remembered briefly, so a request is redirected within that window
+        // of the probe first naming a canonical path.
+        unnamedCanonicalVerdicts.remember(url)
         return NextResponse.next()
       }
       if (canonical !== request.nextUrl.pathname) {

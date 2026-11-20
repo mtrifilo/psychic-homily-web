@@ -300,19 +300,31 @@ describe('proxy — scene canonical redirects', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  // A probe that named no slug is asked again, so a member-city URL is
-  // redirected as soon as the probe names the metro.
-  it('does not remember a verdict that named no slug', async () => {
-    const fetchMock = mockSceneNamed(null)
+  // A probe that named no slug is reused for a short window only: requests
+  // inside it are not probed, and the first one after it is redirected once
+  // the probe names the metro.
+  it('remembers a verdict that named no slug for a short window only', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchMock = mockSceneNamed(null)
 
-    expect((await proxy(requestFor('/scenes/tempe-az'))).status).toBe(200)
-    fetchMock.mockResolvedValue(
-      new Response(null, { status: 200, headers: { 'canonical-slug': 'phoenix-az' } })
-    )
-    const response = await proxy(requestFor('/scenes/tempe-az'))
+      expect((await proxy(requestFor('/scenes/tempe-az'))).status).toBe(200)
+      expect((await proxy(requestFor('/scenes/tempe-az'))).status).toBe(200)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
 
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-    expect(response.status).toBe(308)
+      fetchMock.mockResolvedValue(
+        new Response(null, { status: 200, headers: { 'canonical-slug': 'phoenix-az' } })
+      )
+      vi.advanceTimersByTime(29_000)
+      expect((await proxy(requestFor('/scenes/tempe-az'))).status).toBe(200)
+      vi.advanceTimersByTime(2_000)
+      const response = await proxy(requestFor('/scenes/tempe-az'))
+
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(response.status).toBe(308)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   // A metro whose own slug differs from the request only by case: the
