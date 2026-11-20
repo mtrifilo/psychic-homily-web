@@ -185,7 +185,7 @@ func TestRun_DryRunThenConfirmThenRerun(t *testing.T) {
 	if n := strings.Count(string(lines), "\n"); n != 6 {
 		t.Fatalf("backup holds %d lines, want 5 snapshots and 1 outcome\n%s", n, lines)
 	}
-	if !strings.Contains(string(lines), fmt.Sprintf(`"group_kept_show_id":%d,"group_deleted_show_ids":[%d,%d,%d,%d,%d],"committed":true`,
+	if !strings.Contains(string(lines), fmt.Sprintf(`"group_kept_show_id":%d,"group_deleted_show_ids":[%d,%d,%d,%d,%d],"committed":"true"`,
 		ids[0], ids[1], ids[2], ids[3], ids[4], ids[5])) {
 		t.Errorf("backup lacks the committed outcome line\n%s", lines)
 	}

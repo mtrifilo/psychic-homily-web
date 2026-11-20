@@ -13,6 +13,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	notificationm "psychic-homily-backend/internal/models/notification"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -544,6 +545,88 @@ func (s *ShowReplicaPurgeSuite) TestHeadlinerIsTheCuratedAct() {
 	s.Equal("Star", plan.Groups[0].HeadlinerName)
 	s.Equal(ids[0], plan.Groups[0].KeepID)
 	s.Equal(ids[1:], plan.Groups[0].DeleteIDs)
+}
+
+// Every foreign key to shows is either counted and snapshotted (showFKRefs) or
+// named here as handled another way, so a new cascade cannot be deleted
+// without a count in the dry run or a copy in the backup.
+func (s *ShowReplicaPurgeSuite) TestShowFKRefsCoverTheSchema() {
+	var fks []struct {
+		Tbl string
+		Col string
+	}
+	s.Require().NoError(s.db.Raw(`
+		SELECT c.conrelid::regclass::text AS tbl, a.attname AS col
+		FROM pg_constraint c
+		JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+		WHERE c.contype = 'f' AND c.confrelid = 'shows'::regclass`).Scan(&fks).Error)
+	s.Require().NotEmpty(fks)
+
+	known := map[string]bool{
+		"show_artists.show_id":    true, // snapshotted directly
+		"show_venues.show_id":     true, // snapshotted directly
+		"show_dedup_keys.show_id": true, // derived by trigger from the two above
+	}
+	for _, fk := range showFKRefs {
+		known[fk.table+"."+fk.column] = true
+	}
+	for _, fk := range fks {
+		s.True(known[fk.Tbl+"."+fk.Col], "foreign key %s.%s to shows is not in showFKRefs or the exempt set", fk.Tbl, fk.Col)
+	}
+}
+
+// The snapshot carries every kind of row the delete removes or rewrites, and
+// the dry run counts each of them.
+func (s *ShowReplicaPurgeSuite) TestSnapshotCarriesEveryRemovedRow() {
+	ids := s.replicate(s.artist("Igorrr"), s.venue("Great American Music Hall"), 2026, 2027, 2028)
+	doomed := ids[2]
+	fan := s.user("fan@test.local")
+
+	var collectionID uint
+	s.Require().NoError(s.db.Raw(`INSERT INTO collections (title, slug, creator_id) VALUES ('Crate', 'crate', ?) RETURNING id`, fan).Row().Scan(&collectionID))
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO collection_items (collection_id, entity_type, entity_id, position, added_by_user_id) VALUES (?, 'show', ?, 0, ?)`, []any{collectionID, doomed, fan}},
+		{`INSERT INTO notification_log (user_id, entity_type, entity_id, channel) VALUES (?, 'show', ?, 'email')`, []any{fan, doomed}},
+		{`INSERT INTO notification_log (user_id, entity_type, entity_id, channel) VALUES (?, ?, ?, 'email')`, []any{fan, notificationm.NotificationEntityArtistShowAlert, doomed}},
+	} {
+		s.Require().NoError(s.db.Exec(stmt.sql, stmt.args...).Error)
+	}
+	pointer := s.show(s.artist("Elsewhere"), s.venue("Elsewhere Room"), evening(2027, time.January, 9), "")
+	s.Require().NoError(s.db.Exec(`UPDATE shows SET duplicate_of_show_id = ? WHERE id = ?`, doomed, pointer).Error)
+
+	plan := s.plan()
+	s.Require().Len(plan.Groups, 1)
+	refs := map[string]int64{}
+	for _, r := range plan.Groups[0].Copies[2].Refs {
+		refs[r.Table] = r.Rows
+	}
+	s.Equal(map[string]int64{
+		"collection_items":                         1,
+		"notification_log":                         1,
+		"notification_log (alert discriminators)":  1,
+		"shows.duplicate_of_show_id (set to NULL)": 1,
+	}, refs)
+
+	s.Require().NoError(PurgeReplicatedShowGroup(s.db, replicaNow, plan.Groups[0], s.keepBackup))
+	s.Require().Len(s.backups, 2)
+	var doc struct {
+		Show struct {
+			ID uint `json:"id"`
+		} `json:"show"`
+		CollectionItems []json.RawMessage `json:"collection_items"`
+		Notifications   []json.RawMessage `json:"notification_log"`
+		Alerts          []json.RawMessage `json:"notification_log_alerts"`
+		PointingHere    []uint            `json:"shows_pointing_here"`
+	}
+	s.Require().NoError(json.Unmarshal(s.backups[1], &doc))
+	s.Equal(doomed, doc.Show.ID)
+	s.Len(doc.CollectionItems, 1)
+	s.Len(doc.Notifications, 1)
+	s.Len(doc.Alerts, 1)
+	s.Equal([]uint{pointer}, doc.PointingHere)
 }
 
 func (s *ShowReplicaPurgeSuite) TestPlanDigestNamesTheDeletions() {

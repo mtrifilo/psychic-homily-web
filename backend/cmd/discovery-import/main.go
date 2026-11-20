@@ -132,7 +132,7 @@ func main() {
 	fmt.Printf("Total events:     %d\n", totalResult.Total)
 	fmt.Printf("Imported:         %d\n", totalResult.Imported)
 	fmt.Printf("Duplicates:       %d (already in database)\n", totalResult.Duplicates)
-	fmt.Printf("Rejected:         %d (matched rejected shows)\n", totalResult.Rejected)
+	fmt.Printf("Rejected:         %d (matched rejected shows, or dated past the far-future bound)\n", totalResult.Rejected)
 	fmt.Printf("Errors:           %d\n", totalResult.Errors)
 	fmt.Println(strings.Repeat("=", 60))
 

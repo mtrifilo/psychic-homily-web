@@ -309,3 +309,24 @@ describe("quoteLineValue", () => {
     expect(quoteLineValue("\u001b[2KRoom")).toBe("[2KRoom");
   });
 });
+
+describe("findTicketURLReuse paging", () => {
+  test("a server that pages below 200 is read to its total", async () => {
+    const all = Array.from({ length: 150 }, (_, i) => ({
+      id: i + 1,
+      event_date: "2027-01-01T03:00:00Z",
+      ticket_url: TICKET,
+      venues: [{ id: i === 149 ? 7 : 99, name: "Room" }],
+    }));
+    const offsets: string[] = [];
+    const c = client(async (_path: string, params?: Record<string, string>) => {
+      const offset = Number(params?.offset ?? "0");
+      offsets.push(String(offset));
+      return { shows: all.slice(offset, offset + 100), total: all.length };
+    });
+    const { reuse, truncated } = await findTicketURLReuse(c, TICKET, [7], "2026-10-03", "CA", "America/Los_Angeles");
+    expect(offsets).toEqual(["0", "100"]);
+    expect(truncated).toBe(false);
+    expect(reuse.map((r) => r.showId)).toEqual([150]);
+  });
+});
