@@ -1194,7 +1194,7 @@ function displayPreview(plans: ShowPlan[], resolvedTags?: ResolvedTag[][]): void
       display.kv("Ages", plan.input.age_requirement);
     }
     if (plan.input.ticket_url) {
-      display.kv("Tickets", quoteSourceValue(plan.input.ticket_url));
+      display.kv("Tickets", plan.input.ticket_url);
     }
     for (const reuse of plan.ticketReuse ?? []) {
       const slug = reuse.slug ? ` (${quoteLineValue(reuse.slug)})` : "";
