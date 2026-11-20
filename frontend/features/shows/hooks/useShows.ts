@@ -241,7 +241,7 @@ export const useShowsCalendar = (options: UseShowsCalendarOptions = {}) => {
   appendShowListFilters(params, { city, state, cities, tags, tagMatch })
 
   return useQuery({
-    queryKey: showsCalendarQueryKey(options),
+    queryKey: showsCalendarQueryKey({ ...options, limit }),
     queryFn: async (): Promise<ShowsCalendarResponse> => {
       return apiRequest<ShowsCalendarResponse>(
         `${showEndpoints.CALENDAR}?${params.toString()}`,

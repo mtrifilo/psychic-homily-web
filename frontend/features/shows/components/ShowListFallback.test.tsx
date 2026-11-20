@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderToString } from 'react-dom/server'
-import { act, cleanup } from '@testing-library/react'
+import { act, cleanup, renderHook } from '@testing-library/react'
 import {
   QueryClient,
   QueryClientProvider,
@@ -109,6 +109,7 @@ import {
 import { showsFirstScreenSeeds } from '../firstScreen'
 import type { ShowsCalendarResponse } from '../types'
 import { showsCalendarQueryKey } from '../hooks/useShows'
+import { useShowListCitySelection } from '../hooks/useShowListCitySelection'
 import { ShowList } from './ShowList'
 import { ShowListFallback, showListFirstPaintKeys } from './ShowListFallback'
 import { ShowListSkeleton } from './ShowListSkeleton'
@@ -497,5 +498,57 @@ describe('showListFirstPaintKeys', () => {
     expect(new Set(showListFirstPaintKeys([]).map(hashKey))).toEqual(
       new Set(seeds?.map(seed => hashKey(seed.queryKey)))
     )
+  })
+})
+
+// What the selection hook reports, read directly, in both of its modes.
+describe('useShowListCitySelection', () => {
+  const read = (geoSource: 'request' | 'cache') =>
+    renderHook(() => useShowListCitySelection({ citiesData: facet, geoSource }), {
+      wrapper: ({ children }) => (
+        <QueryClientProvider client={new QueryClient()}>{children}</QueryClientProvider>
+      ),
+    }).result.current
+
+  it('in cache mode, reads an uncached location answer as resolving, and the default as possible', () => {
+    const selection = read('cache')
+
+    expect(selection.isResolving).toBe(true)
+    expect(selection.geoDefaultPossible).toBe(true)
+    expect(geoRequests(fetchSpy)).toHaveLength(0)
+  })
+
+  it('in cache mode, reads a cached "no city" as settled, with no default possible', () => {
+    cacheGeoAnswer(null)
+    const selection = read('cache')
+
+    expect(selection.isResolving).toBe(false)
+    expect(selection.geoDefaultPossible).toBe(false)
+    expect(selection.selectedCities).toEqual([])
+  })
+
+  it('in cache mode, applies a cached location on the first render', () => {
+    cacheGeoAnswer(MESA)
+    const selection = read('cache')
+
+    expect(selection.appliedGeoDefault).toEqual(MESA)
+    expect(selection.geoDefaultPossible).toBe(true)
+  })
+
+  it('in request mode, counts the default as possible for an eligible viewer', () => {
+    cacheGeoAnswer(null)
+
+    expect(read('request').geoDefaultPossible).toBe(true)
+  })
+
+  it('counts no default as possible when favourites choose the cities', () => {
+    setViewer(SIGNED_IN, [TUCSON])
+
+    for (const geoSource of ['request', 'cache'] as const) {
+      const selection = read(geoSource)
+      expect(selection.geoDefaultPossible).toBe(false)
+      expect(selection.isResolving).toBe(false)
+      expect(selection.selectedCities).toEqual([TUCSON])
+    }
   })
 })

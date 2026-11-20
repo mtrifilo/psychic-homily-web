@@ -37,8 +37,8 @@ interface UseShowListCitySelectionParams {
 
 /**
  * Whether this list's geo default applies to a signed-in viewer with no
- * favourites. Passed to `useGeoDefaultCity` and used by the cache-only
- * eligibility below, so the two cannot disagree.
+ * favourites. Passed to `useGeoDefaultCity` and read by `geoEligible` below,
+ * so that flag is stated once.
  */
 const GEO_DEFAULT_FOR_SIGNED_IN = false
 
@@ -124,8 +124,11 @@ export function useShowListCitySelection({
   // `next/headers`). The hook RETURNS the derived canonical city; it is folded
   // into the derived selection below (never written to the URL). Favorites and
   // an existing `?cities=`/legacy selection both win (the hook stands down).
-  const { appliedGeoDefault, notifyUserInteracted, isResolving } =
-    useGeoDefaultCity({
+  const {
+    appliedGeoDefault,
+    notifyUserInteracted,
+    isResolving: geoResolving,
+  } = useGeoDefaultCity({
       cities,
       authStatus,
       favoriteCities,
@@ -137,8 +140,10 @@ export function useShowListCitySelection({
         : { enableClientFetch: true }),
     })
 
-  // `useGeoDefaultCity`'s eligibility for the options passed above, on a mount
-  // with no filter interaction yet.
+  // A restatement of `useGeoDefaultCity`'s eligibility for the options passed
+  // above, on a mount with no filter interaction yet. Only the signed-in flag
+  // is shared; `geoDefaultPossible` also counts any default the hook applied,
+  // so a looser rule there can only add cases that read as possible.
   const geoEligible =
     (authStatus === 'anonymous' ||
       (GEO_DEFAULT_FOR_SIGNED_IN &&
@@ -146,11 +151,18 @@ export function useShowListCitySelection({
         favoritesKnown)) &&
     favoriteCities.length === 0 &&
     !hasExistingSelection
-  // Only a cached "no city" settles an eligible selection for good. A cached
+  // Only a known "no city" settles an eligible selection for good. A cached
   // location can still become the default when the facet changes (a refetch
-  // that adds its city), and no cached answer is no answer at all.
+  // that adds its city), and in request mode, or with nothing cached, the
+  // answer is not known here.
   const geoDefaultPossible =
-    geoSource === 'cache' && geoEligible && cachedGeo !== null
+    appliedGeoDefault !== null ||
+    (geoEligible && (geoSource === 'request' || cachedGeo !== null))
+  // In cache mode with nothing cached the hook was told "no city", so it
+  // reports settled; the answer is still unknown.
+  const isResolving =
+    geoResolving ||
+    (geoSource === 'cache' && geoEligible && cachedGeo === undefined)
 
   // The effective city filter, DERIVED during render, never seeded into the
   // URL by an effect. A bare /shows resolves to the user's favorite (or, for
@@ -178,8 +190,9 @@ export function useShowListCitySelection({
     /** False while a signed-in viewer's own profile, and so their favourites, has not answered. */
     favoritesKnown,
     /**
-     * Cache-only mode: the geo default could decide this selection, now or
-     * after a facet change, because the cached answer is not "no city".
+     * Whether the geo default decides, or could still decide, this selection:
+     * true unless the selection is the URL's or the favourites', or the
+     * location answer is a known "no city".
      */
     geoDefaultPossible,
     notifyUserInteracted,
