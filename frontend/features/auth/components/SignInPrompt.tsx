@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { buildAuthHref } from '@/lib/auth-href'
+import { NoSnippet } from '@/components/shared/NoSnippet'
 
 interface SignInPromptProps {
   /** Copy that follows the link, e.g. "to join the discussion." */
@@ -14,6 +15,11 @@ interface SignInPromptProps {
    */
   returnToHash?: string
   testId?: string
+  /**
+   * Keeps the prompt out of search snippets (`NoSnippet`). Fixed per call site:
+   * the attribute must be present from the prompt's first render.
+   */
+  noSnippet?: boolean
 }
 
 /**
@@ -40,12 +46,12 @@ export function SignInPrompt({
   children,
   returnToHash,
   testId,
+  noSnippet = false,
 }: SignInPromptProps) {
   const pathname = usePathname()
   const returnTo = returnToHash ? `${pathname}#${returnToHash}` : pathname
-
-  return (
-    <p className="text-sm text-muted-foreground mb-6" data-testid={testId}>
+  const prompt = (
+    <>
       <Link
         href={buildAuthHref(returnTo)}
         className="text-link hover:underline"
@@ -53,6 +59,12 @@ export function SignInPrompt({
         Sign in
       </Link>{' '}
       {children}
+    </>
+  )
+
+  return (
+    <p className="text-sm text-muted-foreground mb-6" data-testid={testId}>
+      {noSnippet ? <NoSnippet>{prompt}</NoSnippet> : prompt}
     </p>
   )
 }

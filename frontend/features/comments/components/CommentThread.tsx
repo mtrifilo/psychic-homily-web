@@ -146,7 +146,11 @@ export function CommentThread({ entityType, entityId }: CommentThreadProps) {
           />
         </div>
       ) : (
-        <SignInPrompt testId="auth-gate" returnToHash={COMMENTS_SECTION_ANCHOR}>
+        <SignInPrompt
+          testId="auth-gate"
+          returnToHash={COMMENTS_SECTION_ANCHOR}
+          noSnippet
+        >
           to join the discussion.
         </SignInPrompt>
       )}

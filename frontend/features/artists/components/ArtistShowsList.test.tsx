@@ -284,6 +284,11 @@ describe('ArtistShowsList — upcoming section', () => {
     setUpcoming({ shows: [] })
     renderList({ artistName: 'Just Mustard' })
     expect(screen.getByText(/No upcoming shows yet/i)).toBeInTheDocument()
+    // Interface copy, never a search snippet: Google honours the attribute on
+    // span, div and section only.
+    expect(
+      screen.getByText(/No upcoming shows yet/i).closest('span[data-nosnippet]')
+    ).not.toBeNull()
     expect(screen.queryByTestId('notify-me-button')).not.toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: /notify/i })

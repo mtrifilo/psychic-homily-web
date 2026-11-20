@@ -91,6 +91,7 @@ import { ArtistSimilarSidebar } from '@/features/artists/components/RelatedArtis
 import { CreateCollectionDrawerProvider } from '@/features/collections/components/CreateCollectionDrawer'
 import { useArtistReleases } from '@/features/releases/hooks/useReleases'
 import { resetServerFetchReportThrottleForTests } from '@/lib/ssr/reportServerFetchFailure'
+import { artistUpcomingShowsUrl } from '@/features/artists/api'
 
 // Each test starts with every route's report window open.
 beforeEach(() => {
@@ -120,60 +121,147 @@ afterEach(() => {
 })
 
 describe('artists/[slug] generateMetadata', () => {
+  const STATS = {
+    releases: 3,
+    labels: 1,
+    shows_tracked: 40,
+    similar_artists: 5,
+    festival_appearances: 0,
+  }
+
+  /** Answers the artist read and the upcoming read by URL, fresh each call. */
+  function stubMetadataReads({
+    artist = () => okResponse(buildArtist({ id: ARTIST_ID, stats: STATS })),
+    upcoming = () => jsonBodyResponse(upcomingBody([artistShow()])),
+  }: {
+    artist?: () => Response
+    upcoming?: () => Response
+  } = {}) {
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).includes('/shows?') ? upcoming() : artist(),
+    )
+  }
+
+  async function metadataFor(slug = 'headliner-band') {
+    return generateMetadata({ params: Promise.resolve({ slug }) })
+  }
+
   it('puts the location in the title when the artist has one', async () => {
-    fetchMock.mockResolvedValueOnce(okResponse(buildArtist()))
-
-    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'headliner-band' }) })
-
-    expect(meta.title).toBe('Headliner Band · Phoenix, AZ')
+    stubMetadataReads()
+    expect((await metadataFor()).title).toBe('Headliner Band · Phoenix, AZ')
   })
 
-  it('puts the location in the description when the artist has one', async () => {
-    fetchMock.mockResolvedValueOnce(okResponse(buildArtist()))
-
-    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'headliner-band' }) })
-
-    expect(meta.description).toBe(
-      'Headliner Band from Phoenix, AZ: shows, similar artists and connections on Psychic Homily'
+  it('builds the description from the artist and its upcoming shows', async () => {
+    stubMetadataReads()
+    // The seeded show is 8:00 PM on November 12 in Phoenix.
+    expect((await metadataFor()).description).toBe(
+      'Headliner Band from Phoenix, AZ. Next show: The Rebel Lounge, Phoenix, Nov 12. Upcoming shows: 1. Releases: 3. Similar artists: 5.'
     )
+  })
+
+  it('reads the upcoming shows the page body seeds, by the same URL', async () => {
+    stubMetadataReads()
+    await metadataFor()
+    const urls = fetchMock.mock.calls.map(call => String(call[0]))
+    expect(urls).toHaveLength(2)
+    expect(urls).toContain(artistUpcomingShowsUrl('headliner-band'))
+  })
+
+  it('never states the shows-tracked count', async () => {
+    stubMetadataReads()
+    expect((await metadataFor()).description).not.toMatch(/tracked|40/)
   })
 
   it('uses the bare name and no from clause when the artist has no location', async () => {
-    fetchMock.mockResolvedValueOnce(
-      okResponse(buildArtist({ name: 'Cape Fury', slug: 'cape-fury', city: null, state: null }))
-    )
-
-    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'cape-fury' }) })
-
+    stubMetadataReads({
+      artist: () =>
+        okResponse(buildArtist({ id: ARTIST_ID, name: 'Cape Fury', slug: 'cape-fury', city: null, state: null })),
+      upcoming: () => jsonBodyResponse(upcomingBody([])),
+    })
+    const meta = await metadataFor('cape-fury')
     expect(meta.title).toBe('Cape Fury')
-    expect(meta.description).toBe(
-      'Cape Fury: shows, similar artists and connections on Psychic Homily'
+    expect(meta.description).toBe('Cape Fury.')
+  })
+
+  it('states no upcoming count or next show when every upcoming show is cancelled', async () => {
+    stubMetadataReads({
+      upcoming: () =>
+        jsonBodyResponse(upcomingBody([artistShow({ is_cancelled: true }), artistShow({ id: 21, is_cancelled: true })])),
+    })
+    expect((await metadataFor()).description).toBe(
+      'Headliner Band from Phoenix, AZ. Releases: 3. Similar artists: 5.'
     )
   })
 
-  it('makes no request beyond the artist read', async () => {
-    fetchMock.mockResolvedValueOnce(okResponse(buildArtist()))
+  it('skips a cancelled show when naming the next one', async () => {
+    stubMetadataReads({
+      upcoming: () =>
+        jsonBodyResponse(
+          upcomingBody([
+            artistShow({ is_cancelled: true, venue: { id: 9, slug: 'x', name: 'Called Off Hall', city: 'Tucson', state: 'AZ' } }),
+            artistShow({ id: 21 }),
+          ]),
+        ),
+    })
+    const { description } = await metadataFor()
+    expect(description).toContain('Next show: The Rebel Lounge, Phoenix, Nov 12. Upcoming shows: 2.')
+    expect(description).not.toContain('Called Off Hall')
+  })
 
-    await generateMetadata({ params: Promise.resolve({ slug: 'headliner-band' }) })
+  it('ignores upcoming rows that answered for another artist', async () => {
+    stubMetadataReads({ upcoming: () => jsonBodyResponse(upcomingBody([artistShow()], 999)) })
+    expect((await metadataFor()).description).toBe(
+      'Headliner Band from Phoenix, AZ. Releases: 3. Similar artists: 5.'
+    )
+  })
 
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+  it('drops only the show sentences when the upcoming read fails', async () => {
+    stubMetadataReads({ upcoming: () => errorResponse(500) })
+    expect((await metadataFor()).description).toBe(
+      'Headliner Band from Phoenix, AZ. Releases: 3. Similar artists: 5.'
+    )
+  })
+
+  it('drops rows that have provably passed since the read', async () => {
+    stubMetadataReads({
+      upcoming: () =>
+        jsonBodyResponse(upcomingBody([artistShow({ event_date: '2020-01-01T03:00:00Z' }), artistShow({ id: 21 })])),
+    })
+    expect((await metadataFor()).description).toContain('Upcoming shows: 1.')
+  })
+
+  it("neither names nor counts a show whose venue-local day has ended", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      // 10:00 AM on November 20, 2026 in Phoenix; the first row was last night.
+      vi.setSystemTime(new Date('2026-11-20T17:00:00Z'))
+      stubMetadataReads({
+        upcoming: () =>
+          jsonBodyResponse(
+            upcomingBody([
+              artistShow({ event_date: '2026-11-20T03:00:00Z', venue: { id: 9, slug: 'x', name: 'Last Night Hall', city: 'Tucson', state: 'AZ', timezone: 'America/Phoenix' } }),
+              artistShow({ id: 21 }),
+            ]),
+          ),
+      })
+      const { description } = await metadataFor()
+      expect(description).toContain('Next show: The Rebel Lounge, Phoenix, Nov 12. Upcoming shows: 1.')
+      expect(description).not.toContain('Last Night Hall')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('sets the canonical URL to https://psychichomily.com/artists/{slug}', async () => {
-    fetchMock.mockResolvedValueOnce(okResponse(buildArtist()))
-
-    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'headliner-band' }) })
-
-    expect(meta.alternates?.canonical).toBe(
+    stubMetadataReads()
+    expect((await metadataFor()).alternates?.canonical).toBe(
       'https://psychichomily.com/artists/headliner-band'
     )
   })
 
   it('mirrors the title and description into openGraph and sets url/type', async () => {
-    fetchMock.mockResolvedValueOnce(okResponse(buildArtist()))
-
-    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'headliner-band' }) })
-
+    stubMetadataReads()
+    const meta = await metadataFor()
     expect(meta.openGraph?.title).toBe(meta.title)
     expect(meta.openGraph?.description).toBe(meta.description)
     expect(meta.openGraph?.url).toBe('/artists/headliner-band')
@@ -181,9 +269,9 @@ describe('artists/[slug] generateMetadata', () => {
   })
 
   it('falls back to the "Artist" title when the artist is missing', async () => {
-    fetchMock.mockResolvedValueOnce(errorResponse(404))
+    stubMetadataReads({ artist: () => errorResponse(404), upcoming: () => errorResponse(404) })
 
-    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'missing' }) })
+    const meta = await metadataFor('missing')
 
     expect(meta.title).toBe('Artist')
     expect(meta.description).toBe('View artist details and upcoming shows')

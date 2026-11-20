@@ -1,4 +1,4 @@
-import { Suspense } from 'react'
+import { Suspense, cache } from 'react'
 import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
@@ -9,59 +9,95 @@ import { generateMusicVenueSchema, generateBreadcrumbSchema } from '@/lib/seo/js
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity, seedFirstScreen } from '@/lib/query-hydration'
 import { archiveData, getArchiveYears, getVenue } from '@/features/venues/archiveApi'
-import type { Venue, VenueShowsResponse } from '@/features/venues/types'
+import type { VenueShowsResponse } from '@/features/venues/types'
 import {
   VENUE_UPCOMING_SHOWS_REQUEST,
   venueUpcomingShowsUrl,
 } from '@/features/venues/api'
-// The policy module, not the shows barrel: `showRails.ts` renders nothing.
-import { venueRailShowsUrl } from '@/features/shows/showRails'
 import { CURRENT_PERIOD_REVALIDATE } from '@/features/scenes/scenePeriodApi'
 import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
 import { withoutPassedShows } from '@/lib/ssr/withoutPassedShows'
-import { venueNextShowFrom, venueSnippet } from '@/lib/seo/entitySnippets'
+import {
+  statedUpcomingCount,
+  venueNextShowFrom,
+  venueSnippet,
+  withoutEndedShows,
+} from '@/lib/seo/entitySnippets'
+import { showYearInZone } from '@/lib/utils/showDateBadge'
 
 interface VenuePageProps {
   params: Promise<{ slug: string }>
 }
 
 /**
- * The venue's soonest upcoming shows, for the `Next` clause of the meta
- * description.
+ * The venue's upcoming shows, wrapped with `React.cache()` so
+ * `generateMetadata` (the description's count and next show) and the page body
+ * (the list's server seed) share ONE backend fetch per request. The fetch
+ * carries an abort signal, which opts it out of Next's own request dedupe, so
+ * this wrapper is what keeps the two callers to one request.
  *
- * The same URL and cache window as the show page's venue rail. The window is
- * the short one because the next show changes as each night passes. Null on
- * any failure, which only drops the clause.
+ * Revalidated every `CURRENT_PERIOD_REVALIDATE` because each row carries
+ * cancelled and sold-out state; that window does not bound the age of what a
+ * render receives (see `withoutPassedShows`). Null on a failed read.
  */
-function getVenueUpcomingShows(venue: Venue): Promise<VenueShowsResponse | null> {
-  // Checked rather than trusted: the id arrives from `res.json()` through a
-  // type assertion and is interpolated into a server-side URL path.
-  if (!Number.isSafeInteger(venue.id)) return Promise.resolve(null)
-  return fetchListPayload<VenueShowsResponse>({
-    url: venueRailShowsUrl(venue.id),
+const getUpcomingShows = cache((slug: string) =>
+  fetchListPayload<VenueShowsResponse>({
+    url: venueUpcomingShowsUrl(slug),
     collection: 'shows',
-    service: 'venue-page-next-show',
-    pathFamily: '/venues/{id}/shows',
+    service: 'venue-page-upcoming-shows',
+    pathFamily: '/venues/{slug}/shows',
+    notFoundIsAnswer: true,
     revalidateSeconds: CURRENT_PERIOD_REVALIDATE,
   })
+)
+
+/**
+ * The upcoming payload as both the description and the list use it: without
+ * the rows that have provably passed since the read (`withoutPassedShows`), or
+ * null when the read failed or answered for another venue.
+ */
+function upcomingFor(
+  read: VenueShowsResponse | null,
+  venueId: number
+): VenueShowsResponse | null {
+  return read?.venue_id === venueId ? withoutPassedShows(read) : null
 }
 
 export async function generateMetadata({ params }: VenuePageProps): Promise<Metadata> {
   const { slug } = await params
-  const venue = archiveData(await getVenue(slug))
+  // All three reads are the page body's own, request-cached, so the
+  // description adds no backend request.
+  const [venueRead, upcomingRead, pastYearsRead] = await Promise.all([
+    getVenue(slug),
+    getUpcomingShows(slug),
+    getArchiveYears(slug),
+  ])
+  const venue = archiveData(venueRead)
 
   if (venue) {
-    const upcoming = await getVenueUpcomingShows(venue)
+    const listed = upcomingFor(upcomingRead, venue.id)
+    const upcoming = listed
+      ? withoutEndedShows(
+          listed,
+          row => ({ state: row.state ?? venue.state, timezone: venue.timezone }),
+          new Date(),
+        )
+      : null
+    const pastYears = archiveData(pastYearsRead)
     const { title, description } = venueSnippet({
       name: venue.name,
       city: venue.city,
       state: venue.state,
+      address: venue.address,
       nextShow: upcoming
         ? venueNextShowFrom(upcoming.shows, {
             state: venue.state,
             timezone: venue.timezone,
           })
         : null,
+      upcomingCount: statedUpcomingCount(upcoming),
+      pastRecord: pastYears?.venue_id === venue.id ? pastYears : null,
+      currentYear: showYearInZone(new Date().toISOString(), venue.state, venue.timezone),
     })
     return {
       title,
@@ -126,18 +162,8 @@ export default async function VenuePage({ params }: VenuePageProps) {
     // year-archive route DOES seed it, because there the pager is in the HTML.
     //
     // The upcoming rows, so the calendar is in the served HTML. Null on a
-    // failed read, which leaves the list to its client fetch. Revalidated every
-    // `CURRENT_PERIOD_REVALIDATE` because each row carries cancelled and
-    // sold-out state; that window does not bound the age of what a render
-    // receives (see `withoutPassedShows` below).
-    fetchListPayload<VenueShowsResponse>({
-      url: venueUpcomingShowsUrl(slug),
-      collection: 'shows',
-      service: 'venue-page-upcoming-shows',
-      pathFamily: '/venues/{slug}/shows',
-      notFoundIsAnswer: true,
-      revalidateSeconds: CURRENT_PERIOD_REVALIDATE,
-    }),
+    // failed read, which leaves the list to its client fetch.
+    getUpcomingShows(slug),
   ])
 
   // Unchanged from before this ticket: ANY failed venue read is a not-found
@@ -167,15 +193,16 @@ export default async function VenuePage({ params }: VenuePageProps) {
   // Rows that have provably left the upcoming window since the read are dropped
   // (`withoutPassedShows`). No seed when the read failed or answered for another
   // venue; the list then fetches for itself behind its loader.
+  const upcoming = upcomingFor(upcomingShows, venueData.id)
   const upcomingShowsState = await seedFirstScreen(
-    upcomingShows?.venue_id === venueData.id
+    upcoming
       ? [
           {
             queryKey: queryKeys.venues.showsPage(
               venueData.id,
               VENUE_UPCOMING_SHOWS_REQUEST,
             ),
-            data: withoutPassedShows(upcomingShows),
+            data: upcoming,
           },
         ]
       : [],

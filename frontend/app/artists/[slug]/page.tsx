@@ -22,7 +22,12 @@ import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
 import { withoutPassedShows } from '@/lib/ssr/withoutPassedShows'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicGroupSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
-import { artistSnippet } from '@/lib/seo/entitySnippets'
+import {
+  artistNextShowFrom,
+  artistSnippet,
+  statedUpcomingCount,
+  withoutEndedShows,
+} from '@/lib/seo/entitySnippets'
 import { API_BASE_URL } from '@/lib/api-base'
 import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
 import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
@@ -86,15 +91,64 @@ const getArtist = cache(async (slug: string): Promise<Artist | null> => {
   return null
 })
 
+/**
+ * The artist's upcoming shows, wrapped with `React.cache()` so
+ * `generateMetadata` (the description's next show and count) and the page body
+ * (the list's server seed) share ONE backend fetch per request. The fetch
+ * carries an abort signal, which opts it out of Next's own request dedupe, so
+ * this wrapper is what keeps the two callers to one request.
+ *
+ * Revalidated every `CURRENT_PERIOD_REVALIDATE` because each row carries
+ * cancelled and sold-out state; that window does not bound the age of what a
+ * render receives (see `withoutPassedShows`).
+ */
+const getUpcomingShows = cache((slug: string) =>
+  fetchListPayload<ArtistShowsResponse>({
+    url: artistUpcomingShowsUrl(slug),
+    collection: 'shows',
+    service: 'artist-page-upcoming-shows',
+    pathFamily: '/artists/{slug}/shows',
+    notFoundIsAnswer: true,
+    revalidateSeconds: CURRENT_PERIOD_REVALIDATE,
+  })
+)
+
+/**
+ * The upcoming payload as both the description and the list use it: without
+ * the rows that have provably passed since the read (`withoutPassedShows`), or
+ * null when the read failed or answered for another artist.
+ */
+function upcomingFor(
+  read: ArtistShowsResponse | null,
+  artistId: number
+): ArtistShowsResponse | null {
+  return read?.artist_id === artistId ? withoutPassedShows(read) : null
+}
+
 export async function generateMetadata({ params }: ArtistPageProps): Promise<Metadata> {
   const { slug } = await params
-  const artist = await getArtist(slug)
+  const [artist, upcomingRead] = await Promise.all([
+    getArtist(slug),
+    getUpcomingShows(slug),
+  ])
 
   if (artist) {
+    const listed = upcomingFor(upcomingRead, artist.id)
+    const upcoming = listed
+      ? withoutEndedShows(
+          listed,
+          row => ({ state: row.venue?.state, timezone: row.venue?.timezone }),
+          new Date(),
+        )
+      : null
     const { title, description } = artistSnippet({
       name: artist.name,
       city: artist.city,
       state: artist.state,
+      nextShow: upcoming ? artistNextShowFrom(upcoming.shows) : null,
+      upcomingCount: statedUpcomingCount(upcoming),
+      releaseCount: artist.stats?.releases,
+      similarArtistCount: artist.stats?.similar_artists,
     })
     return {
       title,
@@ -135,17 +189,8 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
   // Both list reads start before the artist is awaited so the three reads
   // overlap. Each resolves to null rather than rejecting, so leaving them in
   // flight through `notFound()` cannot raise an unhandled rejection. The shows
-  // read is revalidated every `CURRENT_PERIOD_REVALIDATE` because each row
-  // carries cancelled and sold-out state; that window does not bound the age of
-  // what a render receives (see `withoutPassedShows` below).
-  const upcomingShowsPromise = fetchListPayload<ArtistShowsResponse>({
-    url: artistUpcomingShowsUrl(slug),
-    collection: 'shows',
-    service: 'artist-page-upcoming-shows',
-    pathFamily: '/artists/{slug}/shows',
-    notFoundIsAnswer: true,
-    revalidateSeconds: CURRENT_PERIOD_REVALIDATE,
-  })
+  // read is shared with `generateMetadata` through `getUpcomingShows`.
+  const upcomingShowsPromise = getUpcomingShows(slug)
   // A 404 here arrives only for an artist the read below found, so it means
   // that artist has no discography to show: it seeds the empty list, and the
   // section renders as it does for an artist with no releases.
@@ -202,13 +247,14 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
   // artists lists none when their read answered for another artist; that list
   // then fetches for itself.
   const listSeeds: QuerySeed[] = []
-  if (upcomingShows?.artist_id === artistData.id) {
+  const upcoming = upcomingFor(upcomingShows, artistData.id)
+  if (upcoming) {
     listSeeds.push({
       queryKey: queryKeys.artists.showsPage(
         artistData.id,
         ARTIST_UPCOMING_SHOWS_REQUEST,
       ),
-      data: withoutPassedShows(upcomingShows),
+      data: upcoming,
     })
   }
   if (releases) {

@@ -142,9 +142,10 @@ export const getVenue = cache(
  * `venue_years` sitemap family are built from. All four must agree, or the site
  * advertises a year it 404s.
  *
- * Timed out at the first-screen budget: both callers degrade to the pre-ticket
- * behaviour on a failed read (the strip appears after the client's own fetch
- * instead of in the HTML), so a slow backend must not hold the render open.
+ * Timed out at the first-screen budget: every caller degrades on a failed read
+ * (the year strip appears after the client's own fetch instead of in the HTML,
+ * and the venue description drops its past-shows sentence), so a slow backend
+ * must not hold the render open.
  */
 export const getArchiveYears = cache((slug: string) =>
   readArchiveJson<VenueShowYearsResponse>(

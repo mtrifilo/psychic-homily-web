@@ -18,9 +18,11 @@ import { resolveShowTimezone } from './formatters'
  * first kind; a cache lifetime is the second.
  *
  * Where they are used TODAY, so nobody has to grep for it: `hasShowStarted`
- * backs both JSON-LD offer gates and the field-notes form. `isShowPast` has
- * exactly one consumer, the share card's cache window. No listing surface uses
- * it yet: the past/upcoming splits on artist, venue and library pages are
+ * backs both JSON-LD offer gates and the field-notes form. `isShowPast` has two
+ * consumers: the share card's cache window, and `withoutEndedShows` in
+ * `lib/seo/entitySnippets.ts`, which keeps shows whose day has ended out of the
+ * artist and venue meta descriptions. No listing surface uses it: the
+ * past/upcoming splits on artist, venue and library pages are
  * partitioned by the API, and the scene pages read backend-computed
  * `is_past_day` / `is_past_week`. It is here because the show-page lifecycle
  * design needs one venue-local answer, and that work will consume it.
@@ -268,8 +270,11 @@ export function getShowLifecycleState(
  * comes from `resolveShowTimezone`, which ends at a US state map defaulting to
  * America/Phoenix. A venue outside the US whose `venues.timezone` has not been
  * backfilled is therefore judged on Arizona's calendar, which can be most of a
- * day out. Today that only picks a cache lifetime. Populate `venues.timezone`
- * for non-US venues before this decides anything a reader or crawler reads.
+ * day out. That decides a cache lifetime and what a meta description reads:
+ * for such a venue a show's day ends on the fallback clock, so the show can
+ * stay in an artist or venue description for some hours after the venue's own
+ * day ended (a Berlin venue with no stored zone is judged about eight hours
+ * late), with its date carrying the `~` guessed-day mark.
  *
  * Both inputs are guarded: an undateable show counts as past, and an unreadable
  * `now` counts as not-past, because the alternative is `Intl` throwing
