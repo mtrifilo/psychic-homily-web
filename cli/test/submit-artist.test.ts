@@ -216,6 +216,28 @@ describe("submitArtists", () => {
     expect(postFn).not.toHaveBeenCalled();
   });
 
+  test("warns in the dry run when an artist names a placeholder-shaped label", async () => {
+    const client = createMockClient({
+      get: mock((path: string) => {
+        if (path === "/labels/search") return Promise.resolve({ labels: [] });
+        return Promise.resolve({ artists: [] });
+      }),
+    });
+    let stderr = "";
+    const origWrite = process.stderr.write;
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr += String(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      await submitArtists(client, [{ name: "Anika", label: "3245973 Records DK" }], { confirm: false });
+    } finally {
+      process.stderr.write = origWrite;
+    }
+
+    expect(stderr).toContain('Label "3245973 Records DK" looks like a distributor placeholder');
+  });
+
   test("single artist update — duplicate found with new info", async () => {
     const patchFn = mock(() => Promise.resolve({}));
     const client = createMockClient({

@@ -11,6 +11,24 @@ import { APIClient } from "../src/lib/api";
 
 // -- Helpers --
 
+/** Run `fn` and return what it wrote to stderr (display.* writes there). */
+async function captureStderr<T>(
+  fn: () => Promise<T>,
+): Promise<{ result: T; output: string }> {
+  const orig = process.stderr.write;
+  const chunks: string[] = [];
+  process.stderr.write = ((s: string) => {
+    chunks.push(s);
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    const result = await fn();
+    return { result, output: chunks.join("") };
+  } finally {
+    process.stderr.write = orig;
+  }
+}
+
 /** Create a mock APIClient that returns controlled responses. */
 function createMockClient(
   responses: Record<string, unknown>,
@@ -276,20 +294,12 @@ describe("planReleases", () => {
   describe("placeholder label warning", () => {
     async function planAndCaptureStderr(labels: string[]): Promise<string> {
       const client = createMockClient({});
-      let stderr = "";
-      const origWrite = process.stderr.write;
-      process.stderr.write = ((chunk: string | Uint8Array) => {
-        stderr += String(chunk);
-        return true;
-      }) as typeof process.stderr.write;
-      try {
-        await planReleases(client, [
+      const { output } = await captureStderr(() =>
+        planReleases(client, [
           { title: "Some Release", artists: [{ name: "Some Artist" }], labels },
-        ]);
-      } finally {
-        process.stderr.write = origWrite;
-      }
-      return stderr;
+        ]),
+      );
+      return output;
     }
 
     test("warns when a release names a placeholder-shaped label", async () => {
@@ -885,23 +895,6 @@ describe("linkReleaseLabels", () => {
     process.stderr.write = (() => true) as typeof process.stderr.write;
     try {
       return await fn();
-    } finally {
-      process.stderr.write = orig;
-    }
-  }
-
-  async function captureStderr<T>(
-    fn: () => Promise<T>,
-  ): Promise<{ result: T; output: string }> {
-    const orig = process.stderr.write;
-    const chunks: string[] = [];
-    process.stderr.write = ((s: string) => {
-      chunks.push(s);
-      return true;
-    }) as typeof process.stderr.write;
-    try {
-      const result = await fn();
-      return { result, output: chunks.join("") };
     } finally {
       process.stderr.write = orig;
     }

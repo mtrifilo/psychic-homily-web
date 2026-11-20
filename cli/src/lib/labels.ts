@@ -23,6 +23,12 @@ export function placeholderLabelWarning(name: unknown): string | null {
   return `Label "${name}" looks like a distributor placeholder, not a real label: five or more digits, then "Records"`;
 }
 
+/** Print the placeholder warning for `name` when it has the placeholder shape. */
+export function warnIfPlaceholderLabel(name: unknown): void {
+  const warning = placeholderLabelWarning(name);
+  if (warning) display.warn(warning);
+}
+
 /**
  * Resolve a label name to its ID via the search API.
  * Returns the label ID if an exact (case-insensitive) match is found, or null.

@@ -19,9 +19,14 @@ describe("submitLabels", () => {
   // Display output goes to stderr. Silence the stream, not the display module:
   // a module mock outlives this file and blanks display output in later files.
   let originalWrite: typeof process.stderr.write;
+  let stderrOutput = "";
   beforeEach(() => {
     originalWrite = process.stderr.write;
-    process.stderr.write = (() => true) as typeof process.stderr.write;
+    stderrOutput = "";
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderrOutput += String(chunk);
+      return true;
+    }) as typeof process.stderr.write;
   });
   afterEach(() => {
     process.stderr.write = originalWrite;
@@ -42,31 +47,21 @@ describe("submitLabels", () => {
   });
 
   test("warns on a placeholder-shaped label name in the dry run and still plans the create", async () => {
-    let stderr = "";
-    process.stderr.write = ((chunk: string | Uint8Array) => {
-      stderr += String(chunk);
-      return true;
-    }) as typeof process.stderr.write;
     const client = createMockClient();
 
     const result = await submitLabels([{ name: "3245973 Records DK" }], client, false);
 
-    expect(stderr).toContain('Label "3245973 Records DK" looks like a distributor placeholder');
+    expect(stderrOutput).toContain('Label "3245973 Records DK" looks like a distributor placeholder');
     expect(result.created).toBe(1);
   });
 
   test("does not warn on a real label name", async () => {
-    let stderr = "";
-    process.stderr.write = ((chunk: string | Uint8Array) => {
-      stderr += String(chunk);
-      return true;
-    }) as typeof process.stderr.write;
     const client = createMockClient();
 
     await submitLabels([{ name: "4AD" }], client, false);
 
-    expect(stderr).toContain("CREATE: 4AD");
-    expect(stderr).not.toContain("distributor placeholder");
+    expect(stderrOutput).toContain("CREATE: 4AD");
+    expect(stderrOutput).not.toContain("distributor placeholder");
   });
 
   test("creates a single new label (--confirm)", async () => {
