@@ -85,6 +85,7 @@ const AUTH_HREF_COMPOSERS = new Set(
   [
     // Back to the current pathname.
     'features/auth/components/SignInPrompt.tsx',
+    'features/collections/components/saved-shows-calendar/CalendarEmailStepsAction.tsx',
     'components/layout/nav/UserMenu.tsx',
     'components/layout/nav/BottomTabBar.tsx',
     // A fixed destination, resolved at module scope.

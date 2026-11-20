@@ -108,11 +108,15 @@ const (
 	// Distinct from CodeReauthRequired: signing in again does not help the
 	// caller, which has to use the website instead of the token.
 	CodeSessionCredentialRequired = "SESSION_CREDENTIAL_REQUIRED"
-	// CodeEmailVerificationRequired indicates that connecting a provider
-	// identity to the signed-in account was refused because the account has
-	// an address it has not verified (authm.User.MayConnectProvider). The
-	// caller IS the account owner; the remedy is verifying the address, then
-	// connecting.
+	// CodeEmailVerificationRequired indicates that an operation for the
+	// signed-in account was refused because the account has no verified
+	// address. It carries two refusals: connecting a provider identity
+	// (ErrEmailVerificationRequired, authm.User.MayConnectProvider) and
+	// sending the calendar steps email (ErrCalendarStepsAddressUnverified).
+	// The caller IS the account owner; the remedy is verifying the address,
+	// then trying again. Each refusal's message travels on its AuthError;
+	// ToExternalMessage gives only the provider one, so a surface keys its
+	// copy on the operation as well as the code.
 	CodeEmailVerificationRequired = "EMAIL_VERIFICATION_REQUIRED"
 	// CodeUnknownHomeMetro indicates a home-area metro code that does not resolve
 	// in the CBSA dataset venue and artist metros are drawn from. Typed so the
@@ -603,6 +607,8 @@ func ToExternalMessage(code string) string {
 	case CodeSessionCredentialRequired:
 		return sessionCredentialRequiredMessage
 	case CodeEmailVerificationRequired:
+		// The provider refusal's copy. The calendar steps refusal carries
+		// its own (ErrCalendarStepsAddressUnverified).
 		return emailVerificationRequiredMessage
 	case CodeValidationFailed:
 		return "Validation failed"

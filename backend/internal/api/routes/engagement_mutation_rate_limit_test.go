@@ -92,6 +92,8 @@ func TestIsEngagementMutationRequest(t *testing.T) {
 		{http.MethodDelete, "/calendar/token/reads?client=google", true},
 		{http.MethodDelete, "/calendar/token/reads", true},
 		{http.MethodGet, "/calendar/token/feed-status", false},
+		// Asking for the calendar steps email is metered.
+		{http.MethodPost, "/calendar/token/email-steps", true},
 		// Reads and read-shaped helpers are NOT mutations.
 		{http.MethodGet, "/saved-shows/42", false},
 		{http.MethodGet, "/saved-shows", false},

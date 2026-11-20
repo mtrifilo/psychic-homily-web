@@ -273,9 +273,21 @@ var ErrPasswordResetLinkSpent = errors.New("password reset link no longer valid"
 
 // PasswordResetCompletion is a password set by an emailed reset link: the
 // account as the reset left it and the session issued for this browser.
+// CalendarLinkReset is true only when this reset deleted a calendar-feed link
+// a calendar app had read, the case in which it records the link reset.
 type PasswordResetCompletion struct {
-	User  *authm.User
-	Token string
+	User              *authm.User
+	Token             string
+	CalendarLinkReset bool
+}
+
+// OtherSessionsSignOut is every other session of an account signed out: the
+// renewal of the caller's session that the caller goes on with.
+// CalendarLinkReset is true only when the sign-out deleted a calendar-feed
+// link a calendar app had read, the case in which it records the link reset.
+type OtherSessionsSignOut struct {
+	Token             string
+	CalendarLinkReset bool
 }
 
 // OAuthPendingSignup is a provider identity held for the "Create your
@@ -377,7 +389,9 @@ type AuthServiceInterface interface {
 	// account row, refuses as PasswordResetAccount does, writes the hash only
 	// over the hash the link was minted against, revokes every session the
 	// account holds, deletes its calendar-feed token and issues a new session
-	// for this browser. Passkeys, provider identities and API tokens stay.
+	// for this browser, reporting whether the deletion reset a link a
+	// calendar app had read. Passkeys, provider identities and API tokens
+	// stay.
 	// newPassword must already have passed the password validator; a password
 	// bcrypt cannot hash is refused with CodeValidationFailed.
 	CompletePasswordReset(claims *PasswordResetTokenClaims, newPassword string) (*PasswordResetCompletion, error)
@@ -402,12 +416,13 @@ type AuthServiceInterface interface {
 	// SignOutOtherSessions revokes every session user's account holds,
 	// deletes its calendar-feed token, and returns a renewal of the caller's
 	// session for the account as the revocation left it, carrying authAt
-	// through unchanged; the revocation commits only together with that
+	// through unchanged, with whether the deletion reset a link a calendar app
+	// had read; the revocation commits only together with that
 	// renewal. user is the principal the caller's session validation loaded.
 	// Refuses, revoking nothing, with shared.CheckSessionAccount's refusals
 	// when the account may no longer sign in or that session has been revoked
 	// since its validation. API tokens are not touched.
-	SignOutOtherSessions(user *authm.User, authAt time.Time) (string, error)
+	SignOutOtherSessions(user *authm.User, authAt time.Time) (*OtherSessionsSignOut, error)
 	Logout(w http.ResponseWriter, r *http.Request) error
 	SetOAuthCompleter(completer OAuthCompleter)
 }
@@ -580,18 +595,24 @@ type PasswordValidatorInterface interface {
 // Auth Email Outbox Interface
 // ──────────────────────────────────────────────
 
-// AuthEmailOutboxInterface queues a magic-link, account-recovery or
-// verification email for an account. A background poller sends it, so a request handler that calls
-// Enqueue never waits on the email provider.
+// AuthEmailOutboxInterface queues an email of an authm.AuthEmailKind for an
+// account. A background poller sends it, so a request handler that queues one
+// never waits on the email provider.
 type AuthEmailOutboxInterface interface {
 	// Enqueue queues one email of kind for userID. A call while one is still
 	// queued for the same account and kind is a no-op that returns nil. It
-	// returns an error when the row could not be written or the outbox is
-	// switched off; in both cases no email is sent for this call.
+	// returns an error when the row could not be written, the outbox is
+	// switched off, or kind is the calendar steps kind, which has its own
+	// method; in each case no email is sent for this call.
 	Enqueue(ctx context.Context, kind authm.AuthEmailKind, userID uint) error
 	// EnqueueOAuthLink queues the sign-in link that proves userID's mailbox
 	// for the pending link ref names (OAuthPendingLink.Ref), on Enqueue's
 	// terms: one queued per account, and an error means no email for this
 	// call.
 	EnqueueOAuthLink(ctx context.Context, userID uint, ref string) error
+	// EnqueueCalendarSteps queues the calendar steps email for user, the
+	// signed-in account that asked for it, to its own address, on Enqueue's
+	// terms. It is the only way to queue that kind; Enqueue refuses it. Its
+	// refusals are listed on the outbox's implementation.
+	EnqueueCalendarSteps(ctx context.Context, user *authm.User) error
 }

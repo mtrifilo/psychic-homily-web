@@ -1,7 +1,21 @@
-import { resolveRouteData } from 'next/dist/build/webpack/loaders/metadata/resolve-route-data'
-import { describe, expect, it } from 'vitest'
+import { readdirSync } from 'node:fs'
+import { resolve } from 'node:path'
 
+import { withSentryConfig } from '@sentry/nextjs'
+import { PHASE_DEVELOPMENT_SERVER } from 'next/constants'
+import { resolveRouteData } from 'next/dist/build/webpack/loaders/metadata/resolve-route-data'
+import { describe, expect, it, vi } from 'vitest'
+
+import nextConfigForPhase from '../next.config'
 import robots from './robots'
+
+// test/setup.ts stubs withSentryConfig; next.config calls it once at module
+// scope. Read here, before any afterEach clears the recorded calls.
+const sentryBuildOptions = vi.mocked(withSentryConfig).mock.calls[0]?.[1]
+
+const SENTRY_OPTIONS_MISSING =
+  'next.config.ts must call withSentryConfig at module scope with a string tunnelRoute; ' +
+  'this test reads the options from the test/setup.ts stub'
 
 // Deliberate copies of the source values, not imports. A change to the policy
 // in robots.ts must be re-approved here rather than silently followed — that is
@@ -19,7 +33,9 @@ const NON_PUBLIC_PATHS = [
 
 const RSC_PAYLOAD_PATTERNS = ['/*?_rsc=', '/*&_rsc=']
 
-const PUBLIC_DISALLOW = [...NON_PUBLIC_PATHS, ...RSC_PAYLOAD_PATTERNS]
+const RENDER_HELPER_ENDPOINTS = ['/monitoring', '/_vercel/insights/', '/api/bandcamp/']
+
+const PUBLIC_DISALLOW = [...NON_PUBLIC_PATHS, ...RSC_PAYLOAD_PATTERNS, ...RENDER_HELPER_ENDPOINTS]
 
 // Every one of these answers with a citation and a link back. Moving any of
 // them into the disallow list is the most likely wrong edit to this file: they
@@ -80,7 +96,7 @@ function isGovernedByWildcard(agent: string) {
 }
 
 describe('robots.txt rules', () => {
-  it('keeps exactly one wildcard group, allowing everything but the non-public paths and RSC payloads', () => {
+  it('keeps exactly one wildcard group, allowing everything but the non-public paths, RSC payloads and render helpers', () => {
     const wildcards = rulesOf().filter(rule => agentsOf(rule).includes('*'))
 
     // Two '*' groups would silently merge under RFC 9309 and change the
@@ -104,6 +120,19 @@ describe('robots.txt rules', () => {
       expect(body).toEqual(bodies[0])
     }
     expect(bodies[0]).toEqual({ allow: '/', disallow: PUBLIC_DISALLOW })
+  })
+
+  // robots.ts holds the tunnel path as its own constant. This pins it to the
+  // `tunnelRoute` next.config.ts gives Sentry, so a change to either fails here.
+  it('disallows the Sentry tunnel route next.config.ts sets, in every allowing group', () => {
+    const tunnelRoute = sentryBuildOptions?.tunnelRoute
+
+    expect(typeof tunnelRoute, SENTRY_OPTIONS_MISSING).toBe('string')
+    const allowing = rulesOf().filter(rule => rule.allow)
+    expect(allowing.length).toBeGreaterThan(0)
+    for (const rule of allowing) {
+      expect(rule.disallow).toContain(tunnelRoute)
+    }
   })
 
   it('disallows the whole site for training crawlers', () => {
@@ -234,6 +263,18 @@ function groupAllows(rules: string[], pathAndQuery: string) {
   return best ? best.allow : true
 }
 
+/**
+ * The names that can appear as a URL's first path segment under a directory:
+ * its entries, with App Router route groups `(name)` and parallel-route slots
+ * `@name` opened, since neither adds a segment of its own.
+ */
+function firstUrlSegments(dir: string): string[] {
+  return readdirSync(resolve(process.cwd(), dir)).flatMap(entry => {
+    const addsNoSegment = (entry.startsWith('(') && entry.endsWith(')')) || entry.startsWith('@')
+    return addsNoSegment ? firstUrlSegments(`${dir}/${entry}`) : [entry]
+  })
+}
+
 const PUBLIC_RULE_LINES = [
   'Allow: /',
   ...PUBLIC_DISALLOW.map(path => `Disallow: ${path}`),
@@ -272,6 +313,33 @@ const MUST_STAY_FETCHABLE = [
   '/artists/_rsc=band',
 ]
 
+// The shapes a renderer requests: the Sentry tunnel with its query string and
+// with the trailing slash its rewrite also accepts, the Web Analytics script
+// and beacons, and the Bandcamp album-id lookup.
+const RENDER_HELPER_URLS = [
+  '/monitoring?o=4508000000000000&p=4508000000000001',
+  '/monitoring?o=4508000000000000&p=4508000000000001&r=us',
+  '/monitoring/?o=4508000000000000&p=4508000000000001',
+  '/_vercel/insights/script.js',
+  '/_vercel/insights/view',
+  '/_vercel/insights/event',
+  '/api/bandcamp/album-id?url=https%3A%2F%2Fslift.bandcamp.com%2Falbum%2Fituri',
+]
+
+// URLs the render-helper patterns must not over-match: the Speed Insights
+// paths share the `/_vercel/` prefix but not `/_vercel/insights/`, and the
+// pages merely contain the words. Speed Insights is outside the render-helper
+// list by its own scope (robots.ts); this list checks the matching only.
+const RENDER_HELPER_NEAR_MISSES = [
+  '/_vercel/speed-insights/script.js',
+  '/_vercel/speed-insights/vitals',
+  '/artists/monitoring',
+  '/search?q=/monitoring',
+  '/tags/bandcamp',
+  '/search?q=/api/bandcamp/',
+  '/api/geo',
+]
+
 describe('rendered robots.txt', () => {
   it.each(['*', 'OAI-SearchBot'])('renders the full public rule body verbatim for %s', agent => {
     expect(renderedGroupFor(agent).rules).toEqual(PUBLIC_RULE_LINES)
@@ -283,18 +351,58 @@ describe('rendered robots.txt', () => {
 
   // Both allowing groups render the same body (pinned above), so matching URLs
   // against the rendered wildcard group covers the retrieval group too.
-  it('blocks every RSC payload URL', () => {
+  it.each([
+    ['RSC payload', RSC_PAYLOAD_URLS],
+    ['render-helper endpoint', RENDER_HELPER_URLS],
+  ])('blocks every %s URL', (_, urls) => {
     const { rules } = renderedGroupFor('*')
-    for (const url of RSC_PAYLOAD_URLS) {
+    for (const url of urls) {
       expect(groupAllows(rules, url), `${url} must be disallowed`).toBe(false)
     }
   })
 
-  it('keeps pages and assets fetchable', () => {
+  it.each([
+    ['pages and assets', MUST_STAY_FETCHABLE],
+    ['URLs the render-helper patterns must not over-match', RENDER_HELPER_NEAR_MISSES],
+  ])('keeps %s fetchable', (_, urls) => {
     const { rules } = renderedGroupFor('*')
-    for (const url of MUST_STAY_FETCHABLE) {
+    for (const url of urls) {
       expect(groupAllows(rules, url), `${url} must stay allowed`).toBe(true)
     }
+  })
+
+  // The tunnel pattern is a bare prefix, so any URL whose path starts with the
+  // tunnel route is disallowed with it. This checks the static top-level app
+  // entries and public files, refuses a dynamic root segment (which could
+  // resolve to such a path), and checks the literal start of every rewrite and
+  // redirect source in next.config.ts. A source that opens with a parameter is
+  // not inspected.
+  it('leaves no static route, public file or config source under the tunnel prefix', async () => {
+    const tunnelRoute = sentryBuildOptions?.tunnelRoute
+    expect(typeof tunnelRoute, SENTRY_OPTIONS_MISSING).toBe('string')
+    const prefix = String(tunnelRoute)
+    const firstSegment = prefix.slice(1)
+
+    const segments = [...firstUrlSegments('app'), ...firstUrlSegments('public')]
+    expect(segments.filter(segment => segment.startsWith(firstSegment))).toEqual([])
+    expect(
+      firstUrlSegments('app').filter(segment => segment.startsWith('[')),
+      'a dynamic root segment can serve paths under the bare tunnel prefix'
+    ).toEqual([])
+
+    const config = nextConfigForPhase(PHASE_DEVELOPMENT_SERVER)
+    const rewrites = (await config.rewrites?.()) ?? []
+    const rewriteRules = Array.isArray(rewrites)
+      ? rewrites
+      : [
+          ...(rewrites.beforeFiles ?? []),
+          ...(rewrites.afterFiles ?? []),
+          ...(rewrites.fallback ?? []),
+        ]
+    const redirectRules = (await config.redirects?.()) ?? []
+    const sources = [...rewriteRules, ...redirectRules].map(rule => rule.source)
+    expect(sources.length).toBeGreaterThan(0)
+    expect(sources.filter(source => source.startsWith(prefix))).toEqual([])
   })
 
   // Guards the matcher itself, so a broken helper cannot pass the checks above

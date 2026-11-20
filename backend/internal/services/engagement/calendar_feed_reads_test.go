@@ -487,17 +487,19 @@ func (suite *CalendarIntegrationTestSuite) TestDeleteToken_AfterAResetClearsTheM
 	suite.ErrorIs(suite.svc.DeleteToken(user.ID), errNoCalendarToken, "with neither a token nor a marker there is nothing to turn off")
 }
 
-// A revoked link that a calendar app had read is marked with the reason; its
-// reads go with the token.
+// A revoked link that a calendar app had read is marked with the reason, and
+// the call reports the reset; its reads go with the token.
 func (suite *CalendarIntegrationTestSuite) TestRevokeCalendarLinkTx_ReadLinkIsMarked() {
 	user := suite.createTestUser(true)
 	token := suite.mintFeedToken(user.ID)
 	suite.Require().NoError(suite.svc.RecordFeedRead(context.Background(), token, appleUA))
 	at := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
 
-	suite.Require().NoError(RevokeCalendarLinkTx(suite.db, user.ID, at, engagementm.CalendarLinkResetPasswordReset))
+	reset, err := RevokeCalendarLinkTx(suite.db, user.ID, at, engagementm.CalendarLinkResetPasswordReset)
+	suite.Require().NoError(err)
+	suite.True(reset, "a link a calendar app had read is reported as reset")
 
-	_, err := suite.svc.ValidateCalendarToken(token)
+	_, err = suite.svc.ValidateCalendarToken(token)
 	suite.Error(err, "the link is revoked")
 	suite.Zero(suite.allFeedReadRows())
 	markedAt, reason := suite.linkReset(user.ID)
@@ -506,16 +508,18 @@ func (suite *CalendarIntegrationTestSuite) TestRevokeCalendarLinkTx_ReadLinkIsMa
 	suite.Equal(engagementm.CalendarLinkResetPasswordReset, *reason)
 }
 
-// A revoked link no calendar app ever read leaves no marker; a browser
-// opening it is not a read.
+// A revoked link no calendar app ever read leaves no marker and is not
+// reported as reset; a browser opening it is not a read.
 func (suite *CalendarIntegrationTestSuite) TestRevokeCalendarLinkTx_UnreadLinkIsNotMarked() {
 	user := suite.createTestUser(true)
 	token := suite.mintFeedToken(user.ID)
 	suite.Require().NoError(suite.svc.RecordFeedRead(context.Background(), token, browserUA))
 
-	suite.Require().NoError(RevokeCalendarLinkTx(suite.db, user.ID, time.Now(), engagementm.CalendarLinkResetSignOutEverywhere))
+	reset, err := RevokeCalendarLinkTx(suite.db, user.ID, time.Now(), engagementm.CalendarLinkResetSignOutEverywhere)
+	suite.Require().NoError(err)
+	suite.False(reset, "a link nothing had read is not reported as reset")
 
-	_, err := suite.svc.ValidateCalendarToken(token)
+	_, err = suite.svc.ValidateCalendarToken(token)
 	suite.Error(err, "the link is revoked")
 	at, reason := suite.linkReset(user.ID)
 	suite.Nil(at)
@@ -523,7 +527,8 @@ func (suite *CalendarIntegrationTestSuite) TestRevokeCalendarLinkTx_UnreadLinkIs
 }
 
 // A revoked link whose only reads are forgotten, by age or by the account,
-// leaves no marker; a read exactly the forget period old still marks it.
+// leaves no marker and is not reported as reset; a read exactly the forget
+// period old still marks it. The report and the marker always agree.
 func (suite *CalendarIntegrationTestSuite) TestRevokeCalendarLinkTx_ForgottenReadsAreNotCounted() {
 	at := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
 	revokedAt := func(readAt time.Time) *time.Time {
@@ -531,8 +536,10 @@ func (suite *CalendarIntegrationTestSuite) TestRevokeCalendarLinkTx_ForgottenRea
 		token := suite.mintFeedToken(user.ID)
 		_, err := suite.svc.recordFeedReadAt(context.Background(), token, appleUA, readAt)
 		suite.Require().NoError(err)
-		suite.Require().NoError(RevokeCalendarLinkTx(suite.db, user.ID, at, engagementm.CalendarLinkResetPasswordReset))
+		reset, err := RevokeCalendarLinkTx(suite.db, user.ID, at, engagementm.CalendarLinkResetPasswordReset)
+		suite.Require().NoError(err)
 		marked, _ := suite.linkReset(user.ID)
+		suite.Equal(marked != nil, reset, "the call reports a reset exactly when it marks one")
 		return marked
 	}
 
@@ -543,18 +550,23 @@ func (suite *CalendarIntegrationTestSuite) TestRevokeCalendarLinkTx_ForgottenRea
 	token := suite.mintFeedToken(user.ID)
 	suite.Require().NoError(suite.svc.RecordFeedRead(context.Background(), token, appleUA))
 	suite.Require().NoError(suite.svc.ForgetFeedRead(user.ID, engagementm.CalendarFeedClientAppleIOS))
-	suite.Require().NoError(RevokeCalendarLinkTx(suite.db, user.ID, time.Now(), engagementm.CalendarLinkResetSignOutEverywhere))
+	reset, err := RevokeCalendarLinkTx(suite.db, user.ID, time.Now(), engagementm.CalendarLinkResetSignOutEverywhere)
+	suite.Require().NoError(err)
+	suite.False(reset, "a read the account forgot is not reported")
 	marked, _ := suite.linkReset(user.ID)
 	suite.Nil(marked, "a read the account forgot is not counted")
 }
 
-// With no token to revoke, nothing changes, an earlier marker included.
+// With no token to revoke, nothing changes, an earlier marker included, and
+// the call reports no reset: the marker is an earlier revocation's.
 func (suite *CalendarIntegrationTestSuite) TestRevokeCalendarLinkTx_NoTokenLeavesTheMarker() {
 	user := suite.createTestUser(true)
 	earlier := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
 	suite.markLinkReset(user.ID, earlier, engagementm.CalendarLinkResetSignOutEverywhere)
 
-	suite.Require().NoError(RevokeCalendarLinkTx(suite.db, user.ID, earlier.Add(time.Hour), engagementm.CalendarLinkResetPasswordReset))
+	reset, err := RevokeCalendarLinkTx(suite.db, user.ID, earlier.Add(time.Hour), engagementm.CalendarLinkResetPasswordReset)
+	suite.Require().NoError(err)
+	suite.False(reset, "an earlier revocation's marker is not this call's reset")
 
 	at, reason := suite.linkReset(user.ID)
 	suite.Require().NotNil(at)

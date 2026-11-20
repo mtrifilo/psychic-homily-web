@@ -10,6 +10,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	engagementm "psychic-homily-backend/internal/models/engagement"
+	"psychic-homily-backend/internal/services/contracts"
 	engagementsvc "psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/testutil"
@@ -36,14 +37,15 @@ func (s *JWTIntegrationSuite) TestSignOutOtherSessions_RevokesTheCalendarFeedTok
 
 	principal, authAt := s.principal(caller)
 	before := time.Now()
-	renewed, err := s.authSvc.SignOutOtherSessions(principal, authAt)
+	signOut, err := s.authSvc.SignOutOtherSessions(principal, authAt)
 	s.Require().NoError(err)
 
+	s.True(signOut.CalendarLinkReset, "a link a calendar app had read is reported as reset")
 	s.requireFeedTokenRevoked(user.ID, feed)
 	s.requireLinkReset(user.ID, engagementm.CalendarLinkResetSignOutEverywhere, before)
 	// The renewal names the stamp the revocation wrote, so it can mint the
 	// owner a new feed URL, and the new link answers the reset.
-	renewedPrincipal, _ := s.principal(renewed)
+	renewedPrincipal, _ := s.principal(signOut.Token)
 	created, err := s.calendar().CreateToken(user.ID, renewedPrincipal.SessionsValidAfter, "http://localhost:8080")
 	s.Require().NoError(err)
 	s.requireFeedTokenHonored(user.ID, created.Token)
@@ -59,9 +61,10 @@ func (s *JWTIntegrationSuite) TestSignOutOtherSessions_UnreadFeedTokenNoLinkRese
 	feed := s.feedToken(user.ID)
 
 	principal, authAt := s.principal(caller)
-	_, err = s.authSvc.SignOutOtherSessions(principal, authAt)
+	signOut, err := s.authSvc.SignOutOtherSessions(principal, authAt)
 	s.Require().NoError(err)
 
+	s.False(signOut.CalendarLinkReset, "a link nothing had read is not reported as reset")
 	s.requireFeedTokenRevoked(user.ID, feed)
 	s.requireNoLinkReset(user.ID)
 }
@@ -74,10 +77,33 @@ func (s *JWTIntegrationSuite) TestSignOutOtherSessions_NoFeedTokenNoLinkReset() 
 	s.Require().NoError(err)
 
 	principal, authAt := s.principal(caller)
-	_, err = s.authSvc.SignOutOtherSessions(principal, authAt)
+	signOut, err := s.authSvc.SignOutOtherSessions(principal, authAt)
 	s.Require().NoError(err)
 
+	s.False(signOut.CalendarLinkReset, "no link is not reported as reset")
 	s.requireNoLinkReset(user.ID)
+}
+
+// A second sign-out with no link added since the first finds the first's
+// marker still on the account and reports no reset of its own.
+func (s *JWTIntegrationSuite) TestSignOutOtherSessions_SecondSignOutDoesNotReportTheFirstsReset() {
+	user := s.createActiveUser("sign-out-others-twice@test.com")
+	caller, err := s.svc.CreateToken(user)
+	s.Require().NoError(err)
+	s.recordCalendarRead(s.feedToken(user.ID))
+
+	principal, authAt := s.principal(caller)
+	before := time.Now()
+	first, err := s.authSvc.SignOutOtherSessions(principal, authAt)
+	s.Require().NoError(err)
+	s.Require().True(first.CalendarLinkReset)
+
+	principal, authAt = s.principal(first.Token)
+	second, err := s.authSvc.SignOutOtherSessions(principal, authAt)
+	s.Require().NoError(err)
+
+	s.False(second.CalendarLinkReset, "the first sign-out's marker is not the second's reset")
+	s.requireLinkReset(user.ID, engagementm.CalendarLinkResetSignOutEverywhere, before)
 }
 
 // A feed-token mint that reaches the account row after the sign-out has
@@ -130,7 +156,7 @@ func (s *JWTIntegrationSuite) TestSignOutOtherSessions_RefusesEveryEarlierSessio
 	s.Require().NoError(err)
 
 	principal, principalAuthAt := s.principal(caller)
-	renewed, err := s.authSvc.SignOutOtherSessions(principal, principalAuthAt)
+	signOut, err := s.authSvc.SignOutOtherSessions(principal, principalAuthAt)
 	s.Require().NoError(err)
 
 	for _, earlier := range []string{caller, otherBrowser, cliToken} {
@@ -138,7 +164,7 @@ func (s *JWTIntegrationSuite) TestSignOutOtherSessions_RefusesEveryEarlierSessio
 		s.requireRevoked(err)
 	}
 
-	got, gotAuthAt, err := s.svc.ValidateSession(renewed)
+	got, gotAuthAt, err := s.svc.ValidateSession(signOut.Token)
 	s.Require().NoError(err)
 	s.Equal(user.ID, got.ID)
 	s.True(gotAuthAt.Equal(authAt), "auth_at %v, want the caller's %v carried through", gotAuthAt, authAt)
@@ -152,10 +178,10 @@ func (s *JWTIntegrationSuite) TestSignOutOtherSessions_ZeroAuthTimeRenewsWithNon
 
 	principal, principalAuthAt := s.principal(caller)
 	s.Require().True(principalAuthAt.IsZero())
-	renewed, err := s.authSvc.SignOutOtherSessions(principal, principalAuthAt)
+	signOut, err := s.authSvc.SignOutOtherSessions(principal, principalAuthAt)
 	s.Require().NoError(err)
 
-	_, gotAuthAt, err := s.svc.ValidateSession(renewed)
+	_, gotAuthAt, err := s.svc.ValidateSession(signOut.Token)
 	s.Require().NoError(err)
 	s.True(gotAuthAt.IsZero(), "a renewal must not invent an authentication time, got %v", gotAuthAt)
 }
@@ -172,8 +198,8 @@ func (s *JWTIntegrationSuite) TestSignOutOtherSessions_RefusesASessionRevokedSin
 	s.Require().NoError(RevokeAllSessions(s.db, s.reloadUser(user.ID), time.Now()))
 	stampAfterOtherRevocation := *s.reloadUser(user.ID).SessionsValidAfter
 
-	token, err := s.authSvc.SignOutOtherSessions(principal, authAt)
-	s.Empty(token)
+	signOut, err := s.authSvc.SignOutOtherSessions(principal, authAt)
+	s.Nil(signOut)
 	s.Require().ErrorIs(err, shared.ErrSessionRevoked)
 	s.True(shared.IsSessionRefusal(err))
 	var authErr *apperrors.AuthError
@@ -192,8 +218,8 @@ func (s *JWTIntegrationSuite) TestSignOutOtherSessions_RefusesAnAccountClosedSin
 
 	s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", user.ID).Update("is_active", false).Error)
 
-	token, err := s.authSvc.SignOutOtherSessions(principal, authAt)
-	s.Empty(token)
+	signOut, err := s.authSvc.SignOutOtherSessions(principal, authAt)
+	s.Nil(signOut)
 	s.Require().ErrorIs(err, shared.ErrSessionAccountClosed)
 	s.True(shared.IsSessionRefusal(err))
 	s.Nil(s.reloadUser(user.ID).SessionsValidAfter, "a refused call must not write the stamp")
@@ -211,9 +237,9 @@ func (s *JWTIntegrationSuite) TestSignOutOtherSessions_MintFailureRevokesNothing
 	principal, authAt := s.principal(caller)
 
 	mintFailed := errors.New("mint failed")
-	token, err := signOutOtherSessions(s.db, principal, authAt, time.Now(),
+	signOut, err := signOutOtherSessions(s.db, principal, authAt, time.Now(),
 		func(*authm.User, time.Time) (string, error) { return "", mintFailed })
-	s.Empty(token)
+	s.Nil(signOut)
 	s.Require().ErrorIs(err, mintFailed)
 	s.False(shared.IsSessionRefusal(err))
 
@@ -251,28 +277,28 @@ func (s *JWTIntegrationSuite) TestSignOutOtherSessions_ConcurrentCallsLeaveExact
 		return s.svc.RenewSessionToken(account, authAt)
 	}
 
-	var firstToken, secondToken string
+	var firstSignOut, secondSignOut *contracts.OtherSessionsSignOut
 	var firstErr, secondErr error
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		firstToken, firstErr = signOutOtherSessions(s.db, firstPrincipal, firstAuthAt, time.Now(), heldMint)
+		firstSignOut, firstErr = signOutOtherSessions(s.db, firstPrincipal, firstAuthAt, time.Now(), heldMint)
 	}()
 	<-holding
 	go func() {
 		defer wg.Done()
-		secondToken, secondErr = s.authSvc.SignOutOtherSessions(secondPrincipal, secondAuthAt)
+		secondSignOut, secondErr = s.authSvc.SignOutOtherSessions(secondPrincipal, secondAuthAt)
 	}()
 	s.waitForALockWaiter()
 	close(release)
 	wg.Wait()
 
 	s.Require().NoError(firstErr)
-	s.Empty(secondToken)
+	s.Nil(secondSignOut)
 	s.Require().ErrorIs(secondErr, shared.ErrSessionRevoked, "the second call is refused as revoked")
 
-	_, _, err = s.svc.ValidateSession(firstToken)
+	_, _, err = s.svc.ValidateSession(firstSignOut.Token)
 	s.NoError(err, "the first call's renewal is honored")
 	for _, session := range []string{first, second} {
 		_, _, err := s.svc.ValidateSession(session)

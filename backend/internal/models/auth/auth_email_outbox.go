@@ -18,6 +18,13 @@ const (
 	// AuthEmailKindPasswordReset is the emailed link that sets a new password
 	// without the current one.
 	AuthEmailKindPasswordReset AuthEmailKind = "password_reset"
+	// AuthEmailKindCalendarSteps is the email a signed-in account asks for to
+	// finish adding its saved shows to Google Calendar on a computer. Its one
+	// link opens a page on the site that requires sign-in; it carries no token
+	// and no feed address. It is transactional and sent only on the account's
+	// own request, not an alert: alert preferences do not govern it and it
+	// carries no unsubscribe link.
+	AuthEmailKindCalendarSteps AuthEmailKind = "calendar_steps"
 )
 
 // auth_email_outbox status values.
@@ -33,12 +40,11 @@ const (
 	AuthEmailStatusFailed     = "failed"
 )
 
-// AuthEmailOutboxItem is one magic-link, account-recovery, verification,
-// pending-link or password-reset email a request handler has promised to
-// send. The row names the account and the kind, and for a pending-link email
-// the pending link by OAuthLinkRef, a hash no browser can present. The poller
-// reads the account and mints the link token at send time, so the table never
-// holds a bearer token.
+// AuthEmailOutboxItem is one email of an AuthEmailKind a request handler has
+// promised to send. The row names the account and the kind, and for a
+// pending-link email the pending link by OAuthLinkRef, a hash no browser can
+// present. The poller reads the account and mints any link token at send
+// time, so the table never holds a bearer token.
 type AuthEmailOutboxItem struct {
 	ID     uint          `gorm:"primaryKey"`
 	Kind   AuthEmailKind `gorm:"column:kind;not null"`

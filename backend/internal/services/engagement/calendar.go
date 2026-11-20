@@ -268,6 +268,14 @@ func (s *CalendarService) CreateToken(userID uint, sessionsValidAfter *time.Time
 
 	tokenHash := hashCalendarToken(plainToken)
 
+	// The response is built from this row, never from a read after commit:
+	// a revocation waiting on the account lock deletes the token as soon as
+	// the transaction commits, and a read-back would then find nothing.
+	token := &engagementm.CalendarToken{
+		UserID:    userID,
+		TokenHash: tokenHash,
+		Token:     &plainToken,
+	}
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		if _, err := shared.LockSessionAccount(tx, userID, sessionsValidAfter); err != nil {
 			return err
@@ -277,11 +285,10 @@ func (s *CalendarService) CreateToken(userID uint, sessionsValidAfter *time.Time
 			return fmt.Errorf("failed to delete existing token: %w", err)
 		}
 
-		token := &engagementm.CalendarToken{
-			UserID:    userID,
-			TokenHash: tokenHash,
-			Token:     &plainToken,
-		}
+		// timestamptz keeps microseconds, so a microsecond instant is stored
+		// exactly and the CreatedAt returned equals the one GetTokenStatus
+		// later reads.
+		token.CreatedAt = tx.NowFunc().Truncate(time.Microsecond)
 		if err := tx.Create(token).Error; err != nil {
 			return fmt.Errorf("failed to create token: %w", err)
 		}
@@ -296,17 +303,11 @@ func (s *CalendarService) CreateToken(userID uint, sessionsValidAfter *time.Time
 
 	s.invalidateFeedCache(userID)
 
-	// Fetch the created token to get the server-set created_at
-	var created engagementm.CalendarToken
-	if err := s.db.Where("user_id = ?", userID).First(&created).Error; err != nil {
-		return nil, fmt.Errorf("failed to fetch created token: %w", err)
-	}
-
 	return &contracts.CalendarTokenCreateResponse{
 		Token:          plainToken,
 		FeedURL:        calendarFeedURL(apiBaseURL, plainToken),
 		FollowsFeedURL: followsActivityFeedURL(apiBaseURL, plainToken),
-		CreatedAt:      created.CreatedAt,
+		CreatedAt:      token.CreatedAt,
 	}, nil
 }
 
@@ -506,6 +507,11 @@ func (s *CalendarService) upcomingSavedShows(userID uint) ([]*contracts.SavedSho
 	return shows, nil
 }
 
+// savedShowsFeedName is the name the saved-shows feed gives itself (NAME and
+// X-WR-CALNAME), in the words the site uses for the list. A calendar app may
+// keep the name it read when it subscribed.
+const savedShowsFeedName = "Psychic Homily saved shows"
+
 // buildSavedShowsCalendar renders shows as the wire bytes of a saved-shows
 // calendar. It reads no cache and writes none.
 //
@@ -521,9 +527,9 @@ func buildSavedShowsCalendar(shows []*contracts.SavedShowResponse, frontendURL s
 	cal := ics.NewCalendar()
 	cal.SetMethod(ics.MethodPublish)
 	cal.SetProductId("-//Psychic Homily//Calendar Feed//EN")
-	cal.SetName("Psychic Homily - My Shows")
+	cal.SetName(savedShowsFeedName)
 	cal.SetDescription("Your saved shows from Psychic Homily")
-	cal.SetXWRCalName("Psychic Homily - My Shows")
+	cal.SetXWRCalName(savedShowsFeedName)
 
 	for _, show := range shows {
 		if show.Status != "approved" {

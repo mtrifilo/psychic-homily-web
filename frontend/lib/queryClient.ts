@@ -457,6 +457,12 @@ export const queryKeys = {
     all: ['calendar'] as const,
     tokenStatus: ['calendar', 'tokenStatus'] as const,
     feedStatus: ['calendar', 'feedStatus'] as const,
+    // The saved-shows calendar panel's address for this open, created if the
+    // account had none. Outside the `calendar` prefix on purpose: refreshing
+    // the calendar caches must never re-run the step that can create a link.
+    // Keyed by viewer so a cached address never outlives its owner's session.
+    panelLink: (userId?: string) =>
+      ['calendarPanelLink', userId ?? null] as const,
   },
 
   // Saved shows queries

@@ -31,11 +31,12 @@ vi.mock('next/navigation', () => ({
 }))
 
 let authStatus: 'authenticated' | 'anonymous' = 'authenticated'
+let viewerId = '7'
 vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => ({
     authStatus,
     isAuthenticated: authStatus === 'authenticated',
-    user: authStatus === 'authenticated' ? { id: '7', email: 'a@b.c' } : null,
+    user: authStatus === 'authenticated' ? { id: viewerId, email: 'a@b.c' } : null,
     isLoading: false,
     logout: vi.fn(),
   }),
@@ -120,6 +121,7 @@ beforeEach(() => {
   savedTotal = 0
   storedDismissal = null
   authStatus = 'authenticated'
+  viewerId = '7'
   mockToggle.mockImplementation(async (showId: number, isSaved: boolean) => {
     if (isSaved) {
       saved.delete(showId)
@@ -133,6 +135,20 @@ beforeEach(() => {
     async (endpoint: string, options: { method: string }) => {
       if (String(endpoint).includes('/saved-shows?')) {
         return { shows: [], total: savedTotal, limit: 1, offset: 0 }
+      }
+      if (String(endpoint).endsWith('/calendar/token/feed-status')) {
+        return { has_token: false }
+      }
+      // The calendar panel prepares its link as it opens.
+      if (String(endpoint).endsWith('/calendar/token')) {
+        return options.method === 'POST'
+          ? {
+              token: 't',
+              feed_url: 'https://api.example.test/calendar/feed/t.ics',
+              follows_feed_url: 'https://api.example.test/follows.atom',
+              created_at: '2026-11-19T12:00:00Z',
+            }
+          : { has_token: false }
       }
       if (
         String(endpoint).endsWith('/auth/preferences/first-save-hint') &&
@@ -233,6 +249,11 @@ describe('SaveButton first-save hint', () => {
     }],
     ['the Library link', async (user: ReturnType<typeof userEvent.setup>) => {
       await user.click(screen.getByRole('link', { name: 'Library' }))
+    }],
+    ['the calendar link', async (user: ReturnType<typeof userEvent.setup>) => {
+      await user.click(
+        screen.getByRole('button', { name: 'Add saved shows to your calendar' })
+      )
     }],
   ])('closing with %s stamps the account again', async (_label, close) => {
     const user = userEvent.setup()
@@ -335,6 +356,10 @@ describe('SaveButton first-save hint', () => {
 
       await user.tab()
       expect(screen.getByRole('link', { name: 'Library' })).toHaveFocus()
+      await user.tab()
+      expect(
+        screen.getByRole('button', { name: 'Add saved shows to your calendar' })
+      ).toHaveFocus()
       await user.tab()
       expect(screen.getByRole('button', { name: 'Dismiss' })).toHaveFocus()
 
@@ -556,4 +581,76 @@ describe('SaveButton first-save hint', () => {
       )
     }
   )
+
+  // The hint's calendar line closes the hint and opens the saved-shows
+  // calendar panel against the Save control; closing the panel puts focus
+  // back on Save.
+  it.each(['bracket', 'ghost'] as const)(
+    'opens the calendar panel from the %s control and returns focus to Save',
+    async variant => {
+      const user = userEvent.setup()
+      renderSave(createClient(null), 1, 'end', variant)
+
+      await clickSave(user)
+      await screen.findByRole('status')
+      await user.click(
+        screen.getByRole('button', { name: 'Add saved shows to your calendar' })
+      )
+
+      expect(hintElement()).not.toBeInTheDocument()
+      // The panel's code loads on first open.
+      const panel = await screen.findByRole(
+        'dialog',
+        { name: 'Add your saved shows to your calendar' },
+        { timeout: 5000 }
+      )
+      expect(panel).toHaveTextContent(
+        'Add it once. New saves show up the next time your calendar checks.'
+      )
+
+      await user.keyboard('{Escape}')
+
+      await waitFor(() =>
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      )
+      expect(
+        screen.getByRole('button', { name: /Remove from saved shows/ })
+      ).toHaveFocus()
+    }
+  )
+
+  // The panel belongs to the viewer who opened it: a change of viewer closes
+  // it, and nothing is created for an account that never opened it.
+  it('closes the calendar panel when the viewer changes, creating nothing for the next', async () => {
+    const user = userEvent.setup()
+    const client = createClient(null)
+    const ui = () => <SaveButton showId={1} variant="bracket" />
+    const { rerender } = render(ui(), { wrapper: createWrapperWithClient(client) })
+
+    await clickSave(user)
+    await screen.findByRole('status')
+    await user.click(
+      screen.getByRole('button', { name: 'Add saved shows to your calendar' })
+    )
+    await screen.findByRole(
+      'dialog',
+      { name: 'Add your saved shows to your calendar' },
+      { timeout: 5000 }
+    )
+    const creates = () =>
+      apiRequest.mock.calls.filter(
+        ([endpoint, options]) =>
+          String(endpoint).endsWith('/calendar/token') &&
+          (options as { method?: string }).method === 'POST'
+      ).length
+    const before = creates()
+
+    viewerId = '8'
+    rerender(ui())
+
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    )
+    expect(creates()).toBe(before)
+  })
 })

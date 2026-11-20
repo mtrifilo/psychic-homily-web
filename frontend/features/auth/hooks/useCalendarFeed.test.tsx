@@ -13,6 +13,8 @@ vi.mock('@/lib/api', () => ({
     CALENDAR: {
       TOKEN: '/calendar/token',
       FEED_STATUS: '/calendar/token/feed-status',
+      FORGET_READS: (client: string) => `/calendar/token/reads?client=${client}`,
+      EMAIL_STEPS: '/calendar/token/email-steps',
     },
   },
   API_BASE_URL: 'http://localhost:8080',
@@ -35,10 +37,13 @@ vi.mock('@/lib/queryClient', () => ({
 import { PERSONAL_FEED_TOKEN_REVOKED_EVENT } from '@/features/collections/components/personalFeedTokenEvents'
 
 // Import hooks after mocks are set up
+import { AuthError } from '@/lib/errors'
 import {
-  calendarLinkWasResetBy,
+  emailCalendarStepsFailure,
   forgetRevokedCalendarLink,
+  sendCalendarStepsEmail,
   useCalendarFeedStatus,
+  useForgetCalendarClient,
   useCalendarTokenStatus,
   useCreateCalendarToken,
   useDeleteCalendarToken,
@@ -72,25 +77,6 @@ describe('useCalendarFeedStatus', () => {
 
     expect(result.current.fetchStatus).toBe('idle')
     expect(mockApiRequest).not.toHaveBeenCalled()
-  })
-})
-
-describe('calendarLinkWasResetBy', () => {
-  const marker = {
-    has_token: false,
-    link_reset_at: '2026-11-10T12:00:00Z',
-    link_reset_reason: 'sign_out_everywhere' as const,
-  }
-
-  it('is true only for a marker left by the named action', () => {
-    expect(calendarLinkWasResetBy(marker, 'sign_out_everywhere')).toBe(true)
-    expect(calendarLinkWasResetBy(marker, 'password_reset')).toBe(false)
-  })
-
-  it('is false without a marker or without a status', () => {
-    expect(calendarLinkWasResetBy({ has_token: false }, 'sign_out_everywhere')).toBe(false)
-    expect(calendarLinkWasResetBy({ has_token: true }, 'password_reset')).toBe(false)
-    expect(calendarLinkWasResetBy(undefined, 'sign_out_everywhere')).toBe(false)
   })
 })
 
@@ -531,5 +517,143 @@ describe('useCalendarTokenStatus + useCreateCalendarToken integration', () => {
 
     expect(result2.current.data?.has_token).toBe(true)
     expect(mockApiRequest).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('useCalendarFeedStatus live', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApiRequest.mockReset()
+  })
+
+  it('refetches a fresh status when a live observer mounts', async () => {
+    mockApiRequest.mockResolvedValue({ has_token: false })
+    const queryClient = createTestQueryClient()
+    queryClient.setQueryData(['calendar', 'feedStatus'], { has_token: false })
+
+    renderHook(() => useCalendarFeedStatus(true, { live: true }), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+
+    await waitFor(() => expect(mockApiRequest).toHaveBeenCalledTimes(1))
+  })
+
+  it('retries a failed live read on its own, even with older data cached', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const queryClient = createTestQueryClient()
+      queryClient.setQueryData(['calendar', 'feedStatus'], { has_token: false })
+      mockApiRequest
+        .mockRejectedValueOnce(new Error('502'))
+        .mockResolvedValue({ has_token: true })
+
+      const { result } = renderHook(
+        () => useCalendarFeedStatus(true, { live: true }),
+        { wrapper: createWrapperWithClient(queryClient) }
+      )
+      await waitFor(() => expect(result.current.isError).toBe(true))
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000)
+      })
+
+      await waitFor(() => expect(result.current.data).toEqual({ has_token: true }))
+      expect(mockApiRequest).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps a fresh status when a plain observer mounts', async () => {
+    const queryClient = createTestQueryClient()
+    queryClient.setQueryData(['calendar', 'feedStatus'], { has_token: false })
+
+    const { result } = renderHook(() => useCalendarFeedStatus(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(mockApiRequest).not.toHaveBeenCalled()
+  })
+})
+
+describe('useForgetCalendarClient', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApiRequest.mockReset()
+  })
+
+  it('forgets one client family and refreshes the calendar caches', async () => {
+    mockApiRequest.mockResolvedValueOnce({ success: true, message: 'ok' })
+    const { result } = renderHook(() => useForgetCalendarClient(), {
+      wrapper: createWrapper(),
+    })
+
+    await act(async () => {
+      await result.current.mutateAsync('google')
+    })
+
+    expect(mockApiRequest).toHaveBeenCalledWith(
+      '/calendar/token/reads?client=google',
+      { method: 'DELETE' }
+    )
+    expect(mockInvalidateCalendar).toHaveBeenCalledTimes(1)
+  })
+
+  it('surfaces a failure without refreshing', async () => {
+    mockApiRequest.mockRejectedValueOnce(new Error('boom'))
+    const { result } = renderHook(() => useForgetCalendarClient(), {
+      wrapper: createWrapper(),
+    })
+
+    await act(async () => {
+      await result.current.mutateAsync('apple_ios').catch(() => {})
+    })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(mockInvalidateCalendar).not.toHaveBeenCalled()
+  })
+})
+
+describe('sendCalendarStepsEmail', () => {
+  beforeEach(() => {
+    mockApiRequest.mockReset()
+  })
+
+  it('posts with no body', async () => {
+    mockApiRequest.mockResolvedValueOnce(undefined)
+    await sendCalendarStepsEmail()
+    expect(mockApiRequest).toHaveBeenCalledWith('/calendar/token/email-steps', {
+      method: 'POST',
+    })
+  })
+})
+
+describe('emailCalendarStepsFailure', () => {
+  const apiError = (status: number, errorCode?: string) =>
+    Object.assign(new Error('x'), { status, errorCode })
+
+  it.each([
+    [
+      'unverified (403)',
+      new AuthError('x', 'EMAIL_VERIFICATION_REQUIRED' as never, { status: 403 }),
+      'unverified',
+    ],
+    [
+      'hourly allowance used (429)',
+      apiError(429, 'CALENDAR_STEPS_RATE_LIMITED_HOURLY'),
+      'rate_limited',
+    ],
+    ['another limiter (429 with no code)', apiError(429), 'failed'],
+    ['email unavailable (503)', apiError(503), 'failed'],
+    [
+      'an API token (403)',
+      new AuthError('x', 'SESSION_CREDENTIAL_REQUIRED' as never, { status: 403 }),
+      'failed',
+    ],
+    ['a network failure', new TypeError('Failed to fetch'), 'failed'],
+    ['nothing at all', undefined, 'failed'],
+  ])('%s', (_label, error, want) => {
+    expect(emailCalendarStepsFailure(error)).toBe(want)
   })
 })

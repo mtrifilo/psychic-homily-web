@@ -12,6 +12,7 @@ import { queryKeys } from '@/lib/queryClient'
 import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import { SAVED_SHOWS_COLLAPSED_COUNT } from '../savedShowsConstants'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { retryWhileFailed } from '@/lib/retryFailedRead'
 // Note: useSavedShows uses SAVED_SHOWS endpoints from lib/api (not show-specific)
 import type {
   SavedShowsListResponse,
@@ -30,6 +31,11 @@ interface UseSavedShowsOptions {
   // the same reader and the prefix invalidations below stop matching it.
   userId?: string
   timeFilter?: 'upcoming' | 'past'
+  /**
+   * Retry a failed read on its own until one succeeds, and on window focus,
+   * for a surface that has no other way to recover while it stays open.
+   */
+  retryUntilRead?: boolean
 }
 
 /**
@@ -43,7 +49,14 @@ interface UseSavedShowsOptions {
  * siblings and the optimistic mutations share.
  */
 export const useSavedShows = (options: UseSavedShowsOptions = {}) => {
-  const { limit = 50, offset = 0, enabled = true, userId, timeFilter } = options
+  const {
+    limit = 50,
+    offset = 0,
+    enabled = true,
+    userId,
+    timeFilter,
+    retryUntilRead = false,
+  } = options
   const { authStatus } = useAuthContext()
 
   const params = new URLSearchParams()
@@ -62,6 +75,12 @@ export const useSavedShows = (options: UseSavedShowsOptions = {}) => {
     },
     enabled: enabled && authStatus !== 'pending' && !!userId,
     staleTime: 5 * 60 * 1000, // 5 minutes
+    ...(retryUntilRead
+      ? {
+          refetchOnWindowFocus: true,
+          refetchInterval: retryWhileFailed,
+        }
+      : {}),
   })
 }
 

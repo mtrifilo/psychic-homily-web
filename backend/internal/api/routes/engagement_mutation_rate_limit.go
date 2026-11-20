@@ -93,8 +93,13 @@ var engagementMutationExactPaths = map[string]bool{
 // joins the shared budget. DELETE on the same path revokes the token and stays
 // unmetered: revocation has to remain available to someone who has just
 // realised the feed URL leaked, whatever else they spent the budget on.
+//
+// POST /calendar/token/email-steps queues an email to the account's own
+// address. Its own hourly cap counts the queued emails; this budget also
+// meters the requests, refused ones included.
 var engagementMutationPostOnlyPaths = map[string]bool{
-	"/calendar/token": true,
+	"/calendar/token":       true,
+	calendarStepsEmailRoute: true,
 }
 
 // isEngagementMutationRequest reports whether a request is an in-scope mutation

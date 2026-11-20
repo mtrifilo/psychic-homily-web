@@ -28,11 +28,13 @@ import (
 // link in that email opens, sets the password once, signs this browser in
 // and signs the earlier session out, and the calendar-feed URL stops working.
 
-// sentEmails records every email the provider is asked to send.
+// sentEmails records every email the provider is asked to send: its HTML, its
+// recipients, and the whole request body the email service sent.
 type sentEmails struct {
 	mu    sync.Mutex
 	html  []string
 	inbox []string
+	raw   []string
 }
 
 func (s *sentEmails) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -45,6 +47,7 @@ func (s *sentEmails) RoundTrip(req *http.Request) (*http.Response, error) {
 	s.mu.Lock()
 	s.html = append(s.html, msg.HTML)
 	s.inbox = append(s.inbox, strings.Join(msg.To, ","))
+	s.raw = append(s.raw, string(body))
 	s.mu.Unlock()
 	return &http.Response{
 		StatusCode: http.StatusOK,
@@ -185,6 +188,7 @@ func TestPasswordResetRoutesThroughRouter(t *testing.T) {
 	if code := feedStatus(t, f.router, squatterFeed.Token); code != http.StatusOK {
 		t.Fatalf("before the reset, the calendar feed answered %d, want 200", code)
 	}
+	recordCalendarAppRead(t, f.sc, squatterFeed.Token)
 
 	unknown := f.post(t, "/auth/password-reset/request", `{"email":"nobody@test.com"}`, "")
 	closed := f.post(t, "/auth/password-reset/request", `{"email":"reset-closed@test.com"}`, "")
@@ -226,6 +230,9 @@ func TestPasswordResetRoutesThroughRouter(t *testing.T) {
 	done := f.post(t, "/auth/password-reset/complete", fmt.Sprintf(`{"token":%q,"new_password":"owners-new-password-1!"}`, link), "")
 	if reply := decodeResetReply(t, done); !reply.Success {
 		t.Fatalf("complete = %+v, want success", reply)
+	}
+	if !calendarLinkResetIn(t, done) {
+		t.Errorf("complete body %s, want calendar_link_reset true: the reset deleted a link a calendar app had read", done.Body.String())
 	}
 	var session string
 	for _, c := range done.Result().Cookies() {
@@ -270,11 +277,23 @@ func TestPasswordResetRoutesThroughRouter(t *testing.T) {
 	if own.Code != http.StatusAccepted {
 		t.Fatalf("send-own status = %d, want 202; body %s", own.Code, own.Body.String())
 	}
-	if ownLink := f.sendQueued(t); ownLink == link {
+	ownLink := f.sendQueued(t)
+	if ownLink == link {
 		t.Error("send-own must mint a new link")
 	}
 	if got := f.sent.inbox[len(f.sent.inbox)-1]; got != "reset-owner@test.com" {
 		t.Errorf("send-own went to %q, want the account's own address", got)
+	}
+
+	// A second reset finds the first's link-reset marker still on the account
+	// and no link to delete, so it reports no reset of its own.
+	requireLinkResetMarker(t, f.sc, owner.ID)
+	again := f.post(t, "/auth/password-reset/complete", fmt.Sprintf(`{"token":%q,"new_password":"owners-newer-password-1!"}`, ownLink), "")
+	if reply := decodeResetReply(t, again); !reply.Success {
+		t.Fatalf("second complete = %+v, want success", reply)
+	}
+	if calendarLinkResetIn(t, again) {
+		t.Errorf("second complete body %s, want calendar_link_reset false: there was no link left to reset", again.Body.String())
 	}
 	if w := f.post(t, "/auth/password-reset/send-own", "", ""); w.Code != http.StatusUnauthorized {
 		t.Errorf("send-own with no session = %d, want 401", w.Code)

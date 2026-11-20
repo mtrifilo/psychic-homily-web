@@ -33,7 +33,8 @@ func RevokeAllSessions(db *gorm.DB, user *authm.User, now time.Time) error {
 // When the deleted token had been read by a calendar app, the same
 // transaction records the link reset at now for reason, so the owner can be
 // told why their subscribed calendar stopped updating
-// (engagement RevokeCalendarLinkTx).
+// (engagement RevokeCalendarLinkTx). It reports whether this call recorded
+// that reset; a marker an earlier revocation left does not make it true.
 //
 // account's users row is locked before the delete: the caller holds it FOR
 // UPDATE, and RevokeAllSessions' write to it would take the lock otherwise. A
@@ -41,9 +42,9 @@ func RevokeAllSessions(db *gorm.DB, user *authm.User, now time.Time) error {
 // writes (engagement CalendarService.CreateToken), so a mint from a session
 // this revokes either commits first, and its token is deleted here, or waits
 // and is refused.
-func revokeSessionsAndFeedToken(tx *gorm.DB, account *authm.User, now time.Time, reason engagementm.CalendarLinkResetReason) error {
+func revokeSessionsAndFeedToken(tx *gorm.DB, account *authm.User, now time.Time, reason engagementm.CalendarLinkResetReason) (bool, error) {
 	if err := RevokeAllSessions(tx, account, now); err != nil {
-		return err
+		return false, err
 	}
 	return engagementsvc.RevokeCalendarLinkTx(tx, account.ID, now, reason)
 }

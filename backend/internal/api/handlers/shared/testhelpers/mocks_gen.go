@@ -475,8 +475,9 @@ func (m *MockAuditLogService) GetAuditLogs(limit int, offset int, filters contra
 // ============================================================================
 
 type MockAuthEmailOutbox struct {
-	EnqueueFn          func(context.Context, authm.AuthEmailKind, uint) error
-	EnqueueOAuthLinkFn func(context.Context, uint, string) error
+	EnqueueFn              func(context.Context, authm.AuthEmailKind, uint) error
+	EnqueueOAuthLinkFn     func(context.Context, uint, string) error
+	EnqueueCalendarStepsFn func(context.Context, *authm.User) error
 }
 
 func (m *MockAuthEmailOutbox) Enqueue(ctx context.Context, kind authm.AuthEmailKind, userID uint) error {
@@ -488,6 +489,12 @@ func (m *MockAuthEmailOutbox) Enqueue(ctx context.Context, kind authm.AuthEmailK
 func (m *MockAuthEmailOutbox) EnqueueOAuthLink(ctx context.Context, userID uint, ref string) error {
 	if m.EnqueueOAuthLinkFn != nil {
 		return m.EnqueueOAuthLinkFn(ctx, userID, ref)
+	}
+	return nil
+}
+func (m *MockAuthEmailOutbox) EnqueueCalendarSteps(ctx context.Context, user *authm.User) error {
+	if m.EnqueueCalendarStepsFn != nil {
+		return m.EnqueueCalendarStepsFn(ctx, user)
 	}
 	return nil
 }
@@ -514,7 +521,7 @@ type MockAuthService struct {
 	GetUserProfileFn           func(uint) (*authm.User, error)
 	GetSignInFactorsFn         func(*authm.User) (contracts.SignInFactors, error)
 	RefreshUserTokenFn         func(*authm.User, time.Time) (string, error)
-	SignOutOtherSessionsFn     func(*authm.User, time.Time) (string, error)
+	SignOutOtherSessionsFn     func(*authm.User, time.Time) (*contracts.OtherSessionsSignOut, error)
 	LogoutFn                   func(http.ResponseWriter, *http.Request) error
 	SetOAuthCompleterFn        func(contracts.OAuthCompleter)
 }
@@ -621,11 +628,11 @@ func (m *MockAuthService) RefreshUserToken(user *authm.User, authAt time.Time) (
 	}
 	return "", nil
 }
-func (m *MockAuthService) SignOutOtherSessions(user *authm.User, authAt time.Time) (string, error) {
+func (m *MockAuthService) SignOutOtherSessions(user *authm.User, authAt time.Time) (*contracts.OtherSessionsSignOut, error) {
 	if m.SignOutOtherSessionsFn != nil {
 		return m.SignOutOtherSessionsFn(user, authAt)
 	}
-	return "", nil
+	return nil, nil
 }
 func (m *MockAuthService) Logout(w http.ResponseWriter, r *http.Request) error {
 	if m.LogoutFn != nil {
@@ -1614,6 +1621,7 @@ type MockEmailService struct {
 	SendMagicLinkEmailFn           func(string, string) error
 	SendAccountRecoveryEmailFn     func(string, string, int) error
 	SendPasswordResetEmailFn       func(string, string) error
+	SendCalendarStepsEmailFn       func(string) error
 	SendShowReminderEmailFn        func(string, string, string, string, contracts.LocalizedEventTime, []string) error
 	SendFilterNotificationEmailFn  func(string, string, string, string) error
 	SendTierPromotionEmailFn       func(string, string, string, string, string, string, []string) error
@@ -1654,6 +1662,12 @@ func (m *MockEmailService) SendAccountRecoveryEmail(toEmail string, token string
 func (m *MockEmailService) SendPasswordResetEmail(toEmail string, token string) error {
 	if m.SendPasswordResetEmailFn != nil {
 		return m.SendPasswordResetEmailFn(toEmail, token)
+	}
+	return nil
+}
+func (m *MockEmailService) SendCalendarStepsEmail(toEmail string) error {
+	if m.SendCalendarStepsEmailFn != nil {
+		return m.SendCalendarStepsEmailFn(toEmail)
 	}
 	return nil
 }
