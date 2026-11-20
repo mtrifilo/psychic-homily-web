@@ -103,7 +103,7 @@ func (h *CalendarHandler) GetCalendarFeedHandler(w http.ResponseWriter, r *http.
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/calendar; charset=utf-8")
+	w.Header().Set("Content-Type", icsContentType)
 	w.Header().Set("Content-Disposition", "inline; filename=\""+savedShowsFeedFilename+"\"")
 	// Short private cache: calendar clients poll coarsely; regenerate clears
 	// the server-side cache immediately, and private avoids shared-proxy reuse.
@@ -154,7 +154,7 @@ func (h *CalendarHandler) GetFollowsActivityFeedHandler(w http.ResponseWriter, r
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/atom+xml; charset=utf-8")
+	w.Header().Set("Content-Type", atomContentType)
 	w.Header().Set("Content-Disposition", "inline; filename=\""+followsFeedFilename+"\"")
 	w.Header().Set("Cache-Control", "private, max-age=120")
 	w.WriteHeader(http.StatusOK)
@@ -167,7 +167,8 @@ const (
 	followsFeedFilename    = "psychic-homily-follows.atom"
 )
 
-// atomContentType is the Content-Type of a retired follows address's notice.
+// atomContentType is the Content-Type of every answer at a follows address,
+// the live feed and a retired link's notice alike.
 const atomContentType = "application/atom+xml; charset=utf-8"
 
 // retiredLinkCacheControl lets a client keep a retired address's notice for

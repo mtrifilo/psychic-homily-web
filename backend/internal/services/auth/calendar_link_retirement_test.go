@@ -54,6 +54,25 @@ func (s *JWTIntegrationSuite) TestRevokeSessionsAndFeedToken_RetiresTheAddressAs
 	}
 }
 
+// Through the entry points the site calls: a completed password reset and
+// signing out everywhere else each retire the old address as reset.
+func (s *JWTIntegrationSuite) TestPasswordResetAndSignOutEverywhere_RetireTheAddressAsReset() {
+	reset := s.createActiveUser("retire-through-reset@test.com")
+	s.setPasswordHash(reset.ID, "planted-password-1!")
+	resetFeed := s.feedToken(reset.ID)
+	_, err := s.authSvc.CompletePasswordReset(s.resetClaimsFor(reset.ID), "owners-new-password-1!")
+	s.Require().NoError(err)
+	s.requireFeedTokenRevoked(reset.ID, resetFeed)
+	s.requireRetiredAsReset(resetFeed, "retire-through-reset@test.com")
+
+	signOut := s.createActiveUser("retire-through-sign-out@test.com")
+	signOutFeed := s.feedToken(signOut.ID)
+	_, err = s.authSvc.SignOutOtherSessions(s.reloadUser(signOut.ID), time.Now())
+	s.Require().NoError(err)
+	s.requireFeedTokenRevoked(signOut.ID, signOutFeed)
+	s.requireRetiredAsReset(signOutFeed, "retire-through-sign-out@test.com")
+}
+
 // The mailbox-proof reclaim leaves the reset note on the old address and
 // nothing about the account's new owner.
 func (s *JWTIntegrationSuite) TestEvictOtherCredentials_RetiresTheAddressAsReset() {

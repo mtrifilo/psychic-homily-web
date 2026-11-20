@@ -123,10 +123,10 @@ var requiredSchemaColumns = []requiredColumn{
 	// Every feed-token status read lists the token's recorded reads, so absent
 	// DDL fails that status read for every account with a token.
 	{Table: "calendar_feed_reads", Column: "last_read_at"},
-	// Every deletion of a feed token remembers its address here in the same
-	// transaction (New link, Turn off, signing out everywhere, a password
-	// reset, the mailbox-proof reclaim), so absent DDL fails all of them for
-	// every account that holds a feed token.
+	// New link, Turn off, signing out everywhere, a password reset and the
+	// mailbox-proof reclaim each remember the deleted feed token's address
+	// here in the transaction that deletes it (account deletion does not), so
+	// absent DDL fails all of them for every account that holds a feed token.
 	{Table: "retired_calendar_links", Column: "retired_at"},
 	// Typed entries: exactly the columns whose type a timestamp-named
 	// migration changed. golang-migrate skips a timestamp-named migration

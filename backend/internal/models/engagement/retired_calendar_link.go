@@ -3,8 +3,10 @@ package engagement
 import "time"
 
 // CalendarLinkRetiredReason is why a feed link stopped working while its
-// owner kept the account. The values are the ones the
-// retired_calendar_links.reason CHECK constraint admits.
+// owner kept the account, as its old address is told. The values are the ones
+// the retired_calendar_links.reason CHECK constraint admits. It is not
+// CalendarLinkResetReason, the owner's marker of which security revocation
+// reset the link: every such revocation is CalendarLinkRetiredReset here.
 type CalendarLinkRetiredReason string
 
 const (
@@ -20,7 +22,7 @@ const (
 
 // CalendarLinkRetiredReasons is every retirement reason. The
 // retired_calendar_links.reason CHECK constraint spells the same set; a test
-// joins the two.
+// compares the two.
 var CalendarLinkRetiredReasons = []CalendarLinkRetiredReason{
 	CalendarLinkRetiredReset,
 	CalendarLinkRetiredReplaced,

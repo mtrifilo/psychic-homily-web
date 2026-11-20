@@ -1,6 +1,7 @@
 package engagement
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/xml"
@@ -15,22 +16,29 @@ import (
 	"psychic-homily-backend/internal/services/shared"
 )
 
-// retiredLinkForgetAfter is how long a retired feed address is remembered.
-// After it the address answers as one the site never issued, and the row is
-// deleted the next time any link is retired (RetireCalendarTokensTx).
-const retiredLinkForgetAfter = 365 * 24 * time.Hour
-
 // retiredLinkNoteFor is how long after retirement the saved-shows notice
-// calendar carries its note. A calendar note recurs on every day it is
-// served, so it stops; the calendar stays valid and empty after it, which is
-// what lets a calendar app that is still subscribed clear the old shows.
+// calendar carries its note. The notice holds no show from the first poll
+// on; the note is what tells a person why, and since it is placed on the date
+// of every poll it would otherwise sit on today's date in their calendar for
+// as long as they stay subscribed. The cutoff is this instant after the
+// retirement, not a date boundary.
 const retiredLinkNoteFor = 30 * 24 * time.Hour
 
-// retiredLinkRememberedSince is the earliest retired_at a link can have and
-// still be remembered at the instant now. A link retired exactly
-// retiredLinkForgetAfter ago is remembered; one any older is forgotten.
-func retiredLinkRememberedSince(now time.Time) time.Time {
-	return now.Add(-retiredLinkForgetAfter)
+// retiredLinkRemembered reports whether link is still remembered at the
+// instant now: until one calendar year after it was retired, that instant
+// included. After it the address answers as one the site never issued,
+// whether or not ForgetExpiredRetiredLinks has deleted its row yet.
+func retiredLinkRemembered(link *engagementm.RetiredCalendarLink, now time.Time) bool {
+	return !now.After(link.RetiredAt.AddDate(1, 0, 0))
+}
+
+// retiredLinkSweepCutoff is the retired_at before which
+// ForgetExpiredRetiredLinks deletes a row at the instant now: a year and a
+// day earlier. The extra day covers the dates a calendar year normalises
+// (a year after February 29 is March 1), so the sweep never deletes a row
+// retiredLinkRemembered would still answer for.
+func retiredLinkSweepCutoff(now time.Time) time.Time {
+	return now.AddDate(-1, 0, -1)
 }
 
 // retiredLinkWording is the owner-approved text a retired address answers
@@ -43,7 +51,8 @@ type retiredLinkWording struct {
 }
 
 // retiredLinkWordings holds the text for every CalendarLinkRetiredReason; a
-// test checks that none is missing.
+// test checks that none is missing. A row whose reason has no entry here
+// answers as unknown (retiredLinkAt).
 var retiredLinkWordings = map[engagementm.CalendarLinkRetiredReason]retiredLinkWording{
 	engagementm.CalendarLinkRetiredReset: {
 		calendarNote: "Psychic Homily: this calendar link was reset. Add it again from your Library.",
@@ -76,8 +85,8 @@ var retiredLinkWordings = map[engagementm.CalendarLinkRetiredReason]retiredLinkW
 //
 // The delete and the remembering are one statement, so a token is never
 // deleted without its address being remembered, nor remembered while it still
-// works. A call that retires a token also deletes every retired link older
-// than retiredLinkForgetAfter, which no read would answer for any more.
+// works. It deletes no other row: ForgetExpiredRetiredLinks does that, outside
+// the revocations this runs inside.
 func RetireCalendarTokensTx(tx *gorm.DB, userID uint, reason engagementm.CalendarLinkRetiredReason, at time.Time) (int64, error) {
 	var deleted int64
 	if err := tx.Raw(`
@@ -92,35 +101,57 @@ func RetireCalendarTokensTx(tx *gorm.DB, userID uint, reason engagementm.Calenda
 		userID, string(reason), at.Truncate(time.Microsecond)).Scan(&deleted).Error; err != nil {
 		return 0, fmt.Errorf("failed to retire calendar token: %w", err)
 	}
-	if deleted == 0 {
-		return 0, nil
-	}
-	// SKIP LOCKED: a row another retirement is deleting is left to it, so two
-	// retirements never wait on each other here.
-	if err := tx.Exec(`
-		DELETE FROM retired_calendar_links WHERE id IN (
-			SELECT id FROM retired_calendar_links WHERE retired_at < ? FOR UPDATE SKIP LOCKED
-		)`, retiredLinkRememberedSince(at)).Error; err != nil {
-		return 0, fmt.Errorf("failed to forget old retired calendar links: %w", err)
-	}
 	return deleted, nil
 }
 
+// retiredLinkSweepBatch is the most rows one statement of
+// ForgetExpiredRetiredLinks deletes, so a large backlog is cleared in short
+// statements rather than one long one.
+const retiredLinkSweepBatch = 1000
+
+// ForgetExpiredRetiredLinks deletes, through db, every retired link retired
+// before retiredLinkSweepCutoff(now), in statements of at most
+// retiredLinkSweepBatch rows, and reports how many it deleted. Reads already
+// ignore a link once retiredLinkRemembered says so, so a sweep that fails or
+// stops early changes no answer; it only bounds how long a row is kept. It
+// stops at the first error or when ctx is done.
+func ForgetExpiredRetiredLinks(ctx context.Context, db *gorm.DB, now time.Time) (int64, error) {
+	var total int64
+	for {
+		result := db.WithContext(ctx).Exec(`
+			DELETE FROM retired_calendar_links WHERE id IN (
+				SELECT id FROM retired_calendar_links WHERE retired_at < ? ORDER BY retired_at LIMIT ?
+			)`, retiredLinkSweepCutoff(now), retiredLinkSweepBatch)
+		if result.Error != nil {
+			return total, fmt.Errorf("failed to forget expired retired calendar links: %w", result.Error)
+		}
+		total += result.RowsAffected
+		if result.RowsAffected < retiredLinkSweepBatch || ctx.Err() != nil {
+			return total, nil
+		}
+	}
+}
+
 // retiredLinkAt is the retired link plainToken names, as remembered at the
-// instant now, or nil when there is none. It is one read through the
-// token_hash unique index.
+// instant now, or nil when there is none or its reason has no wording in this
+// build. It is one read through the token_hash unique index.
 func (s *CalendarService) retiredLinkAt(plainToken string, now time.Time) (*engagementm.RetiredCalendarLink, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 	var links []engagementm.RetiredCalendarLink
 	if err := s.db.
-		Where("token_hash = ? AND retired_at >= ?", hashCalendarToken(plainToken), retiredLinkRememberedSince(now)).
+		Where("token_hash = ?", hashCalendarToken(plainToken)).
 		Limit(1).
 		Find(&links).Error; err != nil {
 		return nil, fmt.Errorf("failed to look up retired calendar link: %w", err)
 	}
-	if len(links) == 0 {
+	if len(links) == 0 || !retiredLinkRemembered(&links[0], now) {
+		return nil, nil
+	}
+	// A reason added by a later migration, read by a build that predates it,
+	// would otherwise render a note with no text.
+	if _, ok := retiredLinkWordings[links[0].Reason]; !ok {
 		return nil, nil
 	}
 	return &links[0], nil
@@ -171,11 +202,20 @@ func (s *CalendarService) retiredNoticeAt(plainToken string, now time.Time, rend
 	}, nil
 }
 
-// retiredLinkNoticeUID is the UID of a retired link's note. It names the
-// remembered row, not the account, and stays the same on every day the note
-// moves to, so a calendar app keeps one note rather than adding one a day.
-func retiredLinkNoticeUID(linkID uint) string {
-	return fmt.Sprintf("retired-link-%d@psychichomily.com", linkID)
+// retiredLinkNoticeKey names a retired link in its notice's identifiers (the
+// note's UID, the Atom ids). It is derived from the token's hash, which only
+// a holder of the token can reproduce, so it reveals no row id or count, and
+// it is the same on every poll for as long as the link is remembered.
+func retiredLinkNoticeKey(link *engagementm.RetiredCalendarLink) string {
+	sum := sha256.Sum256([]byte("retired-link-notice:" + link.TokenHash))
+	return hex.EncodeToString(sum[:16])
+}
+
+// retiredLinkNoticeUID is the UID of a retired link's note. It stays the same
+// on every day the note moves to, so a calendar app keeps one note rather
+// than adding one a day.
+func retiredLinkNoticeUID(link *engagementm.RetiredCalendarLink) string {
+	return "retired-link-" + retiredLinkNoticeKey(link) + "@psychichomily.com"
 }
 
 // buildRetiredLinkCalendar renders the calendar a retired saved-shows address
@@ -185,10 +225,11 @@ func retiredLinkNoticeUID(linkID uint) string {
 //
 // The date is read in the site's fallback zone, the zone the feed reads a
 // calendar day in for a show whose own zone it cannot name, since nothing
-// about the subscriber's zone is known here. The bytes change only when that
-// date does: DTSTAMP is the later of the retirement and the start of the day,
-// and SEQUENCE counts the days since the retirement, so each day's note
-// outranks the one before it (RFC 5546 2.1.5).
+// about the subscriber's zone is known here. The bytes change when that date
+// does, and once more when retiredLinkNoteFor passes: DTSTAMP is the later of
+// the retirement and the start of the day, and SEQUENCE counts the days since
+// the retirement, so each day's note outranks the one before it (RFC 5546
+// 2.1.5).
 func buildRetiredLinkCalendar(link *engagementm.RetiredCalendarLink, now time.Time) []byte {
 	cal := ics.NewCalendar()
 	cal.SetMethod(ics.MethodPublish)
@@ -206,7 +247,7 @@ func buildRetiredLinkCalendar(link *engagementm.RetiredCalendarLink, now time.Ti
 			stamp = link.RetiredAt
 		}
 
-		event := cal.AddEvent(retiredLinkNoticeUID(link.ID))
+		event := cal.AddEvent(retiredLinkNoticeUID(link))
 		event.SetDtStampTime(stamp)
 		event.SetSequence(max(calendarDaysBetween(retiredDay, today), 0))
 		event.SetAllDayStartAt(today)
@@ -271,12 +312,12 @@ func buildRetiredLinkAtom(link *engagementm.RetiredCalendarLink) ([]byte, error)
 	feed := retiredAtomFeed{
 		Xmlns:   "http://www.w3.org/2005/Atom",
 		Title:   followsActivityFeedTitle,
-		ID:      fmt.Sprintf("tag:psychichomily.com,2026:retired-feed:%d", link.ID),
+		ID:      "tag:psychichomily.com,2026:retired-feed:" + retiredLinkNoticeKey(link),
 		Updated: retiredAt,
 		Author:  atomAuthor{Name: followsActivityFeedAuthor},
 		Entry: retiredAtomEntry{
 			Title:     wording.feedTitle,
-			ID:        fmt.Sprintf("tag:psychichomily.com,2026:retired-feed-notice:%d", link.ID),
+			ID:        "tag:psychichomily.com,2026:retired-feed-notice:" + retiredLinkNoticeKey(link),
 			Updated:   retiredAt,
 			Published: retiredAt,
 			Content:   atomText{Type: "text", Text: wording.feedBody},

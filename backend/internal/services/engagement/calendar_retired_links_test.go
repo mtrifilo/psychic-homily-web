@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/xml"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -67,17 +69,19 @@ func noticeEventLines(t *testing.T, feed []byte) map[string]string {
 	return props
 }
 
-// The note moves to each fetch's date and keeps one UID; its bytes change
-// only when the date does, and each day's copy outranks the day before.
+// The note moves to each fetch's date and keeps one UID; within the 30 days
+// its bytes change only when the date does, and each day's copy outranks the
+// day before.
 func TestBuildRetiredLinkCalendar_OneNotePerDateWithARisingSequence(t *testing.T) {
 	retiredAt := time.Date(2026, 11, 20, 18, 30, 15, 0, time.UTC) // 11:30 in Phoenix
-	link := &engagementm.RetiredCalendarLink{ID: 42, Reason: engagementm.CalendarLinkRetiredReplaced, RetiredAt: retiredAt}
+	link := &engagementm.RetiredCalendarLink{ID: 42, TokenHash: strings.Repeat("ab", 32), Reason: engagementm.CalendarLinkRetiredReplaced, RetiredAt: retiredAt}
 
 	sameDayLater := buildRetiredLinkCalendar(link, retiredAt.Add(10*time.Hour)) // 21:30 Phoenix, Nov 20
 	assert.Equal(t, buildRetiredLinkCalendar(link, retiredAt), sameDayLater, "same date, same bytes")
 
 	first := noticeEventLines(t, buildRetiredLinkCalendar(link, retiredAt))
-	assert.Equal(t, "retired-link-42@psychichomily.com", first["UID"])
+	assert.Regexp(t, `^retired-link-[0-9a-f]{32}@psychichomily\.com$`, first["UID"], "derived from the hash, not the row id")
+	assert.NotContains(t, first["UID"], link.TokenHash)
 	assert.Equal(t, "0", first["SEQUENCE"])
 	assert.Equal(t, "20261120T183015Z", first["DTSTAMP"], "day 0 is stamped at the retirement")
 	assert.Equal(t, "20261120", first["DTSTART;VALUE=DATE"])
@@ -215,7 +219,7 @@ func (suite *CalendarIntegrationTestSuite) TestRetiredSavedShowsNotice_ThirtyDay
 				props := noticeEventLines(t, notice.Body)
 				suite.Equal(wantRetiredWording[r.reason].calendarNote, props["SUMMARY"], "day %d", n)
 				suite.Equal(phoenixDate(t, now), props["DTSTART;VALUE=DATE"], "day %d", n)
-				suite.Equal(retiredLinkNoticeUID(row.ID), props["UID"])
+				suite.Equal(retiredLinkNoticeUID(&row), props["UID"])
 				suite.NotEmpty(props["DTSTAMP"])
 				suite.Contains(string(notice.Body), "\r\nX-WR-CALNAME:Psychic Homily saved shows\r\n")
 				suite.Contains(string(notice.Body), "\r\nNAME:Psychic Homily saved shows\r\n")
@@ -333,29 +337,87 @@ func (suite *CalendarIntegrationTestSuite) TestRetiredNotices_LiveAndUnknownToke
 	}
 }
 
-// A link exactly a year old is kept by the next retirement; one any older is
-// deleted by it. The instant is recent enough that the mints in between,
-// which prune at the real clock, leave it alone.
-func (suite *CalendarIntegrationTestSuite) TestRetireCalendarTokensTx_ForgetsLinksOlderThanAYear() {
-	at := time.Now().Add(-200 * day).Truncate(time.Microsecond)
-	old := suite.createTestUser(true)
-	oldToken := suite.mintFeedToken(old.ID)
-	_, err := RetireCalendarTokensTx(suite.db, old.ID, engagementm.CalendarLinkRetiredTurnedOff, at)
+// The sweep keeps every link retired within a year and a day and deletes the
+// older ones, across statements when there are more rows than one batch, and
+// retiring a link deletes no other row.
+func (suite *CalendarIntegrationTestSuite) TestForgetExpiredRetiredLinks_DeletesOnlyLinksPastTheYear() {
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	cutoff := retiredLinkSweepCutoff(now)
+	suite.Equal(time.Date(2025, 11, 19, 12, 0, 0, 0, time.UTC), cutoff)
+	insert := func(hash string, at time.Time) {
+		suite.Require().NoError(suite.db.Exec(
+			"INSERT INTO retired_calendar_links (token_hash, reason, retired_at) VALUES (?, 'turned_off', ?)", hash, at).Error)
+	}
+	insert(strings.Repeat("a", 64), cutoff)
+	for i := 0; i < retiredLinkSweepBatch+5; i++ {
+		insert(fmt.Sprintf("%064x", i), cutoff.Add(-time.Second))
+	}
+
+	user := suite.createTestUser(true)
+	suite.mintFeedToken(user.ID)
+	_, err := RetireCalendarTokensTx(suite.db, user.ID, engagementm.CalendarLinkRetiredTurnedOff, now)
+	suite.Require().NoError(err)
+	suite.Equal(int64(retiredLinkSweepBatch+7), suite.retiredRowCount(), "retiring a link deletes nothing else")
+
+	deleted, err := ForgetExpiredRetiredLinks(context.Background(), suite.db, now)
+	suite.Require().NoError(err)
+	suite.Equal(int64(retiredLinkSweepBatch+5), deleted)
+	suite.Equal(int64(2), suite.retiredRowCount(), "the link at the cutoff and today's are kept")
+}
+
+// The sweep never deletes a link a read would still answer for, including
+// across a February 29.
+func TestRetiredLinkSweepCutoff_NeverPrecedesTheRememberedYear(t *testing.T) {
+	start := time.Date(2027, 1, 1, 12, 0, 0, 0, time.UTC)
+	for d := 0; d < 3*366; d++ {
+		retiredAt := start.AddDate(0, 0, d)
+		link := &engagementm.RetiredCalendarLink{RetiredAt: retiredAt}
+		lastRemembered := retiredAt.AddDate(1, 0, 0)
+		require.True(t, retiredLinkRemembered(link, lastRemembered), "retired %v", retiredAt)
+		require.False(t, retiredAt.Before(retiredLinkSweepCutoff(lastRemembered)),
+			"retired %v is swept at %v, while still remembered", retiredAt, lastRemembered)
+	}
+}
+
+// "A year" is a calendar year, so a link retired the day after a February 29
+// is still remembered on the same date a year later.
+func (suite *CalendarIntegrationTestSuite) TestRetiredLink_RememberedForACalendarYearAcrossALeapDay() {
+	user := suite.createTestUser(true)
+	old := suite.mintFeedToken(user.ID)
+	retiredAt := time.Date(2027, 3, 1, 12, 0, 0, 0, time.UTC)
+	_, err := RetireCalendarTokensTx(suite.db, user.ID, engagementm.CalendarLinkRetiredTurnedOff, retiredAt)
 	suite.Require().NoError(err)
 
-	other := suite.createTestUser(true)
-	suite.mintFeedToken(other.ID)
-	_, err = RetireCalendarTokensTx(suite.db, other.ID, engagementm.CalendarLinkRetiredTurnedOff, at.Add(retiredLinkForgetAfter))
-	suite.Require().NoError(err)
-	suite.retiredRow(oldToken)
+	for _, c := range []struct {
+		at   time.Time
+		want bool
+	}{
+		{time.Date(2028, 2, 29, 13, 0, 0, 0, time.UTC), true},
+		{time.Date(2028, 3, 1, 12, 0, 0, 0, time.UTC), true},
+		{time.Date(2028, 3, 1, 12, 0, 1, 0, time.UTC), false},
+	} {
+		notice, err := suite.svc.retiredNoticeAt(old, c.at, renderRetiredFollows)
+		suite.Require().NoError(err)
+		suite.Equal(c.want, notice != nil, "at %v", c.at)
+	}
+}
 
-	suite.mintFeedToken(other.ID)
-	_, err = RetireCalendarTokensTx(suite.db, other.ID, engagementm.CalendarLinkRetiredTurnedOff, at.Add(retiredLinkForgetAfter+time.Second))
-	suite.Require().NoError(err)
-	var n int64
-	suite.Require().NoError(suite.db.Model(&engagementm.RetiredCalendarLink{}).
-		Where("token_hash = ?", hashCalendarToken(oldToken)).Count(&n).Error)
-	suite.Zero(n)
+// A row with a reason this build has no wording for answers as unknown rather
+// than as a note with no text.
+func (suite *CalendarIntegrationTestSuite) TestRetiredLink_ReasonWithoutWordingAnswersAsUnknown() {
+	user := suite.createTestUser(true)
+	old := suite.mintFeedToken(user.ID)
+	suite.Require().NoError(suite.svc.DeleteToken(user.ID))
+
+	saved := retiredLinkWordings
+	retiredLinkWordings = map[engagementm.CalendarLinkRetiredReason]retiredLinkWording{}
+	defer func() { retiredLinkWordings = saved }()
+
+	for _, render := range []retiredNoticeRenderer{renderRetiredSavedShows, renderRetiredFollows} {
+		notice, err := suite.svc.retiredNoticeAt(old, time.Now(), render)
+		suite.Require().NoError(err)
+		suite.Nil(notice)
+	}
 }
 
 // Deleting the account deletes the token by cascade and remembers nothing, so
@@ -380,15 +442,25 @@ func (suite *CalendarIntegrationTestSuite) TestAccountDeletion_LeavesNoRetiredLi
 	}
 }
 
+// The CHECK constraint admits exactly the model's reasons: the set it spells
+// is read back from the catalog and compared whole.
 func (suite *CalendarIntegrationTestSuite) TestRetiredCalendarLinks_ReasonCheckMatchesTheModel() {
-	for i, reason := range engagementm.CalendarLinkRetiredReasons {
-		suite.NoError(suite.db.Exec(
-			"INSERT INTO retired_calendar_links (token_hash, reason, retired_at) VALUES (?, ?, NOW())",
-			strings.Repeat(string(rune('a'+i)), 64), string(reason)).Error, reason)
+	var def string
+	suite.Require().NoError(suite.db.Raw(`
+		SELECT pg_get_constraintdef(oid) FROM pg_constraint
+		WHERE conname = 'retired_calendar_links_reason_check'`).Scan(&def).Error)
+	admitted := regexp.MustCompile(`'([a-z_]+)'::text`).FindAllStringSubmatch(def, -1)
+	suite.Require().NotEmpty(admitted, "constraint definition: %s", def)
+
+	var got []string
+	for _, m := range admitted {
+		got = append(got, m[1])
 	}
-	suite.Error(suite.db.Exec(
-		"INSERT INTO retired_calendar_links (token_hash, reason, retired_at) VALUES (?, 'sign_out_everywhere', NOW())",
-		strings.Repeat("z", 64)).Error)
+	var want []string
+	for _, reason := range engagementm.CalendarLinkRetiredReasons {
+		want = append(want, string(reason))
+	}
+	suite.ElementsMatch(want, got, "constraint definition: %s", def)
 }
 
 // runRetiredLinksMigration runs one direction of the retired-links migration.

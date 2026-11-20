@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	"psychic-homily-backend/internal/api/middleware"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services"
 	"psychic-homily-backend/internal/testlog"
@@ -110,9 +111,15 @@ func TestRetiredFeedLinksThroughRouter(t *testing.T) {
 		return fetchedFeed{status: w.Code, header: w.Header(), body: w.Body.String(), log: logTime.ReplaceAllString(log, ""), dump: string(dump)}
 	}
 
+	// mint mints userID a link from a session as current as the account's
+	// latest revocation, as Settings does after signing out everywhere.
 	mint := func(t *testing.T, userID uint) string {
 		t.Helper()
-		created, err := sc.Calendar.CreateToken(userID, nil, "http://localhost:8080")
+		user, err := sc.User.GetUserByID(userID)
+		if err != nil {
+			t.Fatalf("load user: %v", err)
+		}
+		created, err := sc.Calendar.CreateToken(userID, user.SessionsValidAfter, "http://localhost:8080")
 		if err != nil {
 			t.Fatalf("mint: %v", err)
 		}
@@ -208,10 +215,28 @@ func TestRetiredFeedLinksThroughRouter(t *testing.T) {
 				}
 			}
 
-			if newToken != "" {
-				live := fetch(t, feedRoutes[0].path(newToken), "")
-				if live.status != http.StatusOK || !strings.Contains(live.body, "DESCRIPTION:Your saved shows from Psychic Homily") {
-					t.Errorf("the new link must serve the live feed: %d %q", live.status, live.body)
+			// The public-read limiter exempts only a token its validator
+			// accepts, and it refuses the old one.
+			if middleware.CalendarTokenValidator(sc.Calendar)(old) {
+				t.Errorf("the limiter's feed exemption accepted the old token")
+			}
+
+			if c.reason == "" {
+				return
+			}
+			// The account's next link serves the live feeds on every route.
+			if newToken == "" {
+				newToken = mint(t, user.ID)
+			}
+			cfg.Calendar.RetiredLinkNoticeEnabled = true
+			for _, route := range feedRoutes {
+				live := fetch(t, route.path(newToken), "")
+				wantLive := "DESCRIPTION:Your saved shows from Psychic Homily"
+				if route.atom {
+					wantLive = "<id>tag:psychichomily.com,2026:follows-activity:"
+				}
+				if live.status != http.StatusOK || !strings.Contains(live.body, wantLive) {
+					t.Errorf("%s: the new link must serve the live feed: %d %q", route.name, live.status, live.body)
 				}
 			}
 		})
