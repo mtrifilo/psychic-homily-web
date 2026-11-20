@@ -1,7 +1,13 @@
 'use client'
 
-import { ManageInSettingsLink, PanelError, PanelNote } from './CalendarPanelParts'
+import {
+  ManageInSettingsLink,
+  PanelError,
+  PanelNote,
+  useCalendarPanelLayout,
+} from './CalendarPanelParts'
 import { PANEL_COPY } from './savedShowsCalendarCopy'
+import { SETTINGS_CALENDAR_COPY } from './settingsCalendarCopy'
 import type { CalendarRowNote } from './useSavedShowsCalendarActions'
 
 /**
@@ -14,7 +20,8 @@ export function CalendarRowNoteLines({
   onNavigate,
 }: {
   note: CalendarRowNote | undefined
-  onNavigate: () => void
+  /** Closes a panel the Settings link leaves; a page has nothing to close. */
+  onNavigate?: () => void
 }) {
   return (
     <div aria-live="polite" className="flex flex-col gap-0.5 not-empty:mt-0.5">
@@ -28,8 +35,9 @@ function NoteContent({
   onNavigate,
 }: {
   note: CalendarRowNote
-  onNavigate: () => void
+  onNavigate?: () => void
 }) {
+  const layout = useCalendarPanelLayout()
   switch (note) {
     case 'google_pending':
       return (
@@ -46,6 +54,10 @@ function NoteContent({
     case 'copied':
       return <PanelNote>{PANEL_COPY.copied}</PanelNote>
     case 'copy_failed':
+      // The Settings card already shows the address in a field to copy from.
+      if (layout === 'card') {
+        return <PanelError>{SETTINGS_CALENDAR_COPY.copyFailed}</PanelError>
+      }
       return (
         <>
           <PanelError>{PANEL_COPY.copyFailed}</PanelError>

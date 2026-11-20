@@ -3,7 +3,10 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { SettingsPanel } from './SettingsPanel'
-import { CALENDAR_FEED_SETTINGS_ANCHOR } from './calendar-feed-anchor'
+import {
+  CALENDAR_FEED_SETTINGS_ANCHOR,
+  CALENDAR_FEED_SETTINGS_HREF,
+} from './calendar-feed-anchor'
 import {
   AuthError,
   AuthErrorCode,
@@ -131,18 +134,22 @@ vi.mock('./reply-permission-settings', () => ({
   ),
 }))
 
-vi.mock('@/features/collections', () => ({
-  CalendarFeedSection: ({ variant }: { variant?: string }) => (
-    <div data-testid="calendar-feed-section" data-variant={variant}>
-      CalendarFeedSection
-    </div>
-  ),
-  FollowsActivityFeedSection: () => (
-    <div data-testid="follows-activity-feed-section">
-      FollowsActivityFeedSection
-    </div>
-  ),
-}))
+vi.mock(
+  '@/features/collections/components/saved-shows-calendar/SettingsCalendarCard',
+  () => ({
+    SettingsCalendarCard: ({
+      id,
+      anchorRef,
+    }: {
+      id: string
+      anchorRef?: React.Ref<HTMLDivElement>
+    }) => (
+      <div ref={anchorRef} id={id} tabIndex={-1} data-testid="settings-calendar-card">
+        SettingsCalendarCard
+      </div>
+    ),
+  })
+)
 
 // --- Tests ---
 
@@ -233,28 +240,27 @@ describe('SettingsPanel', () => {
     expect(screen.getByTestId('reply-permission-settings')).toBeInTheDocument()
   })
 
-  it('renders CalendarFeedSection with settings variant', () => {
+  // The Sessions card's, the password reset's and the panel's "Manage in
+  // Settings" links land here.
+  it('renders one calendar card on its Settings fragment', () => {
     renderWithProviders(<SettingsPanel />)
-    const feed = screen.getByTestId('calendar-feed-section')
-    expect(feed).toBeInTheDocument()
-    expect(feed).toHaveAttribute('data-variant', 'settings')
+    const cards = screen.getAllByTestId('settings-calendar-card')
+    expect(cards).toHaveLength(1)
+    expect(document.getElementById(CALENDAR_FEED_SETTINGS_ANCHOR)).toBe(cards[0])
   })
 
-  // The Sessions card's and the password reset's "add it again" links land here.
-  it('anchors the calendar feed card for its Settings fragment', () => {
-    renderWithProviders(<SettingsPanel />)
-    const card = document.getElementById(CALENDAR_FEED_SETTINGS_ANCHOR)
-    expect(card).not.toBeNull()
-    expect(card).toHaveAttribute('tabindex', '-1')
-    expect(card).toHaveTextContent('Calendar feed')
-    expect(card).toContainElement(screen.getByTestId('calendar-feed-section'))
-  })
-
-  it('renders FollowsActivityFeedSection', () => {
-    renderWithProviders(<SettingsPanel />)
-    expect(
-      screen.getByTestId('follows-activity-feed-section')
-    ).toBeInTheDocument()
+  it('lands the calendar card address on the card', () => {
+    const scrollIntoView = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoView
+    window.history.replaceState(null, '', CALENDAR_FEED_SETTINGS_HREF)
+    try {
+      renderWithProviders(<SettingsPanel />)
+      const card = screen.getByTestId('settings-calendar-card')
+      expect(scrollIntoView.mock.contexts).toContain(card)
+      expect(card).toHaveFocus()
+    } finally {
+      window.history.replaceState(null, '', '/')
+    }
   })
 
   it('renders OAuthAccounts component', () => {
@@ -847,8 +853,7 @@ describe('SettingsPanel', () => {
       // because the reminder and digest rows moved out of that card into it.
       'alert-settings',
       'notification-settings',
-      'calendar-feed-section',
-      'follows-activity-feed-section',
+      'settings-calendar-card',
       'reply-permission-settings',
       'oauth-accounts',
       'passkey-management',

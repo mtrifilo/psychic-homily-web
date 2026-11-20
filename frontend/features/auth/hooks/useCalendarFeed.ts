@@ -20,12 +20,25 @@ import type {
   CalendarTokenCreateResponse,
   CalendarTokenDeleteResponse,
 } from '@/features/shows'
-import { PERSONAL_FEED_TOKEN_REVOKED_EVENT } from '@/features/collections/components/personalFeedTokenEvents'
 
 /**
- * Hook to check if the user has a calendar feed token
+ * The calendar feed's full status for a session: whether a link exists, its
+ * two addresses when they can be shown, the calendar apps seen reading it, and
+ * the reset marker. Reading it never creates a link.
  */
-export const useCalendarTokenStatus = (enabled: boolean = true) => {
+export const useCalendarTokenStatus = (
+  enabled: boolean = true,
+  options: {
+    /**
+     * Refetch whenever an observer mounts and whenever the window regains
+     * focus, and retry a failed read on its own, for the surface that shows
+     * the addresses: an address held from before can be one that was since
+     * replaced, and a calendar app's first check is made while the person is
+     * in that app.
+     */
+    live?: boolean
+  } = {}
+) => {
   return useQuery({
     queryKey: queryKeys.calendar.tokenStatus,
     queryFn: async (): Promise<CalendarTokenStatusResponse> => {
@@ -36,6 +49,13 @@ export const useCalendarTokenStatus = (enabled: boolean = true) => {
     },
     enabled,
     staleTime: 5 * 60 * 1000, // 5 minutes
+    ...(options.live
+      ? {
+          refetchOnMount: 'always',
+          refetchOnWindowFocus: 'always',
+          refetchInterval: retryWhileFailed,
+        }
+      : {}),
   })
 }
 
@@ -147,16 +167,13 @@ export function emailCalendarStepsFailure(
  * link, the one the action deleted, while the new read is in flight.
  * Resetting cancels any fetch in flight, and an active query refetches at
  * once. The token status refetches in place instead, so the Settings calendar
- * card keeps its content on screen until the new answer lands. The feed cards
- * hold a link they just minted outside the cache, so they are told the link is
- * gone as well.
+ * card keeps its content on screen until the new answer lands.
  *
  * Never rejects.
  */
 export function forgetRevokedCalendarLink(
   queryClient: QueryClient
 ): Promise<unknown> {
-  window.dispatchEvent(new CustomEvent(PERSONAL_FEED_TOKEN_REVOKED_EVENT))
   return Promise.all([
     queryClient.resetQueries({ queryKey: queryKeys.calendar.feedStatus }),
     refetchAfterMutation(queryClient, queryKeys.calendar.tokenStatus),

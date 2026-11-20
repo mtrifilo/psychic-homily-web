@@ -9,10 +9,14 @@ import { cn } from '@/lib/utils'
 import { PANEL_COPY } from './savedShowsCalendarCopy'
 
 /**
- * Where the panel is drawn. The sheet gives every row a 44px tap target and
- * stacks rows edge to edge; the popover spaces 20px rows 10px apart.
+ * Where the calendar pieces are drawn. The sheet gives every row a 44px tap
+ * target and stacks rows edge to edge; the popover spaces 20px rows 10px
+ * apart. The Settings card is responsive by CSS alone: the sheet's targets
+ * below `sm`, the popover's rows from `sm` up. It is also the one surface that
+ * shows the address, so a refused copy there points to its field rather than
+ * to Settings.
  */
-export type CalendarPanelLayout = 'popover' | 'sheet'
+export type CalendarPanelLayout = 'popover' | 'sheet' | 'card'
 
 export const CalendarPanelLayoutContext =
   createContext<CalendarPanelLayout>('popover')
@@ -30,26 +34,41 @@ export function useCalendarPanelLayout(): CalendarPanelLayout {
  */
 export const PRIVATE_LINK_CLASS = 'ph-no-capture sentry-block'
 
+const CALENDAR_SURFACE_ATTRIBUTE = 'data-saved-shows-calendar-panel'
+
 /**
- * Moves focus to the panel itself before a control that is about to unmount
- * (a retry line, a stopped app's block) acts. The popover does not trap
- * focus, so focus on a removed control would drop to the page's body and
- * leave the person outside the panel they are still using.
+ * Spread on the element that holds a calendar surface (the panel's popover or
+ * sheet, the steps page): the element holdFocusInPanel returns focus to.
+ */
+export const CALENDAR_SURFACE_PROPS = { [CALENDAR_SURFACE_ATTRIBUTE]: '' }
+
+/**
+ * Moves focus to the calendar surface itself before a control that is about
+ * to unmount (a retry line, a stopped app's block) acts. The popover does not
+ * trap focus, so focus on a removed control would drop to the page's body and
+ * leave the person outside the surface they are still using.
  */
 export function holdFocusInPanel(control: HTMLElement) {
-  control.closest<HTMLElement>('[data-saved-shows-calendar-panel]')?.focus()
+  control.closest<HTMLElement>(`[${CALENDAR_SURFACE_ATTRIBUTE}]`)?.focus()
+}
+
+/** The 44px tap target of a row or control, where the layout has one. */
+export function tapTargetClass(layout: CalendarPanelLayout): string | false {
+  if (layout === 'sheet') return 'min-h-11'
+  return layout === 'card' && 'min-h-11 sm:min-h-0'
 }
 
 /** The rows' stack: spaced in the popover, edge to edge in the sheet. */
 export function rowStackClass(layout: CalendarPanelLayout): string {
-  return layout === 'sheet' ? 'flex flex-col' : 'flex flex-col gap-2.5'
+  if (layout === 'sheet') return 'flex flex-col'
+  return layout === 'card' ? 'flex flex-col sm:gap-2.5' : 'flex flex-col gap-2.5'
 }
 
 const ROW_CLASS =
   'inline-flex items-center gap-1.5 self-start rounded-sm text-left text-sm font-medium text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50'
 
 function rowClass(layout: CalendarPanelLayout, className?: string) {
-  return cn(ROW_CLASS, layout === 'sheet' && 'min-h-11', className)
+  return cn(ROW_CLASS, tapTargetClass(layout), className)
 }
 
 interface RowButtonProps {
@@ -120,8 +139,11 @@ export function PanelRowLink({
   )
 }
 
-/** "Manage in Settings": the one way into the Settings calendar card. */
-export function ManageInSettingsLink({ onNavigate }: { onNavigate: () => void }) {
+/**
+ * "Manage in Settings": the one way into the Settings calendar card.
+ * `onNavigate` closes a panel the link leaves; a page has nothing to close.
+ */
+export function ManageInSettingsLink({ onNavigate }: { onNavigate?: () => void }) {
   const layout = useCalendarPanelLayout()
   return (
     <Link
@@ -196,9 +218,11 @@ export function PanelErrorWithRetry({
         }}
         className={cn(
           'rounded-sm underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50',
-          // The sheet's 44px tap target, without changing how the line reads.
-          layout === 'sheet' &&
-            "relative after:absolute after:-inset-x-1 after:-inset-y-4 after:content-['']"
+          // A 44px tap target (the sheet's, and the card's below `sm`),
+          // without changing how the line reads.
+          layout !== 'popover' &&
+            "relative after:absolute after:-inset-x-1 after:-inset-y-4 after:content-['']",
+          layout === 'card' && 'sm:after:hidden'
         )}
       >
         {TRY_AGAIN}

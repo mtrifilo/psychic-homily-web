@@ -130,6 +130,7 @@ const eslintConfig = defineConfig([
       "features/artists/components/ArtistDetail.tsx",
       "features/auth/components/settings/passkey-management.tsx",
       "features/collections/components/saved-shows-calendar/useSavedShowsCalendarLink.ts",
+      "features/collections/components/saved-shows-calendar/useSettingsCalendar.ts",
       "features/festivals/components/FestivalDetail.tsx",
       "features/labels/components/LabelDetail.tsx",
       "features/releases/components/ReleaseDetail.tsx",

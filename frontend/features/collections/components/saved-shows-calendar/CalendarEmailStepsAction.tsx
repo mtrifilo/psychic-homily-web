@@ -25,9 +25,11 @@ import {
   PanelNote,
   PanelRowButton,
   holdFocusInPanel,
+  tapTargetClass,
   useCalendarPanelLayout,
 } from './CalendarPanelParts'
 import { PANEL_COPY, emailSentLine } from './savedShowsCalendarCopy'
+import { CalendarCardButton } from './SettingsCalendarParts'
 
 /**
  * "Email me the steps": on a phone, where Google's app cannot add a calendar
@@ -37,8 +39,15 @@ import { PANEL_COPY, emailSentLine } from './savedShowsCalendarCopy'
  * a later failure takes the confirmation down and names the failure, so the
  * panel never claims an email that a later attempt did not send. An address
  * that is not verified gets the house verification resend in place.
+ *
+ * `appearance` draws the send controls as text-link rows (the panel's) or as
+ * outline buttons (the Settings card's add block).
  */
-export function CalendarEmailStepsAction() {
+export function CalendarEmailStepsAction({
+  appearance = 'row',
+}: {
+  appearance?: 'row' | 'button'
+} = {}) {
   const { user } = useAuthContext()
   const send = useEmailCalendarSteps()
   // The last settled outcome, kept through a send in flight so neither the
@@ -59,25 +68,27 @@ export function CalendarEmailStepsAction() {
     onSend()
   }
 
+  const SendControl = appearance === 'button' ? CardSendButton : PanelRowButton
+
   return (
-    <div className="flex flex-col">
+    <div className={cn('flex flex-col', appearance === 'button' && 'gap-1')}>
       {outcome === 'sent' ? (
         <>
           <PanelNote className="mt-0.5">
             {emailSentLine(user?.email ?? '')}
           </PanelNote>
-          <PanelRowButton onClick={sendFromControl} disabled={send.isPending}>
+          <SendControl onClick={sendFromControl} disabled={send.isPending}>
             {PANEL_COPY.sendAgain}
-          </PanelRowButton>
+          </SendControl>
         </>
       ) : (
-        <PanelRowButton
+        <SendControl
           onClick={sendFromControl}
           disabled={send.isPending}
           testId="calendar-email-steps"
         >
           {PANEL_COPY.emailSteps}
-        </PanelRowButton>
+        </SendControl>
       )}
       {outcome === 'unverified' ? <VerifyEmailInPlace /> : null}
       {outcome === 'rate_limited' ? (
@@ -89,6 +100,24 @@ export function CalendarEmailStepsAction() {
         </PanelErrorWithRetry>
       ) : null}
     </div>
+  )
+}
+
+function CardSendButton({
+  onClick,
+  disabled,
+  testId,
+  children,
+}: {
+  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void
+  disabled?: boolean
+  testId?: string
+  children: string
+}) {
+  return (
+    <CalendarCardButton onClick={onClick} disabled={disabled} data-testid={testId}>
+      {children}
+    </CalendarCardButton>
   )
 }
 
@@ -108,7 +137,7 @@ function VerifyEmailInPlace() {
           variant="link"
           className={cn(
             'h-auto self-start p-0 text-sm font-medium',
-            layout === 'sheet' && 'min-h-11'
+            tapTargetClass(layout)
           )}
         >
           {PANEL_COPY.verifyEmail}

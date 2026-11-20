@@ -7,7 +7,9 @@ import {
   PanelNote,
   PanelRowButton,
   holdFocusInPanel,
+  useCalendarPanelLayout,
 } from './CalendarPanelParts'
+import { cn } from '@/lib/utils'
 import { CalendarRowNoteLines } from './CalendarRowNoteLines'
 import { AddTargetControl } from './CalendarAddRows'
 import { PANEL_COPY, addAgainLabel } from './savedShowsCalendarCopy'
@@ -39,7 +41,8 @@ interface CalendarStoppedAppProps {
   /** Null when the address cannot be shown, where no "again" link is offered. */
   feedUrl: string | null
   actions: CalendarActions
-  onNavigate: () => void
+  /** Closes a panel the Settings link leaves; a page has nothing to close. */
+  onNavigate?: () => void
 }
 
 /**
@@ -54,39 +57,51 @@ export function CalendarStoppedApp({
   onNavigate,
 }: CalendarStoppedAppProps) {
   const forget = useForgetCalendarClient()
+  const layout = useCalendarPanelLayout()
   const { againTarget } = view
   const forgetApp = () => forget.mutate(view.app.client)
 
   return (
-    <div className="flex flex-col gap-2">
+    <div
+      className={cn('flex flex-col', layout === 'card' ? 'gap-1' : 'gap-2')}
+    >
       <PanelNote>{view.stoppedLine}</PanelNote>
-      {againTarget && feedUrl ? (
-        <div className="flex flex-col">
-          <AddTargetControl target={againTarget} feedUrl={feedUrl} actions={actions}>
-            {addAgainLabel(againTarget)}
-          </AddTargetControl>
-          <CalendarRowNoteLines
-            note={actions.notes[againTarget]}
-            onNavigate={onNavigate}
-          />
-        </div>
-      ) : null}
-      <div className="flex flex-col">
-        <PanelRowButton
-          onClick={event => {
-            // This block disappears once the app is forgotten.
-            holdFocusInPanel(event.currentTarget)
-            forgetApp()
-          }}
-          disabled={forget.isPending}
-        >
-          {PANEL_COPY.removedIt}
-        </PanelRowButton>
-        {forget.isError ? (
-          <PanelErrorWithRetry onRetry={forgetApp}>
-            {PANEL_COPY.forgetFailed}
-          </PanelErrorWithRetry>
+      {/* The card sets its two links side by side from `sm` up. */}
+      <div
+        className={
+          layout === 'card'
+            ? 'flex flex-col sm:flex-row sm:items-start sm:gap-4'
+            : 'contents'
+        }
+      >
+        {againTarget && feedUrl ? (
+          <div className="flex flex-col">
+            <AddTargetControl target={againTarget} feedUrl={feedUrl} actions={actions}>
+              {addAgainLabel(againTarget)}
+            </AddTargetControl>
+            <CalendarRowNoteLines
+              note={actions.notes[againTarget]}
+              onNavigate={onNavigate}
+            />
+          </div>
         ) : null}
+        <div className="flex flex-col">
+          <PanelRowButton
+            onClick={event => {
+              // This block disappears once the app is forgotten.
+              holdFocusInPanel(event.currentTarget)
+              forgetApp()
+            }}
+            disabled={forget.isPending}
+          >
+            {PANEL_COPY.removedIt}
+          </PanelRowButton>
+          {forget.isError ? (
+            <PanelErrorWithRetry onRetry={forgetApp}>
+              {PANEL_COPY.forgetFailed}
+            </PanelErrorWithRetry>
+          ) : null}
+        </div>
       </div>
     </div>
   )

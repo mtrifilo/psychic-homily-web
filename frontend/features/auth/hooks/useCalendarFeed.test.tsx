@@ -34,8 +34,6 @@ vi.mock('@/lib/queryClient', () => ({
   }),
 }))
 
-import { PERSONAL_FEED_TOKEN_REVOKED_EVENT } from '@/features/collections/components/personalFeedTokenEvents'
-
 // Import hooks after mocks are set up
 import { AuthError } from '@/lib/errors'
 import {
@@ -99,17 +97,6 @@ describe('forgetRevokedCalendarLink', () => {
     expect(queryClient.getQueryData(['calendar', 'feedStatus'])).toBeUndefined()
     expect(queryClient.getQueryData(['calendar', 'tokenStatus'])).toEqual({ has_token: true })
     expect(queryClient.getQueryState(['calendar', 'tokenStatus'])?.isInvalidated).toBe(true)
-  })
-
-  it('tells the feed cards the link they may still show is gone', async () => {
-    const onRevoked = vi.fn()
-    window.addEventListener(PERSONAL_FEED_TOKEN_REVOKED_EVENT, onRevoked)
-    try {
-      await forgetRevokedCalendarLink(createTestQueryClient())
-      expect(onRevoked).toHaveBeenCalledTimes(1)
-    } finally {
-      window.removeEventListener(PERSONAL_FEED_TOKEN_REVOKED_EVENT, onRevoked)
-    }
   })
 
   it('discards a feed-status read that was in flight when the action succeeded', async () => {
@@ -517,6 +504,30 @@ describe('useCalendarTokenStatus + useCreateCalendarToken integration', () => {
 
     expect(result2.current.data?.has_token).toBe(true)
     expect(mockApiRequest).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('useCalendarTokenStatus live', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApiRequest.mockReset()
+  })
+
+  it('reads the addresses afresh when a live observer mounts, whatever the cache holds', async () => {
+    mockApiRequest.mockResolvedValue({ has_token: false })
+    const queryClient = createTestQueryClient()
+    queryClient.setQueryData(['calendar', 'tokenStatus'], {
+      has_token: true,
+      feed_url: 'https://api.example.test/feeds/replaced/saved-shows.ics',
+    })
+
+    const { result } = renderHook(
+      () => useCalendarTokenStatus(true, { live: true }),
+      { wrapper: createWrapperWithClient(queryClient) }
+    )
+
+    await waitFor(() => expect(result.current.data).toEqual({ has_token: false }))
+    expect(mockApiRequest).toHaveBeenCalledWith('/calendar/token', { method: 'GET' })
   })
 })
 
