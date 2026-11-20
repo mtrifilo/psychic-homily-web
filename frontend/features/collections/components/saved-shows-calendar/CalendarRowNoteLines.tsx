@@ -14,7 +14,8 @@ export function CalendarRowNoteLines({
   onNavigate,
 }: {
   note: CalendarRowNote | undefined
-  onNavigate: () => void
+  /** Closes a panel the Settings link leaves; a page has nothing to close. */
+  onNavigate?: () => void
 }) {
   return (
     <div aria-live="polite" className="flex flex-col gap-0.5 not-empty:mt-0.5">
@@ -28,7 +29,7 @@ function NoteContent({
   onNavigate,
 }: {
   note: CalendarRowNote
-  onNavigate: () => void
+  onNavigate?: () => void
 }) {
   switch (note) {
     case 'google_pending':

@@ -11,6 +11,24 @@ import { APIClient } from "../src/lib/api";
 
 // -- Helpers --
 
+/** Run `fn` and return what it wrote to stderr (display.* writes there). */
+async function captureStderr<T>(
+  fn: () => Promise<T>,
+): Promise<{ result: T; output: string }> {
+  const orig = process.stderr.write;
+  const chunks: string[] = [];
+  process.stderr.write = ((s: string) => {
+    chunks.push(s);
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    const result = await fn();
+    return { result, output: chunks.join("") };
+  } finally {
+    process.stderr.write = orig;
+  }
+}
+
 /** Create a mock APIClient that returns controlled responses. */
 function createMockClient(
   responses: Record<string, unknown>,
@@ -271,6 +289,29 @@ describe("planReleases", () => {
     expect(actions[0].resolvedArtists).toHaveLength(1);
     expect(actions[0].resolvedArtists[0].artist_id).toBe(3);
     expect(actions[0].resolvedArtists[0].role).toBe("main");
+  });
+
+  describe("placeholder label warning", () => {
+    async function planAndCaptureStderr(labels: string[]): Promise<string> {
+      const client = createMockClient({});
+      const { output } = await captureStderr(() =>
+        planReleases(client, [
+          { title: "Some Release", artists: [{ name: "Some Artist" }], labels },
+        ]),
+      );
+      return output;
+    }
+
+    test("warns when a release names a placeholder-shaped label", async () => {
+      const stderr = await planAndCaptureStderr(["3245973 Records DK"]);
+      expect(stderr).toContain('Label "3245973 Records DK" looks like a distributor placeholder');
+    });
+
+    test("does not warn for a real label", async () => {
+      const stderr = await planAndCaptureStderr(["Sub Pop"]);
+      expect(stderr).toContain('Label "Sub Pop" will be linked');
+      expect(stderr).not.toContain("distributor placeholder");
+    });
   });
 });
 
@@ -854,23 +895,6 @@ describe("linkReleaseLabels", () => {
     process.stderr.write = (() => true) as typeof process.stderr.write;
     try {
       return await fn();
-    } finally {
-      process.stderr.write = orig;
-    }
-  }
-
-  async function captureStderr<T>(
-    fn: () => Promise<T>,
-  ): Promise<{ result: T; output: string }> {
-    const orig = process.stderr.write;
-    const chunks: string[] = [];
-    process.stderr.write = ((s: string) => {
-      chunks.push(s);
-      return true;
-    }) as typeof process.stderr.write;
-    try {
-      const result = await fn();
-      return { result, output: chunks.join("") };
     } finally {
       process.stderr.write = orig;
     }
