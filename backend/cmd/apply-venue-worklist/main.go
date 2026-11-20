@@ -126,20 +126,8 @@ func main() {
 
 func loadEnv(envFile string) {
 	if envFile != "" {
-		// Overload, not Load: Load skips keys already set in the process, so an
-		// exported DATABASE_URL would win over the named file and a confirmed run
-		// could write to a database the operator did not name.
-		// Overload sets only the keys the file defines, so a file without
-		// DATABASE_URL would leave the shell's or the default database in charge.
-		values, err := godotenv.Read(envFile)
-		if err != nil {
-			log.Fatalf("read env file %s: %v", envFile, err)
-		}
-		if strings.TrimSpace(values["DATABASE_URL"]) == "" {
-			log.Fatalf("env file %s sets no DATABASE_URL; it must name the database", envFile)
-		}
-		if err := godotenv.Overload(envFile); err != nil {
-			log.Fatalf("load env file %s: %v", envFile, err)
+		if err := loadNamedEnv(envFile); err != nil {
+			log.Fatal(err)
 		}
 		log.Printf("loaded env from %s (authoritative)", envFile)
 		return
@@ -154,6 +142,25 @@ func loadEnv(envFile string) {
 		}
 	}
 	log.Println("no .env loaded; using process environment")
+}
+
+// loadNamedEnv makes the file named by --env decide the database. It uses
+// Overload, not Load, because Load skips keys already set in the process, so an
+// exported DATABASE_URL would win over the file. Overload sets only the keys
+// the file defines, so a file without DATABASE_URL is refused rather than
+// leaving the shell's or the default database in charge.
+func loadNamedEnv(envFile string) error {
+	values, err := godotenv.Read(envFile)
+	if err != nil {
+		return fmt.Errorf("read env file %s: %w", envFile, err)
+	}
+	if strings.TrimSpace(values["DATABASE_URL"]) == "" {
+		return fmt.Errorf("env file %s sets no DATABASE_URL; it must name the database", envFile)
+	}
+	if err := godotenv.Overload(envFile); err != nil {
+		return fmt.Errorf("load env file %s: %w", envFile, err)
+	}
+	return nil
 }
 
 // redactDBHost returns "host[/dbname]" from a database URL, dropping the
