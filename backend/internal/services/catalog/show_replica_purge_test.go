@@ -1,0 +1,333 @@
+package catalog
+
+import (
+	"errors"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/suite"
+	"gorm.io/gorm"
+
+	apperrors "psychic-homily-backend/internal/errors"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/testutil"
+)
+
+type ShowReplicaPurgeSuite struct {
+	suite.Suite
+	testDB *testutil.TestDatabase
+	db     *gorm.DB
+}
+
+func TestShowReplicaPurgeSuite(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	suite.Run(t, new(ShowReplicaPurgeSuite))
+}
+
+func (s *ShowReplicaPurgeSuite) SetupSuite() {
+	s.testDB = testutil.SetupTestPostgres(s.T())
+	s.db = s.testDB.DB
+}
+
+func (s *ShowReplicaPurgeSuite) TearDownSuite() {
+	if s.testDB != nil {
+		s.testDB.Cleanup()
+	}
+}
+
+func (s *ShowReplicaPurgeSuite) TearDownTest() {
+	sqlDB, err := s.db.DB()
+	s.Require().NoError(err)
+	for _, t := range []string{
+		"comment_subscriptions", "comment_last_read", "comments", "notification_log",
+		"show_notify_queue", "collection_items", "collections", "user_bookmarks",
+		"show_artists", "show_venues", "shows", "artists", "venues", "users",
+	} {
+		_, _ = sqlDB.Exec(fmt.Sprintf("DELETE FROM %s", t))
+	}
+}
+
+// replicaNow is the planning instant every test pins: venue-local
+// 2026-11-20 in San Francisco, after the Oct 3 2026 show it seeds.
+var replicaNow = time.Date(2026, 11, 20, 18, 0, 0, 0, time.UTC)
+
+const replicaTicket = "https://wl.seetickets.us/event/igorrr/691689?afflky=GreatAmericanMusicHall"
+
+func (s *ShowReplicaPurgeSuite) venue(name string) uint {
+	slug := name
+	v := &catalogm.Venue{
+		Name: name, Slug: &slug, City: "San Francisco", State: "CA", Verified: true,
+		Timezone: stringPtr("America/Los_Angeles"),
+	}
+	s.Require().NoError(s.db.Create(v).Error)
+	return v.ID
+}
+
+func (s *ShowReplicaPurgeSuite) artist(name string) uint {
+	slug := name
+	a := &catalogm.Artist{Name: name, Slug: &slug}
+	s.Require().NoError(s.db.Create(a).Error)
+	return a.ID
+}
+
+func (s *ShowReplicaPurgeSuite) user(email string) uint {
+	u := &authm.User{Email: stringPtr(email), IsActive: true, EmailVerified: true}
+	s.Require().NoError(s.db.Create(u).Error)
+	return u.ID
+}
+
+// evening is 20:00 Pacific on the given local day, which is 03:00Z the next
+// UTC day in October: the shape the ingest CLI writes for a date-only show.
+func evening(year int, month time.Month, day int) time.Time {
+	la, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		panic(err)
+	}
+	return time.Date(year, month, day, 20, 0, 0, 0, la).UTC()
+}
+
+// show inserts an approved show headlined by artistID at venueID. An empty
+// ticket stores NULL.
+func (s *ShowReplicaPurgeSuite) show(artistID, venueID uint, at time.Time, ticket string) uint {
+	var ticketArg any
+	if ticket != "" {
+		ticketArg = ticket
+	}
+	slug := fmt.Sprintf("%s-a%d-v%d", at.Format("2006-01-02T15"), artistID, venueID)
+	var id uint
+	s.Require().NoError(s.db.Raw(`
+		INSERT INTO shows (title, event_date, state, status, source, ticket_url, slug, created_at, updated_at)
+		VALUES ('', ?, 'CA', 'approved', 'user', ?, ?, ?, ?)
+		RETURNING id`, at, ticketArg, slug, replicaNow.AddDate(0, -2, 0), replicaNow.AddDate(0, -2, 0)).
+		Row().Scan(&id))
+	s.Require().NoError(s.db.Exec(
+		`INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')`,
+		id, artistID).Error)
+	s.Require().NoError(s.db.Exec(`INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)`, id, venueID).Error)
+	return id
+}
+
+// replicate seeds one event on Oct 3 in each of the given years, all with the
+// same ticket URL, and returns the ids in year order.
+func (s *ShowReplicaPurgeSuite) replicate(artistID, venueID uint, years ...int) []uint {
+	ids := make([]uint, 0, len(years))
+	for _, y := range years {
+		ids = append(ids, s.show(artistID, venueID, evening(y, time.October, 3), replicaTicket))
+	}
+	return ids
+}
+
+func (s *ShowReplicaPurgeSuite) plan() *ReplicatedShowPlan {
+	plan, err := PlanReplicatedShowPurge(s.db, replicaNow, 18)
+	s.Require().NoError(err)
+	return plan
+}
+
+func (s *ShowReplicaPurgeSuite) existing(ids []uint) []uint {
+	var got []uint
+	s.Require().NoError(s.db.Raw(`SELECT id FROM shows WHERE id IN ? ORDER BY id`, ids).Scan(&got).Error)
+	return got
+}
+
+func (s *ShowReplicaPurgeSuite) count(sql string, args ...any) int64 {
+	var n int64
+	s.Require().NoError(s.db.Raw(sql, args...).Scan(&n).Error)
+	return n
+}
+
+// The production shape: an event on Oct 3 copied into five later years. The
+// survivor is the current-year copy even though its date has passed, and the
+// delete path drops the copies' bookmarks while keeping their comments.
+func (s *ShowReplicaPurgeSuite) TestReplicatedGroup_KeepsCurrentYearCopyAndDeletesTheRest() {
+	room := s.venue("Great American Music Hall")
+	igorrr := s.artist("Igorrr")
+	ids := s.replicate(igorrr, room, 2026, 2027, 2028, 2029, 2030, 2031)
+	bystander := s.show(igorrr, room, evening(2027, time.March, 1), replicaTicket)
+
+	fan := s.user("fan@test.local")
+	s.Require().NoError(s.db.Exec(`INSERT INTO user_bookmarks (user_id, entity_type, entity_id, action) VALUES (?, 'show', ?, 'save')`, fan, ids[0]).Error)
+	s.Require().NoError(s.db.Exec(`INSERT INTO user_bookmarks (user_id, entity_type, entity_id, action) VALUES (?, 'show', ?, 'save')`, fan, ids[2]).Error)
+	s.Require().NoError(s.db.Exec(`INSERT INTO comments (entity_type, entity_id, user_id, body, body_html) VALUES ('show', ?, ?, 'see you', '<p>see you</p>')`, ids[3], fan).Error)
+
+	plan := s.plan()
+	s.Require().Len(plan.Groups, 1)
+	g := plan.Groups[0]
+	s.Empty(g.SkipReason)
+	s.True(g.Actionable())
+	s.Equal(2026, g.CurrentYear)
+	s.Equal("10-03", g.MonthDay)
+	s.Equal("Igorrr", g.HeadlinerName)
+	s.Equal("Great American Music Hall", g.VenueName)
+	s.Equal(ids[0], g.KeepID, "the passed 2026 copy survives: its YEAR is the current one")
+	s.Equal(ids[1:], g.DeleteIDs)
+	s.Require().Len(g.Copies, 6)
+	s.Equal("2026-10-03", g.Copies[0].LocalDate, "grouped on the venue-local day, not the UTC one")
+	s.Equal(int64(1), g.Copies[2].Bookmarks)
+	s.Equal(int64(1), g.Copies[3].Comments)
+	s.Empty(plan.Beyond, "every far-future copy belongs to the group")
+
+	s.Require().NoError(PurgeReplicatedShowGroup(s.db, replicaNow, g))
+
+	s.Equal([]uint{ids[0]}, s.existing(ids))
+	s.Equal([]uint{bystander}, s.existing([]uint{bystander}), "a different month-day is a different group")
+	for _, id := range ids[1:] {
+		_, err := NewShowService(s.db).GetShow(id)
+		var showErr *apperrors.ShowError
+		s.Require().True(errors.As(err, &showErr), "show %d: %v", id, err)
+		s.Equal(apperrors.CodeShowNotFound, showErr.Code)
+	}
+	s.Equal(int64(1), s.count(`SELECT COUNT(*) FROM user_bookmarks WHERE entity_type='show' AND entity_id = ?`, ids[0]))
+	s.Equal(int64(0), s.count(`SELECT COUNT(*) FROM user_bookmarks WHERE entity_type='show' AND entity_id = ?`, ids[2]))
+	s.Equal(int64(1), s.count(`SELECT COUNT(*) FROM comments WHERE entity_type='show' AND entity_id = ?`, ids[3]),
+		"comments are kept as tombstones by the delete path")
+	s.Equal(int64(0), s.count(`SELECT COUNT(*) FROM show_artists WHERE show_id IN ?`, ids[1:]))
+	s.Equal(int64(0), s.count(`SELECT COUNT(*) FROM show_venues WHERE show_id IN ?`, ids[1:]))
+
+	again := s.plan()
+	s.Empty(again.Groups, "a second run finds nothing")
+}
+
+func (s *ShowReplicaPurgeSuite) TestSingleCopyIsNotAGroup() {
+	room := s.venue("Great American Music Hall")
+	id := s.show(s.artist("Beth Orton"), room, evening(2027, time.September, 30), replicaTicket)
+
+	plan := s.plan()
+	s.Empty(plan.Groups)
+	s.Empty(plan.Beyond)
+	s.Equal([]uint{id}, s.existing([]uint{id}))
+}
+
+func (s *ShowReplicaPurgeSuite) TestNextYearCopySurvivesWhenNoCurrentYearCopy() {
+	ids := s.replicate(s.artist("Groundation"), s.venue("Great American Music Hall"), 2027, 2028, 2029)
+
+	plan := s.plan()
+	s.Require().Len(plan.Groups, 1)
+	s.Equal(ids[0], plan.Groups[0].KeepID)
+	s.Equal(ids[1:], plan.Groups[0].DeleteIDs)
+}
+
+func (s *ShowReplicaPurgeSuite) assertUntouched(reason string, ids []uint) {
+	plan := s.plan()
+	s.Require().Len(plan.Groups, 1)
+	g := plan.Groups[0]
+	s.Equal(reason, g.SkipReason)
+	s.False(g.Actionable())
+	s.Zero(g.KeepID)
+	s.Empty(g.DeleteIDs)
+	s.Error(PurgeReplicatedShowGroup(s.db, replicaNow, g), "an untouched group is refused at the delete call too")
+	s.Equal(ids, s.existing(ids))
+}
+
+func (s *ShowReplicaPurgeSuite) TestDifferentTicketURLsAreUntouched() {
+	room := s.venue("Great American Music Hall")
+	act := s.artist("Chanel Beads")
+	a := s.show(act, room, evening(2026, time.December, 31), "https://tix.example/nye-2026")
+	b := s.show(act, room, evening(2027, time.December, 31), "https://tix.example/nye-2027")
+	s.assertUntouched(replicaSkipTicketURLsDiffer, []uint{a, b})
+}
+
+func (s *ShowReplicaPurgeSuite) TestMissingTicketURLIsUntouched() {
+	room := s.venue("Great American Music Hall")
+	act := s.artist("Chanel Beads")
+	a := s.show(act, room, evening(2026, time.December, 31), "")
+	b := s.show(act, room, evening(2027, time.December, 31), "")
+	s.assertUntouched(replicaSkipNoTicketURL, []uint{a, b})
+}
+
+func (s *ShowReplicaPurgeSuite) TestNoCopyInCurrentOrNextYearIsUntouched() {
+	ids := s.replicate(s.artist("The Menzingers"), s.venue("Great American Music Hall"), 2029, 2030)
+	s.assertUntouched(replicaSkipNoNearCopy, ids)
+}
+
+func (s *ShowReplicaPurgeSuite) TestCopyInAPastYearIsUntouched() {
+	ids := s.replicate(s.artist("John Craigie"), s.venue("Great American Music Hall"), 2025, 2026, 2027)
+	s.assertUntouched(replicaSkipPastYear, ids)
+}
+
+func (s *ShowReplicaPurgeSuite) TestOtherRoomOrOtherHeadlinerDoesNotGroup() {
+	gamh := s.venue("Great American Music Hall")
+	other := s.venue("The Independent")
+	act := s.artist("Phillip Phillips")
+	a := s.show(act, gamh, evening(2026, time.October, 9), replicaTicket)
+	b := s.show(act, other, evening(2027, time.October, 9), replicaTicket)
+	c := s.show(s.artist("Someone Else"), gamh, evening(2028, time.October, 9), replicaTicket)
+
+	plan := s.plan()
+	s.Empty(plan.Groups)
+	s.Equal([]uint{a, b, c}, s.existing([]uint{a, b, c}))
+}
+
+func (s *ShowReplicaPurgeSuite) TestBeyondListsOnlyUngroupedFarFutureShows() {
+	s.replicate(s.artist("Igorrr"), s.venue("Great American Music Hall"), 2026, 2027, 2028)
+	ace := s.show(s.artist("Testing Ace"), s.venue("Variety Playhouse"),
+		time.Date(2083, 8, 15, 23, 0, 0, 0, time.UTC), "https://www.axs.com/events/1605473/testing-ace-tickets")
+
+	plan := s.plan()
+	s.Require().Len(plan.Groups, 1)
+	s.Require().Len(plan.Beyond, 1)
+	s.Equal(ace, plan.Beyond[0].ShowID)
+	s.Equal("Testing Ace", plan.Beyond[0].HeadlinerName)
+	s.Equal(replicaNow.AddDate(0, 18, 0), plan.BeyondCutoff)
+
+	s.Require().NoError(PurgeReplicatedShowGroup(s.db, replicaNow, plan.Groups[0]))
+	s.Equal([]uint{ace}, s.existing([]uint{ace}), "the far-future report never deletes")
+}
+
+func (s *ShowReplicaPurgeSuite) TestGroupChangedSincePlanDeletesNothing() {
+	ids := s.replicate(s.artist("Los Thuthanaka"), s.venue("Great American Music Hall"), 2026, 2027, 2028)
+	plan := s.plan()
+	s.Require().Len(plan.Groups, 1)
+
+	s.Require().NoError(s.db.Exec(`UPDATE shows SET ticket_url = 'https://tix.example/fixed' WHERE id = ?`, ids[2]).Error)
+
+	err := PurgeReplicatedShowGroup(s.db, replicaNow, plan.Groups[0])
+	s.Require().ErrorIs(err, ErrReplicaGroupChanged)
+	s.Equal(ids, s.existing(ids))
+}
+
+func (s *ShowReplicaPurgeSuite) TestUnapprovedCopyIsNotGrouped() {
+	ids := s.replicate(s.artist("Misfit Cabaret"), s.venue("Great American Music Hall"), 2026, 2027)
+	s.Require().NoError(s.db.Exec(`UPDATE shows SET status = 'private' WHERE id = ?`, ids[1]).Error)
+
+	s.Empty(s.plan().Groups)
+}
+
+func (s *ShowReplicaPurgeSuite) TestCreateShow_EventDateBound() {
+	room := s.venue("Great American Music Hall")
+	svc := NewShowService(s.db)
+	bound := ShowEventDateBound(time.Now())
+	request := func(name string, at time.Time, admin, override bool) *contracts.CreateShowRequest {
+		return &contracts.CreateShowRequest{
+			Title:              name,
+			EventDate:          at,
+			State:              "CA",
+			Venues:             []contracts.CreateShowVenue{{ID: &room}},
+			Artists:            []contracts.CreateShowArtist{{Name: name}},
+			SubmitterIsAdmin:   admin,
+			AllowFarFutureDate: override,
+		}
+	}
+	refused := func(err error) bool {
+		var showErr *apperrors.ShowError
+		return errors.As(err, &showErr) && showErr.Code == apperrors.CodeShowEventDateBeyondBound
+	}
+
+	_, err := svc.CreateShow(request("Inside", bound.Add(-24*time.Hour), true, false))
+	s.NoError(err, "a day inside the bound is accepted")
+
+	_, err = svc.CreateShow(request("Outside", bound.Add(24*time.Hour), true, false))
+	s.True(refused(err), "a day past the bound is refused: %v", err)
+
+	_, err = svc.CreateShow(request("Override", bound.Add(24*time.Hour), true, true))
+	s.NoError(err, "an admin with the override is accepted")
+
+	_, err = svc.CreateShow(request("Unprivileged", bound.Add(24*time.Hour), false, true))
+	s.True(refused(err), "the override does nothing without admin: %v", err)
+
+	s.Equal(int64(2), s.count(`SELECT COUNT(*) FROM shows`))
+}

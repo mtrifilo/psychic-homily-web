@@ -119,6 +119,9 @@ type CreateShowRequestBody struct {
 	Venues    []Venue  `json:"venues" validate:"required,min=1" doc:"List of venues for the show"`
 	Artists   []Artist `json:"artists" validate:"required,min=1" doc:"List of artists in the show"`
 	IsPrivate *bool    `json:"is_private,omitempty" doc:"If true, show is private and only visible to submitter"`
+	// AllowFarFutureDate is the explicit override for the far-future
+	// event_date bound. Admin-only: any other caller sending true is refused.
+	AllowFarFutureDate *bool `json:"allow_far_future_date,omitempty" required:"false" doc:"Admin only. If true, accept an event_date more than 18 months ahead, which is otherwise refused."`
 }
 
 // Artist/venue count caps for a single show (PSY-1267). These bound
@@ -374,6 +377,10 @@ type GetShowsRequest struct {
 	ToDate   time.Time `query:"to_date" doc:"Filter shows until this date"`
 	Tags     string    `query:"tags" doc:"Comma-separated tag slugs. Multi-tag filter (PSY-309): AND by default; set tag_match=any for OR." example:"post-punk,phoenix"`
 	TagMatch string    `query:"tag_match" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
+	// TicketURL is an exact match after trimming surrounding whitespace on
+	// both sides. The ph CLI's dry run uses it to find another show already
+	// selling through the same ticket link.
+	TicketURL string `query:"ticket_url" maxLength:"2048" doc:"Only shows whose ticket URL is exactly this value (surrounding whitespace ignored)"`
 }
 
 // SearchShowsRequest represents the autocomplete search request for shows.
@@ -573,6 +580,11 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 
 	// Validation is now handled by Huma's custom resolvers
 
+	allowFarFutureDate := shared.Deref(req.Body.AllowFarFutureDate)
+	if allowFarFutureDate && !submitterIsAdmin {
+		return nil, huma.Error403Forbidden("allow_far_future_date is admin-only")
+	}
+
 	// Convert Venues to service format
 	serviceVenues := make([]contracts.CreateShowVenue, len(req.Body.Venues))
 	for i, venue := range req.Body.Venues {
@@ -605,26 +617,35 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 
 	// Convert request to service request with user context
 	serviceReq := &contracts.CreateShowRequest{
-		Title:             title,
-		EventDate:         req.Body.EventDate,
-		DoorsAt:           req.Body.DoorsAt,
-		MusicAt:           req.Body.MusicAt,
-		City:              req.Body.City,
-		State:             req.Body.State,
-		Price:             req.Body.Price,
-		DoorPrice:         req.Body.DoorPrice,
-		AgeRequirement:    ageRequirement,
-		Description:       description,
-		TicketURL:         ticketURL,
-		Venues:            serviceVenues,
-		Artists:           serviceArtists,
-		SubmittedByUserID: submittedByUserID,
-		SubmitterIsAdmin:  submitterIsAdmin,
-		IsPrivate:         isPrivate,
+		Title:              title,
+		EventDate:          req.Body.EventDate,
+		DoorsAt:            req.Body.DoorsAt,
+		MusicAt:            req.Body.MusicAt,
+		City:               req.Body.City,
+		State:              req.Body.State,
+		Price:              req.Body.Price,
+		DoorPrice:          req.Body.DoorPrice,
+		AgeRequirement:     ageRequirement,
+		Description:        description,
+		TicketURL:          ticketURL,
+		Venues:             serviceVenues,
+		Artists:            serviceArtists,
+		SubmittedByUserID:  submittedByUserID,
+		SubmitterIsAdmin:   submitterIsAdmin,
+		IsPrivate:          isPrivate,
+		AllowFarFutureDate: allowFarFutureDate,
 	}
 
 	// Create show using service
 	show, err := h.showService.CreateShow(serviceReq)
+	var boundErr *apperrors.ShowError
+	if errors.As(err, &boundErr) && boundErr.Code == apperrors.CodeShowEventDateBeyondBound {
+		// Surfaced verbatim, unlike the generic failure below: the message names
+		// the bound and the override, which is what the caller acts on.
+		return nil, huma.Error422UnprocessableEntity(
+			fmt.Sprintf("%s [%s] (request_id: %s)", boundErr.Message, boundErr.Code, requestID),
+		)
+	}
 	if err != nil {
 		showErr := apperrors.ErrShowCreateFailed(err)
 		logger.FromContext(ctx).Error("show_create_failed",
@@ -803,6 +824,9 @@ func (h *ShowHandler) GetShowsHandler(ctx context.Context, req *GetShowsRequest)
 	}
 	if tf := parseTagFilter(req.Tags, req.TagMatch); tf.HasTags() {
 		filters["tag_filter"] = tf
+	}
+	if ticketURL := strings.TrimSpace(req.TicketURL); ticketURL != "" {
+		filters["ticket_url"] = ticketURL
 	}
 
 	logger.FromContext(ctx).Debug("shows_list_attempt",

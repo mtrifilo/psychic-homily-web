@@ -10086,6 +10086,8 @@ export interface components {
         CreateShowRequestBody: {
             /** @description Age requirement (e.g., '21+', 'All Ages') */
             age_requirement?: string;
+            /** @description Admin only. If true, accept an event_date more than 18 months ahead, which is otherwise refused. */
+            allow_far_future_date?: boolean;
             /** @description List of artists in the show */
             artists: components["schemas"]["Artist"][] | null;
             /** @description City where the show takes place */
@@ -32883,6 +32885,8 @@ export interface operations {
                  * @example all
                  */
                 tag_match?: "all" | "any";
+                /** @description Only shows whose ticket URL is exactly this value (surrounding whitespace ignored) */
+                ticket_url?: string;
             };
             header?: never;
             path?: never;
