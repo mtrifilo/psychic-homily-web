@@ -481,6 +481,41 @@ func (s *WorklistSuite) TestTwoMergesIntoOneRoomAreRefused() {
 	s.Nil(s.venueByID(b.ID))
 }
 
+// A merge chain stays refused after its first link was applied by an earlier
+// run: merging the kept room away would leave the done row with no target, and
+// the file would never run clean again.
+func (s *WorklistSuite) TestChainIsRefusedAfterItsFirstLinkIsApplied() {
+	x := s.venue("Rialto Theatre Tucson", "Tucson", "AZ")
+	y := s.venue("Rialto Theater", "Tucson", "AZ")
+	z := s.venue("Rialto Theatre", "Tucson", "AZ")
+	first := "room_slug,action,target\n" + *x.Slug + ",merge," + *y.Slug + "\n"
+	_, summary := s.run(first, true)
+	s.Require().False(summary.Refused())
+	s.waitForMergeAudit(y.ID)
+
+	out, summary := s.run(first+*y.Slug+",merge,"+*z.Slug+"\n", true)
+
+	s.Equal(1, summary[statusDone], out)
+	s.Equal(1, summary[statusRefused], out)
+	s.Contains(out, "room "+*y.Slug+" already received the merge on line 2")
+	s.NotNil(s.venueByID(y.ID), "the kept room is not merged away")
+}
+
+// The dry run shows each room's verification, and warns when a verified room
+// would be merged into an unverified one, whose fields the merge keeps.
+func (s *WorklistSuite) TestMergeIntoAnUnverifiedRoomIsFlagged() {
+	kept := s.venue("Rialto Theatre", "Tucson", "AZ")
+	twin := s.venue("Rialto Theatre Tucson", "Tucson", "AZ")
+	s.Require().NoError(s.db.Model(&catalogm.Venue{}).Where("id = ?", twin.ID).Update("verified", true).Error)
+
+	out, summary := s.run("room_slug,action,target\n"+*twin.Slug+",merge,"+*kept.Slug+"\n", false)
+
+	s.False(summary.Refused())
+	s.Contains(out, "slug="+*twin.Slug+" shows=0 verified=true")
+	s.Contains(out, "slug="+*kept.Slug+" shows=0 verified=false")
+	s.Contains(out, "WARNING: the room kept is unverified")
+}
+
 func (s *WorklistSuite) TestRenameTargetShapedLikeASlugIsRefused() {
 	room := s.venue("Rialto Theatre Tucson", "Tucson", "AZ")
 	csv := "room_slug,action,target\n" + *room.Slug + ",rename,rialto-theatre-tucson-az\n"

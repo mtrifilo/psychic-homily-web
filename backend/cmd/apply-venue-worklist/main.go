@@ -28,7 +28,9 @@
 // audit row and a revision for each rename. --confirm requires --env.
 //
 // The dry run runs each merge and each rename in a transaction it rolls back,
-// so it prints what the write would do. --confirm applies each accepted row in
+// so it prints what the write would do, with both rooms' places, show counts
+// and verification; a merge of a verified room into an unverified one is
+// flagged, because the merge keeps the unverified room's fields. --confirm applies each accepted row in
 // its own transaction. A second run over the same file changes nothing: a
 // renamed room already has its name, and a merged room is recognised from the
 // merge's audit record, which names the slug it removed. A confirmed run checks
@@ -127,6 +129,15 @@ func loadEnv(envFile string) {
 		// Overload, not Load: Load skips keys already set in the process, so an
 		// exported DATABASE_URL would win over the named file and a confirmed run
 		// could write to a database the operator did not name.
+		// Overload sets only the keys the file defines, so a file without
+		// DATABASE_URL would leave the shell's or the default database in charge.
+		values, err := godotenv.Read(envFile)
+		if err != nil {
+			log.Fatalf("read env file %s: %v", envFile, err)
+		}
+		if strings.TrimSpace(values["DATABASE_URL"]) == "" {
+			log.Fatalf("env file %s sets no DATABASE_URL; it must name the database", envFile)
+		}
 		if err := godotenv.Overload(envFile); err != nil {
 			log.Fatalf("load env file %s: %v", envFile, err)
 		}

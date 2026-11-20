@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/admin"
@@ -303,23 +304,26 @@ func refuseRepeatedRooms(plans []*rowPlan) {
 // first one moves, so its duplicate count would be wrong). Every side of each
 // conflict is refused, so none is applied by the accident of file order.
 //
-// It runs after planning and counts only merges that would apply: a merge that
-// is already done or refused moves nothing in this run, so it entangles no
-// other row, and a file whose first merges were applied by an earlier run can
-// go on to apply the rest.
+// It runs after planning. The same-target rule counts only merges that would
+// apply: a merge already done moves nothing in this run, so a file whose first
+// merges were applied by an earlier run can go on to apply the rest. The chain
+// rule also counts a merge already done into the room a pending merge would
+// remove: removing it would leave that done row naming a target that no longer
+// exists, so the file could never run clean again.
 func refuseEntangledMerges(plans []*rowPlan) {
 	pending := func(p *rowPlan) bool { return p.Status == statusWouldApply && p.Row.Action == actionMerge }
+	done := func(p *rowPlan) bool { return p.Status == statusDone && p.Row.Action == actionMerge }
 
 	mergedAwayOn := map[string]*rowPlan{}
-	for _, p := range plans {
-		if pending(p) {
-			mergedAwayOn[p.Row.RoomSlug] = p
-		}
-	}
 	mergesInto := map[string][]*rowPlan{}
+	doneInto := map[string]*rowPlan{}
 	for _, p := range plans {
-		if pending(p) {
+		switch {
+		case pending(p):
+			mergedAwayOn[p.Row.RoomSlug] = p
 			mergesInto[p.Row.Target] = append(mergesInto[p.Row.Target], p)
+		case done(p):
+			doneInto[p.Row.Target] = p
 		}
 	}
 
@@ -327,8 +331,13 @@ func refuseEntangledMerges(plans []*rowPlan) {
 		if !pending(p) {
 			continue
 		}
+		if prior, ok := doneInto[p.Row.RoomSlug]; ok {
+			p.refuse("room %s already received the merge on line %d; merging it away would leave that row with no target, "+
+				"so merge it from a file without line %d", p.Row.RoomSlug, prior.Row.Line, prior.Row.Line)
+			continue
+		}
 		other, ok := mergedAwayOn[p.Row.Target]
-		if !ok {
+		if !ok || !pending(other) {
 			continue
 		}
 		p.refuse("target %s is itself merged away on line %d; merge both rooms into the final room instead", p.Row.Target, other.Row.Line)
@@ -452,6 +461,12 @@ func planMerge(db *gorm.DB, venues *catalog.VenueService, p *rowPlan) {
 	p.Detail = append(p.Detail,
 		"preview: "+describeMergeResult(preview),
 		fmt.Sprintf("after the merge /venues/%s answers 404; /venues/%s keeps its slug", p.Row.RoomSlug, p.Row.Target))
+	// A merge keeps the target's own fields, its verification included, so a
+	// verified room merged into an unverified one leaves its history on a room
+	// that is out of the directory and withholds its address.
+	if p.Room.Verified && !into.Verified {
+		p.Detail = append(p.Detail, "WARNING: the room kept is unverified and stays unverified; the room merged away is verified")
+	}
 }
 
 func planRename(db *gorm.DB, actorID uint, p *rowPlan) {
@@ -533,10 +548,22 @@ func applyRow(db *gorm.DB, venues *catalog.VenueService, actorID uint, p *rowPla
 	case actionMerge:
 		result, err := venues.MergeVenuesInSamePlace(p.Into.ID, p.Room.ID, actorID)
 		if err != nil {
-			// An error at COMMIT does not prove the commit failed. The merged room's
-			// row is deleted only by a committed merge, so its presence decides.
+			// A refusal from the service (a room missing or moved when it locked
+			// them) is decided before any write.
+			var venueErr *apperrors.VenueError
+			if errors.As(err, &venueErr) {
+				p.refuse("merge refused, nothing changed: %v", err)
+				return
+			}
+			// Any other error may have come at COMMIT, which does not prove the
+			// commit failed. The merged room's row is deleted only by a committed
+			// merge, so its presence decides.
 			gone, lookupErr := venueGone(db, p.Room.ID)
-			if lookupErr != nil || !gone {
+			if lookupErr != nil {
+				p.refuse("merge outcome unknown: %v; could not check whether room %s still exists: %v", err, p.Row.RoomSlug, lookupErr)
+				return
+			}
+			if !gone {
 				p.refuse("merge failed, room %s is still there: %v", p.Row.RoomSlug, err)
 				return
 			}
@@ -594,7 +621,7 @@ func describeRoom(label string, db *gorm.DB, v *catalogm.Venue) string {
 	if err := db.Table("show_venues").Where("venue_id = ?", v.ID).Count(&shows).Error; err == nil {
 		countText = fmt.Sprintf("%d", shows)
 	}
-	return fmt.Sprintf("%s: %q (%s, %s) id=%d slug=%s shows=%s", label, v.Name, v.City, v.State, v.ID, slugOf(v), countText)
+	return fmt.Sprintf("%s: %q (%s, %s) id=%d slug=%s shows=%s verified=%t", label, v.Name, v.City, v.State, v.ID, slugOf(v), countText, v.Verified)
 }
 
 func describeMergeResult(r *contracts.MergeVenueResult) string {
