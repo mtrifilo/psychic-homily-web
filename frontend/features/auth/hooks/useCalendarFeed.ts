@@ -82,7 +82,8 @@ export const useCalendarFeedStatus = (
     live?: boolean
     /**
      * With `live`: also read again every CALENDAR_STATUS_POLL_MS until a read
-     * satisfies this, evaluated after each read. The interval belongs to the
+     * satisfies this. React Query evaluates it on every render and after
+     * every read, so it must be pure and cheap. The interval belongs to the
      * observer, so it ends when the surface unmounts, and React Query skips
      * it while the page is hidden. A failed read follows the retry rule
      * instead, so a refused session ends it.

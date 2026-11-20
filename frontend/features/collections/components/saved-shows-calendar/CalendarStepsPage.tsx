@@ -15,6 +15,7 @@ import {
   calendarCheckedLine,
   calendarStoppedLine,
   type CalendarApp,
+  type CalendarApps,
 } from '@/features/collections/lib/calendarFeedStatus'
 import type { CalendarLinkResetReason } from '@/features/shows/types'
 import {
@@ -34,7 +35,7 @@ import {
   PanelNote,
   PanelRowButton,
   PanelRowLink,
-  holdFocusInPanel,
+  holdFocusInSurface,
   useCalendarPanelLayout,
 } from './CalendarPanelParts'
 import { CalendarConnectedApps } from './CalendarAppStatus'
@@ -80,7 +81,7 @@ export function CalendarStepsPage() {
   return (
     <div className="container mx-auto max-w-6xl px-4 py-5 md:py-10">
       {/* Focusable, so a control that unmounts as it is pressed leaves focus
-          here rather than on the body (holdFocusInPanel). */}
+          here rather than on the body (holdFocusInSurface). */}
       <div
         {...CALENDAR_SURFACE_PROPS}
         tabIndex={-1}
@@ -107,13 +108,13 @@ export function CalendarStepsPage() {
 function ComputerSteps({ device }: { device: CalendarDevice }) {
   const page = useCalendarStepsPage({ pollGoogle: true })
 
-  if (page.kind === 'loading') return <ReadingSpinner />
+  if (page.kind === 'loading') return <ReadingLine />
   if (page.kind === 'read_failed') {
     return <LinkFailedLine failure="load" onRetry={page.retry} />
   }
   const { link, apps, resetReason, now } = page
   if (link.kind === 'unrecoverable') {
-    return <UnrecoverableLink anyAppConnected={apps.connected.length > 0} />
+    return <UnrecoverableLink apps={apps} now={now} />
   }
 
   return (
@@ -126,7 +127,9 @@ function ComputerSteps({ device }: { device: CalendarDevice }) {
           {/* Numbered because the order matters. */}
           <ol className="flex flex-col gap-4">
             <Step number={1} text={STEPS_PAGE_COPY.stepCopy}>
-              <CopyLinkStep feedUrl={link.feedUrl} />
+              {/* Keyed by the address: a replaced link starts with no
+                  "Copied", which was about the old one. */}
+              <CopyLinkStep key={link.feedUrl} feedUrl={link.feedUrl} />
             </Step>
             <Step number={2} text={STEPS_PAGE_COPY.stepOpen}>
               <Button asChild variant="outline" size="sm" className="self-start">
@@ -167,14 +170,12 @@ function isApple(app: CalendarApp): boolean {
   return CALENDAR_CLIENT_ADD_TARGET[app.client] === 'apple'
 }
 
-/** Shown until the page's reads finish; nothing can act before then. */
-function ReadingSpinner() {
-  return (
-    <Loader2
-      aria-hidden="true"
-      className="size-4 animate-spin text-muted-foreground"
-    />
-  )
+/**
+ * Shown until the page's reads finish; nothing can act before then. The
+ * panel's line for the same wait.
+ */
+function ReadingLine() {
+  return <p className={MUTED_TEXT}>{PANEL_COPY.loading}</p>
 }
 
 /** Why a link that was in use stopped: the panel's reset lines. */
@@ -208,7 +209,7 @@ function AddToCalendar({
         disabled={link.creating}
         onClick={event => {
           // The button is replaced by the controls once the link exists.
-          holdFocusInPanel(event.currentTarget)
+          holdFocusInSurface(event.currentTarget)
           link.create()
         }}
         className={cn('self-start', layout === 'sheet' && 'min-h-11')}
@@ -362,19 +363,36 @@ function OtherCalendars({
 
 /**
  * A link whose address cannot be shown again: nothing here can act, so the
- * page says so in the panel's words and points to Settings. Its last
- * sentence, that a new link disconnects what is connected, is only said when
- * something is connected.
+ * page says so as the panel's old-link state does: the apps checking it and
+ * the stopped ones, then the old-link sentences and the way to Settings. Its
+ * last sentence, that a new link disconnects what is connected, is only said
+ * when something is connected.
  */
-function UnrecoverableLink({ anyAppConnected }: { anyAppConnected: boolean }) {
+function UnrecoverableLink({ apps, now }: { apps: CalendarApps; now: Date }) {
+  const anyAppConnected = apps.connected.length > 0
   return (
-    <div className="flex flex-col gap-1">
-      <p className={BODY_TEXT}>
-        {anyAppConnected
-          ? PANEL_COPY.unrecoverable
-          : PANEL_COPY.unrecoverableNoApp}
-      </p>
-      <ManageInSettingsLink />
+    <div className="flex flex-col gap-3">
+      {anyAppConnected ? (
+        <CalendarConnectedApps
+          apps={apps.connected.map(app => ({
+            app,
+            checkedLine: calendarCheckedLine(app.lastReadAt, null, now),
+          }))}
+        />
+      ) : null}
+      {apps.stopped.map(app => (
+        <p key={app.client} className={MUTED_TEXT}>
+          {calendarStoppedLine(app, now)}
+        </p>
+      ))}
+      <div className="flex flex-col gap-1">
+        <p className={BODY_TEXT}>
+          {anyAppConnected
+            ? PANEL_COPY.unrecoverable
+            : PANEL_COPY.unrecoverableNoApp}
+        </p>
+        <ManageInSettingsLink />
+      </div>
     </div>
   )
 }
@@ -392,7 +410,7 @@ function IphoneSteps({ device }: { device: CalendarDevice }) {
         {page.kind === 'read_failed' ? (
           <LinkFailedLine failure="load" onRetry={page.retry} />
         ) : (
-          <ReadingSpinner />
+          <ReadingLine />
         )}
       </>
     )
@@ -422,7 +440,7 @@ function IphoneSteps({ device }: { device: CalendarDevice }) {
     return (
       <>
         {needsComputer}
-        <UnrecoverableLink anyAppConnected={apps.connected.length > 0} />
+        <UnrecoverableLink apps={apps} now={now} />
       </>
     )
   }
@@ -453,7 +471,8 @@ function IphoneSteps({ device }: { device: CalendarDevice }) {
             <PanelNote>{PANEL_COPY.iphoneGoogleAppHint}</PanelNote>
           </>
         ) : (
-          <CopyOutsideSafari feedUrl={link.feedUrl} />
+          // Keyed by the address, as step 1's Copy link is.
+          <CopyOutsideSafari key={link.feedUrl} feedUrl={link.feedUrl} />
         )}
       </div>
     </>

@@ -69,7 +69,8 @@ const UA = {
 } as const
 
 interface Server {
-  status: CalendarFeedStatusResponse | Error
+  /** GET .../feed-status; an Error rejects, a promise holds the answer. */
+  status: CalendarFeedStatusResponse | Error | Promise<CalendarFeedStatusResponse>
   /** GET /calendar/token; an Error rejects, a promise holds the answer. */
   token: CalendarTokenStatusResponse | Error | Promise<CalendarTokenStatusResponse>
   /** POST /calendar/token. */
@@ -344,15 +345,29 @@ describe('CalendarStepsPage: on a computer', () => {
     expect(await screen.findByText(STEPS_PAGE_COPY.done)).toBeInTheDocument()
   })
 
-  it('a status cached before the page opened is read again before it is shown', async () => {
+  it('a status cached before the page opened is never shown, even while its new read is out', async () => {
     withLink()
-    const client = createTestQueryClient()
-    client.setQueryData(['calendar', 'feedStatus'], {
-      has_token: true,
-      reads: [readOf('google', 0)],
+    let finishRead: (status: CalendarFeedStatusResponse) => void = () => {}
+    server.status = new Promise(resolve => {
+      finishRead = resolve
     })
+    const client = createTestQueryClient()
+    // Read by another surface a minute before the page opened.
+    client.setQueryData(
+      ['calendar', 'feedStatus'],
+      { has_token: true, reads: [readOf('google', 0)] },
+      { updatedAt: Date.now() - MINUTE }
+    )
     renderPage(client)
 
+    await screen.findByRole('heading', { level: 1 })
+    await waitFor(() => expect(statusReads()).toBe(1))
+    expect(screen.queryByText(STEPS_PAGE_COPY.done)).not.toBeInTheDocument()
+    expect(screen.queryByRole('list')).not.toBeInTheDocument()
+    // The panel's line for the same wait.
+    expect(screen.getByText(PANEL_COPY.loading)).toBeInTheDocument()
+
+    await act(async () => finishRead({ has_token: true, reads: [] }))
     expect(await screen.findByText(STEPS_PAGE_COPY.waiting)).toBeInTheDocument()
     expect(screen.queryByText(STEPS_PAGE_COPY.done)).not.toBeInTheDocument()
   })
@@ -371,15 +386,42 @@ describe('CalendarStepsPage: with no link', () => {
     expect(calls('/calendar/token', 'POST')).toHaveLength(0)
   })
 
-  it('a cached link from before the page opened is read again before it is offered', async () => {
+  it('a link cached before the page opened is never offered, even while its new read is out', async () => {
+    let finishRead: (token: CalendarTokenStatusResponse) => void = () => {}
+    server.token = new Promise(resolve => {
+      finishRead = resolve
+    })
     const client = createTestQueryClient()
-    client.setQueryData(['calendar', 'tokenStatus'], linkOf(FEED_URL))
+    // Read by another surface a minute before the page opened.
+    client.setQueryData(['calendar', 'tokenStatus'], linkOf(FEED_URL), {
+      updatedAt: Date.now() - MINUTE,
+    })
     renderPage(client)
 
+    await screen.findByRole('heading', { level: 1 })
+    await waitFor(() => expect(calls('/calendar/token', 'GET')).toHaveLength(1))
+    expect(screen.queryByRole('button', { name: STEPS_PAGE_COPY.copyButton })).not.toBeInTheDocument()
+
+    await act(async () => finishRead({ has_token: false }))
     expect(
       await screen.findByRole('button', { name: STEPS_PAGE_COPY.addToCalendar })
     ).toBeInTheDocument()
-    expect(document.body.textContent).not.toContain(STEPS_PAGE_COPY.copyButton)
+    expect(screen.queryByRole('button', { name: STEPS_PAGE_COPY.copyButton })).not.toBeInTheDocument()
+  })
+
+  it('the click reads the link again first, and makes none when one exists by then', async () => {
+    const user = setupUser()
+    renderPage()
+    const button = await screen.findByRole('button', { name: STEPS_PAGE_COPY.addToCalendar })
+
+    // Made elsewhere (another device or tab) after the page read "no link".
+    withLink()
+    await user.click(button)
+
+    expect(
+      await screen.findByRole('button', { name: STEPS_PAGE_COPY.copyButton })
+    ).toBeInTheDocument()
+    expect(calls('/calendar/token', 'POST')).toHaveLength(0)
   })
 
   it('the click makes exactly one link, and the steps act on it', async () => {
@@ -495,6 +537,21 @@ describe('CalendarStepsPage: with no link', () => {
     expect(calls('/calendar/token', 'POST')).toHaveLength(0)
   })
 
+  it('a link replaced after a copy no longer says Copied', async () => {
+    withLink()
+    const user = setupUser()
+    await user.click(await renderReadyComputerPage())
+    await screen.findByRole('button', { name: STEPS_PAGE_COPY.copiedButton })
+
+    server.token = linkOf(NEW_FEED_URL)
+    refocusWindow()
+
+    expect(
+      await screen.findByRole('button', { name: STEPS_PAGE_COPY.copyButton })
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: STEPS_PAGE_COPY.copiedButton })).not.toBeInTheDocument()
+  })
+
   it('a link replaced while the page is open is the one Copy link copies', async () => {
     withLink()
     const user = setupUser()
@@ -557,6 +614,64 @@ describe('CalendarStepsPage: reading the status on an interval', () => {
     await advance(CALENDAR_STATUS_POLL_MS * 4)
     expect(statusReads()).toBe(atLimit)
     expect(screen.getByText(STEPS_PAGE_COPY.waiting)).toBeInTheDocument()
+  })
+
+  it('a link made long after arrival is still waited on at the interval', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    renderPage()
+    const button = await screen.findByRole('button', { name: STEPS_PAGE_COPY.addToCalendar })
+    await advance(GOOGLE_CHECK_POLL_LIMIT_MS * 2)
+
+    await user.click(button)
+    await screen.findByRole('button', { name: STEPS_PAGE_COPY.copyButton })
+    await waitFor(() => expect(calls('/calendar/token', 'POST')).toHaveLength(1))
+    const afterCreate = statusReads()
+
+    await advance(CALENDAR_STATUS_POLL_MS * 2 + 2_000)
+    await waitFor(() => expect(statusReads()).toBeGreaterThan(afterCreate + 1))
+  })
+
+  it('a link turned off elsewhere is noticed at the next interval read, with the page in view', async () => {
+    withLink()
+    await renderReadyComputerPage()
+
+    server.token = { has_token: false }
+    server.status = { has_token: false }
+    await advance(CALENDAR_STATUS_POLL_MS + 1_000)
+
+    expect(
+      await screen.findByRole('button', { name: STEPS_PAGE_COPY.addToCalendar })
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: STEPS_PAGE_COPY.copyButton })).not.toBeInTheDocument()
+  })
+
+  it('after its time limit, coming back to the page reads on the interval again', async () => {
+    withLink()
+    await renderReadyComputerPage()
+    await advance(GOOGLE_CHECK_POLL_LIMIT_MS + CALENDAR_STATUS_POLL_MS * 2)
+    const atLimit = statusReads()
+    await advance(CALENDAR_STATUS_POLL_MS * 2)
+    expect(statusReads()).toBe(atLimit)
+
+    refocusWindow()
+    await waitFor(() => expect(statusReads()).toBe(atLimit + 1))
+    await advance(CALENDAR_STATUS_POLL_MS + 1_000)
+    await waitFor(() => expect(statusReads()).toBe(atLimit + 2))
+  })
+
+  it('an iPhone never reads on an interval', async () => {
+    useDevice(UA.iphoneSafari)
+    withLink()
+    renderPage()
+    await screen.findByRole('link', { name: PANEL_COPY.rowApple })
+    const first = statusReads()
+
+    await advance(CALENDAR_STATUS_POLL_MS * 4)
+    expect(statusReads()).toBe(first)
   })
 
   it('stops reading when the page unmounts', async () => {
@@ -631,12 +746,22 @@ describe('CalendarStepsPage: failures, with the panel lines', () => {
     expect(calls('/calendar/token', 'POST')).toHaveLength(0)
   })
 
-  it('an old link with a calendar connected warns that a new link disconnects it', async () => {
+  it('an old link with a calendar connected names it, and warns that a new link disconnects it', async () => {
     server.token = { has_token: true, url_recoverable: false }
-    server.status = { has_token: true, reads: [readOf('google', HOUR)] }
+    server.status = {
+      has_token: true,
+      reads: [readOf('google', HOUR), readOf('apple_mac', 12 * DAY)],
+    }
     renderPage()
 
     expect(await screen.findByText(PANEL_COPY.unrecoverable)).toBeInTheDocument()
+    expect(screen.getByText('Google Calendar', { exact: true })).toBeInTheDocument()
+    expect(screen.getByText('Checked 1h ago.')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Apple Calendar (Mac) last checked 12 days ago. It may have been removed there.'
+      )
+    ).toBeInTheDocument()
   })
 })
 
@@ -717,6 +842,49 @@ describe('CalendarStepsPage: on an iPhone', () => {
     expect(screen.getByText(STEPS_PAGE_COPY.phoneNeedsComputer)).toBeInTheDocument()
     expect(screen.queryByText(STEPS_PAGE_COPY.iphoneAppleInstead)).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: PANEL_COPY.rowApple })).not.toBeInTheDocument()
+  })
+
+  it('a failed read: the needs-computer line and one load-failure line', async () => {
+    useDevice(UA.iphoneSafari)
+    withLink()
+    server.status = new Error('502')
+    renderPage()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(PANEL_COPY.loadFailed)
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(screen.getByText(STEPS_PAGE_COPY.phoneNeedsComputer)).toBeInTheDocument()
+    expect(screen.queryByText(STEPS_PAGE_COPY.iphoneAppleInstead)).not.toBeInTheDocument()
+  })
+
+  it('an old link that cannot be shown points to Settings in place of the offer', async () => {
+    useDevice(UA.iphoneSafari)
+    server.token = { has_token: true, url_recoverable: false }
+    server.status = { has_token: true, reads: [] }
+    renderPage()
+
+    expect(await screen.findByText(PANEL_COPY.unrecoverableNoApp)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: PANEL_COPY.manageInSettings })).toBeInTheDocument()
+    expect(screen.queryByText(STEPS_PAGE_COPY.iphoneAppleInstead)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: STEPS_PAGE_COPY.addToCalendar })).not.toBeInTheDocument()
+  })
+
+  it('a reset link says why above the button', async () => {
+    useDevice(UA.iphoneSafari)
+    server.status = {
+      has_token: false,
+      link_reset_at: ago(HOUR),
+      link_reset_reason: 'password_reset',
+    }
+    renderPage()
+
+    const button = await screen.findByRole('button', { name: STEPS_PAGE_COPY.addToCalendar })
+    const reason = screen.getByText(RESET_SUB.password_reset)
+    expect(
+      reason.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      screen.getByRole('heading', { level: 2, name: PANEL_COPY.headingReset })
+    ).toBeInTheDocument()
   })
 
   it('a stopped Apple calendar shows its line above the Apple Calendar offer', async () => {

@@ -24,7 +24,7 @@ import {
   PanelErrorWithRetry,
   PanelNote,
   PanelRowButton,
-  holdFocusInPanel,
+  holdFocusInSurface,
   useCalendarPanelLayout,
 } from './CalendarPanelParts'
 import { PANEL_COPY, emailSentLine } from './savedShowsCalendarCopy'
@@ -55,7 +55,7 @@ export function CalendarEmailStepsAction() {
   }
   // The send controls swap or disappear as the outcome changes.
   const sendFromControl = (event: React.MouseEvent<HTMLElement>) => {
-    holdFocusInPanel(event.currentTarget)
+    holdFocusInSurface(event.currentTarget)
     onSend()
   }
 

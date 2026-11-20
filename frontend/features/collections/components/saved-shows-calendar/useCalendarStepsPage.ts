@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { focusManager, useMutation } from '@tanstack/react-query'
 import {
   useCalendarFeedStatus,
   useCalendarTokenStatus,
@@ -18,8 +19,10 @@ import type {
 
 /**
  * How long the page reads the status on an interval while it waits for
- * Google's first check. After that only a return to the window reads it
- * again, so a page left open does not poll for hours.
+ * Google's first check, counted from the latest of arrival, the click that
+ * made the link, and the page being shown again (the person coming back from
+ * Google's tab). After that only the page being shown again reads it, so a
+ * page left open does not poll for hours.
  */
 export const GOOGLE_CHECK_POLL_LIMIT_MS = 10 * 60 * 1000
 
@@ -66,8 +69,8 @@ export type CalendarStepsPageState =
  * another surface before the page opened is never shown.
  *
  * With `pollGoogle`, while the address is ready and Google is not connected,
- * the status is also read on an interval, for GOOGLE_CHECK_POLL_LIMIT_MS; the
- * interval ends with the page.
+ * the status is also read on an interval, within GOOGLE_CHECK_POLL_LIMIT_MS;
+ * the interval ends with the page.
  */
 export function useCalendarStepsPage({
   pollGoogle,
@@ -79,8 +82,32 @@ export function useCalendarStepsPage({
   const create = useCreateCalendarToken()
   const [keptResetReason, setKeptResetReason] =
     useState<CalendarLinkResetReason | null>(null)
-  // When this visit's Add to calendar succeeded; 0 until it has.
+  // When this visit's Add to calendar made a link; 0 until it has.
   const [createdAt, setCreatedAt] = useState(0)
+  // Add to calendar reads the link fresh and makes one only if that read says
+  // there is none: making a link replaces any the account holds, so a link
+  // made elsewhere since the page last read (another device, another tab)
+  // must not be cut off by a click on a button drawn from that older read.
+  // When the page was last shown again; the poll's limit counts from it too.
+  const shownAt = useRef(0)
+  useEffect(
+    () =>
+      focusManager.subscribe(focused => {
+        if (focused) shownAt.current = Date.now()
+      }),
+    []
+  )
+  const add = useMutation({
+    mutationFn: async () => {
+      const fresh = await token.refetch({ throwOnError: true })
+      if (fresh.data?.has_token) return false
+      await create.mutateAsync()
+      return true
+    },
+    onSuccess: made => {
+      if (made) setCreatedAt(Date.now())
+    },
+  })
 
   const readSinceOpen = <T>(query: {
     data: T | undefined
@@ -95,7 +122,7 @@ export function useCalendarStepsPage({
   // otherwise (a later turn-off or replacement elsewhere).
   const created =
     create.data && createdAt > token.dataUpdatedAt ? create.data : null
-  const feedUrl = created
+  const heldUrl = created
     ? created.feed_url
     : currentToken?.has_token && currentToken.url_recoverable
       ? currentToken.feed_url
@@ -104,13 +131,22 @@ export function useCalendarStepsPage({
   const status = useCalendarFeedStatus(true, {
     live: true,
     pollUntil:
-      pollGoogle && feedUrl
+      pollGoogle && heldUrl
         ? (read: CalendarFeedStatusResponse) =>
             googleConnected(classifyCalendarApps(read, new Date())) ||
-            Date.now() - openedAt >= GOOGLE_CHECK_POLL_LIMIT_MS
+            Date.now() - Math.max(openedAt, createdAt, shownAt.current) >=
+              GOOGLE_CHECK_POLL_LIMIT_MS
         : undefined,
   })
   const currentStatus = readSinceOpen(status)
+  // The status is read more often than the link (on the interval). When a
+  // status read newer than both the link read and this visit's create says
+  // there is no link, the link was turned off elsewhere: the address held is
+  // dead, and the page offers the one button again.
+  const statusSaysNoLink =
+    currentStatus?.has_token === false &&
+    status.dataUpdatedAt > Math.max(token.dataUpdatedAt, createdAt)
+  const feedUrl = statusSaysNoLink ? undefined : heldUrl
 
   const failedSinceOpen = (query: { errorUpdatedAt: number }) =>
     query.errorUpdatedAt >= openedAt
@@ -130,7 +166,7 @@ export function useCalendarStepsPage({
 
   const link: CalendarStepsLink = feedUrl
     ? { kind: 'ready', feedUrl }
-    : currentToken?.has_token
+    : currentToken?.has_token && !statusSaysNoLink
       ? { kind: 'unrecoverable' }
       : {
           kind: 'none',
@@ -140,12 +176,10 @@ export function useCalendarStepsPage({
             setKeptResetReason(
               reason => reason ?? calendarResetReason(currentStatus)
             )
-            create.mutate(undefined, {
-              onSuccess: () => setCreatedAt(Date.now()),
-            })
+            add.mutate()
           },
-          creating: create.isPending,
-          createFailed: create.isError,
+          creating: add.isPending,
+          createFailed: add.isError,
         }
 
   // Read at render: the lines are as fresh as the page's last render.

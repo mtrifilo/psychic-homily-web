@@ -30,11 +30,11 @@ export function useCalendarPanelLayout(): CalendarPanelLayout {
  */
 export const PRIVATE_LINK_CLASS = 'ph-no-capture sentry-block'
 
-const CALENDAR_SURFACE_ATTRIBUTE = 'data-saved-shows-calendar-panel'
+const CALENDAR_SURFACE_ATTRIBUTE = 'data-calendar-surface'
 
 /**
  * Spread on the element that holds a calendar surface (the panel's popover or
- * sheet, the steps page): the element holdFocusInPanel returns focus to.
+ * sheet, the steps page): the element holdFocusInSurface returns focus to.
  */
 export const CALENDAR_SURFACE_PROPS = { [CALENDAR_SURFACE_ATTRIBUTE]: '' }
 
@@ -44,7 +44,7 @@ export const CALENDAR_SURFACE_PROPS = { [CALENDAR_SURFACE_ATTRIBUTE]: '' }
  * trap focus, so focus on a removed control would drop to the page's body and
  * leave the person outside the surface they are still using.
  */
-export function holdFocusInPanel(control: HTMLElement) {
+export function holdFocusInSurface(control: HTMLElement) {
   control.closest<HTMLElement>(`[${CALENDAR_SURFACE_ATTRIBUTE}]`)?.focus()
 }
 
@@ -208,7 +208,7 @@ export function PanelErrorWithRetry({
         type="button"
         disabled={retrying}
         onClick={event => {
-          holdFocusInPanel(event.currentTarget)
+          holdFocusInSurface(event.currentTarget)
           onRetry()
         }}
         className={cn(
