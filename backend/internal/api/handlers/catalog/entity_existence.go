@@ -8,6 +8,7 @@ import (
 
 type entityExistenceService interface {
 	Exists(entityType, idOrSlug string) (bool, error)
+	SceneCanonicalSlug(slug string) (string, bool, error)
 	RadioStationExists(stationIDOrSlug string) (bool, error)
 	RadioShowExists(stationIDOrSlug, showIDOrSlug string) (bool, error)
 	RadioEpisodeExists(stationIDOrSlug, showIDOrSlug, airDate string) (bool, error)
@@ -27,9 +28,21 @@ type EntityExistsRequest struct {
 	EntityID   string `path:"entity_id" validate:"required" doc:"Entity ID or slug"`
 }
 
-type EntityExistsResponse struct{}
+// EntityExistsResponse is a probe's whole answer: the status, and for a scene
+// the slug its page is served at.
+type EntityExistsResponse struct {
+	CanonicalSlug string `header:"Canonical-Slug" doc:"Scenes only: the slug the scene's page is served at, which a member city or a case variant of the requested slug resolves to. Absent for every other entity type, and for a scene whose canonical slug cannot be named."`
+}
 
 func (h *EntityExistenceHandler) EntityExistsHandler(ctx context.Context, req *EntityExistsRequest) (*EntityExistsResponse, error) {
+	if req.EntityType == "scenes" {
+		canonical, exists, err := h.entityExistenceService.SceneCanonicalSlug(req.EntityID)
+		resp, err := existenceAnswer(exists, err)
+		if resp != nil {
+			resp.CanonicalSlug = canonical
+		}
+		return resp, err
+	}
 	return existenceAnswer(h.entityExistenceService.Exists(req.EntityType, req.EntityID))
 }
 

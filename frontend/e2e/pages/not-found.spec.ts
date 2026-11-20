@@ -480,6 +480,52 @@ test.describe('Not-found pages — HTTP 404 status', () => {
   })
 
   /**
+   * Scene canonical redirects. A metro member city (Tempe is in the Phoenix
+   * metro) and a case variant of the slug answer a permanent redirect to the
+   * metro's lowercase URL on every scene shape, in ONE hop, keeping the rest of
+   * the path and the query string; a lower-case ISO week key is upper-cased in
+   * the same hop. The canonical URL itself answers 200 with the scene.
+   */
+  test.describe('Scene canonical redirects', () => {
+    const shapes = ['', '/tonight', '/this-weekend', '/week', '/next-4-weeks', '/2026-W31', '/2026-07-31']
+
+    for (const shape of shapes) {
+      test(`a member city and a case variant of /scenes/phoenix-az${shape} redirect to it in one hop`, async ({
+        page,
+        request,
+      }) => {
+        const target = `/scenes/phoenix-az${shape}`
+        for (const from of [`/scenes/tempe-az${shape}`, `/scenes/TEMPE-AZ${shape.toLowerCase()}`, `/scenes/PHOENIX-AZ${shape}`]) {
+          const redirect = await request.get(`${from}?utm_source=e2e`, { maxRedirects: 0 })
+          expect(redirect.status(), `${from} must answer the permanent redirect itself`).toBe(308)
+          const location = new URL(redirect.headers()['location'], 'http://origin')
+          expect(`${location.pathname}${location.search}`, from).toBe(`${target}?utm_source=e2e`)
+        }
+
+        const response = await page.goto(`/scenes/tempe-az${shape}`)
+        expect(response?.status(), `${target} must render once reached`).toBe(200)
+        expect(new URL(response!.url()).pathname).toBe(target)
+        // One hop: the request the page answered was redirected from the
+        // member-city URL, and that one was not itself redirected.
+        expect(response!.request().redirectedFrom()?.redirectedFrom() ?? null).toBeNull()
+        await expect(
+          page.getByRole('main').getByRole('heading', { level: 1 })
+        ).toBeVisible({ timeout: 10_000 })
+      })
+    }
+
+    test('the canonical scene URL answers 200 without a redirect', async ({ request }) => {
+      const response = await request.get('/scenes/phoenix-az', { maxRedirects: 0 })
+      expect(response.status()).toBe(200)
+    })
+
+    test('an unknown scene slug still returns HTTP 404', async ({ request }) => {
+      const response = await request.get('/scenes/NO-SUCH-CITY-ZZ', { maxRedirects: 0 })
+      expect(response.status()).toBe(404)
+    })
+  })
+
+  /**
    * Radio station, show, episode and channel routes. Seeded rows come from
    * backend/internal/seeddata/radio.go: KEXP carries The Morning Show, which
    * has an episode on 2025-01-15, and WFMU's Give the Drummer Radio stream is

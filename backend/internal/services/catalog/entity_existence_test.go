@@ -182,6 +182,70 @@ func (suite *EntityExistenceServiceIntegrationTestSuite) TestExists_SceneSlugHyp
 	suite.True(exists)
 }
 
+// The scene probe names the slug the scene's page is served at: the metro's
+// principal for a member city, the lowercase spelling for a case variant, and
+// the request itself when it is already canonical. A missing or below-threshold
+// scene names none.
+func (suite *EntityExistenceServiceIntegrationTestSuite) TestSceneCanonicalSlug() {
+	venues := []*catalogm.Venue{
+		{Name: "Crescent Ballroom", Slug: stringPtr("crescent-ballroom"), City: "Phoenix", State: "AZ", Metro: seedMetro("Phoenix", "AZ"), Verified: true},
+		{Name: "Valley Bar", Slug: stringPtr("valley-bar"), City: "Phoenix", State: "AZ", Metro: seedMetro("Phoenix", "AZ"), Verified: true},
+		{Name: "Small Room", Slug: stringPtr("small-room"), City: "Tucson", State: "AZ", Metro: seedMetro("Tucson", "AZ"), Verified: true},
+		{Name: "Hyphen Hall", Slug: stringPtr("hyphen-hall"), City: "Foo-Bar", State: "ZZ", Metro: seedMetro("Foo-Bar", "ZZ"), Verified: true},
+		{Name: "Dash Den", Slug: stringPtr("dash-den"), City: "Foo-Bar", State: "ZZ", Metro: seedMetro("Foo-Bar", "ZZ"), Verified: true},
+	}
+	for _, venue := range venues {
+		suite.Require().NoError(suite.db.Create(venue).Error)
+	}
+
+	cases := []struct {
+		requested     string
+		wantCanonical string
+		wantExists    bool
+	}{
+		{"phoenix-az", "phoenix-az", true},
+		{"PHOENIX-AZ", "phoenix-az", true},
+		{"mesa-az", "phoenix-az", true},
+		{"Mesa-AZ", "phoenix-az", true},
+		{"foo-bar-zz", "foo-bar-zz", true},
+		{"FOO-BAR-ZZ", "foo-bar-zz", true},
+		{"tucson-az", "", false},
+		{"nowhere-zz", "", false},
+	}
+	for _, tc := range cases {
+		canonical, exists, err := suite.svc.SceneCanonicalSlug(tc.requested)
+		suite.Require().NoError(err, tc.requested)
+		suite.Equal(tc.wantExists, exists, tc.requested)
+		suite.Equal(tc.wantCanonical, canonical, tc.requested)
+
+		// The verdict is sceneExists' verdict.
+		exists, err = suite.svc.Exists("scenes", tc.requested)
+		suite.Require().NoError(err, tc.requested)
+		suite.Equal(tc.wantExists, exists, tc.requested)
+	}
+}
+
+// A canonical slug that does not resolve back to itself is never named: the
+// scene still exists, and the probe names no slug for it. The slug-miss cache
+// is the lever that makes the canonical spelling unresolvable here.
+func (suite *EntityExistenceServiceIntegrationTestSuite) TestSceneCanonicalSlug_NamesNoSlugThatDoesNotResolveBack() {
+	venues := []*catalogm.Venue{
+		{Name: "Crescent Ballroom", Slug: stringPtr("crescent-ballroom"), City: "Phoenix", State: "AZ", Metro: seedMetro("Phoenix", "AZ"), Verified: true},
+		{Name: "Valley Bar", Slug: stringPtr("valley-bar"), City: "Phoenix", State: "AZ", Metro: seedMetro("Phoenix", "AZ"), Verified: true},
+	}
+	for _, venue := range venues {
+		suite.Require().NoError(suite.db.Create(venue).Error)
+	}
+	scenes := NewSceneService(suite.db)
+	scenes.rememberSlugMiss("phoenix-az")
+	svc := NewEntityExistenceService(suite.db, scenes)
+
+	canonical, exists, err := svc.SceneCanonicalSlug("mesa-az")
+	suite.Require().NoError(err)
+	suite.True(exists)
+	suite.Empty(canonical)
+}
+
 func (suite *EntityExistenceServiceIntegrationTestSuite) TestExists_UnsupportedEntityTypeIsMissing() {
 	exists, err := suite.svc.Exists("collections", "any")
 	suite.Require().NoError(err)

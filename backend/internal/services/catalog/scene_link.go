@@ -38,6 +38,31 @@ func (s *SceneService) sceneServesPage(city, state string) (bool, error) {
 	return serves, err
 }
 
+// CanonicalSceneSlug returns the slug the scene that requested resolved to is
+// served at, given the display identity (city, state) ParseSceneSlug returned
+// for it. That is the slug built from the identity, provided it resolves back
+// to itself; otherwise it is "", and the caller names no slug at all. A
+// returned slug is therefore its own canonical: a URL rewritten to it is not
+// rewritten again.
+//
+// A request already spelled canonically costs nothing more. Any other spelling
+// (a metro member city, a case variant) costs one more resolution, of the
+// canonical slug.
+func (s *SceneService) CanonicalSceneSlug(requested, city, state string) (string, error) {
+	canonical := buildSceneSlug(city, state)
+	if canonical == requested {
+		return canonical, nil
+	}
+	pageCity, pageState, err := s.ParseSceneSlug(canonical)
+	if err != nil {
+		return "", ignoreSceneNotFound(err)
+	}
+	if buildSceneSlug(pageCity, pageState) != canonical {
+		return "", nil
+	}
+	return canonical, nil
+}
+
 // newUncachedSceneService is a SceneService with no slug-miss cache, for a
 // caller whose lookups must neither read nor write the cache the scene routes
 // share.

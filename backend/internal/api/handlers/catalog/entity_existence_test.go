@@ -12,9 +12,10 @@ import (
 // the arguments of the last call, so a test can see which identifiers a handler
 // passed through.
 type mockEntityExistenceService struct {
-	exists bool
-	err    error
-	args   *[]string
+	exists    bool
+	err       error
+	args      *[]string
+	canonical string
 }
 
 func (m mockEntityExistenceService) answer(args ...string) (bool, error) {
@@ -26,6 +27,14 @@ func (m mockEntityExistenceService) answer(args ...string) (bool, error) {
 
 func (m mockEntityExistenceService) Exists(entityType, idOrSlug string) (bool, error) {
 	return m.answer(entityType, idOrSlug)
+}
+
+func (m mockEntityExistenceService) SceneCanonicalSlug(slug string) (string, bool, error) {
+	exists, err := m.answer("scenes", slug)
+	if err != nil || !exists {
+		return "", exists, err
+	}
+	return m.canonical, true, nil
 }
 
 func (m mockEntityExistenceService) RadioStationExists(stationIDOrSlug string) (bool, error) {
@@ -80,6 +89,40 @@ func TestEntityExistsHandler_ServiceError(t *testing.T) {
 	})
 
 	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// A scene probe names the slug the scene is served at in the Canonical-Slug
+// header, and every other entity type sends no such header.
+func TestEntityExistsHandler_SceneCanonicalSlug(t *testing.T) {
+	var args []string
+	h := NewEntityExistenceHandler(mockEntityExistenceService{exists: true, args: &args, canonical: "phoenix-az"})
+
+	resp, err := h.EntityExistsHandler(context.Background(), &EntityExistsRequest{EntityType: "scenes", EntityID: "tempe-az"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.CanonicalSlug != "phoenix-az" {
+		t.Errorf("CanonicalSlug = %q, want phoenix-az", resp.CanonicalSlug)
+	}
+	if fmt.Sprint(args) != fmt.Sprint([]string{"scenes", "tempe-az"}) {
+		t.Errorf("service got %v, want [scenes tempe-az]", args)
+	}
+
+	resp, err = h.EntityExistsHandler(context.Background(), &EntityExistsRequest{EntityType: "artists", EntityID: "tempe-az"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.CanonicalSlug != "" {
+		t.Errorf("artist probe CanonicalSlug = %q, want none", resp.CanonicalSlug)
+	}
+}
+
+func TestEntityExistsHandler_SceneMissing(t *testing.T) {
+	h := NewEntityExistenceHandler(mockEntityExistenceService{exists: false, canonical: "phoenix-az"})
+
+	_, err := h.EntityExistsHandler(context.Background(), &EntityExistsRequest{EntityType: "scenes", EntityID: "nowhere-zz"})
+
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 // Each family probe passes its path parameters through in order and maps the

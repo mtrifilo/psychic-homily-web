@@ -3219,6 +3219,11 @@ type SceneServiceInterface interface {
 	// GetActiveArtists; activeWindowDays defines "active" identically.
 	GetRepresentativeEmbed(city, state string, activeWindowDays int) (*SceneRepresentativeEmbed, error)
 	ParseSceneSlug(slug string) (string, string, error)
+	// CanonicalSceneSlug names the slug a scene is served at, given the slug it
+	// was requested by and the (city, state) ParseSceneSlug resolved that to:
+	// the slug built from (city, state) when it resolves back to itself, else
+	// "".
+	CanonicalSceneSlug(requested, city, state string) (string, error)
 	// Scene registry (PSY-1339): scenes materialize a row lazily so id-keyed
 	// features (follows) can reference them. GetOrCreateSceneID canonicalizes
 	// the slug (member city → metro principal) and creates the row on first

@@ -4,6 +4,7 @@ import { API_BASE_URL } from '@/lib/api-base'
 import { createPositiveVerdictCache } from '@/lib/positive-verdict-cache'
 import { channelStationSlug } from '@/lib/radio/channelStationSlug'
 import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
+import { SITE_URL } from '@/lib/seo/siteMetadata'
 import {
   isNumericShowSegment,
   showSlugRedirectPath,
@@ -425,14 +426,17 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   // Every backend path below is registered with `huma.Head` as well as
   // `huma.Get`. Without the HEAD registration the router answers 405, this
   // check fails OPEN, and a nonexistent key soft-404s all over again.
+  //
+  // Every probe below names the scene's canonical slug as well, and
+  // `sceneCheck` redirects any other spelling of the URL to it.
+  if (entityType === 'scenes' && segments.length === 3 && slug) {
+    return sceneCheck(request, segments, ENTITY_CHECKS.scenes(slug))
+  }
   if (entityType === 'scenes' && segments.length === 4 && slug) {
     const sub = segments[3]
     const scene = encodeURIComponent(slug)
     if (sub === 'week') {
-      return existenceCheck(request, `${API_BASE_URL}/scenes/${scene}/week`, {
-        // Shipped route; see failedProbeResponse's note on the `false`s.
-        requireApiAuthoredNotFound: false,
-      })
+      return sceneCheck(request, segments, `${API_BASE_URL}/scenes/${scene}/week`)
     }
     // Both DAY routes probe the cheap scene-existence endpoint rather than the
     // day endpoint itself, because everything else that could make them 404 is
@@ -463,9 +467,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     //    night, uncached, on every request over thousands of dated keys per
     //    scene — was permanent and reachable by anyone.
     if (sub === 'tonight') {
-      return existenceCheck(request, ENTITY_CHECKS.scenes(slug), {
-        requireApiAuthoredNotFound: false,
-      })
+      return sceneCheck(request, segments, ENTITY_CHECKS.scenes(slug))
     }
     // The multi-day rolling windows (PSY-1849). Same reasoning as `/tonight`:
     // neither carries a key, so the ONLY thing that can 404 them is the scene
@@ -479,9 +481,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     // live ahead of its backend passes these through to a page whose fetch
     // 404s, and that `notFound()` lands after the shell has streamed.
     if (sub === 'this-weekend' || sub === 'next-4-weeks') {
-      return existenceCheck(request, ENTITY_CHECKS.scenes(slug), {
-        requireApiAuthoredNotFound: false,
-      })
+      return sceneCheck(request, segments, ENTITY_CHECKS.scenes(slug))
     }
     // File-convention OG card on the rolling detail URL. Without this branch
     // `opengraph-image` is a junk period and 404s before Next sees the route
@@ -489,26 +489,22 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     // fetch then draws the current week. The PAGE does not advertise this URL
     // (unfurl caches key on it forever); it stays addressable on its own.
     if (sub === 'opengraph-image') {
-      return existenceCheck(request, ENTITY_CHECKS.scenes(slug), {
-        requireApiAuthoredNotFound: false,
-      })
+      return sceneCheck(request, segments, ENTITY_CHECKS.scenes(slug))
     }
     if (CALENDAR_DATE_SEGMENT.test(sub)) {
       if (!periodYearInRange(sub) || !isRealCalendarDate(sub)) {
         return notFoundResponse(request)
       }
-      return existenceCheck(request, ENTITY_CHECKS.scenes(slug), {
-        requireApiAuthoredNotFound: false,
-      })
+      return sceneCheck(request, segments, ENTITY_CHECKS.scenes(slug))
     }
     // The WEEK key still goes to its own endpoint: `2025-W53` is well-formed
     // and unreal, and unlike a calendar date that verdict is ISO-8601 week
     // arithmetic the backend owns and this file deliberately does not copy.
     if (ISO_WEEK_SEGMENT.test(sub) && periodYearInRange(sub)) {
-      return existenceCheck(
+      return sceneCheck(
         request,
-        `${API_BASE_URL}/scenes/${scene}/week/${encodeURIComponent(sub)}`,
-        { requireApiAuthoredNotFound: false }
+        segments,
+        `${API_BASE_URL}/scenes/${scene}/week/${encodeURIComponent(sub)}`
       )
     }
     // Not a servable period (`/scenes/chicago-il/garbage`, `/scenes/chicago-il/
@@ -772,11 +768,20 @@ function failedProbeResponse(
  * dated URL a crawler walks. `numericShowRedirect` needs the show's slug, a
  * value rather than a yes or no, and no status-bearing endpoint returns it.
  * Any other probe that answers about ONE address belongs in this function.
+ *
+ * `canonicalPath`, when given, reads the canonical spelling of the request's
+ * path off a successful probe's HEADERS, or null when the probe names none. A
+ * request spelled any other way is permanently redirected to it, and only a
+ * request already spelled that way is remembered, so a remembered probe URL is
+ * one whose request needs no redirect.
  */
 async function existenceCheck(
   request: NextRequest,
   url: string,
-  options: { requireApiAuthoredNotFound: boolean }
+  options: {
+    requireApiAuthoredNotFound: boolean
+    canonicalPath?: (res: Response) => string | null
+  }
 ): Promise<NextResponse> {
   if (positiveExistenceVerdicts.has(url)) {
     return NextResponse.next()
@@ -800,6 +805,10 @@ async function existenceCheck(
 
     const failed = failedProbeResponse(request, res, options)
     if (failed) return failed
+    const canonical = options.canonicalPath?.(res) ?? null
+    if (canonical !== null && canonical !== request.nextUrl.pathname) {
+      return canonicalRedirect(request, canonical)
+    }
     // Backend reachable and the slug resolves. Only this 2xx answer is
     // remembered; every other outcome is asked again on the next request.
     positiveExistenceVerdicts.remember(url)
@@ -809,6 +818,82 @@ async function existenceCheck(
     // a route down when the check itself fails.
     return NextResponse.next()
   }
+}
+
+/**
+ * The response header every scene probe names the scene's canonical slug in:
+ * the slug its pages are served at, which a metro member city and any case
+ * variant of the slug resolve to.
+ */
+const CANONICAL_SLUG_HEADER = 'canonical-slug'
+
+/**
+ * The canonical slugs the proxy redirects to: a lowercase slug of letters,
+ * digits, `.`, `'` and `-`, starting with a letter or digit. Each of these
+ * characters stays as it is under `encodeURIComponent` and in a URL path, so a
+ * redirect to one arrives spelled exactly as the canonical, and that request
+ * is then canonical itself. A header naming anything else is no answer.
+ */
+const CANONICAL_SCENE_SLUG = /^[a-z0-9][a-z0-9.'-]{0,199}$/
+
+/**
+ * How long a browser may reuse a redirect to a canonical path before asking
+ * again.
+ *
+ * Bounded because the canonical spelling a probe names follows the data: a
+ * scene member city whose rooms come to form a scene of their own is served at
+ * its own slug from then on, and a 308 without a lifetime would keep sending a
+ * browser that saw the old answer to the metro.
+ */
+const CANONICAL_REDIRECT_CACHE_CONTROL = 'private, max-age=3600'
+
+/**
+ * A scene URL's probe, which also redirects any spelling of the URL other than
+ * the canonical one.
+ *
+ * The canonical path is the same path with the slug the probe names and an ISO
+ * week key in upper case (`2026-W31`, the spelling every week page declares).
+ * Everything else in the path and the query string is kept. A metro member
+ * city (`/scenes/tempe-az/tonight`) and a case variant (`/scenes/PHOENIX-AZ`)
+ * are therefore one hop from the metro's page, whichever of the two they are.
+ *
+ * A probe that names no slug, or one outside `CANONICAL_SCENE_SLUG`, redirects
+ * nothing, and the request renders as it did before the probe named slugs:
+ * that is the answer an API without the header gives.
+ */
+function sceneCheck(
+  request: NextRequest,
+  segments: string[],
+  probeUrl: string
+): Promise<NextResponse> {
+  return existenceCheck(request, probeUrl, {
+    // Shipped routes; see failedProbeResponse's note on the `false`s.
+    requireApiAuthoredNotFound: false,
+    canonicalPath: res => {
+      const slug = res.headers.get(CANONICAL_SLUG_HEADER)
+      if (slug === null || !CANONICAL_SCENE_SLUG.test(slug)) return null
+      const rest = segments
+        .slice(3)
+        .map(segment => (ISO_WEEK_SEGMENT.test(segment) ? segment.toUpperCase() : segment))
+      return ['', 'scenes', slug, ...rest].join('/')
+    },
+  })
+}
+
+/**
+ * A permanent redirect to `pathname` on this host, keeping the query string.
+ *
+ * It declares `pathname` as canonical in its own `Link` header. A canonical
+ * `Link` rule in next.config.ts can match the redirected request too, and
+ * would otherwise send the redirect out naming the URL it redirects away from.
+ */
+function canonicalRedirect(request: NextRequest, pathname: string): NextResponse {
+  const url = new URL(pathname, request.url)
+  url.search = request.nextUrl.search
+  const redirect = NextResponse.redirect(url, 308)
+  redirect.headers.set('Cache-Control', CANONICAL_REDIRECT_CACHE_CONTROL)
+  redirect.headers.set('Link', `<${SITE_URL}${pathname}>; rel="canonical"`)
+  return redirect
 }
 
 /**

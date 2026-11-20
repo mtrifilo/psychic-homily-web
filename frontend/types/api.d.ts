@@ -25835,6 +25835,7 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    "Canonical-Slug"?: string;
                     [name: string]: unknown;
                 };
                 content?: never;
@@ -27828,6 +27829,7 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    "Canonical-Slug"?: string;
                     [name: string]: unknown;
                 };
                 content?: never;
@@ -30500,6 +30502,7 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    "Canonical-Slug"?: string;
                     [name: string]: unknown;
                 };
                 content?: never;
@@ -30624,6 +30627,7 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    "Canonical-Slug"?: string;
                     [name: string]: unknown;
                 };
                 content?: never;
@@ -30662,6 +30666,7 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    "Canonical-Slug"?: string;
                     [name: string]: unknown;
                 };
                 content?: never;
@@ -32754,6 +32759,7 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    "Canonical-Slug"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -32789,6 +32795,7 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    "Canonical-Slug"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -32829,6 +32836,7 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    "Canonical-Slug"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -32869,6 +32877,7 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    "Canonical-Slug"?: string;
                     [name: string]: unknown;
                 };
                 content: {

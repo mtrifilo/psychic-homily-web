@@ -133,6 +133,18 @@ export const SELF_CANONICAL_ROUTES = [
   // the page's own answer, a not-found body at HTTP 200 for a collection it may
   // not see.
   selfCanonicalRoute('/collections/:slug', {}, [{ type: 'cookie', key: 'auth_token' }]),
+  // A scene page renders only at its canonical spelling: the proxy redirects a
+  // metro member city, a case variant of the slug and a lower-case week key to
+  // it, and the week and day pages name the slug and key the backend returns.
+  selfCanonicalRoute('/scenes/:slug'),
+  selfCanonicalRoute('/scenes/:slug/tonight'),
+  selfCanonicalRoute('/scenes/:slug/this-weekend'),
+  selfCanonicalRoute('/scenes/:slug/week'),
+  selfCanonicalRoute('/scenes/:slug/next-4-weeks'),
+  // An ISO week permalink or a day permalink, the two keys `[period]` serves.
+  selfCanonicalRoute('/scenes/:slug/:period', {
+    period: '\\d{4}-W\\d{2}|\\d{4}-\\d{2}-\\d{2}',
+  }),
 ]
 
 /**

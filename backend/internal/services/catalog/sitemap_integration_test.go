@@ -1405,6 +1405,77 @@ func TestSitemapEntriesSceneRootLastmodComesFromTheResolvingGroup(t *testing.T) 
 	assertSceneRootEntry("Entries(scenes)", entries.Scenes)
 }
 
+// TestSitemapEntriesSceneFamiliesAnnounceOnlyCanonicalSlugs holds the three
+// scene families to the slug the scene probe names: every scene slug they
+// announce is the canonical slug of its own scene, so no announced URL is one
+// the frontend redirects.
+//
+// The fixture carries each shape a scene slug can come from: a metro scene
+// under its principal city, a second metro, a member city whose rooms carry no
+// metro (a fallback group, which publishes and serves its own slug), and two
+// spellings of one no-metro city colliding on one slug.
+func TestSitemapEntriesSceneFamiliesAnnounceOnlyCanonicalSlugs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	td := testutil.SetupTestPostgres(t)
+	defer td.Cleanup()
+
+	phoenix, err := time.LoadLocation("America/Phoenix")
+	if err != nil {
+		t.Fatalf("load loc: %v", err)
+	}
+	y, w := time.Now().In(phoenix).ISOWeek()
+	weekStart := ISOWeekStart(y, w, phoenix)
+
+	seedSceneWeekGroup(t, td.DB, "phx", "Phoenix", "AZ", seedMetro("Phoenix", "AZ"), "America/Phoenix", weekStart)
+	seedSceneWeekGroup(t, td.DB, "tuc", "Tucson", "AZ", seedMetro("Tucson", "AZ"), "America/Phoenix", weekStart)
+	seedSceneWeekGroup(t, td.DB, "msa", "Mesa", "AZ", nil, "America/Phoenix", weekStart)
+	seedSaintJeromeCollision(t, td.DB, func(city string) time.Time {
+		toronto, err := time.LoadLocation("America/Toronto")
+		if err != nil {
+			t.Fatalf("load loc: %v", err)
+		}
+		y, w := time.Now().In(toronto).ISOWeek()
+		return ISOWeekStart(y, w, toronto)
+	})
+
+	ctx := context.Background()
+	svc := NewSitemapService(td.DB)
+	probe := NewEntityExistenceService(td.DB, NewSceneService(td.DB))
+
+	announced := map[string]bool{}
+	for _, family := range []string{"scenes", "scene_periods", "scene_weeks"} {
+		entries, err := svc.Entries(ctx, family)
+		if err != nil {
+			t.Fatalf("Entries(%s): %v", family, err)
+		}
+		all := append(append(append([]contracts.SitemapEntry{}, entries.Scenes...), entries.ScenePeriods...), entries.SceneWeeks...)
+		if len(all) == 0 {
+			t.Fatalf("Entries(%s) is empty, so the property below proves nothing", family)
+		}
+		for _, e := range all {
+			scene, _, _ := strings.Cut(e.Slug, "/")
+			announced[scene] = true
+		}
+	}
+
+	for _, want := range []string{"phoenix-az", "tucson-az", "mesa-az", saintJeromeSlug} {
+		if !announced[want] {
+			t.Errorf("the scene families announce %v, want to include %q", announced, want)
+		}
+	}
+	for slug := range announced {
+		canonical, exists, err := probe.SceneCanonicalSlug(slug)
+		if err != nil {
+			t.Fatalf("SceneCanonicalSlug(%q): %v", slug, err)
+		}
+		if !exists || canonical != slug {
+			t.Errorf("announced scene %q: probe answers exists=%v canonical=%q, want its own slug", slug, exists, canonical)
+		}
+	}
+}
+
 // TestSitemapEntriesVenueCitiesMatchTheCityFacet is the load-bearing guarantee
 // of the venue_cities family: every city it announces has to be a city the
 // directory's own picker offers, because /venues?cities=City,ST renders the
