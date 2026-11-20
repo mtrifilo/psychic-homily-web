@@ -17,7 +17,7 @@ const CALENDAR_ARRIVAL_PATH = '/library'
  * is reading with an error page, so the open is refused in place and the next
  * click, once online, tries again.
  */
-export function reloadIntoCalendarPanel(): void {
+export function reloadToCalendarLink(): void {
   if (!navigator.onLine) return
   const target = CALENDAR_ARRIVAL_PATH + CALENDAR_ARRIVAL_HASH
   if (window.location.pathname === CALENDAR_ARRIVAL_PATH) {

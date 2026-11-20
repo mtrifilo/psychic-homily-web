@@ -132,8 +132,8 @@ vi.mock('@/features/venues', () => ({
 // The Upcoming header's calendar link reads the status with no feed address;
 // the panel it opens has its own suite and stands in here as a marker.
 const mockUseCalendarFeedStatus = vi.fn<
-  (enabled?: boolean) => { data: undefined }
->(() => ({ data: undefined }))
+  (enabled?: boolean) => { data: undefined; isFetched: boolean }
+>(() => ({ data: undefined, isFetched: true }))
 vi.mock('@/features/auth/hooks/useCalendarFeed', () => ({
   useCalendarFeedStatus: (enabled?: boolean) =>
     mockUseCalendarFeedStatus(enabled),

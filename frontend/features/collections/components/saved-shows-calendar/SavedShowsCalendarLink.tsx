@@ -16,7 +16,7 @@ import { useUrlHash } from '@/lib/hooks/common/useUrlHash'
 import { cn } from '@/lib/utils'
 import {
   CALENDAR_ARRIVAL_HASH,
-  reloadIntoCalendarPanel,
+  reloadToCalendarLink,
 } from './calendarPanelArrival'
 import {
   LazySavedShowsCalendarPanel,
@@ -108,7 +108,9 @@ export function SavedShowsCalendarLink({
 }: SavedShowsCalendarLinkProps) {
   const { authStatus, user } = useAuthContext()
   const viewerId = user?.id
-  const { data: status } = useCalendarFeedStatus(authStatus === 'authenticated')
+  const { data: status, isFetched: statusSettled } = useCalendarFeedStatus(
+    authStatus === 'authenticated'
+  )
   // The window is read at render, as the panel reads it: the label is as
   // fresh as the surface's last render and does not tick on its own.
   const summary = summarizeCalendar(status, new Date())
@@ -132,22 +134,31 @@ export function SavedShowsCalendarLink({
 
   const setOpen = (next: boolean) => setChoice({ open: next, viewerId })
 
-  // The old fragment points at this link. Runs after the link is in the
+  // The old fragment points at this link. Runs once the link is in the
   // document, which on Library is after its lists have loaded, so the scroll
-  // is not undone by rows arriving above it. Reads and rewrites the URL, an
-  // external system, so an effect.
+  // is not undone by rows arriving above it, and once the status read has
+  // settled (answered or failed), so the label a screen reader announces on
+  // focus is the real one. Takes focus only when nothing holds it: a person
+  // who moved on while the page loaded keeps their place. Reads and rewrites
+  // the URL, an external system, so an effect.
   useEffect(() => {
-    if (!focusesFromHash || hash !== CALENDAR_ARRIVAL_HASH) return
+    if (!focusesFromHash || hash !== CALENDAR_ARRIVAL_HASH || !statusSettled) {
+      return
+    }
     const link = linkRef.current
     if (!link) return
-    link.scrollIntoView({ block: 'center' })
-    link.focus({ preventScroll: true })
+    const focusIsFree =
+      !document.activeElement || document.activeElement === document.body
+    if (focusIsFree) {
+      link.scrollIntoView({ block: 'center' })
+      link.focus({ preventScroll: true })
+    }
     window.history.replaceState(
       null,
       '',
       window.location.pathname + window.location.search
     )
-  }, [focusesFromHash, hash])
+  }, [focusesFromHash, hash, statusSettled])
 
   return (
     <div
@@ -195,9 +206,10 @@ export function SavedShowsCalendarLink({
           align="end"
           // A failed load of the panel's code is not retried in place (the
           // bundler may keep the failure); a fresh Library load fetches it
-          // again and lands on this link, focused, for the person to click.
-          // The arrival opens nothing, so it cannot fail and reload again.
-          onLoadFailed={reloadIntoCalendarPanel}
+          // again and lands on Library's calendar link, focused, for the
+          // person to click. The arrival opens nothing, so it cannot fail and
+          // reload again.
+          onLoadFailed={reloadToCalendarLink}
         />
       ) : null}
     </div>

@@ -17,8 +17,11 @@ const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR
 
 let mockStatus: CalendarFeedStatusResponse | undefined
+// Whether the status read has settled (answered or failed).
+let mockStatusSettled = true
 const statusFromMock = (enabled?: boolean) => ({
   data: enabled ? mockStatus : undefined,
+  isFetched: !!enabled && mockStatusSettled,
 })
 const mockUseCalendarFeedStatus = vi.fn(statusFromMock)
 vi.mock('@/features/auth/hooks/useCalendarFeed', async importOriginal => ({
@@ -71,7 +74,7 @@ import {
   CALENDAR_LINK_LABELS,
   SavedShowsCalendarLink,
 } from './SavedShowsCalendarLink'
-import { reloadIntoCalendarPanel } from './calendarPanelArrival'
+import { reloadToCalendarLink } from './calendarPanelArrival'
 
 function read(
   client: CalendarFeedRead['client'],
@@ -106,6 +109,7 @@ function sizerLabels(container: HTMLElement): string[] {
 
 beforeEach(() => {
   mockStatus = undefined
+  mockStatusSettled = true
   mockViewer = { id: '1' }
   mockPanelProps.mockClear()
   mockUseCalendarFeedStatus.mockReset()
@@ -409,8 +413,48 @@ describe('SavedShowsCalendarLink', () => {
 
       expect(mockPanelProps.mock.lastCall![0]).toMatchObject({
         open: true,
-        onLoadFailed: reloadIntoCalendarPanel,
+        onLoadFailed: reloadToCalendarLink,
       })
+    })
+
+    // Focused with the real label, so a screen reader announces the actual
+    // state rather than the placeholder.
+    it('waits for the status read to settle before focusing', () => {
+      window.history.replaceState(null, '', '/library#calendar-feed')
+      mockStatusSettled = false
+      const { rerender } = renderWithProviders(
+        <SavedShowsCalendarLink placement="section-header" focusesFromHash />
+      )
+      expect(screen.getByRole('button')).not.toHaveFocus()
+      expect(window.location.hash).toBe('#calendar-feed')
+
+      mockStatus = STATUS.connected
+      mockStatusSettled = true
+      rerender(
+        <SavedShowsCalendarLink placement="section-header" focusesFromHash />
+      )
+
+      expect(
+        screen.getByRole('button', { name: 'Calendar: connected' })
+      ).toHaveFocus()
+      expect(window.location.hash).toBe('')
+    })
+
+    it('leaves focus where a person who moved on put it, and still uses up the fragment', () => {
+      window.history.replaceState(null, '', '/library#calendar-feed')
+      const elsewhere = document.createElement('input')
+      document.body.appendChild(elsewhere)
+      elsewhere.focus()
+      try {
+        renderWithProviders(
+          <SavedShowsCalendarLink placement="section-header" focusesFromHash />
+        )
+
+        expect(elsewhere).toHaveFocus()
+        expect(window.location.hash).toBe('')
+      } finally {
+        elsewhere.remove()
+      }
     })
 
     it('is ignored by a link that does not focus from it', () => {

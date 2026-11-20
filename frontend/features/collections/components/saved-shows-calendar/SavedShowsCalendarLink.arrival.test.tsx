@@ -93,16 +93,9 @@ describe('SavedShowsCalendarLink: arriving at the old fragment', () => {
     )
     const link = screen.getByRole('button', { name: 'Add to calendar' })
 
-    expect(link).toHaveFocus()
+    // Focused once the address-free status read has settled.
+    await waitFor(() => expect(link).toHaveFocus())
     expect(link).toHaveAttribute('aria-expanded', 'false')
-    // The status read has run, and settled, by the time this holds.
-    await waitFor(() =>
-      expect(
-        apiRequest.mock.calls.some(([endpoint]) =>
-          String(endpoint).endsWith('/calendar/token/feed-status')
-        )
-      ).toBe(true)
-    )
     await new Promise(resolve => setTimeout(resolve, 50))
     expect(linkRequests()).toEqual([])
     expect(screen.queryByTestId('saved-shows-calendar-panel')).toBeNull()
