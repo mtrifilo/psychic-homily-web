@@ -22,6 +22,7 @@ import {
   statedUpcomingCount,
   venueNextShowFrom,
   venueSnippet,
+  withoutEndedShows,
 } from './entitySnippets'
 import {
   doorsMusicFactSegment,
@@ -663,6 +664,45 @@ describe('statedUpcomingCount', () => {
   })
 })
 
+describe('withoutEndedShows', () => {
+  // 10:00 AM on November 20, 2026 in Phoenix.
+  const NOW = new Date('2026-11-20T17:00:00Z')
+  const PHOENIX = () => ({ state: 'AZ', timezone: 'America/Phoenix' })
+  const row = (event_date: string) => ({ event_date, is_cancelled: false })
+
+  it("drops last night's show and lowers the total by the same count", () => {
+    const lastNight = row('2026-11-20T03:00:00Z') // 8:00 PM Nov 19 in Phoenix
+    const tonight = row('2026-11-21T03:00:00Z') // 8:00 PM Nov 20 in Phoenix
+    expect(withoutEndedShows({ total: 5, shows: [lastNight, tonight] }, PHOENIX, NOW)).toEqual({
+      total: 4,
+      shows: [tonight],
+    })
+  })
+
+  it("keeps a show that started earlier today until the venue's midnight", () => {
+    const matinee = row('2026-11-20T15:00:00Z') // 8:00 AM Nov 20 in Phoenix
+    expect(withoutEndedShows({ total: 1, shows: [matinee] }, PHOENIX, NOW).shows).toEqual([matinee])
+  })
+
+  it("reads each row's day on its own venue's calendar", () => {
+    // 3:00 AM Nov 20 in Phoenix and 7:00 PM Nov 20 in Tokyo. The show is
+    // 11:00 PM Nov 19 in Phoenix (ended) and 3:00 PM Nov 20 in Tokyo (today).
+    const now = new Date('2026-11-20T10:00:00Z')
+    const show = row('2026-11-20T06:00:00Z')
+    expect(withoutEndedShows({ total: 1, shows: [show] }, PHOENIX, now).total).toBe(0)
+    expect(
+      withoutEndedShows({ total: 1, shows: [show] }, () => ({ timezone: 'Asia/Tokyo' }), now).total
+    ).toBe(1)
+  })
+
+  it('drops an unreadable date and never goes below zero', () => {
+    expect(withoutEndedShows({ total: 0, shows: [row('garbage')] }, PHOENIX, NOW)).toEqual({
+      total: 0,
+      shows: [],
+    })
+  })
+})
+
 describe('artistNextShowFrom', () => {
   const row = (overrides: Record<string, unknown> = {}) => ({
     event_date: '2026-12-03T02:00:00Z',
@@ -1047,17 +1087,19 @@ describe('venueSnippet', () => {
     })
 
     it('drops the address to fit the budget', () => {
-      const name = nameOf(100, 'v')
-      expect(
+      const render = (n: number) =>
         venueSnippet({
-          name,
+          name: nameOf(n, 'v'),
           city: 'Phoenix',
           state: 'AZ',
           address: '308 N 2nd Ave',
           currentYear: 2026,
           pastRecord: { years: [{ year: 2026, count: 1 }] },
         }).description
-      ).toBe(`${name} in Phoenix, AZ: 1 past show on record.`)
+      const fits = DESCRIPTION_BUDGET - (charLength(render(1)) - 1)
+      expect(charLength(render(fits))).toBe(DESCRIPTION_BUDGET)
+      expect(render(fits).endsWith('Address: 308 N 2nd Ave.')).toBe(true)
+      expect(render(fits + 1)).toBe(`${nameOf(fits + 1, 'v')} in Phoenix, AZ: 1 past show on record.`)
     })
   })
 
@@ -1070,6 +1112,15 @@ describe('venueSnippet', () => {
       expect(
         venueSnippet({ ...THALIA, pastRecord: { years: [] } }).description
       ).toBe('Thalia Hall is a venue in Chicago, IL. Address: 1807 S Allport St.')
+    })
+
+    it('drops the address to fit the budget', () => {
+      const render = (n: number) =>
+        venueSnippet({ ...THALIA, name: nameOf(n, 'v'), pastRecord: null }).description
+      const fits = DESCRIPTION_BUDGET - (charLength(render(1)) - 1)
+      expect(charLength(render(fits))).toBe(DESCRIPTION_BUDGET)
+      expect(render(fits).endsWith('Address: 1807 S Allport St.')).toBe(true)
+      expect(render(fits + 1)).toBe(`${nameOf(fits + 1, 'v')} is a venue in Chicago, IL.`)
     })
 
     it('drops the place when the room has none', () => {

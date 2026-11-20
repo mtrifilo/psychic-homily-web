@@ -226,7 +226,7 @@ describe('labels/[slug] generateMetadata', () => {
     expect(meta.openGraph?.description).toBe(meta.description)
   })
 
-  it('keeps the title as it was', async () => {
+  it('titles the page `{name} - {city}, {state}`', async () => {
     labelFetch.mockImplementation(async () => jsonBodyResponse(buildLabel({ state: 'England' })))
     const meta = await metadataFor()
     expect(meta.title).toBe('4AD - London, England')

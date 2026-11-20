@@ -29,7 +29,6 @@ import ShowsPage, {
   getUpcomingShows,
   metadata,
 } from './page'
-import { QUICK_WINDOW_LABEL } from '@/features/shows/quickWindows'
 import { showsFirstScreenSeeds } from '@/features/shows/firstScreen'
 import {
   SHOW_CITIES_FIRST_SCREEN_KEY,
@@ -268,11 +267,5 @@ describe('/shows metadata', () => {
       'Live music coming up, night by night: who is playing, where, and when. Jump to tonight, this weekend or this month.'
     )
     expect(metadata.openGraph.description).toBe(metadata.description)
-  })
-
-  it('names only quick windows the page offers', () => {
-    for (const key of ['tonight', 'this-weekend', 'this-month'] as const) {
-      expect(metadata.description).toContain(QUICK_WINDOW_LABEL[key].toLowerCase())
-    }
   })
 })

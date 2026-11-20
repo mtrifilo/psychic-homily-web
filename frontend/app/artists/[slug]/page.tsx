@@ -26,6 +26,7 @@ import {
   artistNextShowFrom,
   artistSnippet,
   statedUpcomingCount,
+  withoutEndedShows,
 } from '@/lib/seo/entitySnippets'
 import { API_BASE_URL } from '@/lib/api-base'
 import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
@@ -112,6 +113,18 @@ const getUpcomingShows = cache((slug: string) =>
   })
 )
 
+/**
+ * The upcoming payload as both the description and the list use it: without
+ * the rows that have provably passed since the read (`withoutPassedShows`), or
+ * null when the read failed or answered for another artist.
+ */
+function upcomingFor(
+  read: ArtistShowsResponse | null,
+  artistId: number
+): ArtistShowsResponse | null {
+  return read?.artist_id === artistId ? withoutPassedShows(read) : null
+}
+
 export async function generateMetadata({ params }: ArtistPageProps): Promise<Metadata> {
   const { slug } = await params
   const [artist, upcomingRead] = await Promise.all([
@@ -120,9 +133,14 @@ export async function generateMetadata({ params }: ArtistPageProps): Promise<Met
   ])
 
   if (artist) {
-    // Rows that answered for another artist describe nothing here.
-    const upcoming =
-      upcomingRead?.artist_id === artist.id ? withoutPassedShows(upcomingRead) : null
+    const listed = upcomingFor(upcomingRead, artist.id)
+    const upcoming = listed
+      ? withoutEndedShows(
+          listed,
+          row => ({ state: row.venue?.state, timezone: row.venue?.timezone }),
+          new Date(),
+        )
+      : null
     const { title, description } = artistSnippet({
       name: artist.name,
       city: artist.city,
@@ -171,7 +189,7 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
   // Both list reads start before the artist is awaited so the three reads
   // overlap. Each resolves to null rather than rejecting, so leaving them in
   // flight through `notFound()` cannot raise an unhandled rejection. The shows
-  // read is the one `generateMetadata` already started for this request.
+  // read is shared with `generateMetadata` through `getUpcomingShows`.
   const upcomingShowsPromise = getUpcomingShows(slug)
   // A 404 here arrives only for an artist the read below found, so it means
   // that artist has no discography to show: it seeds the empty list, and the
@@ -229,13 +247,14 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
   // artists lists none when their read answered for another artist; that list
   // then fetches for itself.
   const listSeeds: QuerySeed[] = []
-  if (upcomingShows?.artist_id === artistData.id) {
+  const upcoming = upcomingFor(upcomingShows, artistData.id)
+  if (upcoming) {
     listSeeds.push({
       queryKey: queryKeys.artists.showsPage(
         artistData.id,
         ARTIST_UPCOMING_SHOWS_REQUEST,
       ),
-      data: withoutPassedShows(upcomingShows),
+      data: upcoming,
     })
   }
   if (releases) {

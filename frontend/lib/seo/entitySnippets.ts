@@ -2,6 +2,7 @@ import { formatLocation, LOCATION_UNKNOWN } from '@/lib/formatLocation'
 import {
   hasReadableStartDate,
   isAnnouncedTimeOfStart,
+  isShowPast,
   type ShowTimingInput,
 } from '@/lib/utils/showTiming'
 import {
@@ -11,7 +12,7 @@ import {
 import { splitBill } from '@/features/shows/utils'
 import { formatShowTime } from '@/lib/utils/formatters'
 import { formatCount } from '@/components/shared/paginationChrome'
-import type { LabelStatus } from '@/features/labels/types'
+import { LABEL_STATUSES, type LabelStatus } from '@/features/labels/types'
 import type { FestivalStatus } from '@/features/festivals/types'
 
 /**
@@ -20,7 +21,7 @@ import type { FestivalStatus } from '@/features/festivals/types'
  * the show page's generated `MusicEvent.description`.
  *
  * Every builder here is pure: the page resolves the entity, hands over plain
- * values, and gets back the two strings it puts in `generateMetadata`. The
+ * values, and gets back the strings it puts in `generateMetadata`. The
  * budgets and the drop order live here so they are testable without a route.
  */
 
@@ -158,6 +159,24 @@ function countedNoun(value: number, singular: string, plural: string): string {
 /** The fields of an upcoming show row the upcoming-count rule reads. */
 interface CancellableRow {
   is_cancelled: boolean
+}
+
+/**
+ * An upcoming payload without the rows whose venue-local day has ended at
+ * `now` (an unreadable date counts as ended), `total` reduced by the same
+ * count, so a description never names or counts last night's show from a
+ * cached read. `zoneOf` gives each row's venue zone inputs.
+ */
+export function withoutEndedShows<Row extends { event_date: string }>(
+  payload: { total: number; shows: ReadonlyArray<Row> },
+  zoneOf: (row: Row) => { state?: string | null; timezone?: string | null },
+  now: Date
+): { total: number; shows: Row[] } {
+  const shows = payload.shows.filter(
+    row => !isShowPast({ eventDate: row.event_date, ...zoneOf(row) }, now)
+  )
+  const ended = payload.shows.length - shows.length
+  return { total: Math.max(0, payload.total - ended), shows }
 }
 
 /**
@@ -643,16 +662,21 @@ export interface LabelSnippetInput {
   releaseCount?: number | null
 }
 
-/** `a label`, or the status that the page's badge shows for one not active. */
+const LABEL_KIND: Readonly<Record<LabelStatus, string>> = {
+  active: 'a label',
+  inactive: 'an inactive label',
+  defunct: 'a defunct label',
+}
+
+/**
+ * `a label`, or the not-active status the page's badge shows. A status outside
+ * `LABEL_STATUSES` reads as `a label`.
+ */
 function labelKind(status: string | null | undefined): string {
-  switch (status?.trim().toLowerCase() as LabelStatus | undefined) {
-    case 'inactive':
-      return 'an inactive label'
-    case 'defunct':
-      return 'a defunct label'
-    default:
-      return 'a label'
-  }
+  const key = status?.trim().toLowerCase()
+  return (LABEL_STATUSES as ReadonlyArray<string | undefined>).includes(key)
+    ? LABEL_KIND[key as LabelStatus]
+    : LABEL_KIND.active
 }
 
 /**
@@ -705,10 +729,11 @@ function parseFestivalDate(value: string | null | undefined): CalendarDate | nul
 
 /**
  * `May 30, 2026`, `Sep 18 to 20, 2026`, `Sep 30 to Oct 2, 2026`, or
- * `Dec 30, 2026 to Jan 2, 2027`: the snippet's own form, joined with "to"
- * where the page's `formatFestivalDateRange` uses a dash. The dates are
- * calendar dates, so no zone is applied. An unreadable end date gives the start date alone; an unreadable
- * start date gives null.
+ * `Dec 30, 2026 to Jan 2, 2027`. This is the snippet's own form, not
+ * `formatFestivalDateRange` (the page's), which joins with a dash and names
+ * only the start year. The dates are calendar dates, so no zone is applied. An
+ * unreadable end date gives the start date alone; an unreadable start date
+ * gives null.
  */
 export function festivalDateRange(
   startDate: string | null | undefined,

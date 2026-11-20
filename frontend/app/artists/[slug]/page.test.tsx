@@ -230,6 +230,28 @@ describe('artists/[slug] generateMetadata', () => {
     expect((await metadataFor()).description).toContain('Upcoming shows: 1.')
   })
 
+  it("neither names nor counts a show whose venue-local day has ended", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      // 10:00 AM on November 20, 2026 in Phoenix; the first row was last night.
+      vi.setSystemTime(new Date('2026-11-20T17:00:00Z'))
+      stubMetadataReads({
+        upcoming: () =>
+          jsonBodyResponse(
+            upcomingBody([
+              artistShow({ event_date: '2026-11-20T03:00:00Z', venue: { id: 9, slug: 'x', name: 'Last Night Hall', city: 'Tucson', state: 'AZ', timezone: 'America/Phoenix' } }),
+              artistShow({ id: 21 }),
+            ]),
+          ),
+      })
+      const { description } = await metadataFor()
+      expect(description).toContain('Next show: The Rebel Lounge, Phoenix, Nov 12. Upcoming shows: 1.')
+      expect(description).not.toContain('Last Night Hall')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('sets the canonical URL to https://psychichomily.com/artists/{slug}', async () => {
     stubMetadataReads()
     expect((await metadataFor()).alternates?.canonical).toBe(

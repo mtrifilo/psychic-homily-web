@@ -61,7 +61,7 @@ describe('festivals/[slug] generateMetadata', () => {
     expect(meta.openGraph?.description).toBe(meta.description)
   })
 
-  it('keeps the title as it was', async () => {
+  it('titles the page `{name} - {city}, {state}`', async () => {
     fetchMock.mockResolvedValueOnce(jsonBodyResponse(buildFestival()))
     const meta = await metadataFor()
     expect(meta.title).toBe('Riot Fest 2026 - Chicago, IL')
