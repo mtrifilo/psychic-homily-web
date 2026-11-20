@@ -27,8 +27,7 @@ func TestParseWorklist_ReadsColumnsByNameAndIgnoresEvidence(t *testing.T) {
 	assert.Equal(t, 2, rows[0].Line)
 	assert.Equal(t, "amity", rows[1].Row.ShowSlug, "cells are trimmed")
 	assert.Empty(t, rows[1].Row.MergeIntoSlug)
-	assert.True(t, rows[2].skip(), "a checked row with no target room is skipped, not refused")
-	assert.Empty(t, rows[2].Refusal)
+	assert.Equal(t, "no target room given", rows[2].Refusal, "a row with no target room is refused")
 }
 
 func TestParseWorklist_LineIsTheFileLineAcrossQuotedNewlines(t *testing.T) {
@@ -54,7 +53,7 @@ func TestParseWorklist_RefusesRowsItCanJudgeWithoutTheDatabase(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rows, 4)
 	assert.Equal(t, "no show slug", rows[0].Refusal)
-	assert.Equal(t, "a merge target is named but no target room", rows[1].Refusal)
+	assert.Equal(t, "no target room given", rows[1].Refusal)
 	assert.Empty(t, rows[2].Refusal)
 	assert.Equal(t, "show already named on line 4", rows[3].Refusal)
 }
@@ -73,12 +72,12 @@ func TestParseWorklist_RejectsAnUnusableFile(t *testing.T) {
 	}
 }
 
-// Rows refused or skipped while parsing never reach the database, and every
-// other row is handed to reattribute in file order.
-func TestRun_ReportsRefusedAndSkippedRowsAndSendsTheRestInOrder(t *testing.T) {
+// Rows refused while parsing never reach the database, and every other row is
+// handed to reattribute in file order.
+func TestRun_ReportsRefusedRowsAndSendsTheRestInOrder(t *testing.T) {
 	rows := []worklistRow{
 		{Line: 2, Row: catalog.ShowReattribution{RoomSlug: "sunshine"}, Refusal: "no show slug"},
-		{Line: 3, Row: catalog.ShowReattribution{ShowSlug: "locked-shut"}, Note: "right room"},
+		{Line: 3, Row: catalog.ShowReattribution{ShowSlug: "locked-shut"}, Refusal: "no target room given", Note: "right room"},
 		{Line: 4, Row: catalog.ShowReattribution{ShowSlug: "cenit", RoomSlug: "el-rey"}},
 		{Line: 5, Row: catalog.ShowReattribution{ShowSlug: "cenit-mezz", RoomSlug: "el-rey", MergeIntoSlug: "cenit"}},
 	}
@@ -94,8 +93,7 @@ func TestRun_ReportsRefusedAndSkippedRowsAndSendsTheRestInOrder(t *testing.T) {
 	})
 
 	assert.Equal(t, []string{"cenit", "cenit-mezz"}, sent)
-	assert.Equal(t, 1, tally.refused)
-	assert.Equal(t, 1, tally.skipped)
+	assert.Equal(t, 2, tally.refused)
 	assert.Equal(t, 1, tally.moved)
 	assert.Equal(t, 1, tally.failed)
 	assert.Contains(t, out.String(), "line 4  WOULD BE MOVED  cenit")
@@ -104,31 +102,36 @@ func TestRun_ReportsRefusedAndSkippedRowsAndSendsTheRestInOrder(t *testing.T) {
 	assert.Contains(t, text, "DRY RUN")
 	assert.Contains(t, text, "line 2  REFUSED")
 	assert.Contains(t, text, "reason: no show slug")
-	assert.Contains(t, text, "line 3  SKIPPED  locked-shut")
+	assert.Contains(t, text, "line 3  REFUSED  locked-shut")
+	assert.Contains(t, text, "reason: no target room given")
 	assert.Contains(t, text, "note: right room")
-	assert.Contains(t, text, "refused:   1")
+	assert.Contains(t, text, "refused:   2")
 }
 
 func TestPrintResult_NamesWhatAMergeKeepsAndWhatItRemoves(t *testing.T) {
 	var out bytes.Buffer
 	printResult(&out, worklistRow{Line: 5}, catalog.ShowReattributionResult{
-		Outcome:           catalog.ReattributionMerged,
-		ShowID:            7,
-		ShowSlug:          "aild-2",
-		Headliner:         "As I Lay Dying",
-		VenueLocalDate:    "2026-11-25",
-		CurrentRoom:       &catalog.ReattributionRoom{Name: "Launchpad", Slug: "launchpad", City: "Albuquerque", State: "NM"},
-		TargetRoom:        &catalog.ReattributionRoom{Name: "Sunshine Theater", Slug: "sunshine", City: "Albuquerque", State: "NM"},
-		MergeIntoID:       3,
-		MergeIntoSlug:     "aild",
-		ActsAddedToWinner: []string{"Kill The Lights"},
+		Outcome:            catalog.ReattributionMerged,
+		ShowID:             7,
+		ShowSlug:           "aild-2",
+		ShowStatus:         "approved",
+		Headliner:          "As I Lay Dying",
+		VenueLocalDate:     "2026-11-25",
+		CurrentRoom:        &catalog.ReattributionRoom{Name: "Launchpad", Slug: "launchpad", City: "Albuquerque", State: "NM"},
+		TargetRoom:         &catalog.ReattributionRoom{Name: "Sunshine Theater", Slug: "sunshine", City: "Albuquerque", State: "NM"},
+		MergeIntoID:        3,
+		MergeIntoSlug:      "aild",
+		MergeIntoStatus:    "approved",
+		MergeIntoHeadliner: "As I Lay Dying",
+		ActsAddedToWinner:  []catalog.ReattributionAct{{Name: "Kill The Lights", SetType: "performer", Position: 1}},
 	}, false)
 
 	text := out.String()
-	assert.Contains(t, text, "line 5  WOULD BE MERGED  aild-2 (show 7, As I Lay Dying, 2026-11-25)")
+	assert.Contains(t, text, "line 5  WOULD BE MERGED  aild-2 (show 7, approved, As I Lay Dying, 2026-11-25)")
 	assert.Contains(t, text, "room: Launchpad [launchpad] (Albuquerque, NM) -> Sunshine Theater [sunshine] (Albuquerque, NM)")
-	assert.Contains(t, text, "merge into: aild (show 3), which keeps its slug; aild-2 stops answering")
-	assert.Contains(t, text, "acts added to aild: Kill The Lights")
+	assert.Contains(t, text, "merge into: aild (show 3, approved, As I Lay Dying)")
+	assert.Contains(t, text, "aild keeps its slug, headliner and bill order; aild-2 stops answering")
+	assert.Contains(t, text, "act added to its bill: Kill The Lights (performer, position 1)")
 }
 
 func TestPrintResult_WarnsAboutAShowAlreadyAtTheTargetThatNight(t *testing.T) {
@@ -137,17 +140,34 @@ func TestPrintResult_WarnsAboutAShowAlreadyAtTheTargetThatNight(t *testing.T) {
 		Outcome:  catalog.ReattributionMoved,
 		ShowSlug: "cenit",
 		SameNightAtTarget: []catalog.ReattributionNeighbour{
-			{ID: 11, Slug: "cenit-mezz", Headliner: "Cenit / The Mezzanine"},
+			{ID: 11, Slug: "cenit-mezz", Headliner: "Cenit / The Mezzanine", Status: "pending"},
 		},
 	}, true)
 
 	text := out.String()
 	assert.Contains(t, text, "line 9  MOVED  cenit")
 	assert.Contains(t, text, "slug: kept as cenit (it names the old room)")
-	assert.Contains(t, text, "WARNING: cenit-mezz (show 11, Cenit / The Mezzanine) is also at the target room that night")
+	assert.Contains(t, text,
+		"WARNING: cenit-mezz (show 11, pending, Cenit / The Mezzanine) is also at the target room that night")
 }
 
-func TestPrintMergeSummary_PrintsEveryCounterAndEveryTable(t *testing.T) {
+func TestPrintResult_ReplacesControlCharactersFromTheDatabase(t *testing.T) {
+	var out bytes.Buffer
+	printResult(&out, worklistRow{Line: 2, Note: "ok\x1b[2K"}, catalog.ShowReattributionResult{
+		Outcome:   catalog.ReattributionRefused,
+		ShowID:    1,
+		ShowSlug:  "x",
+		Headliner: "Act\x1b]0;owned\x07",
+		Reason:    "show not found",
+	}, true)
+
+	text := out.String()
+	assert.NotContains(t, text, "\x1b")
+	assert.NotContains(t, text, "\x07")
+	assert.Contains(t, text, "Act?]0;owned?")
+}
+
+func TestPrintMergeSummary_PrintsEveryCounterTheMergeFillsAndEveryTable(t *testing.T) {
 	var out bytes.Buffer
 	printMergeSummary(&out, &catalog.ShowDedupSummary{
 		LosersMerged:      2,
@@ -159,6 +179,8 @@ func TestPrintMergeSummary_PrintsEveryCounterAndEveryTable(t *testing.T) {
 	assert.Contains(t, text, "LosersMerged:          2")
 	assert.Contains(t, text, "PendingEditsMoved:     3")
 	assert.Contains(t, text, "ShowVenuesSkipped:     0", "a zero counter is printed too")
-	assert.Contains(t, text, "user_bookmarks:        moved=4 dropped=1")
+	assert.NotContains(t, text, "ClustersFound", "a counter this tool never fills is left out")
+	assert.NotContains(t, text, "SlugsRewritten")
+	assert.Contains(t, text, "user_bookmarks:        moved=4 skipped=1")
 	assert.Less(t, strings.Index(text, "comments:"), strings.Index(text, "user_bookmarks:"), "tables in name order")
 }

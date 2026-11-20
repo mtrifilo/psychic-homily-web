@@ -9,12 +9,14 @@ import { APIClient } from "../src/lib/api";
 import * as display from "../src/lib/display";
 
 const plan = (over: Partial<SameNightPlan> = {}): SameNightPlan => ({
-  input: { event_date: "2026-11-25" },
+  input: { event_date: "2026-11-25", city: "Albuquerque", state: "NM" },
   artists: [{ id: 42, name: "As I Lay Dying", set_type: "headliner" }],
   venues: [{ id: 184, name: "Launchpad", city: "Albuquerque", state: "NM" }],
   valid: true,
   ...over,
 });
+
+const abq = { city: "Albuquerque", state: "NM" };
 
 const at = (id: number, name: string, city: string, event_date: string, state = "NM"): ArtistShowForSameNight => ({
   id: id * 10,
@@ -25,14 +27,14 @@ const at = (id: number, name: string, city: string, event_date: string, state = 
 
 describe("sameNightOtherRoomShows", () => {
   test("finds the headliner at another room of the same city that venue-local night", () => {
-    const found = sameNightOtherRoomShows(plan(), "2026-11-25", [
+    const found = sameNightOtherRoomShows(plan(), abq, "2026-11-25", [
       at(954, "Sunshine Theater Albuquerque", "Albuquerque", "2026-11-26T03:00:00Z"),
     ]);
     expect(found.map((s) => s.slug)).toEqual(["show-at-954"]);
   });
 
   test("ignores the same room, another city, another state and another night", () => {
-    const found = sameNightOtherRoomShows(plan(), "2026-11-25", [
+    const found = sameNightOtherRoomShows(plan(), abq, "2026-11-25", [
       at(184, "Launchpad", "Albuquerque", "2026-11-26T03:00:00Z"),
       at(5, "Meow Wolf", "Santa Fe", "2026-11-26T03:00:00Z"),
       at(6, "Elsewhere", "Albuquerque", "2026-11-26T03:00:00Z", "TX"),
@@ -44,13 +46,13 @@ describe("sameNightOtherRoomShows", () => {
   test("reads the night in the other room's zone, not in UTC", () => {
     // 11pm Mountain on the 25th is already the 26th in UTC.
     const late = at(954, "Sunshine Theater Albuquerque", "Albuquerque", "2026-11-26T06:00:00Z");
-    expect(sameNightOtherRoomShows(plan(), "2026-11-25", [late])).toHaveLength(1);
-    expect(sameNightOtherRoomShows(plan(), "2026-11-26", [late])).toHaveLength(0);
+    expect(sameNightOtherRoomShows(plan(), abq, "2026-11-25", [late])).toHaveLength(1);
+    expect(sameNightOtherRoomShows(plan(), abq, "2026-11-26", [late])).toHaveLength(0);
   });
 
   test("compares an unmatched room by name", () => {
     const p = plan({ venues: [{ name: "Launchpad", city: "Albuquerque", state: "NM" }] });
-    const found = sameNightOtherRoomShows(p, "2026-11-25", [
+    const found = sameNightOtherRoomShows(p, abq, "2026-11-25", [
       at(184, "launchpad", "albuquerque", "2026-11-26T03:00:00Z"),
       at(954, "Sunshine Theater Albuquerque", "Albuquerque ", "2026-11-26T03:00:00Z"),
     ]);
@@ -74,7 +76,14 @@ describe("reportSameNightOtherRooms", () => {
     header.mockRestore();
   });
 
-  function client(handler: (path: string, params?: Record<string, string>) => unknown): {
+  /**
+   * A client whose `/venues/{id}` answers from `rooms` (Launchpad in
+   * Albuquerque by default) and whose other reads go to `handler`.
+   */
+  function client(
+    handler: (path: string, params?: Record<string, string>) => unknown,
+    rooms: Record<string, unknown> = { "/venues/184": { id: 184, ...abq } },
+  ): {
     client: APIClient;
     calls: Array<{ path: string; params?: Record<string, string> }>;
   } {
@@ -82,11 +91,14 @@ describe("reportSameNightOtherRooms", () => {
     const c = Object.create(APIClient.prototype) as APIClient;
     (c as unknown as Record<string, unknown>).get = async (path: string, params?: Record<string, string>) => {
       calls.push({ path, params });
+      if (path in rooms) return rooms[path];
       return handler(path, params);
     };
     return { client: c, calls };
   }
   const denver = () => ({ state: "NM", timezone: "America/Denver" });
+  const artistReads = (calls: Array<{ path: string; params?: Record<string, string> }>) =>
+    calls.filter((x) => x.path.startsWith("/artists/"));
 
   test("warns, naming the other show, and asks the headliner's year", async () => {
     const { client: c, calls } = client(() => ({
@@ -96,11 +108,47 @@ describe("reportSameNightOtherRooms", () => {
     await reportSameNightOtherRooms(c, [plan()], denver);
 
     expect(calls).toEqual([
+      { path: "/venues/184", params: undefined },
       { path: "/artists/42/shows", params: { time_filter: "all", year: "2026", limit: "200" } },
     ]);
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain("As I Lay Dying on 2026-11-25 at Launchpad");
     expect(warnings[0]).toContain("Sunshine Theater Albuquerque (show-at-954)");
+  });
+
+  test("a matched room is compared by its stored city, not the one the batch typed", async () => {
+    const { client: c } = client(() => ({
+      shows: [at(954, "Sunshine Theater Albuquerque", "Albuquerque", "2026-11-26T03:00:00Z")],
+      total: 1,
+    }));
+    await reportSameNightOtherRooms(
+      c,
+      [plan({ input: { event_date: "2026-11-25" }, venues: [{ id: 184, name: "Launchpad", city: "ABQ" }] })],
+      denver,
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("already has a show that night at Sunshine Theater Albuquerque");
+  });
+
+  test("a new room with no city of its own uses the show's city", async () => {
+    const { client: c } = client(() => ({
+      shows: [at(954, "Sunshine Theater Albuquerque", "Albuquerque", "2026-11-26T03:00:00Z")],
+      total: 1,
+    }));
+    await reportSameNightOtherRooms(c, [plan({ venues: [{ name: "Launchpad" }] })], denver);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("already has a show that night");
+  });
+
+  test("says not checked when no city is known for the room", async () => {
+    const { client: c, calls } = client(() => ({ shows: [] }));
+    await reportSameNightOtherRooms(
+      c,
+      [plan({ input: { event_date: "2026-11-25" }, venues: [{ name: "Launchpad" }] })],
+      denver,
+    );
+    expect(artistReads(calls)).toEqual([]);
+    expect(warnings).toEqual(["As I Lay Dying on 2026-11-25 at Launchpad: the room's city is not known; not checked"]);
   });
 
   test("uses the stated headliner, not the first act", async () => {
@@ -110,20 +158,27 @@ describe("reportSameNightOtherRooms", () => {
       [plan({ artists: [{ id: 1, name: "Opener" }, { id: 2, name: "Top", is_headliner: true }] })],
       denver,
     );
-    expect(calls.map((x) => x.path)).toEqual(["/artists/2/shows"]);
+    expect(artistReads(calls).map((x) => x.path)).toEqual(["/artists/2/shows"]);
   });
 
   test("a stated role outranks the legacy flag, as in the payload", async () => {
     const { client: c, calls } = client(() => ({ shows: [] }));
     await reportSameNightOtherRooms(
       c,
-      [plan({ artists: [{ id: 1, name: "Opener", set_type: "opener", is_headliner: true }, { id: 2, name: "Top", set_type: "headliner" }] })],
+      [
+        plan({
+          artists: [
+            { id: 1, name: "Opener", set_type: "opener", is_headliner: true },
+            { id: 2, name: "Top", set_type: "headliner" },
+          ],
+        }),
+      ],
       denver,
     );
-    expect(calls.map((x) => x.path)).toEqual(["/artists/2/shows"]);
+    expect(artistReads(calls).map((x) => x.path)).toEqual(["/artists/2/shows"]);
   });
 
-  test("reads each artist's year once across the batch", async () => {
+  test("reads each artist's year and each room once across the batch", async () => {
     const { client: c, calls } = client(() => ({
       shows: [at(954, "Sunshine Theater Albuquerque", "Albuquerque", "2026-11-26T03:00:00Z")],
       total: 1,
@@ -133,7 +188,8 @@ describe("reportSameNightOtherRooms", () => {
       [plan(), plan({ input: { event_date: "2026-11-26" } }), plan({ input: { event_date: "2027-01-05" } })],
       denver,
     );
-    expect(calls.map((x) => x.params?.year)).toEqual(["2026", "2027"]);
+    expect(artistReads(calls).map((x) => x.params?.year)).toEqual(["2026", "2027"]);
+    expect(calls.filter((x) => x.path === "/venues/184")).toHaveLength(1);
     expect(warnings).toHaveLength(1);
   });
 
@@ -165,6 +221,16 @@ describe("reportSameNightOtherRooms", () => {
     const { client: c } = client(() => ({ shows: [], total: 250 }));
     await reportSameNightOtherRooms(c, [plan()], denver);
     expect(warnings[0]).toContain("read 0 of the artist's 250 shows");
+  });
+
+  test("control characters in stored names are replaced", async () => {
+    const { client: c } = client(() => ({
+      shows: [{ ...at(954, "Sunshine\u001b[2K Theater", "Albuquerque", "2026-11-26T03:00:00Z") }],
+      total: 1,
+    }));
+    await reportSameNightOtherRooms(c, [plan()], denver);
+    expect(warnings[0]).toContain("Sunshine?[2K Theater");
+    expect(warnings[0]).not.toContain("\u001b");
   });
 
   // The real call site in submitShows: the dry run asks, a confirmed run does not.

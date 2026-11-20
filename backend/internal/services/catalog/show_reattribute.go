@@ -25,9 +25,11 @@ import (
 //   - A moved show keeps its slug. The slug then names the old room, exactly as
 //     after the admin room edit (replaceShowVenues), and the show's URL keeps
 //     answering.
-//   - A merge is explicit. The named show is the winner and keeps its slug; the
-//     row's show is deleted through MergeDuplicateShow, so its URL stops
-//     answering.
+//   - A merge is explicit. The named show is the winner and keeps its slug,
+//     its headliner and its bill order; the row's show is deleted through
+//     MergeDuplicateShow, so its URL stops answering. Both shows must be
+//     approved: a merge publishes the loser's comments, tags and bill on the
+//     winner, and hides the loser's saves and comments behind a gated winner.
 //   - Every row runs in its own transaction (a savepoint when the caller passes
 //     one in). A caller previews by passing a transaction it rolls back, so a
 //     preview runs exactly the statements a real run does.
@@ -75,6 +77,15 @@ type ReattributionNeighbour struct {
 	ID        uint
 	Slug      string
 	Headliner string
+	Status    catalogm.ShowStatus
+}
+
+// ReattributionAct is one act the merge adds to the winner's bill, with the
+// role and position it lands at.
+type ReattributionAct struct {
+	Name     string
+	SetType  string
+	Position int
 }
 
 // ShowReattributionResult reports one row.
@@ -83,8 +94,9 @@ type ShowReattributionResult struct {
 	// Reason says why a row was refused or failed, or why it was unchanged.
 	Reason string
 
-	ShowID   uint
-	ShowSlug string
+	ShowID     uint
+	ShowSlug   string
+	ShowStatus catalogm.ShowStatus
 	// Headliner is the act the show's slug and page lead with.
 	Headliner   string
 	CurrentRoom *ReattributionRoom
@@ -92,12 +104,14 @@ type ShowReattributionResult struct {
 	// VenueLocalDate is the show's date in the target room's zone.
 	VenueLocalDate string
 
-	MergeIntoID   uint
-	MergeIntoSlug string
-	// ActsAddedToWinner are acts on the merged show's bill that the winner does
-	// not bill yet. MergeDuplicateShow moves them onto the winner with their own
-	// position and role, so a reviewer sees here what the winner's bill becomes.
-	ActsAddedToWinner []string
+	MergeIntoID        uint
+	MergeIntoSlug      string
+	MergeIntoStatus    catalogm.ShowStatus
+	MergeIntoHeadliner string
+	// ActsAddedToWinner are the acts on the merged show's bill that the winner
+	// does not bill yet, as they land: after the winner's last act, with a
+	// headliner role turned into performer.
+	ActsAddedToWinner []ReattributionAct
 	// MergeSummary is set only when Outcome is merged.
 	MergeSummary *ShowDedupSummary
 
@@ -188,6 +202,7 @@ func reattributeInTx(tx *gorm.DB, row ShowReattribution, res *ShowReattributionR
 	}
 	show := locked[showID]
 	res.ShowID = show.ID
+	res.ShowStatus = show.Status
 	if res.Headliner, err = showHeadlinerName(tx, show.ID); err != nil {
 		return err
 	}
@@ -260,6 +275,15 @@ func reattributeInTx(tx *gorm.DB, row ShowReattribution, res *ShowReattributionR
 func mergeIntoCopy(tx *gorm.DB, loser, winner *catalogm.Show, target *catalogm.Venue,
 	localDate string, res *ShowReattributionResult) error {
 	res.MergeIntoID = winner.ID
+	res.MergeIntoStatus = winner.Status
+	var err error
+	if res.MergeIntoHeadliner, err = showHeadlinerName(tx, winner.ID); err != nil {
+		return err
+	}
+	if loser.Status != catalogm.ShowStatusApproved || winner.Status != catalogm.ShowStatusApproved {
+		return refuse("both shows must be approved to merge; the show is %s and the merge target is %s",
+			loser.Status, winner.Status)
+	}
 
 	var atTarget int64
 	if err := tx.Model(&catalogm.ShowVenue{}).
@@ -277,22 +301,56 @@ func mergeIntoCopy(tx *gorm.DB, loser, winner *catalogm.Show, target *catalogm.V
 		return refuse("merge target is on %s and the show is on %s (venue-local)", winnerDate, localDate)
 	}
 
-	added, err := actsMissingFromWinner(tx, loser.ID, winner.ID)
-	if err != nil {
-		return err
-	}
-	res.ActsAddedToWinner = added
-
 	if err := tx.Exec(`DELETE FROM show_venues WHERE show_id = ?`, loser.ID).Error; err != nil {
 		return fmt.Errorf("clear merged show's room: %w", err)
+	}
+	if res.ActsAddedToWinner, err = appendLoserActsToWinnerBill(tx, loser.ID, winner.ID); err != nil {
+		return err
 	}
 	summary := &ShowDedupSummary{}
 	if err := MergeDuplicateShow(tx, winner.ID, loser.ID, summary); err != nil {
 		return fmt.Errorf("merge show %d into %d: %w", loser.ID, winner.ID, err)
 	}
+	if err := stampShowUpdatedAt(tx, winner); err != nil {
+		return err
+	}
 	res.MergeSummary = summary
 	res.Outcome = ReattributionMerged
 	return nil
+}
+
+// appendLoserActsToWinnerBill rewrites, on the loser, the bill rows of acts the
+// winner does not bill, so that MergeDuplicateShow moves them in BEHIND the
+// winner's bill: positions after the winner's last one, in the loser's order,
+// and a headliner role turned into performer. MergeDuplicateShow moves bill
+// rows as they stand, so without this the loser's headliner would arrive as a
+// second headliner at position 0 and could outrank the winner's own. Acts the
+// winner already bills are left alone; the merge keeps the winner's row for
+// them. Runs after the loser's rooms are cleared, so the loser holds no dedup
+// keys these updates could collide with.
+func appendLoserActsToWinnerBill(tx *gorm.DB, loserID, winnerID uint) ([]ReattributionAct, error) {
+	var acts []ReattributionAct
+	if err := tx.Raw(`
+		WITH next AS (
+			SELECT COALESCE(MAX(position), -1) + 1 AS base FROM show_artists WHERE show_id = ?
+		), moving AS (
+			SELECT l.artist_id,
+			       ROW_NUMBER() OVER (ORDER BY l.position, l.artist_id) - 1 AS ord
+			FROM show_artists l
+			WHERE l.show_id = ?
+			  AND NOT EXISTS (SELECT 1 FROM show_artists w WHERE w.show_id = ? AND w.artist_id = l.artist_id)
+		)
+		UPDATE show_artists sa
+		SET position = next.base + moving.ord,
+		    set_type = CASE WHEN sa.set_type = 'headliner' THEN 'performer' ELSE sa.set_type END
+		FROM moving, next, artists a
+		WHERE sa.show_id = ? AND sa.artist_id = moving.artist_id AND a.id = sa.artist_id
+		RETURNING a.name AS name, sa.set_type AS set_type, sa.position AS position
+	`, winnerID, loserID, winnerID, loserID).Scan(&acts).Error; err != nil {
+		return nil, fmt.Errorf("place merged show's acts on show %d: %w", winnerID, err)
+	}
+	sort.Slice(acts, func(i, j int) bool { return acts[i].Position < acts[j].Position })
+	return acts, nil
 }
 
 // showIDBySlug returns 0 with no error when no show has the slug.
@@ -348,21 +406,6 @@ func showHeadlinerName(tx *gorm.DB, showID uint) (string, error) {
 	return names[0], nil
 }
 
-func actsMissingFromWinner(tx *gorm.DB, loserID, winnerID uint) ([]string, error) {
-	var names []string
-	if err := tx.Raw(`
-		SELECT a.name
-		FROM show_artists l
-		JOIN artists a ON a.id = l.artist_id
-		WHERE l.show_id = ?
-		  AND NOT EXISTS (SELECT 1 FROM show_artists w WHERE w.show_id = ? AND w.artist_id = l.artist_id)
-		ORDER BY l.position, a.id
-	`, loserID, winnerID).Scan(&names).Error; err != nil {
-		return nil, fmt.Errorf("compare bills of %d and %d: %w", loserID, winnerID, err)
-	}
-	return names, nil
-}
-
 // showsAtRoomOnLocalDate lists the other shows at a room whose event_date falls
 // on localDate in the room's zone. The SQL window is a coarse bound a day wider
 // than any UTC offset on each side; the exact venue-local comparison is made
@@ -376,11 +419,12 @@ func showsAtRoomOnLocalDate(tx *gorm.DB, room *catalogm.Venue, exceptShowID uint
 	var rows []struct {
 		ID        uint
 		Slug      *string
+		Status    catalogm.ShowStatus
 		EventDate time.Time
 		Headliner *string
 	}
 	if err := tx.Raw(`
-		SELECT s.id, s.slug, s.event_date, h.name AS headliner
+		SELECT s.id, s.slug, s.status, s.event_date, h.name AS headliner
 		FROM shows s
 		JOIN show_venues sv ON sv.show_id = s.id
 		LEFT JOIN LATERAL (
@@ -402,7 +446,7 @@ func showsAtRoomOnLocalDate(tx *gorm.DB, room *catalogm.Venue, exceptShowID uint
 			continue
 		}
 		out = append(out, ReattributionNeighbour{
-			ID: r.ID, Slug: shared.DerefOrEmpty(r.Slug), Headliner: shared.DerefOrEmpty(r.Headliner)})
+			ID: r.ID, Slug: shared.DerefOrEmpty(r.Slug), Headliner: shared.DerefOrEmpty(r.Headliner), Status: r.Status})
 	}
 	return out, nil
 }

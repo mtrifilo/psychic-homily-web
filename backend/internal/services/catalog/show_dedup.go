@@ -487,6 +487,16 @@ func FindShowDedupClusters(db *gorm.DB) ([]ShowDedupCluster, error) {
 // loser's row is dropped and the winner's pre-existing row survives. This
 // matches the tag_merge.go pattern.
 //
+// Precondition: every room the loser lists is one the winner lists too, or the
+// loser lists none. The show_venues re-point below moves any other room onto
+// the winner as an extra room, and the bill move is safe only because the
+// loser's rooms collapse into the winner's first (see showFKColumns). A
+// duplicate cluster meets this by sharing its room; the show reattribution
+// (show_reattribute.go) meets it by clearing the loser's rooms before calling.
+// The loser's venue_show_alert_batch rows keep their venue_id and move onto
+// the winner; every query that lists a batch's shows joins show_venues on that
+// venue, so a row whose venue the winner does not list names no show.
+//
 // The steps run in the order of the inventory at the top of this file: foreign
 // keys to shows.id first, then the two history tables that require a provenance
 // decision, then the shared polymorphic inventory, then the delete. Only the

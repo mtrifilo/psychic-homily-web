@@ -29,12 +29,6 @@ type worklistRow struct {
 	Refusal string
 }
 
-// skip reports a row the reviewer checked and left in place: no target room and
-// nothing refused. It is reported, never sent on.
-func (r worklistRow) skip() bool {
-	return r.Refusal == "" && r.Row.RoomSlug == ""
-}
-
 // parseWorklist reads the whole worklist. An error means the FILE is unusable
 // (no header, a required column missing, malformed CSV) and nothing should run.
 // Problems with a single row are recorded on that row instead.
@@ -97,8 +91,8 @@ func parseWorklist(r io.Reader) ([]worklistRow, error) {
 			continue
 		case row.Row.ShowSlug == "":
 			row.Refusal = "no show slug"
-		case row.Row.RoomSlug == "" && row.Row.MergeIntoSlug != "":
-			row.Refusal = "a merge target is named but no target room"
+		case row.Row.RoomSlug == "":
+			row.Refusal = "no target room given"
 		}
 		if row.Row.ShowSlug != "" {
 			// A show named twice is refused on every row after the first, so

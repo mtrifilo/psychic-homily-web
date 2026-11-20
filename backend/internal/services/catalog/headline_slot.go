@@ -62,12 +62,15 @@ import (
 //     position, so they already prefer curation and, unlike a classification
 //     predicate, name an act whenever the bill has one at all (on an
 //     artist-less show they degrade to '' or omit the show rather than
-//     reporting "no headline slot"). Four sites, in two shapes:
+//     reporting "no headline slot"). Four sites, in two shapes (plus the
+//     show reattribution's reads, which share RecanonicaliseShowSlug's clause):
 //
 //     tag_service.enrichShows, explore.headlinerNameByShow, and
 //     show_dedup.RecanonicaliseShowSlug RANK the bill. The last one's clause is
 //     the constant showBillHeadlinerRank, which the show reattribution's
-//     headliner reads (show_reattribute.go) share. The required shape is
+//     headliner reads (show_reattribute.go) share; the reattribution suite
+//     pins its rank arm with a curated headliner at position 1, which covers
+//     RecanonicaliseShowSlug's copy of the clause too. The required shape is
 //     rank, then position, then a stable id:
 //
 //     CASE WHEN set_type = 'headliner' THEN 0 ELSE 1 END, position ASC, <id> ASC

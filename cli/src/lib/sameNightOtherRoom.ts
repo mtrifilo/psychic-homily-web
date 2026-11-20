@@ -12,12 +12,12 @@ import { statedSlot } from "./setType";
  * of them: the copy at the other room is usually the real one. It is also
  * legitimate (an in-store and a gig, two sets), so this never refuses and never
  * rewrites. It prints a warning naming the other show and leaves the call to
- * the reviewer.
+ * the reviewer, and it says so when a plan could not be checked.
  */
 
 /** The part of a show plan this check reads. */
 export interface SameNightPlan {
-  input: { event_date: string };
+  input: { event_date: string; city?: string; state?: string };
   artists: Array<{ id?: number; name: string; is_headliner?: boolean; set_type?: string }>;
   venues: Array<{ id?: number; name: string; city?: string; state?: string }>;
   valid: boolean;
@@ -30,6 +30,12 @@ export interface ArtistShowForSameNight {
   slug?: string;
   event_date: string;
   venue?: { id: number; name: string; city?: string; state?: string; timezone?: string | null } | null;
+}
+
+/** The city a plan's room is in, as the comparison reads it. */
+export interface RoomCity {
+  city: string;
+  state: string;
 }
 
 /** The most shows `GET /artists/{id}/shows` returns in one page. */
@@ -48,15 +54,19 @@ interface ArtistYearPage {
   total: number;
 }
 
-const fold = (s: string | undefined) => (s ?? "").trim().toLowerCase();
+const fold = (s: string | undefined | null) => (s ?? "").trim().toLowerCase();
+
+/** Replaces control characters, so a stored name cannot rewrite the terminal. */
+const clean = (s: string) => s.replace(/\p{Cc}/gu, "?");
 
 /**
- * The shows in `shows` that sit at another room of the plan's city on the
- * plan's venue-local `day`. Each existing show's day is read in its own room's
- * zone, which is how the site dates it.
+ * The shows in `shows` that sit at another room of `roomCity` on the plan's
+ * venue-local `day`. Each existing show's day is read in its own room's zone,
+ * which is how the site dates it.
  */
 export function sameNightOtherRoomShows(
   plan: SameNightPlan,
+  roomCity: RoomCity,
   day: string,
   shows: ArtistShowForSameNight[],
 ): ArtistShowForSameNight[] {
@@ -66,7 +76,7 @@ export function sameNightOtherRoomShows(
     const venue = show.venue;
     if (!venue) return false;
     if (room.id !== undefined ? venue.id === room.id : fold(venue.name) === fold(room.name)) return false;
-    if (fold(venue.city) !== fold(room.city) || fold(venue.state) !== fold(room.state)) return false;
+    if (fold(venue.city) !== fold(roomCity.city) || fold(venue.state) !== fold(roomCity.state)) return false;
     const zone = resolveVenueTimezone(venue.state, venue.timezone ?? undefined);
     return readEventDate(show.event_date, zone)?.day === day;
   });
@@ -76,6 +86,10 @@ export function sameNightOtherRoomShows(
  * Prints the check for every valid plan that is about to be created. `zoneOf`
  * is the zone the plan's own date is read in, so the night compared is the
  * night the show will be stored on.
+ *
+ * A matched room is compared by the city and state stored on it, read once per
+ * room; a room this run would create, by the city the batch gives it, else the
+ * show's own.
  */
 export async function reportSameNightOtherRooms<P extends SameNightPlan>(
   client: APIClient,
@@ -83,8 +97,8 @@ export async function reportSameNightOtherRooms<P extends SameNightPlan>(
   zoneOf: (plan: P) => { state?: string; timezone?: string },
 ): Promise<void> {
   const lines: string[] = [];
-  // One read per artist and year: a residency or a repeated act is many plans
-  // over the same page.
+  // One read per artist and year, and one per matched room: a residency or a
+  // repeated act is many plans over the same pages.
   const pages = new Map<string, Promise<ArtistYearPage>>();
   const pageFor = (artistId: number, year: string) => {
     const key = `${artistId}:${year}`;
@@ -101,35 +115,55 @@ export async function reportSameNightOtherRooms<P extends SameNightPlan>(
     }
     return page;
   };
+  const storedRooms = new Map<number, Promise<{ city?: string; state?: string }>>();
+  const storedRoom = (id: number) => {
+    let room = storedRooms.get(id);
+    if (!room) {
+      room = client.get<{ city?: string; state?: string }>(`/venues/${id}`).then((r) => r ?? {});
+      storedRooms.set(id, room);
+    }
+    return room;
+  };
+
   for (const plan of plans) {
     if (!plan.valid || plan.duplicate?.isDuplicate) continue;
     const headliner = headlinerOf(plan);
     const room = plan.venues[0];
-    // A headliner or room this run would create has no shows to compare with.
+    // A headliner this run would create has no shows yet; a room this run would
+    // create is still compared, by name and by the city the batch gives it.
     if (headliner?.id === undefined || !room) continue;
 
     const zone = zoneOf(plan);
     const day = readEventDate(plan.input.event_date, resolveVenueTimezone(zone.state, zone.timezone))?.day;
     if (!day) continue;
+    const label = `${clean(headliner.name)} on ${day} at ${clean(room.name)}`;
 
     let shows: ArtistShowForSameNight[];
+    let roomCity: RoomCity;
     try {
+      const stated = room.id !== undefined ? await storedRoom(room.id) : room;
+      roomCity = {
+        city: stated.city?.trim() || plan.input.city?.trim() || "",
+        state: stated.state?.trim() || plan.input.state?.trim() || "",
+      };
+      if (!roomCity.city || !roomCity.state) {
+        lines.push(`${label}: the room's city is not known; not checked`);
+        continue;
+      }
       const page = await pageFor(headliner.id, day.slice(0, 4));
       shows = page.shows;
       if (page.total > shows.length) {
-        lines.push(
-          `${headliner.name} on ${day}: read ${shows.length} of the artist's ${page.total} shows that year; the rest were not checked`,
-        );
+        lines.push(`${label}: read ${shows.length} of the artist's ${page.total} shows that year; the rest were not checked`);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
-      lines.push(`${headliner.name} on ${day}: could not read the artist's shows (${message}); not checked`);
+      lines.push(`${label}: could not read the artist's shows or the room (${clean(message)}); not checked`);
       continue;
     }
-    for (const other of sameNightOtherRoomShows(plan, day, shows)) {
+    for (const other of sameNightOtherRoomShows(plan, roomCity, day, shows)) {
       lines.push(
-        `${headliner.name} on ${day} at ${room.name}: already has a show that night at ${other.venue!.name}` +
-          ` (${other.slug || `ID ${other.id}`}); check which room the event is in`,
+        `${label}: already has a show that night at ${clean(other.venue!.name)}` +
+          ` (${other.slug ? clean(other.slug) : `ID ${other.id}`}); check which room the event is in`,
       );
     }
   }
