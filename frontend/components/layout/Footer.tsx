@@ -6,6 +6,7 @@ import { useCookieConsent } from '@/lib/context/CookieConsentContext'
 import { cn } from '@/lib/utils'
 import { isFooterHiddenBelowXl } from './footerVisibility'
 import { PRIVACY_HREF, TERMS_HREF, navGroupLabelClassName } from './nav/navData'
+import { NoSnippet } from '@/components/shared/NoSnippet'
 
 /**
  * Footer (PSY-389) — the editorial site footer from the Navigation & Discovery
@@ -92,7 +93,7 @@ export default function Footer() {
               </span>
             </div>
             <p className="text-[13px] text-muted-foreground">
-              Your music knowledge graph.
+              <NoSnippet>Your music knowledge graph.</NoSnippet>
             </p>
           </div>
 

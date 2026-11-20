@@ -17,6 +17,7 @@ import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
 import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity, seedFirstScreen, type QuerySeed } from '@/lib/query-hydration'
+import { labelDescription } from '@/lib/seo/entitySnippets'
 import { unpadNumericId } from '@/lib/utils/unpadNumericId'
 
 interface LabelPageProps {
@@ -64,15 +65,24 @@ export async function generateMetadata({
   if (label) {
     const locationSuffix =
       label.city && label.state ? ` - ${label.city}, ${label.state}` : ''
+    const description = labelDescription({
+      name: label.name,
+      city: label.city,
+      state: label.state,
+      foundedYear: label.founded_year,
+      status: label.status,
+      artistCount: label.artist_count,
+      releaseCount: label.release_count,
+    })
     return {
       title: `${label.name}${locationSuffix}`,
-      description: `${label.name}${locationSuffix} - label details on Psychic Homily`,
+      description,
       alternates: {
         canonical: `https://psychichomily.com/labels/${slug}`,
       },
       openGraph: {
         title: `${label.name}${locationSuffix}`,
-        description: `View details for ${label.name}`,
+        description,
         type: 'website',
         url: `/labels/${slug}`,
       },

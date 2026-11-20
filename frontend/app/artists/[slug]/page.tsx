@@ -22,7 +22,11 @@ import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
 import { withoutPassedShows } from '@/lib/ssr/withoutPassedShows'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicGroupSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
-import { artistSnippet } from '@/lib/seo/entitySnippets'
+import {
+  artistNextShowFrom,
+  artistSnippet,
+  statedUpcomingCount,
+} from '@/lib/seo/entitySnippets'
 import { API_BASE_URL } from '@/lib/api-base'
 import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
 import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
@@ -86,15 +90,47 @@ const getArtist = cache(async (slug: string): Promise<Artist | null> => {
   return null
 })
 
+/**
+ * The artist's upcoming shows, wrapped with `React.cache()` so
+ * `generateMetadata` (the description's next show and count) and the page body
+ * (the list's server seed) share ONE backend fetch per request. The fetch
+ * carries an abort signal, which opts it out of Next's own request dedupe, so
+ * this wrapper is what keeps the two callers to one request.
+ *
+ * Revalidated every `CURRENT_PERIOD_REVALIDATE` because each row carries
+ * cancelled and sold-out state; that window does not bound the age of what a
+ * render receives (see `withoutPassedShows`).
+ */
+const getUpcomingShows = cache((slug: string) =>
+  fetchListPayload<ArtistShowsResponse>({
+    url: artistUpcomingShowsUrl(slug),
+    collection: 'shows',
+    service: 'artist-page-upcoming-shows',
+    pathFamily: '/artists/{slug}/shows',
+    notFoundIsAnswer: true,
+    revalidateSeconds: CURRENT_PERIOD_REVALIDATE,
+  })
+)
+
 export async function generateMetadata({ params }: ArtistPageProps): Promise<Metadata> {
   const { slug } = await params
-  const artist = await getArtist(slug)
+  const [artist, upcomingRead] = await Promise.all([
+    getArtist(slug),
+    getUpcomingShows(slug),
+  ])
 
   if (artist) {
+    // Rows that answered for another artist describe nothing here.
+    const upcoming =
+      upcomingRead?.artist_id === artist.id ? withoutPassedShows(upcomingRead) : null
     const { title, description } = artistSnippet({
       name: artist.name,
       city: artist.city,
       state: artist.state,
+      nextShow: upcoming ? artistNextShowFrom(upcoming.shows) : null,
+      upcomingCount: statedUpcomingCount(upcoming),
+      releaseCount: artist.stats?.releases,
+      similarArtistCount: artist.stats?.similar_artists,
     })
     return {
       title,
@@ -135,17 +171,8 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
   // Both list reads start before the artist is awaited so the three reads
   // overlap. Each resolves to null rather than rejecting, so leaving them in
   // flight through `notFound()` cannot raise an unhandled rejection. The shows
-  // read is revalidated every `CURRENT_PERIOD_REVALIDATE` because each row
-  // carries cancelled and sold-out state; that window does not bound the age of
-  // what a render receives (see `withoutPassedShows` below).
-  const upcomingShowsPromise = fetchListPayload<ArtistShowsResponse>({
-    url: artistUpcomingShowsUrl(slug),
-    collection: 'shows',
-    service: 'artist-page-upcoming-shows',
-    pathFamily: '/artists/{slug}/shows',
-    notFoundIsAnswer: true,
-    revalidateSeconds: CURRENT_PERIOD_REVALIDATE,
-  })
+  // read is the one `generateMetadata` already started for this request.
+  const upcomingShowsPromise = getUpcomingShows(slug)
   // A 404 here arrives only for an artist the read below found, so it means
   // that artist has no discography to show: it seeds the empty list, and the
   // section renders as it does for an artist with no releases.

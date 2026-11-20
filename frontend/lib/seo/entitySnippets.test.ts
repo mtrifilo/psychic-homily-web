@@ -5,9 +5,13 @@ import {
   DESCRIPTION_BUDGET,
   SITE_TITLE_SUFFIX,
   TITLE_BUDGET,
+  artistNextShowFrom,
   artistSnippet,
+  festivalDateRange,
+  festivalDescription,
   fitDescription,
   fitTitle,
+  labelDescription,
   releaseArtistPhrase,
   releaseSnippet,
   showEventDescription,
@@ -15,6 +19,7 @@ import {
   type ShowEventDescriptionInput,
   snippetMonthDay,
   snippetPlace,
+  statedUpcomingCount,
   venueNextShowFrom,
   venueSnippet,
 } from './entitySnippets'
@@ -628,129 +633,482 @@ describe('showEventDescription', () => {
   })
 })
 
+/** Code points, as the budgets count them. */
+function charLength(text: string): number {
+  return Array.from(text).length
+}
+
+/** A name of `n` code points, for budget tests. */
+function nameOf(n: number, letter = 'n'): string {
+  return letter.repeat(n)
+}
+
+describe('statedUpcomingCount', () => {
+  const live = { is_cancelled: false }
+  const called = { is_cancelled: true }
+
+  it('states the payload total when a listed show is not cancelled', () => {
+    expect(statedUpcomingCount({ total: 3, shows: [called, live] })).toBe(3)
+  })
+
+  it('states nothing when every listed show is cancelled', () => {
+    expect(statedUpcomingCount({ total: 2, shows: [called, called] })).toBeNull()
+  })
+
+  it('states nothing for no rows, a zero total or no payload', () => {
+    expect(statedUpcomingCount({ total: 4, shows: [] })).toBeNull()
+    expect(statedUpcomingCount({ total: 0, shows: [live] })).toBeNull()
+    expect(statedUpcomingCount(null)).toBeNull()
+    expect(statedUpcomingCount(undefined)).toBeNull()
+  })
+})
+
+describe('artistNextShowFrom', () => {
+  const row = (overrides: Record<string, unknown> = {}) => ({
+    event_date: '2026-12-03T02:00:00Z',
+    is_cancelled: false,
+    venue: {
+      name: 'Lincoln Hall',
+      city: 'Chicago',
+      state: 'IL',
+      timezone: 'America/Chicago',
+    },
+    ...overrides,
+  })
+
+  it('names the first show that is on, on its venue calendar', () => {
+    expect(
+      artistNextShowFrom([
+        row({ is_cancelled: true, venue: { name: 'Called Off', city: 'X' } }),
+        row({ event_date: 'garbage', venue: { name: 'Undated', city: 'X' } }),
+        row(),
+      ])
+    ).toEqual({
+      venue: 'Lincoln Hall',
+      venueCity: 'Chicago',
+      timing: {
+        eventDate: '2026-12-03T02:00:00Z',
+        state: 'IL',
+        timezone: 'America/Chicago',
+      },
+    })
+  })
+
+  it('names no later show when the next one has no venue', () => {
+    expect(artistNextShowFrom([row({ venue: null }), row()])).toBeNull()
+    expect(artistNextShowFrom([row({ venue: { name: '  ' } }), row()])).toBeNull()
+  })
+
+  it('is null for an empty or all-cancelled list', () => {
+    expect(artistNextShowFrom([])).toBeNull()
+    expect(artistNextShowFrom([row({ is_cancelled: true })])).toBeNull()
+  })
+})
+
 describe('artistSnippet', () => {
-  it('puts the location in the title and the description when there is one', () => {
-    const { title, description } = artistSnippet({
-      name: 'Headliner Band',
-      city: 'Phoenix',
-      state: 'AZ',
-    })
-    expect(title).toBe('Headliner Band · Phoenix, AZ')
+  const NEXT = {
+    venue: 'Lincoln Hall',
+    venueCity: 'Chicago',
+    timing: {
+      eventDate: '2026-12-03T02:00:00Z',
+      state: 'IL',
+      timezone: 'America/Chicago',
+    },
+  }
+  const POKEY = {
+    name: 'Pokey LaFarge',
+    city: 'Bloomington',
+    state: 'MN',
+    nextShow: NEXT,
+    upcomingCount: 2,
+    releaseCount: 9,
+    similarArtistCount: 14,
+  }
+
+  it('renders every sentence for an artist with shows coming', () => {
+    const { title, description } = artistSnippet(POKEY)
+    expect(title).toBe('Pokey LaFarge · Bloomington, MN')
     expect(description).toBe(
-      'Headliner Band from Phoenix, AZ: shows, similar artists and connections on Psychic Homily'
+      'Pokey LaFarge from Bloomington, MN. Next show: Lincoln Hall, Chicago, Dec 2. Upcoming shows: 2. Releases: 9. Similar artists: 14.'
     )
   })
 
-  it('renders the board row 2 strings for an artist with no location', () => {
+  it('drops `from` when there is no location', () => {
     const { title, description } = artistSnippet({
-      name: 'Cape Fury',
-      city: null,
-      state: null,
+      name: 'Ben Watt and Tracey Thorn',
+      nextShow: { ...NEXT, venue: 'Moth Club', venueCity: 'London' },
+      upcomingCount: 3,
+      releaseCount: 0,
+      similarArtistCount: 0,
     })
-    expect(title).toBe('Cape Fury')
+    expect(title).toBe('Ben Watt and Tracey Thorn')
     expect(description).toBe(
-      'Cape Fury: shows, similar artists and connections on Psychic Homily'
+      'Ben Watt and Tracey Thorn. Next show: Moth Club, London, Dec 2. Upcoming shows: 3.'
     )
   })
 
-  it('names the city alone when there is no state', () => {
-    const { title } = artistSnippet({ name: 'Band', city: 'Melbourne', state: null })
-    expect(title).toBe('Band · Melbourne')
+  it('says nothing about shows for an artist with none coming', () => {
+    expect(
+      artistSnippet({
+        name: 'The Body',
+        city: 'Little Rock',
+        state: 'AR',
+        nextShow: null,
+        upcomingCount: null,
+        releaseCount: 34,
+        similarArtistCount: 4,
+      }).description
+    ).toBe('The Body from Little Rock, AR. Releases: 34. Similar artists: 4.')
+  })
+
+  it('leaves the lead alone when nothing is on record', () => {
+    expect(artistSnippet({ name: 'Uniform', city: 'New York', state: 'NY' }).description).toBe(
+      'Uniform from New York, NY.'
+    )
+    expect(
+      artistSnippet({
+        name: 'Uniform',
+        upcomingCount: 0,
+        releaseCount: 0,
+        similarArtistCount: 0,
+      }).description
+    ).toBe('Uniform.')
+  })
+
+  it('names the venue alone when it has no city', () => {
+    expect(
+      artistSnippet({ name: 'Band', nextShow: { ...NEXT, venueCity: null }, upcomingCount: 1 })
+        .description
+    ).toBe('Band. Next show: Lincoln Hall, Dec 2. Upcoming shows: 1.')
+  })
+
+  it('omits the next show when its date is unreadable', () => {
+    expect(
+      artistSnippet({
+        name: 'Band',
+        nextShow: { ...NEXT, timing: { eventDate: 'garbage' } },
+        upcomingCount: 1,
+      }).description
+    ).toBe('Band. Upcoming shows: 1.')
+  })
+
+  it('groups counts in en-US form', () => {
+    expect(
+      artistSnippet({ name: 'Band', releaseCount: 1234, similarArtistCount: 1 }).description
+    ).toBe('Band. Releases: 1,234. Similar artists: 1.')
+  })
+
+  it('ignores counts that are not positive whole numbers', () => {
+    expect(
+      artistSnippet({ name: 'Band', releaseCount: -2, similarArtistCount: 1.5, upcomingCount: Number.NaN })
+        .description
+    ).toBe('Band.')
+  })
+
+  it('never states shows tracked', () => {
+    expect(artistSnippet(POKEY).description).not.toMatch(/tracked/i)
+  })
+
+  describe('drops sentences from the end to fit the budget', () => {
+    // Everything after the lead is 92 code points, so a name of n code points
+    // gives n + 1 + 92: Similar artists (20 + space) goes first, then Releases
+    // (12 + space), then Upcoming shows (18 + space), then Next show.
+    const fixed = charLength(artistSnippet({ ...POKEY, name: '', city: null, state: null }).description) - 1
+    const render = (n: number) =>
+      artistSnippet({ ...POKEY, name: nameOf(n), city: null, state: null }).description
+
+    it('keeps every sentence at exactly the budget', () => {
+      const n = DESCRIPTION_BUDGET - fixed - 1
+      expect(charLength(render(n))).toBe(DESCRIPTION_BUDGET)
+      expect(render(n).endsWith('Similar artists: 14.')).toBe(true)
+    })
+
+    it('drops Similar artists first', () => {
+      const text = render(DESCRIPTION_BUDGET - fixed)
+      expect(text.endsWith('Releases: 9.')).toBe(true)
+    })
+
+    it('then Releases', () => {
+      const text = render(DESCRIPTION_BUDGET - fixed + 21)
+      expect(text.endsWith('Upcoming shows: 2.')).toBe(true)
+    })
+
+    it('then Upcoming shows', () => {
+      const text = render(DESCRIPTION_BUDGET - fixed + 21 + 13)
+      expect(text.endsWith('Next show: Lincoln Hall, Chicago, Dec 2.')).toBe(true)
+    })
+
+    it('then Next show, leaving the lead', () => {
+      const n = DESCRIPTION_BUDGET - fixed + 21 + 13 + 19
+      expect(render(n)).toBe(`${nameOf(n)}.`)
+    })
+
+    it('cuts a lead that is over budget by itself', () => {
+      const text = render(200)
+      expect(charLength(text)).toBe(DESCRIPTION_BUDGET)
+      expect(text.endsWith('...')).toBe(true)
+    })
+  })
+
+  it('names the city alone in the title when there is no state', () => {
+    expect(artistSnippet({ name: 'Band', city: 'Melbourne', state: null }).title).toBe(
+      'Band · Melbourne'
+    )
   })
 
   it('drops the location from the title when it does not fit', () => {
     const name = 'x'.repeat(35)
-    const { title, description } = artistSnippet({
-      name,
-      city: 'San Francisco',
-      state: 'CA',
-    })
+    const { title, description } = artistSnippet({ name, city: 'San Francisco', state: 'CA' })
     expect(title).toBe(name)
-    expect(description).toContain('from San Francisco, CA')
-  })
-
-  it('keeps the description within budget for a long name', () => {
-    const { description } = artistSnippet({
-      name: 'n'.repeat(150),
-      city: 'Phoenix',
-      state: 'AZ',
-    })
-    expect(Array.from(description)).toHaveLength(DESCRIPTION_BUDGET)
-    expect(description.endsWith('...')).toBe(true)
+    expect(description).toBe(`${name} from San Francisco, CA.`)
   })
 })
 
 describe('venueSnippet', () => {
-  const LOST_BAG = { name: 'Lost Bag', city: 'Providence', state: 'RI' }
-  const HELENE = {
-    headliner: 'Hélène Barbier',
+  const THALIA = {
+    name: 'Thalia Hall',
+    city: 'Chicago',
+    state: 'IL',
+    address: '1807 S Allport St',
+    currentYear: 2026,
+  }
+  const SQUIRREL = {
+    headliner: 'Squirrel Flower',
     timing: {
-      eventDate: '2026-10-04T00:00:00Z',
-      state: 'RI',
-      timezone: 'America/New_York',
+      eventDate: '2026-11-21T02:00:00Z',
+      state: 'IL',
+      timezone: 'America/Chicago',
     },
   }
+  const PAST = { years: [{ year: 2026, count: 50 }, { year: 2025, count: 6 }] }
 
-  it('renders the board row 3 strings with the blessed Next wording', () => {
-    const { title, description } = venueSnippet({ ...LOST_BAG, nextShow: HELENE })
-    expect(title).toBe('Lost Bag · Providence, RI')
-    expect(titleLength(title)).toBe(42)
-    expect(description).toBe(
-      'Upcoming shows at Lost Bag in Providence, RI. Next: Hélène Barbier, Oct 3.'
-    )
-  })
-
-  it('marks the Next date when the venue zone is a guess', () => {
-    const { description } = venueSnippet({
-      name: 'Room',
-      city: 'Toronto',
-      state: 'ON',
-      nextShow: {
-        headliner: 'Band',
-        timing: { eventDate: '2026-09-12T03:00:00Z', state: 'ON' },
-      },
+  describe('a room with shows coming', () => {
+    it('renders every sentence', () => {
+      const { title, description } = venueSnippet({
+        ...THALIA,
+        upcomingCount: 7,
+        nextShow: SQUIRREL,
+        pastRecord: PAST,
+      })
+      expect(title).toBe('Thalia Hall shows · Chicago, IL')
+      expect(description).toBe(
+        '7 upcoming shows at Thalia Hall in Chicago, IL. Next: Squirrel Flower, Nov 20. 56 past shows on record since 2025. Address: 1807 S Allport St.'
+      )
     })
-    expect(description).toBe('Upcoming shows at Room in Toronto, ON. Next: Band, ~Sep 11.')
-  })
 
-  it('omits the Next clause when there is no next show', () => {
-    const { description } = venueSnippet({ ...LOST_BAG, nextShow: null })
-    expect(description).toBe('Upcoming shows at Lost Bag in Providence, RI.')
-  })
-
-  it('omits the Next clause when the next show has no parseable date', () => {
-    const { description } = venueSnippet({
-      ...LOST_BAG,
-      nextShow: { headliner: 'Band', timing: { eventDate: 'garbage' } },
+    it('uses the singular for one show and one past show', () => {
+      expect(
+        venueSnippet({
+          ...THALIA,
+          address: null,
+          upcomingCount: 1,
+          nextShow: SQUIRREL,
+          pastRecord: { years: [{ year: 2026, count: 1 }] },
+        }).description
+      ).toBe(
+        '1 upcoming show at Thalia Hall in Chicago, IL. Next: Squirrel Flower, Nov 20. 1 past show on record.'
+      )
     })
-    expect(description).toBe('Upcoming shows at Lost Bag in Providence, RI.')
-  })
 
-  it('omits the place when the venue has none', () => {
-    const { title, description } = venueSnippet({
-      name: 'Lost Bag',
-      city: '',
-      state: '',
-      nextShow: null,
+    it('omits Next when there is no next show or its date is unreadable', () => {
+      expect(
+        venueSnippet({ ...THALIA, address: null, upcomingCount: 2, nextShow: null }).description
+      ).toBe('2 upcoming shows at Thalia Hall in Chicago, IL.')
+      expect(
+        venueSnippet({
+          ...THALIA,
+          address: null,
+          upcomingCount: 2,
+          nextShow: { headliner: 'Band', timing: { eventDate: 'garbage' } },
+        }).description
+      ).toBe('2 upcoming shows at Thalia Hall in Chicago, IL.')
     })
-    expect(title).toBe('Lost Bag')
-    expect(description).toBe('Upcoming shows at Lost Bag.')
-  })
 
-  it('drops the location from the title when it does not fit', () => {
-    const name = 'v'.repeat(30)
-    const { title } = venueSnippet({ name, city: 'Providence', state: 'RI' })
-    expect(title).toBe(name)
-  })
-
-  it('keeps the description within budget for long names', () => {
-    const { description } = venueSnippet({
-      name: 'v'.repeat(80),
-      city: 'Providence',
-      state: 'RI',
-      nextShow: { ...HELENE, headliner: 'h'.repeat(80) },
+    it('marks the Next date when the venue zone is a guess', () => {
+      expect(
+        venueSnippet({
+          name: 'Room',
+          city: 'Toronto',
+          state: 'ON',
+          currentYear: 2026,
+          upcomingCount: 1,
+          nextShow: { headliner: 'Band', timing: { eventDate: '2026-09-12T03:00:00Z', state: 'ON' } },
+        }).description
+      ).toBe('1 upcoming show at Room in Toronto, ON. Next: Band, ~Sep 11.')
     })
-    expect(Array.from(description)).toHaveLength(DESCRIPTION_BUDGET)
+
+    it('groups counts in en-US form', () => {
+      expect(
+        venueSnippet({
+          ...THALIA,
+          address: null,
+          upcomingCount: 1200,
+          pastRecord: { years: [{ year: 2026, count: 2345 }] },
+        }).description
+      ).toBe('1,200 upcoming shows at Thalia Hall in Chicago, IL. 2,345 past shows on record.')
+    })
+
+    describe('drops sentences from the end to fit the budget', () => {
+      const input = (n: number) => ({
+        ...THALIA,
+        name: nameOf(n, 'v'),
+        upcomingCount: 7,
+        nextShow: SQUIRREL,
+        pastRecord: PAST,
+      })
+      const full = (n: number) => venueSnippet(input(n)).description
+      // Fixed text around the name when every sentence is kept (measured on a
+      // one-letter name: an empty one would collapse the space around it).
+      const fixed = charLength(full(1)) - 1
+
+      it('keeps every sentence at exactly the budget', () => {
+        const text = full(DESCRIPTION_BUDGET - fixed)
+        expect(charLength(text)).toBe(DESCRIPTION_BUDGET)
+        expect(text.endsWith('Address: 1807 S Allport St.')).toBe(true)
+      })
+
+      it('drops Address first', () => {
+        expect(full(DESCRIPTION_BUDGET - fixed + 1).endsWith('on record since 2025.')).toBe(true)
+      })
+
+      it('then the past shows', () => {
+        // ' Address: 1807 S Allport St.' is 28, ' 56 past shows on record since 2025.' is 36.
+        expect(
+          full(DESCRIPTION_BUDGET - fixed + 28 + 1).endsWith('Next: Squirrel Flower, Nov 20.')
+        ).toBe(true)
+      })
+
+      it('then Next, leaving the lead', () => {
+        const n = DESCRIPTION_BUDGET - fixed + 28 + 36 + 1
+        expect(full(n)).toBe(`7 upcoming shows at ${nameOf(n, 'v')} in Chicago, IL.`)
+      })
+    })
+  })
+
+  describe('the since rule', () => {
+    const past = (currentYear: number, years: Array<{ year: number; count: number }>) =>
+      venueSnippet({ ...THALIA, address: null, currentYear, pastRecord: { years } }).description
+
+    it('names the first year when it is before the current year', () => {
+      expect(past(2027, [{ year: 2026, count: 3 }])).toBe(
+        'Thalia Hall in Chicago, IL: 3 past shows on record since 2026.'
+      )
+    })
+
+    it('names no year when the first year is the current year', () => {
+      expect(past(2026, [{ year: 2026, count: 3 }])).toBe(
+        'Thalia Hall in Chicago, IL: 3 past shows on record.'
+      )
+    })
+
+    it('names no year when the first year is after the current year', () => {
+      expect(past(2025, [{ year: 2026, count: 3 }])).toBe(
+        'Thalia Hall in Chicago, IL: 3 past shows on record.'
+      )
+    })
+
+    it('takes the earliest year whatever the order', () => {
+      expect(
+        past(2026, [{ year: 2019, count: 1 }, { year: 2024, count: 1 }, { year: 2021, count: 1 }])
+      ).toBe('Thalia Hall in Chicago, IL: 3 past shows on record since 2019.')
+    })
+  })
+
+  describe('a room with only past shows', () => {
+    it('leads with the past record, then the address', () => {
+      expect(
+        venueSnippet({
+          name: 'Crescent Ballroom',
+          city: 'Phoenix',
+          state: 'AZ',
+          address: '308 N 2nd Ave',
+          currentYear: 2027,
+          pastRecord: { years: [{ year: 2026, count: 12 }] },
+        }).description
+      ).toBe('Crescent Ballroom in Phoenix, AZ: 12 past shows on record since 2026. Address: 308 N 2nd Ave.')
+    })
+
+    it('treats a room whose upcoming shows are all cancelled as having none to state', () => {
+      const upcomingCount = statedUpcomingCount({
+        total: 2,
+        shows: [{ is_cancelled: true }, { is_cancelled: true }],
+      })
+      expect(
+        venueSnippet({
+          ...THALIA,
+          address: null,
+          upcomingCount,
+          nextShow: null,
+          pastRecord: { years: [{ year: 2026, count: 1 }] },
+        }).description
+      ).toBe('Thalia Hall in Chicago, IL: 1 past show on record.')
+    })
+
+    it('drops the address to fit the budget', () => {
+      const name = nameOf(100, 'v')
+      expect(
+        venueSnippet({
+          name,
+          city: 'Phoenix',
+          state: 'AZ',
+          address: '308 N 2nd Ave',
+          currentYear: 2026,
+          pastRecord: { years: [{ year: 2026, count: 1 }] },
+        }).description
+      ).toBe(`${name} in Phoenix, AZ: 1 past show on record.`)
+    })
+  })
+
+  describe('a room with nothing on record', () => {
+    it('says it is a venue, with its address when there is one', () => {
+      expect(
+        venueSnippet({ name: 'Douglas Park', city: 'Chicago', state: 'IL', currentYear: 2026 })
+          .description
+      ).toBe('Douglas Park is a venue in Chicago, IL.')
+      expect(
+        venueSnippet({ ...THALIA, pastRecord: { years: [] } }).description
+      ).toBe('Thalia Hall is a venue in Chicago, IL. Address: 1807 S Allport St.')
+    })
+
+    it('drops the place when the room has none', () => {
+      const { title, description } = venueSnippet({
+        name: 'Lost Bag',
+        city: '',
+        state: '',
+        currentYear: 2026,
+      })
+      expect(title).toBe('Lost Bag shows')
+      expect(description).toBe('Lost Bag is a venue.')
+    })
+
+    it('ignores zero and malformed histogram rows', () => {
+      expect(
+        venueSnippet({
+          ...THALIA,
+          address: null,
+          pastRecord: { years: [{ year: 2020, count: 0 }, { year: Number.NaN, count: 4 }] },
+        }).description
+      ).toBe('Thalia Hall is a venue in Chicago, IL.')
+    })
+  })
+
+  describe('the title', () => {
+    it('drops the place first, then `shows`; the name is never cut', () => {
+      const thirty = 'v'.repeat(30)
+      expect(venueSnippet({ name: thirty, city: 'Providence', state: 'RI', currentYear: 2026 }).title).toBe(
+        `${thirty} shows`
+      )
+      const forty = 'v'.repeat(40)
+      expect(venueSnippet({ name: forty, city: 'Providence', state: 'RI', currentYear: 2026 }).title).toBe(forty)
+      const seventy = 'v'.repeat(70)
+      expect(venueSnippet({ name: seventy, city: 'Providence', state: 'RI', currentYear: 2026 }).title).toBe(seventy)
+    })
+
+    it('fits the budget with the place kept', () => {
+      const { title } = venueSnippet({ ...THALIA })
+      expect(titleLength(title)).toBeLessThanOrEqual(TITLE_BUDGET)
+      expect(titleLength(title)).toBe(48)
+    })
   })
 })
 
@@ -999,5 +1357,171 @@ describe('venueNextShowFrom', () => {
     expect(
       venueNextShowFrom([row({ artists: [], title: '' })], VENUE)
     ).toBeNull()
+  })
+})
+
+describe('labelDescription', () => {
+  const DAIS = {
+    name: 'Dais Records',
+    city: 'Brooklyn',
+    state: 'NY',
+    foundedYear: 2007,
+    status: 'active',
+    artistCount: 89,
+    releaseCount: 921,
+  }
+
+  it('renders both sentences', () => {
+    expect(labelDescription(DAIS)).toBe(
+      'Dais Records is a label from Brooklyn, NY, founded in 2007. 89 artists and 921 releases on record.'
+    )
+  })
+
+  it('drops the place and the founding year when they are unknown', () => {
+    expect(
+      labelDescription({ name: '15 Love', artistCount: 1, releaseCount: 1 })
+    ).toBe('15 Love is a label. 1 artist and 1 release on record.')
+    expect(labelDescription({ ...DAIS, foundedYear: null })).toBe(
+      'Dais Records is a label from Brooklyn, NY. 89 artists and 921 releases on record.'
+    )
+    expect(labelDescription({ ...DAIS, city: 'Sheffield', state: null, foundedYear: 0 })).toBe(
+      'Dais Records is a label from Sheffield. 89 artists and 921 releases on record.'
+    )
+  })
+
+  it('drops the half whose count is zero, and the sentence when both are', () => {
+    expect(labelDescription({ ...DAIS, releaseCount: 0 })).toBe(
+      'Dais Records is a label from Brooklyn, NY, founded in 2007. 89 artists on record.'
+    )
+    expect(labelDescription({ ...DAIS, artistCount: 0, releaseCount: 1 })).toBe(
+      'Dais Records is a label from Brooklyn, NY, founded in 2007. 1 release on record.'
+    )
+    expect(labelDescription({ ...DAIS, artistCount: 0, releaseCount: 0 })).toBe(
+      'Dais Records is a label from Brooklyn, NY, founded in 2007.'
+    )
+  })
+
+  it('names a label that is not active', () => {
+    expect(labelDescription({ ...DAIS, status: 'defunct' })).toMatch(
+      /^Dais Records is a defunct label from Brooklyn, NY/
+    )
+    expect(labelDescription({ ...DAIS, status: 'inactive' })).toMatch(
+      /^Dais Records is an inactive label from Brooklyn, NY/
+    )
+    expect(labelDescription({ ...DAIS, status: ' Defunct ' })).toMatch(/is a defunct label/)
+  })
+
+  it('reads any other status as a label', () => {
+    for (const status of ['active', 'constructor', '__proto__', '', null]) {
+      expect(labelDescription({ ...DAIS, status })).toMatch(/^Dais Records is a label from/)
+    }
+  })
+
+  it('groups counts in en-US form', () => {
+    expect(labelDescription({ name: 'L', artistCount: 1234, releaseCount: 56789 })).toBe(
+      'L is a label. 1,234 artists and 56,789 releases on record.'
+    )
+  })
+
+  it('drops the counts sentence to fit the budget, then cuts the lead', () => {
+    const counts = charLength(' 89 artists and 921 releases on record.')
+    const lead = (n: number) => `${nameOf(n, 'l')} is a label from Brooklyn, NY, founded in 2007.`
+    const leadFixed = charLength(lead(0))
+    const fits = DESCRIPTION_BUDGET - leadFixed - counts
+    expect(labelDescription({ ...DAIS, name: nameOf(fits, 'l') }).endsWith('921 releases on record.')).toBe(true)
+    expect(labelDescription({ ...DAIS, name: nameOf(fits + 1, 'l') })).toBe(lead(fits + 1))
+    const cut = labelDescription({ ...DAIS, name: nameOf(200, 'l') })
+    expect(charLength(cut)).toBe(DESCRIPTION_BUDGET)
+    expect(cut.endsWith('...')).toBe(true)
+  })
+})
+
+describe('festivalDateRange', () => {
+  it('writes one day, one month, two months and two years', () => {
+    expect(festivalDateRange('2026-05-30', '2026-05-30')).toBe('May 30, 2026')
+    expect(festivalDateRange('2026-09-18', '2026-09-20')).toBe('Sep 18 to 20, 2026')
+    expect(festivalDateRange('2026-09-30', '2026-10-02')).toBe('Sep 30 to Oct 2, 2026')
+    expect(festivalDateRange('2026-12-30', '2027-01-02')).toBe('Dec 30, 2026 to Jan 2, 2027')
+  })
+
+  it('reads the calendar date, not an instant', () => {
+    // Midnight UTC would be the previous evening west of Greenwich.
+    expect(festivalDateRange('2026-01-01', '2026-01-01')).toBe('Jan 1, 2026')
+  })
+
+  it('gives the start alone when the end is unreadable, and null without a start', () => {
+    expect(festivalDateRange('2026-09-18', 'soon')).toBe('Sep 18, 2026')
+    expect(festivalDateRange('2026-09-18', null)).toBe('Sep 18, 2026')
+    expect(festivalDateRange('2026-02-30', '2026-03-01')).toBeNull()
+    expect(festivalDateRange('', '2026-03-01')).toBeNull()
+    expect(festivalDateRange(null, null)).toBeNull()
+  })
+})
+
+describe('festivalDescription', () => {
+  const RIOT = {
+    name: 'Riot Fest 2026',
+    startDate: '2026-09-18',
+    endDate: '2026-09-20',
+    locationName: 'Douglas Park',
+    city: 'Chicago',
+    state: 'IL',
+    status: 'announced',
+    artistCount: 102,
+    venueCount: 3,
+  }
+
+  it('renders every sentence', () => {
+    expect(festivalDescription(RIOT)).toBe(
+      'Riot Fest 2026: Sep 18 to 20, 2026, Douglas Park, Chicago, IL. Lineup: 102 artists. Venues: 3.'
+    )
+  })
+
+  it('states the venue count only above one', () => {
+    expect(festivalDescription({ ...RIOT, venueCount: 1 })).toBe(
+      'Riot Fest 2026: Sep 18 to 20, 2026, Douglas Park, Chicago, IL. Lineup: 102 artists.'
+    )
+    expect(festivalDescription({ ...RIOT, venueCount: 0 })).not.toContain('Venues')
+    expect(festivalDescription({ ...RIOT, venueCount: 2 })).toContain('Venues: 2.')
+  })
+
+  it('states the lineup only when it is not empty, in the singular for one', () => {
+    expect(festivalDescription({ ...RIOT, artistCount: 1, venueCount: 0 })).toBe(
+      'Riot Fest 2026: Sep 18 to 20, 2026, Douglas Park, Chicago, IL. Lineup: 1 artist.'
+    )
+    expect(festivalDescription({ ...RIOT, artistCount: 0, venueCount: 0 })).toBe(
+      'Riot Fest 2026: Sep 18 to 20, 2026, Douglas Park, Chicago, IL.'
+    )
+  })
+
+  it('marks a cancelled festival', () => {
+    expect(festivalDescription({ ...RIOT, status: 'cancelled', venueCount: 0 })).toBe(
+      'Riot Fest 2026 (cancelled): Sep 18 to 20, 2026, Douglas Park, Chicago, IL. Lineup: 102 artists.'
+    )
+  })
+
+  it('drops each missing part of the lead', () => {
+    expect(
+      festivalDescription({
+        name: 'Desert Fox Fest 2026',
+        startDate: '2026-05-30',
+        endDate: '2026-05-30',
+        city: 'Piacenza',
+        state: null,
+        artistCount: 8,
+      })
+    ).toBe('Desert Fox Fest 2026: May 30, 2026, Piacenza. Lineup: 8 artists.')
+    expect(festivalDescription({ name: 'Fest', startDate: 'tbd' })).toBe('Fest.')
+  })
+
+  it('drops Venues first, then Lineup, to fit the budget', () => {
+    const lineup = charLength(' Lineup: 102 artists.')
+    const venues = charLength(' Venues: 3.')
+    const leadFixed = charLength(festivalDescription({ ...RIOT, name: 'x', artistCount: 0, venueCount: 0 })) - 1
+    const all = DESCRIPTION_BUDGET - leadFixed - lineup - venues
+    const named = (n: number) => festivalDescription({ ...RIOT, name: nameOf(n, 'f') })
+    expect(named(all).endsWith('Venues: 3.')).toBe(true)
+    expect(named(all + 1).endsWith('Lineup: 102 artists.')).toBe(true)
+    expect(named(all + venues + 1).endsWith('Chicago, IL.')).toBe(true)
   })
 })

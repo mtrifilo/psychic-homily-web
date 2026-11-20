@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { MobileGraphTeaser } from './MobileGraphTeaser'
 
 describe('MobileGraphTeaser', () => {
@@ -23,6 +24,17 @@ describe('MobileGraphTeaser', () => {
     expect(screen.getByRole('link')).toHaveAccessibleName('Sentence')
     expect(container.textContent).toContain('→')
     expect(container.querySelector('[aria-hidden="true"]')?.textContent).toBe('→')
+  })
+
+  // Google may read the attribute before or after rendering, so it must be on
+  // the element the moment the teaser is added to the page, on a span.
+  it('keeps the whole sentence out of search snippets from its first render', () => {
+    const markup = renderToStaticMarkup(
+      <MobileGraphTeaser href="/graph">Sentence</MobileGraphTeaser>,
+    )
+    expect(markup).toMatch(/^<p[^>]*><span data-nosnippet="">\s*<a [^>]*>Sentence /)
+    render(<MobileGraphTeaser href="/graph">Sentence</MobileGraphTeaser>)
+    expect(screen.getByRole('link').closest('span[data-nosnippet]')).not.toBeNull()
   })
 
   // A line, not a module: a border or a reserved height would make this a card.

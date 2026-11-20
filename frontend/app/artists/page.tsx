@@ -203,7 +203,7 @@ export async function FirstScreenItemList({
     <JsonLd
       data={generateItemListSchema({
         name: 'Artists',
-        description: 'Artists performing live music in Phoenix and beyond.',
+        description: 'Artists performing live music.',
         listItems: artists.map(artist => ({
           url: `https://psychichomily.com/artists/${artist.slug}`,
           name: artist.name,

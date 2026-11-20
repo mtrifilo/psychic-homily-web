@@ -19,19 +19,24 @@ import { venueRailShowsUrl } from '@/features/shows/showRails'
 import { CURRENT_PERIOD_REVALIDATE } from '@/features/scenes/scenePeriodApi'
 import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
 import { withoutPassedShows } from '@/lib/ssr/withoutPassedShows'
-import { venueNextShowFrom, venueSnippet } from '@/lib/seo/entitySnippets'
+import {
+  statedUpcomingCount,
+  venueNextShowFrom,
+  venueSnippet,
+} from '@/lib/seo/entitySnippets'
+import { showYearInZone } from '@/lib/utils/showDateBadge'
 
 interface VenuePageProps {
   params: Promise<{ slug: string }>
 }
 
 /**
- * The venue's soonest upcoming shows, for the `Next` clause of the meta
- * description.
+ * The venue's soonest upcoming shows and their total, for the upcoming count
+ * and the `Next` sentence of the meta description.
  *
  * The same URL and cache window as the show page's venue rail. The window is
  * the short one because the next show changes as each night passes. Null on
- * any failure, which only drops the clause.
+ * any failure, which drops what it would have stated.
  */
 function getVenueUpcomingShows(venue: Venue): Promise<VenueShowsResponse | null> {
   // Checked rather than trusted: the id arrives from `res.json()` through a
@@ -48,20 +53,32 @@ function getVenueUpcomingShows(venue: Venue): Promise<VenueShowsResponse | null>
 
 export async function generateMetadata({ params }: VenuePageProps): Promise<Metadata> {
   const { slug } = await params
-  const venue = archiveData(await getVenue(slug))
+  // The past-years read is the page body's own (`getArchiveYears` is
+  // request-cached), so it adds no backend request.
+  const [venueRead, pastYearsRead] = await Promise.all([
+    getVenue(slug),
+    getArchiveYears(slug),
+  ])
+  const venue = archiveData(venueRead)
 
   if (venue) {
-    const upcoming = await getVenueUpcomingShows(venue)
+    const upcomingRead = await getVenueUpcomingShows(venue)
+    const upcoming = upcomingRead ? withoutPassedShows(upcomingRead) : null
+    const pastYears = archiveData(pastYearsRead)
     const { title, description } = venueSnippet({
       name: venue.name,
       city: venue.city,
       state: venue.state,
+      address: venue.address,
       nextShow: upcoming
         ? venueNextShowFrom(upcoming.shows, {
             state: venue.state,
             timezone: venue.timezone,
           })
         : null,
+      upcomingCount: statedUpcomingCount(upcoming),
+      pastRecord: pastYears?.venue_id === venue.id ? pastYears : null,
+      currentYear: showYearInZone(new Date().toISOString(), venue.state, venue.timezone),
     })
     return {
       title,

@@ -13,8 +13,8 @@ import { formatShowTime } from '@/lib/utils/formatters'
 
 /**
  * Search-snippet strings (`<title>` and meta description) for the show, artist,
- * venue and release detail pages, and the show page's generated
- * `MusicEvent.description`.
+ * venue and release detail pages, the label and festival descriptions, and
+ * the show page's generated `MusicEvent.description`.
  *
  * Every builder here is pure: the page resolves the entity, hands over plain
  * values, and gets back the two strings it puts in `generateMetadata`. The
@@ -138,6 +138,41 @@ function fitDescriptionSentences(
 /** Ends a generated sentence with one full stop, never two. */
 function sentence(text: string): string {
   return /[.!?]$/.test(text) ? text : `${text}.`
+}
+
+/** A count as a positive whole number, or null for zero, negative or unreadable. */
+function positiveCount(value: number | null | undefined): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0
+    ? value
+    : null
+}
+
+/** `1,234` in en-US grouping. */
+function formatSnippetCount(value: number): string {
+  return value.toLocaleString('en-US')
+}
+
+/** `1 release`, `2 releases`: the singular form at exactly one. */
+function countedNoun(value: number, singular: string, plural: string): string {
+  return `${formatSnippetCount(value)} ${value === 1 ? singular : plural}`
+}
+
+/** The fields of an upcoming show row the upcoming-count rule reads. */
+interface CancellableRow {
+  is_cancelled: boolean
+}
+
+/**
+ * The upcoming count a description may state: the payload's `total` (the
+ * number the page's Upcoming shows header prints), but only when at least one
+ * listed row is not cancelled, so a calendar of called-off shows is never
+ * described as shows to come. Null when there is nothing to state.
+ */
+export function statedUpcomingCount(
+  payload: { total: number; shows: ReadonlyArray<CancellableRow> } | null | undefined
+): number | null {
+  if (!payload || !payload.shows.some(row => !row.is_cancelled)) return null
+  return positiveCount(payload.total)
 }
 
 /**
@@ -315,24 +350,92 @@ function timesSentence(doors: string | null, music: string | null): string | nul
   return null
 }
 
+export interface ArtistNextShow {
+  venue: string
+  /** The venue's city, which qualifies the venue name. */
+  venueCity?: string | null
+  timing: ShowTimingInput
+}
+
+/** The fields of an artist's upcoming show row the `Next show` sentence reads. */
+export interface ArtistUpcomingRow extends CancellableRow {
+  event_date: string
+  venue: {
+    name: string
+    city?: string | null
+    state?: string | null
+    timezone?: string | null
+  } | null
+}
+
+/**
+ * The artist's next show in a soonest-first upcoming list: the first row that
+ * is not cancelled and has a readable date, read on its venue's calendar. Null
+ * when that row has no named venue, because naming a later show would call it
+ * the next one when it is not.
+ */
+export function artistNextShowFrom(
+  rows: ReadonlyArray<ArtistUpcomingRow>
+): ArtistNextShow | null {
+  const row = rows.find(
+    candidate => !candidate.is_cancelled && hasReadableStartDate(candidate.event_date)
+  )
+  const venue = nonEmpty(row?.venue?.name)
+  if (!row || !venue) return null
+  return {
+    venue,
+    venueCity: row.venue?.city,
+    timing: {
+      eventDate: row.event_date,
+      state: row.venue?.state,
+      timezone: row.venue?.timezone,
+    },
+  }
+}
+
 export interface ArtistSnippetInput {
   name: string
   city?: string | null
   state?: string | null
+  nextShow?: ArtistNextShow | null
+  /** From {@link statedUpcomingCount}. */
+  upcomingCount?: number | null
+  releaseCount?: number | null
+  similarArtistCount?: number | null
 }
 
 /**
  * Title `{name} · {city}, {ST}`, or `{name}` when there is no location or it
- * does not fit. Description `{name} from {city}, {ST}: shows, similar artists
- * and connections on Psychic Homily`, without the `from` clause when there is
- * no location.
+ * does not fit.
+ *
+ * Description `{name} from {city}, {ST}.`, then `Next show: {venue}, {venue
+ * city}, {Mon D}.`, `Upcoming shows: {N}.`, `Releases: {R}.` and `Similar
+ * artists: {S}.`. Each sentence appears only when its fact exists and is not
+ * zero; no location drops `from`. To fit the budget the sentences go from the
+ * end, whole; the lead is never dropped.
  */
 export function artistSnippet(input: ArtistSnippetInput): EntitySnippet {
   const place = snippetPlace(input.city, input.state)
+  const next = input.nextShow
+  const nextVenue = nonEmpty(next?.venue)
+  const nextCity = nonEmpty(next?.venueCity)
+  const nextDay = next ? snippetMonthDay(next.timing) : null
+  const upcoming = positiveCount(input.upcomingCount)
+  const releases = positiveCount(input.releaseCount)
+  const similar = positiveCount(input.similarArtistCount)
+
   return {
     title: fitTitle(input.name, [place ? ` · ${place}` : null]),
-    description: fitDescription(
-      `${input.name}${place ? ` from ${place}` : ''}: shows, similar artists and connections on Psychic Homily`
+    description: fitDescriptionSentences(
+      sentence(`${input.name}${place ? ` from ${place}` : ''}`),
+      [
+        nextVenue && nextDay
+          ? `Next show: ${nextVenue}${nextCity ? `, ${nextCity}` : ''}, ${nextDay}.`
+          : null,
+        upcoming ? `Upcoming shows: ${formatSnippetCount(upcoming)}.` : null,
+        releases ? `Releases: ${formatSnippetCount(releases)}.` : null,
+        similar ? `Similar artists: ${formatSnippetCount(similar)}.` : null,
+      ]
     ),
   }
 }
@@ -381,33 +484,86 @@ export function venueNextShowFrom(
   return null
 }
 
+/** A venue's past-show year histogram as the archive reads it. */
+export interface VenuePastRecord {
+  years: ReadonlyArray<{ year: number; count: number }>
+}
+
 export interface VenueSnippetInput {
   name: string
   city?: string | null
   state?: string | null
+  address?: string | null
   nextShow?: VenueNextShow | null
+  /** From {@link statedUpcomingCount}. */
+  upcomingCount?: number | null
+  pastRecord?: VenuePastRecord | null
+  /** The current calendar year on the venue's clock. */
+  currentYear: number
 }
 
 /**
- * Title `{name} · {city}, {ST}`, or `{name}` when there is no location or it
- * does not fit. Description `Upcoming shows at {name} in {city}, {ST}. Next:
- * {headliner}, {Mon D}.`, without the `Next` clause when there is no next show
- * or its date is unknown.
+ * Title `{name} shows · {city}, {ST}`: the place drops first, then `shows`, to
+ * fit the budget; the name is never cut.
+ *
+ * Description, by what the room has on record:
+ * - shows coming: `{N} upcoming shows at {name} in {city}, {ST}.`, then `Next:
+ *   {headliner}, {Mon D}.`, `{P} past shows on record since {Y}.` and
+ *   `Address: {address}.`;
+ * - only past shows: `{name} in {city}, {ST}: {P} past shows on record since
+ *   {Y}.`, then the address;
+ * - nothing: `{name} is a venue in {city}, {ST}.`, then the address.
+ *
+ * `since {Y}` names the first year on record only when it is before the
+ * current year. Nothing is said about upcoming shows for a room with none to
+ * state. Optional sentences drop from the end, whole; the lead is never
+ * dropped.
  */
 export function venueSnippet(input: VenueSnippetInput): EntitySnippet {
   const place = snippetPlace(input.city, input.state)
+  const inPlace = place ? ` in ${place}` : ''
   const nextHeadliner = nonEmpty(input.nextShow?.headliner)
   const nextDay = input.nextShow ? snippetMonthDay(input.nextShow.timing) : null
-  const lead = sentence(
-    `Upcoming shows at ${input.name}${place ? ` in ${place}` : ''}`
+  const upcoming = positiveCount(input.upcomingCount)
+  const pastYears = (input.pastRecord?.years ?? []).filter(
+    entry => positiveCount(entry.count) !== null && Number.isInteger(entry.year)
   )
+  const past = positiveCount(pastYears.reduce((sum, entry) => sum + entry.count, 0))
+  const firstYear = pastYears.length > 0
+    ? Math.min(...pastYears.map(entry => entry.year))
+    : null
+  const since = firstYear !== null && firstYear < input.currentYear ? ` since ${firstYear}` : ''
+  const pastOnRecord = past
+    ? `${countedNoun(past, 'past show', 'past shows')} on record${since}`
+    : null
+  const address = nonEmpty(input.address)
+  const addressSentence = address ? sentence(`Address: ${address}`) : null
+
+  let description: string
+  if (upcoming) {
+    description = fitDescriptionSentences(
+      sentence(`${countedNoun(upcoming, 'upcoming show', 'upcoming shows')} at ${input.name}${inPlace}`),
+      [
+        nextHeadliner && nextDay ? `Next: ${nextHeadliner}, ${nextDay}.` : null,
+        pastOnRecord ? sentence(pastOnRecord) : null,
+        addressSentence,
+      ]
+    )
+  } else if (pastOnRecord) {
+    description = fitDescriptionSentences(
+      sentence(`${input.name}${inPlace}: ${pastOnRecord}`),
+      [addressSentence]
+    )
+  } else {
+    description = fitDescriptionSentences(
+      sentence(`${input.name} is a venue${inPlace}`),
+      [addressSentence]
+    )
+  }
+
   return {
-    title: fitTitle(input.name, [place ? ` · ${place}` : null]),
-    description: fitDescription(
-      nextHeadliner && nextDay
-        ? `${lead} Next: ${nextHeadliner}, ${nextDay}.`
-        : lead
-    ),
+    title: fitTitle(input.name, [' shows', place ? ` · ${place}` : null]),
+    description,
   }
 }
 
@@ -472,4 +628,141 @@ export function releaseSnippet(input: ReleaseSnippetInput): EntitySnippet {
       ]
     ),
   }
+}
+
+export interface LabelSnippetInput {
+  name: string
+  city?: string | null
+  state?: string | null
+  foundedYear?: number | null
+  /** `active`, `inactive` or `defunct`; anything else reads as active. */
+  status?: string | null
+  artistCount?: number | null
+  releaseCount?: number | null
+}
+
+const LABEL_STATUS_PHRASE: Readonly<Record<string, string>> = {
+  inactive: 'an inactive label',
+  defunct: 'a defunct label',
+}
+
+/**
+ * Description `{name} is a label from {city}, {ST}, founded in {Y}.`, then
+ * `{A} artists and {R} releases on record.`. No location drops `from`, no
+ * founding year drops `founded`, a label that is not active reads `is an
+ * inactive label` or `is a defunct label`, and a zero count drops its half
+ * (both zero drop the sentence). The counts sentence drops first to fit the
+ * budget.
+ */
+export function labelDescription(input: LabelSnippetInput): string {
+  const place = snippetPlace(input.city, input.state)
+  const founded = positiveCount(input.foundedYear)
+  const status = input.status?.trim().toLowerCase() ?? ''
+  const kind = Object.hasOwn(LABEL_STATUS_PHRASE, status)
+    ? LABEL_STATUS_PHRASE[status]
+    : 'a label'
+  const counts = [
+    positiveCount(input.artistCount),
+    positiveCount(input.releaseCount),
+  ]
+  const countPhrases = [
+    counts[0] ? countedNoun(counts[0], 'artist', 'artists') : null,
+    counts[1] ? countedNoun(counts[1], 'release', 'releases') : null,
+  ].filter((phrase): phrase is string => phrase !== null)
+
+  return fitDescriptionSentences(
+    sentence(
+      `${input.name} is ${kind}${place ? ` from ${place}` : ''}${founded ? `, founded in ${founded}` : ''}`
+    ),
+    [countPhrases.length > 0 ? `${countPhrases.join(' and ')} on record.` : null]
+  )
+}
+
+const MONTH_ABBREVIATIONS = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+] as const
+
+interface CalendarDate {
+  year: number
+  month: number
+  day: number
+}
+
+/** A `YYYY-MM-DD` festival date as calendar parts, or null when it is not one. */
+function parseCalendarDate(value: string | null | undefined): CalendarDate | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value?.trim() ?? '')
+  if (!match) return null
+  const [year, month, day] = match.slice(1).map(Number)
+  // Round-trips through UTC so a day the month does not have is refused.
+  const probe = new Date(Date.UTC(year, month - 1, day))
+  if (probe.getUTCMonth() !== month - 1 || probe.getUTCDate() !== day) return null
+  return { year, month, day }
+}
+
+/**
+ * `May 30, 2026`, `Sep 18 to 20, 2026`, `Sep 30 to Oct 2, 2026`, or
+ * `Dec 30, 2026 to Jan 2, 2027`. The dates are calendar dates, so no zone is
+ * applied. An unreadable end date gives the start date alone; an unreadable
+ * start date gives null.
+ */
+export function festivalDateRange(
+  startDate: string | null | undefined,
+  endDate: string | null | undefined
+): string | null {
+  const start = parseCalendarDate(startDate)
+  if (!start) return null
+  const startMonth = MONTH_ABBREVIATIONS[start.month - 1]
+  const end = parseCalendarDate(endDate)
+  const sameDay =
+    !end || (end.year === start.year && end.month === start.month && end.day === start.day)
+  if (sameDay) return `${startMonth} ${start.day}, ${start.year}`
+  const endMonth = MONTH_ABBREVIATIONS[end.month - 1]
+  if (end.year !== start.year) {
+    return `${startMonth} ${start.day}, ${start.year} to ${endMonth} ${end.day}, ${end.year}`
+  }
+  if (end.month !== start.month) {
+    return `${startMonth} ${start.day} to ${endMonth} ${end.day}, ${start.year}`
+  }
+  return `${startMonth} ${start.day} to ${end.day}, ${start.year}`
+}
+
+export interface FestivalSnippetInput {
+  name: string
+  startDate?: string | null
+  endDate?: string | null
+  locationName?: string | null
+  city?: string | null
+  state?: string | null
+  status?: string | null
+  artistCount?: number | null
+  venueCount?: number | null
+}
+
+/**
+ * Description `{name}: {dates}, {location name}, {city}, {ST}.`, then
+ * `Lineup: {A} artists.` and `Venues: {V}.`. A missing date, location name or
+ * place drops its part; a cancelled festival reads `{name} (cancelled): ...`.
+ * The lineup sentence needs at least one artist and the venues sentence more
+ * than one venue. To fit the budget Venues goes first, then Lineup.
+ */
+export function festivalDescription(input: FestivalSnippetInput): string {
+  const parts = [
+    festivalDateRange(input.startDate, input.endDate),
+    nonEmpty(input.locationName),
+    snippetPlace(input.city, input.state),
+  ].filter((part): part is string => part !== null)
+  const cancelled = input.status?.trim().toLowerCase() === 'cancelled'
+  const artists = positiveCount(input.artistCount)
+  const venues = positiveCount(input.venueCount)
+
+  return fitDescriptionSentences(
+    sentence(
+      `${input.name}${cancelled ? ' (cancelled)' : ''}${parts.length > 0 ? `: ${parts.join(', ')}` : ''}`
+    ),
+    [
+      artists ? `Lineup: ${countedNoun(artists, 'artist', 'artists')}.` : null,
+      venues && venues > 1 ? `Venues: ${formatSnippetCount(venues)}.` : null,
+    ]
+  )
 }

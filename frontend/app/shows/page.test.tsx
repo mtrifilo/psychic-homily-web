@@ -27,7 +27,9 @@ import ShowsPage, {
   getScenesForWeekIndex,
   getShowsMonthsPayload,
   getUpcomingShows,
+  metadata,
 } from './page'
+import { QUICK_WINDOW_LABEL } from '@/features/shows/quickWindows'
 import { showsFirstScreenSeeds } from '@/features/shows/firstScreen'
 import {
   SHOW_CITIES_FIRST_SCREEN_KEY,
@@ -257,5 +259,20 @@ describe('HydratedShowList', () => {
     expect(
       new Set(boundaryStateOf(boundary).queries.map(q => hashKey(q.queryKey)))
     ).toEqual(new Set(showListFirstPaintKeys([]).map(hashKey)))
+  })
+})
+
+describe('/shows metadata', () => {
+  it('describes the list and its quick windows, on the share card too', () => {
+    expect(metadata.description).toBe(
+      'Live music coming up, night by night: who is playing, where, and when. Jump to tonight, this weekend or this month.'
+    )
+    expect(metadata.openGraph.description).toBe(metadata.description)
+  })
+
+  it('names only quick windows the page offers', () => {
+    for (const key of ['tonight', 'this-weekend', 'this-month'] as const) {
+      expect(metadata.description).toContain(QUICK_WINDOW_LABEL[key].toLowerCase())
+    }
   })
 })

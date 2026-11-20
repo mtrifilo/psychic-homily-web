@@ -78,7 +78,7 @@ vi.mock('@/components/shared', async importOriginal => ({
   RevisionHistory: (): null => null,
 }))
 
-import LabelPage from './page'
+import LabelPage, { generateMetadata } from './page'
 import { LabelDetail } from '@/features/labels/components'
 import { labelEndpoints } from '@/features/labels/api'
 import { queryKeys } from '@/lib/queryClient'
@@ -212,6 +212,43 @@ const LOADER = 'animate-spin'
 const ROSTER_KEY_HASH = hashKey(queryKeys.labels.roster(SLUG))
 const CATALOG_KEY_HASH = hashKey(queryKeys.labels.catalog(SLUG))
 const DETAIL_KEY_HASH = hashKey(queryKeys.labels.detail(SLUG))
+
+describe('labels/[slug] generateMetadata', () => {
+  async function metadataFor(slug = SLUG) {
+    return generateMetadata({ params: Promise.resolve({ slug }) })
+  }
+
+  it('builds the description from the label and puts it on the share card too', async () => {
+    const meta = await metadataFor()
+    expect(meta.description).toBe(
+      '4AD is a label from London, founded in 1980. 2 artists and 3 releases on record.'
+    )
+    expect(meta.openGraph?.description).toBe(meta.description)
+  })
+
+  it('keeps the title as it was', async () => {
+    labelFetch.mockImplementation(async () => jsonBodyResponse(buildLabel({ state: 'England' })))
+    const meta = await metadataFor()
+    expect(meta.title).toBe('4AD - London, England')
+    expect(meta.openGraph?.title).toBe('4AD - London, England')
+  })
+
+  it('names a defunct label and drops a zero count', async () => {
+    labelFetch.mockImplementation(async () =>
+      jsonBodyResponse(buildLabel({ status: 'defunct', release_count: 0 })),
+    )
+    expect((await metadataFor()).description).toBe(
+      '4AD is a defunct label from London, founded in 1980. 2 artists on record.'
+    )
+  })
+
+  it('reads nothing but the label', async () => {
+    await metadataFor()
+    expect(labelFetch).toHaveBeenCalledTimes(1)
+    expect(rosterFetch).not.toHaveBeenCalled()
+    expect(catalogFetch).not.toHaveBeenCalled()
+  })
+})
 
 describe('labels/[slug] page body', () => {
   it('server-renders the roster and catalog links with no loader', async () => {

@@ -7,6 +7,7 @@ import { ARTIST_UPCOMING_SHOWS_REQUEST } from '../api'
 import { ArtistPastShows } from './ArtistPastShows'
 import { ArtistShowsTable } from './ArtistShowsTable'
 import { useShowSaveColumn } from '@/features/shows/components/ShowSaveColumn'
+import { NoSnippet } from '@/components/shared/NoSnippet'
 
 interface ArtistShowsListProps {
   artistId: number
@@ -108,7 +109,7 @@ export function ArtistShowsList({
           // (PSY-1893), so the header bracket is the whole affordance and a
           // copy of it down here is the redundancy PSY-1905 removes.
           <p className="py-2 text-sm text-muted-foreground">
-            No upcoming shows yet.
+            <NoSnippet>No upcoming shows yet.</NoSnippet>
           </p>
         ) : (
           <>
