@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState, type MouseEvent } from 'react'
+import { useRef, useState } from 'react'
 import { BracketLink } from '@/components/shared/BracketLink'
 import { useCalendarFeedStatus } from '@/features/auth/hooks/useCalendarFeed'
 import {
@@ -134,19 +134,6 @@ export function SavedShowsCalendarLink({
     }
   }
 
-  // The popover is anchored to this slot, not triggered by it, so pressing
-  // the link while the popover is open first dismisses it as a press outside
-  // (on pointerdown for a mouse, on click for touch). That press must leave it
-  // closed rather than open it again. A keyboard click has no pointer press
-  // (`detail` 0) and toggles.
-  const pressedWhileOpen = useRef(false)
-  const onClick = (event: MouseEvent<HTMLButtonElement>) => {
-    const dismissedByThisPress = event.detail !== 0 && pressedWhileOpen.current
-    pressedWhileOpen.current = false
-    if (dismissedByThisPress) return
-    setOpen(!open)
-  }
-
   return (
     <div
       ref={slotRef}
@@ -168,10 +155,7 @@ export function SavedShowsCalendarLink({
       <BracketLink
         label={label}
         variant={linkVariant(summary, placement)}
-        onClick={onClick}
-        onPointerDown={() => {
-          pressedWhileOpen.current = open
-        }}
+        onClick={() => setOpen(!open)}
         onPointerEnter={preloadSavedShowsCalendarPanel}
         onFocus={preloadSavedShowsCalendarPanel}
         aria-haspopup="dialog"
@@ -186,6 +170,9 @@ export function SavedShowsCalendarLink({
           open={open}
           onOpenChange={setOpen}
           anchorRef={slotRef}
+          // The slot holds only the link, so a press anywhere in it is the
+          // link's to handle.
+          triggerRef={slotRef}
           align="end"
         />
       ) : null}

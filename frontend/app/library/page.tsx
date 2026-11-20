@@ -122,8 +122,7 @@ function SavedShowsSection({
   isPast,
   view,
   onViewChange,
-  showViewToggle,
-  showCalendarLink,
+  showHeaderControls,
   hasNextPage,
   isFetchingNextPage,
   onExpand,
@@ -137,8 +136,8 @@ function SavedShowsSection({
   isPast: boolean
   view: LibraryView
   onViewChange: (view: LibraryView) => void
-  showViewToggle: boolean
-  showCalendarLink: boolean
+  /** The view toggle and the calendar link, which govern the whole tab. */
+  showHeaderControls: boolean
   hasNextPage: boolean
   isFetchingNextPage: boolean
   onExpand: () => Promise<void>
@@ -173,15 +172,15 @@ function SavedShowsSection({
             </span>
           )}
         </p>
-        {showViewToggle && (
-          <LibraryViewToggle
-            view={view}
-            onViewChange={onViewChange}
-            className="ml-auto"
-          />
-        )}
-        {showCalendarLink && (
-          <SavedShowsCalendarLink placement="section-header" opensFromHash />
+        {showHeaderControls && (
+          <>
+            <LibraryViewToggle
+              view={view}
+              onViewChange={onViewChange}
+              className="ml-auto"
+            />
+            <SavedShowsCalendarLink placement="section-header" opensFromHash />
+          </>
         )}
         {isPast && (
           <p className="w-full font-data text-xs text-muted-foreground md:hidden">
@@ -303,8 +302,7 @@ function ShowsTab({ currentUserId }: { currentUserId?: string }) {
           isPast={false}
           view={view}
           onViewChange={setView}
-          showViewToggle
-          showCalendarLink
+          showHeaderControls
           hasNextPage={upcoming.hasNextPage}
           isFetchingNextPage={upcoming.isFetchingNextPage}
           onExpand={() => fetchAllPages(upcoming)}
@@ -344,8 +342,7 @@ function ShowsTab({ currentUserId }: { currentUserId?: string }) {
           isPast
           view={view}
           onViewChange={setView}
-          showViewToggle={false}
-          showCalendarLink={false}
+          showHeaderControls={false}
           hasNextPage={past.hasNextPage}
           isFetchingNextPage={past.isFetchingNextPage}
           onExpand={() => fetchAllPages(past)}

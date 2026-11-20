@@ -32,6 +32,9 @@ import {
 // a bottom sheet (VenueSortControl, the city filter).
 const POPOVER_MIN_WIDTH_QUERY = '(min-width: 640px)'
 
+/** The pointer-down or focus event Radix reports as outside the popover. */
+type OutsideInteractionEvent = CustomEvent<{ originalEvent: Event }>
+
 interface SavedShowsCalendarPanelProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -42,6 +45,13 @@ interface SavedShowsCalendarPanelProps {
   anchorRef: RefObject<HTMLElement | null>
   /** Which edge of the anchor the popover lines up with. */
   align?: 'start' | 'end'
+  /**
+   * The control that toggles the panel, when there is one. A press inside it
+   * is not a press outside the popover: the control's own click closes it,
+   * as a Radix trigger's would. Without it, that press would dismiss the
+   * popover and the click that follows would open it again.
+   */
+  triggerRef?: RefObject<HTMLElement | null>
 }
 
 /**
@@ -61,6 +71,7 @@ export function SavedShowsCalendarPanel({
   onOpenChange,
   anchorRef,
   align = 'start',
+  triggerRef,
 }: SavedShowsCalendarPanelProps) {
   const fitsPopover = useMediaQuery(POPOVER_MIN_WIDTH_QUERY)
   // The shell is chosen as the panel opens and kept until it opens again:
@@ -85,9 +96,17 @@ export function SavedShowsCalendarPanel({
   // back would also scroll the page to Save. The same rule Radix applies to a
   // non-modal popover with a trigger.
   const interactedOutside = useRef(false)
-  const noteOutsideInteraction = useCallback(() => {
-    interactedOutside.current = true
-  }, [])
+  const noteOutsideInteraction = useCallback(
+    (event: OutsideInteractionEvent) => {
+      const target = event.detail.originalEvent.target
+      if (target instanceof Node && triggerRef?.current?.contains(target)) {
+        event.preventDefault()
+        return
+      }
+      interactedOutside.current = true
+    },
+    [triggerRef]
+  )
   const forgetOutsideInteraction = useCallback(() => {
     interactedOutside.current = false
   }, [])

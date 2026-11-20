@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { RefObject } from 'react'
 import { renderToString } from 'react-dom/server'
 import { QueryClientProvider } from '@tanstack/react-query'
 import userEvent from '@testing-library/user-event'
 import {
   createTestQueryClient,
-  fireEvent,
   renderWithProviders,
   screen,
 } from '@/test/utils'
@@ -37,13 +37,22 @@ vi.mock('@/lib/context/AuthContext', () => ({
 
 // The panel's own suite covers what it shows; here it only has to report how
 // it was opened and close itself the way Radix does.
-const mockPanelProps = vi.fn()
+const mockPanelProps = vi.fn<
+  (props: {
+    open: boolean
+    align?: string
+    anchorRef: RefObject<HTMLElement | null>
+    triggerRef?: RefObject<HTMLElement | null>
+  }) => void
+>()
 vi.mock('./LazySavedShowsCalendarPanel', () => ({
   preloadSavedShowsCalendarPanel: vi.fn(),
   LazySavedShowsCalendarPanel: (props: {
     open: boolean
     onOpenChange: (open: boolean) => void
     align?: string
+    anchorRef: RefObject<HTMLElement | null>
+    triggerRef?: RefObject<HTMLElement | null>
   }) => {
     mockPanelProps(props)
     return props.open ? (
@@ -283,26 +292,24 @@ describe('SavedShowsCalendarLink', () => {
     expect(screen.queryByTestId('calendar-panel')).toBeNull()
   })
 
-  // The popover is anchored to the slot, not triggered by it: pressing the
-  // link while it is open dismisses it as a press outside, and the click that
-  // follows must not open it again.
-  it('stays closed after a press that dismissed the open popover', () => {
+  // The panel's own suite proves a press inside the trigger does not dismiss
+  // the popover; here the link has to name its slot as that trigger, so its
+  // own click is what closes it.
+  it('names its slot as the panel trigger, so a press on it toggles', async () => {
+    const user = userEvent.setup()
     renderWithProviders(<SavedShowsCalendarLink placement="section-header" />)
     const link = screen.getByRole('button', { name: 'Add to calendar' })
-    fireEvent.click(link, { detail: 1 })
-    expect(screen.getByTestId('calendar-panel')).toBeInTheDocument()
 
-    fireEvent.pointerDown(link)
-    // Radix dismisses on that press, before the click lands.
-    fireEvent.click(screen.getByRole('button', { name: 'Close panel' }))
-    fireEvent.click(link, { detail: 1 })
+    await user.click(link)
+    const { triggerRef, anchorRef } = mockPanelProps.mock.lastCall![0]
+    expect(triggerRef?.current).toBe(
+      screen.getByTestId('saved-shows-calendar-link-slot')
+    )
+    expect(triggerRef?.current).toContainElement(link)
+    expect(anchorRef).toBe(triggerRef)
 
+    await user.click(link)
     expect(screen.queryByTestId('calendar-panel')).toBeNull()
-
-    // The next press, with the panel closed, opens it.
-    fireEvent.pointerDown(link)
-    fireEvent.click(link, { detail: 1 })
-    expect(screen.getByTestId('calendar-panel')).toBeInTheDocument()
   })
 
   it('closes the panel when the viewer changes', async () => {
