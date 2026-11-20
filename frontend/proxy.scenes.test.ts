@@ -300,6 +300,21 @@ describe('proxy — scene canonical redirects', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
+  // A probe that named no slug is asked again, so a member-city URL is
+  // redirected as soon as the probe names the metro.
+  it('does not remember a verdict that named no slug', async () => {
+    const fetchMock = mockSceneNamed(null)
+
+    expect((await proxy(requestFor('/scenes/tempe-az'))).status).toBe(200)
+    fetchMock.mockResolvedValue(
+      new Response(null, { status: 200, headers: { 'canonical-slug': 'phoenix-az' } })
+    )
+    const response = await proxy(requestFor('/scenes/tempe-az'))
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(response.status).toBe(308)
+  })
+
   // A metro whose own slug differs from the request only by case: the
   // lowercase request is the canonical one and passes, and the redirect target
   // of the upper-case one is that same request.

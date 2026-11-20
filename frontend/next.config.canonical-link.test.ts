@@ -186,35 +186,39 @@ afterEach(() => {
 const params = <T,>(value: T) => ({ params: Promise.resolve(value) })
 
 /**
- * A sample request for a scene page, under the Phoenix scene, whose backend
- * reads (the scene, a week, a day) all answer with one payload naming the
- * requested slug and keys. A scene page renders only at its canonical spelling,
- * because the proxy redirects every other spelling, so the scene it loads is
- * named the way it was requested; the redirect tests below hold the proxy to
- * that.
+ * The payload every scene read (the scene, a week, a day) answers with in these
+ * tests. Like `entityRecord`, it deliberately names a different scene, week and
+ * day than any request does, so a scene page that takes its canonical from the
+ * loaded payload rather than from the request path fails the agreement test.
  */
+function sceneAnswers() {
+  backendAnswers({
+    slug: 'slug-as-stored',
+    city: 'Phoenix',
+    state: 'AZ',
+    scene_name: 'Phoenix, AZ',
+    timezone: 'America/Phoenix',
+    start_date: '2026-01-05',
+    end_date: '2026-01-11',
+    iso_week: '2026-W02',
+    date: '2026-01-06',
+    prev_date: '2026-01-05',
+    next_date: '2026-01-07',
+    days: [],
+  })
+}
+
+/** A sample request for a scene page under `slug`, paired with its metadata. */
 function sceneCase(
   rest: string,
   pageMetadata: (props: { params: Promise<{ slug: string; period: string }> }) => Promise<Metadata>,
+  slug = 'phoenix-az',
 ): CoveredCase {
   return [
-    `/scenes/phoenix-az${rest}`,
+    `/scenes/${slug}${rest}`,
     () => {
-      backendAnswers({
-        slug: 'phoenix-az',
-        city: 'Phoenix',
-        state: 'AZ',
-        scene_name: 'Phoenix, AZ',
-        timezone: 'America/Phoenix',
-        start_date: '2026-11-16',
-        end_date: '2026-11-22',
-        iso_week: '2026-W47',
-        date: '2026-11-20',
-        prev_date: '2026-11-19',
-        next_date: '2026-11-21',
-        days: [],
-      })
-      return pageMetadata(params({ slug: 'phoenix-az', period: rest.slice(1) }))
+      sceneAnswers()
+      return pageMetadata(params({ slug, period: rest.slice(1) }))
     },
   ]
 }
@@ -343,7 +347,15 @@ const COVERED: Record<string, { route: string; cases: CoveredCase[]; calendar?: 
       ['/collections/essential-shoegaze', () => collectionMetadata(params({ slug: 'essential-shoegaze' }))],
     ],
   },
-  'scenes/[slug]': { route: '/scenes/:slug', cases: [sceneCase('', sceneMetadata)] },
+  // A scene page names the request's own path. The proxy redirects every other
+  // spelling of a scene URL to the scene's canonical one, and a request it
+  // passes through without a redirect (a probe that cannot answer) names
+  // itself in both places; the `coeur-d'alene-id` sample is a slug with an
+  // apostrophe, which a city name can carry.
+  'scenes/[slug]': {
+    route: '/scenes/:slug',
+    cases: [sceneCase('', sceneMetadata), sceneCase('', sceneMetadata, "coeur-d'alene-id")],
+  },
   'scenes/[slug]/tonight': {
     route: '/scenes/:slug/tonight',
     cases: [sceneCase('/tonight', sceneTonightMetadata)],
@@ -360,9 +372,6 @@ const COVERED: Record<string, { route: string; cases: CoveredCase[]; calendar?: 
     route: '/scenes/:slug/next-4-weeks',
     cases: [sceneCase('/next-4-weeks', sceneNext4WeeksMetadata)],
   },
-  // The week page names the week key the backend returns and the day page the
-  // date; both are the requested key, the week key in the upper case the proxy
-  // redirects a lower-case one to.
   'scenes/[slug]/[period]': {
     route: '/scenes/:slug/:period',
     cases: [sceneCase('/2026-W47', scenePeriodMetadata), sceneCase('/2026-11-20', scenePeriodMetadata)],
@@ -483,24 +492,23 @@ describe('the proxy answers for every covered route', () => {
     }
   })
 
-  // A scene page names the scene the backend loads, so its canonical is the
-  // request's own path only when the request is spelled canonically. Every
-  // other spelling must never render: the proxy redirects it, in one hop, to
-  // the path the page would have named, and the redirect's own Link header
-  // names that path rather than the one the rule above matched.
+  // Every other spelling of a scene URL never renders: the proxy redirects it,
+  // in one hop, to the canonical path, and the redirect's own Link header names
+  // that path rather than the spelling a rule above matched.
   const sceneSamples = Object.entries(COVERED)
     .filter(([dir]) => dir.startsWith('scenes/'))
     .flatMap(([, family]) => family.cases.map(([target]) => target))
 
   it.each(sceneSamples)('redirects every other spelling of %s to it', async target => {
+    const [, , slug, ...rest] = target.split('/')
+    const tail = rest.map(segment => `/${segment}`).join('')
     fetchMock.mockImplementation(
-      async () => new Response(null, { status: 200, headers: { 'canonical-slug': 'phoenix-az' } }),
+      async () => new Response(null, { status: 200, headers: { 'canonical-slug': slug } }),
     )
-    const rest = target.slice('/scenes/phoenix-az'.length)
     const variants = [
-      `/scenes/tempe-az${rest}`,
-      `/scenes/PHOENIX-AZ${rest}`,
-      `/scenes/TEMPE-AZ${rest.toLowerCase()}`,
+      `/scenes/tempe-az${tail}`,
+      `/scenes/${slug.toUpperCase()}${tail}`,
+      `/scenes/TEMPE-AZ${tail.toLowerCase()}`,
     ]
     for (const variant of variants) {
       clearExistenceVerdictsForTests()
@@ -511,6 +519,34 @@ describe('the proxy answers for every covered route', () => {
     }
     clearExistenceVerdictsForTests()
     expect((await proxy(proxyRequestFor(target))).status, target).toBe(200)
+  })
+
+  // A probe that cannot name a slug (an API without the header, a failed
+  // probe) lets a member-city URL render without a redirect. The page and the
+  // header then both name that URL, never two different ones.
+  it.each([
+    ['the probe names no slug', () => new Response(null, { status: 200 })],
+    ['the probe fails', () => new Response(null, { status: 503 })],
+  ])('keeps a member-city render consistent with its header when %s', async (_case, answer) => {
+    for (const [tail, pageMetadata] of [
+      ['', sceneMetadata],
+      ['/tonight', sceneTonightMetadata],
+      ['/this-weekend', sceneThisWeekendMetadata],
+      ['/week', sceneWeekMetadata],
+      ['/next-4-weeks', sceneNext4WeeksMetadata],
+      ['/2026-W47', scenePeriodMetadata],
+      ['/2026-11-20', scenePeriodMetadata],
+    ] as const) {
+      const target = `/scenes/mesa-az${tail}`
+      clearExistenceVerdictsForTests()
+      fetchMock.mockImplementation(async () => answer())
+      expect((await proxy(proxyRequestFor(target))).status, target).toBe(200)
+
+      const [, meta] = sceneCase(tail, pageMetadata, 'mesa-az')
+      const pageCanonical = canonicalOf(await meta())
+      expect(pageCanonical, target).toBe(`${SITE_URL}${target}`)
+      expect(await headerCanonicalFor(target), target).toBe(pageCanonical)
+    }
   })
 })
 
@@ -604,7 +640,6 @@ describe('no canonical Link header where the page declares a different URL', () 
     '/venues/thalia-hall-chicago-il/shows/25',
     '/scenes/phoenix-az/opengraph-image',
     '/scenes/phoenix-az/2026-W47/opengraph-image',
-    "/scenes/coeur-d'alene-id",
     '/radio/kexp',
     '/radio/1/the-morning-show',
     '/radio/kexp/42',

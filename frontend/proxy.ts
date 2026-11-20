@@ -450,8 +450,9 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     //
     // Two caveats this buys, both accepted deliberately:
     //
-    // 1. `sceneExists` shares the >= 2-verified-venues threshold with the day
-    //    endpoint but reaches it by its own slug resolution. That is the same
+    // 1. The scene probe (the backend's `SceneCanonicalSlug`) shares the >= 2
+    //    verified-venues threshold with the day endpoint but is a separate
+    //    backend path to it. That is the same
     //    bargain every `/scenes/{slug}` page already makes through
     //    ENTITY_CHECKS, so it is the established shape here rather than a new
     //    risk — but if the two resolvers ever diverge, these routes soft-404.
@@ -772,9 +773,10 @@ function failedProbeResponse(
  *
  * `canonicalPath`, when given, reads the canonical spelling of the request's
  * path off a successful probe's HEADERS, or null when the probe names none. A
- * request spelled any other way is permanently redirected to it, and only a
- * request already spelled that way is remembered, so a remembered probe URL is
- * one whose request needs no redirect.
+ * request spelled any other way is permanently redirected to it, a request the
+ * probe names no path for renders, and only a request already spelled the
+ * canonical way is remembered, so a remembered probe URL is one whose request
+ * needs no redirect.
  */
 async function existenceCheck(
   request: NextRequest,
@@ -806,9 +808,16 @@ async function existenceCheck(
 
     const failed = failedProbeResponse(request, res, options)
     if (failed) return failed
-    const canonical = options.canonicalPath?.(res) ?? null
-    if (canonical !== null && canonical !== request.nextUrl.pathname) {
-      return canonicalRedirect(request, canonical)
+    if (options.canonicalPath) {
+      const canonical = options.canonicalPath(res)
+      if (canonical === null) {
+        // Not remembered, so the next request asks again and is redirected
+        // as soon as the probe names a canonical path.
+        return NextResponse.next()
+      }
+      if (canonical !== request.nextUrl.pathname) {
+        return canonicalRedirect(request, canonical)
+      }
     }
     // Backend reachable and the slug resolves. Only this 2xx answer is
     // remembered; every other outcome is asked again on the next request.
@@ -847,9 +856,10 @@ const CANONICAL_SCENE_SLUG = /^[a-z0-9][a-z0-9.'-]{0,199}$/
  * city (`/scenes/tempe-az/tonight`) and a case variant (`/scenes/PHOENIX-AZ`)
  * are therefore one hop from the metro's page, whichever of the two they are.
  *
- * A probe that names no slug, or one outside `CANONICAL_SCENE_SLUG`, redirects
- * nothing, and the request renders as it did before the probe named slugs:
- * that is the answer an API without the header gives.
+ * A probe that names no slug (an API without the header, or a scene whose slug
+ * cannot be named), or one outside `CANONICAL_SCENE_SLUG`, redirects nothing:
+ * the request renders at the URL as spelled, and its page and the canonical
+ * `Link` header rule both name that URL.
  */
 function sceneCheck(
   request: NextRequest,

@@ -130,19 +130,19 @@ func TestEntityExistsHandler_SceneMissing(t *testing.T) {
 func TestFamilyExistsHandlers(t *testing.T) {
 	probes := []struct {
 		name     string
-		call     func(h *EntityExistenceHandler) (*EntityExistsResponse, error)
+		call     func(h *EntityExistenceHandler) (*FamilyExistsResponse, error)
 		wantArgs []string
 	}{
 		{
 			name: "radio station",
-			call: func(h *EntityExistenceHandler) (*EntityExistsResponse, error) {
+			call: func(h *EntityExistenceHandler) (*FamilyExistsResponse, error) {
 				return h.RadioStationExistsHandler(context.Background(), &RadioStationExistsRequest{Slug: "kexp"})
 			},
 			wantArgs: []string{"kexp"},
 		},
 		{
 			name: "radio show",
-			call: func(h *EntityExistenceHandler) (*EntityExistsResponse, error) {
+			call: func(h *EntityExistenceHandler) (*FamilyExistsResponse, error) {
 				return h.RadioShowExistsHandler(context.Background(), &RadioShowExistsRequest{
 					Slug: "kexp", ShowSlug: "the-morning-show",
 				})
@@ -151,7 +151,7 @@ func TestFamilyExistsHandlers(t *testing.T) {
 		},
 		{
 			name: "radio episode",
-			call: func(h *EntityExistenceHandler) (*EntityExistsResponse, error) {
+			call: func(h *EntityExistenceHandler) (*FamilyExistsResponse, error) {
 				return h.RadioEpisodeExistsHandler(context.Background(), &RadioEpisodeExistsRequest{
 					Slug: "kexp", ShowSlug: "the-morning-show", Date: "2025-01-15",
 				})
@@ -160,7 +160,7 @@ func TestFamilyExistsHandlers(t *testing.T) {
 		},
 		{
 			name: "collection",
-			call: func(h *EntityExistenceHandler) (*EntityExistsResponse, error) {
+			call: func(h *EntityExistenceHandler) (*FamilyExistsResponse, error) {
 				return h.CollectionExistsHandler(context.Background(), &CollectionExistsRequest{Slug: "my-list"})
 			},
 			wantArgs: []string{"my-list"},
