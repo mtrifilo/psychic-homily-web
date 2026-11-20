@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   BRACKET_LABEL_LAYOUT_CLASS,
   BracketLabel,
@@ -77,15 +77,14 @@ function linkVariant(
 interface SavedShowsCalendarLinkProps {
   placement: CalendarLinkPlacement
   /**
-   * Open the panel when the page was reached through the calendar card's old
-   * fragment, so links and bookmarks made for the card still reach the
-   * calendar. Closing the panel drops the fragment, so it opens once.
-   *
-   * Opening the panel prepares the account's calendar link, creating one when
-   * the account has none (useSavedShowsCalendarLink), so arriving through the
-   * fragment creates a link with no click of its own.
+   * When the page carries the calendar card's old fragment, scroll this link
+   * into view and focus it, so links and bookmarks made for the card still
+   * reach the calendar. It never opens the panel: opening prepares the
+   * account's calendar link, creating one when there is none, and a link is
+   * only ever created by the person's own click. The fragment is dropped once
+   * used, so a later mount of the link does not take focus again.
    */
-  opensFromHash?: boolean
+  focusesFromHash?: boolean
 }
 
 /**
@@ -105,7 +104,7 @@ interface SavedShowsCalendarLinkProps {
  */
 export function SavedShowsCalendarLink({
   placement,
-  opensFromHash = false,
+  focusesFromHash = false,
 }: SavedShowsCalendarLinkProps) {
   const { authStatus, user } = useAuthContext()
   const viewerId = user?.id
@@ -118,35 +117,37 @@ export function SavedShowsCalendarLink({
   const slotRef = useRef<HTMLDivElement>(null)
   const linkRef = useRef<HTMLButtonElement>(null)
   const hash = useUrlHash()
-  // The panel acts for one account and closes when the viewer changes. The
-  // person's own choice is kept with the viewer who made it; until there is
-  // one, the page's fragment decides for the viewer the link mounted for.
+  // Only the person's click opens the panel. The choice is kept with the
+  // viewer who made it: the panel acts for one account and closes when the
+  // viewer changes.
   const [choice, setChoice] = useState<{
     open: boolean
     viewerId: string | undefined
   } | null>(null)
-  const [arrivalViewerId] = useState(viewerId)
-  const open =
-    choice === null
-      ? opensFromHash &&
-        hash === CALENDAR_ARRIVAL_HASH &&
-        arrivalViewerId === viewerId
-      : choice.open && choice.viewerId === viewerId
+  const open = !!choice?.open && choice.viewerId === viewerId
   // The panel mounts on the first open and stays mounted, so it closes with
   // its own animation and focus return. Adjusted during render.
   const [panelMounted, setPanelMounted] = useState(false)
   if (open && !panelMounted) setPanelMounted(true)
 
-  const setOpen = (next: boolean) => {
-    setChoice({ open: next, viewerId })
-    if (!next && window.location.hash === CALENDAR_ARRIVAL_HASH) {
-      window.history.replaceState(
-        null,
-        '',
-        window.location.pathname + window.location.search
-      )
-    }
-  }
+  const setOpen = (next: boolean) => setChoice({ open: next, viewerId })
+
+  // The old fragment points at this link. Runs after the link is in the
+  // document, which on Library is after its lists have loaded, so the scroll
+  // is not undone by rows arriving above it. Reads and rewrites the URL, an
+  // external system, so an effect.
+  useEffect(() => {
+    if (!focusesFromHash || hash !== CALENDAR_ARRIVAL_HASH) return
+    const link = linkRef.current
+    if (!link) return
+    link.scrollIntoView({ block: 'center' })
+    link.focus({ preventScroll: true })
+    window.history.replaceState(
+      null,
+      '',
+      window.location.pathname + window.location.search
+    )
+  }, [focusesFromHash, hash])
 
   return (
     <div
@@ -193,11 +194,10 @@ export function SavedShowsCalendarLink({
           triggerRef={linkRef}
           align="end"
           // A failed load of the panel's code is not retried in place (the
-          // bundler may keep the failure); a fresh Library load fetches it and
-          // opens the panel. Not after an open that came from the fragment:
-          // that open may itself be the fresh load, and reloading again would
-          // loop.
-          onLoadFailed={choice === null ? undefined : reloadIntoCalendarPanel}
+          // bundler may keep the failure); a fresh Library load fetches it
+          // again and lands on this link, focused, for the person to click.
+          // The arrival opens nothing, so it cannot fail and reload again.
+          onLoadFailed={reloadIntoCalendarPanel}
         />
       ) : null}
     </div>

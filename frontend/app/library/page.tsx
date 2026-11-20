@@ -180,7 +180,7 @@ function SavedShowsSection({
               onViewChange={onViewChange}
               className="ml-auto"
             />
-            <SavedShowsCalendarLink placement="section-header" opensFromHash />
+            <SavedShowsCalendarLink placement="section-header" focusesFromHash />
           </>
         )}
         {isPast && (

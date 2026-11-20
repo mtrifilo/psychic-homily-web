@@ -358,47 +358,53 @@ describe('SavedShowsCalendarLink', () => {
   })
 
   describe('the old #calendar-feed fragment', () => {
-    it('opens the panel on arrival, and closing drops the fragment so it opens once', async () => {
+    // A calendar link is only ever created by the person's own click, and
+    // opening the panel prepares one, so arriving opens nothing: it brings the
+    // link into view and focuses it.
+    it('focuses the link on arrival without opening the panel, once', async () => {
       const user = userEvent.setup()
+      const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
       window.history.replaceState(null, '', '/library?x=1#calendar-feed')
 
       const { unmount } = renderWithProviders(
-        <SavedShowsCalendarLink placement="section-header" opensFromHash />
+        <SavedShowsCalendarLink placement="section-header" focusesFromHash />
       )
 
-      expect(screen.getByTestId('calendar-panel')).toBeInTheDocument()
-      expect(
-        screen.getByRole('button', { name: 'Add to calendar' })
-      ).toHaveAttribute('aria-expanded', 'true')
-
-      await user.click(screen.getByRole('button', { name: 'Close panel' }))
-      expect(screen.queryByTestId('calendar-panel')).toBeNull()
+      const link = screen.getByRole('button', { name: 'Add to calendar' })
+      expect(link).toHaveFocus()
+      expect(scrollIntoView.mock.contexts).toEqual([link])
+      expect(link).toHaveAttribute('aria-expanded', 'false')
+      expect(mockPanelProps).not.toHaveBeenCalled()
+      // Used once: the fragment is dropped and the query kept.
       expect(window.location.hash).toBe('')
       expect(window.location.pathname + window.location.search).toBe(
         '/library?x=1'
       )
 
+      // A click then opens it, as anywhere else.
+      await user.click(link)
+      expect(screen.getByTestId('calendar-panel')).toBeInTheDocument()
+
       // A later mount (the header re-rendering, a tab switch back) does not
-      // open it again.
+      // take focus again.
       unmount()
+      link.blur()
       renderWithProviders(
-        <SavedShowsCalendarLink placement="section-header" opensFromHash />
+        <SavedShowsCalendarLink placement="section-header" focusesFromHash />
       )
-      expect(screen.queryByTestId('calendar-panel')).toBeNull()
+      expect(
+        screen.getByRole('button', { name: 'Add to calendar' })
+      ).not.toHaveFocus()
+      scrollIntoView.mockRestore()
     })
 
     // A failed load of the panel's code falls back to a fresh Library load at
-    // the fragment, except for an open that came from the fragment, which may
-    // itself be that fresh load.
-    it('falls back to a fresh load only for an open the person clicked', async () => {
+    // the fragment, which lands on the link without opening anything, so it
+    // cannot fail and reload again.
+    it('falls back to a fresh load for a clicked open', async () => {
       const user = userEvent.setup()
-      window.history.replaceState(null, '', '/library#calendar-feed')
-      renderWithProviders(
-        <SavedShowsCalendarLink placement="section-header" opensFromHash />
-      )
-      expect(mockPanelProps.mock.lastCall![0].onLoadFailed).toBeUndefined()
+      renderWithProviders(<SavedShowsCalendarLink placement="section-header" />)
 
-      await user.click(screen.getByRole('button', { name: 'Close panel' }))
       await user.click(screen.getByRole('button', { name: 'Add to calendar' }))
 
       expect(mockPanelProps.mock.lastCall![0]).toMatchObject({
@@ -407,35 +413,22 @@ describe('SavedShowsCalendarLink', () => {
       })
     })
 
-    it('closes a panel it opened when the viewer changes', () => {
-      window.history.replaceState(null, '', '/library#calendar-feed')
-      const { rerender } = renderWithProviders(
-        <SavedShowsCalendarLink placement="section-header" opensFromHash />
-      )
-      expect(screen.getByTestId('calendar-panel')).toBeInTheDocument()
-
-      mockViewer = { id: '2' }
-      rerender(
-        <SavedShowsCalendarLink placement="section-header" opensFromHash />
-      )
-
-      expect(screen.queryByTestId('calendar-panel')).toBeNull()
-    })
-
-    it('is ignored by a link that does not open from it', () => {
+    it('is ignored by a link that does not focus from it', () => {
       window.history.replaceState(null, '', '/#calendar-feed')
       renderWithProviders(<SavedShowsCalendarLink placement="module-footer" />)
 
-      expect(screen.queryByTestId('calendar-panel')).toBeNull()
+      expect(screen.getByRole('button')).not.toHaveFocus()
+      expect(window.location.hash).toBe('#calendar-feed')
+      expect(mockPanelProps).not.toHaveBeenCalled()
     })
 
     it('leaves any other fragment alone', () => {
       window.history.replaceState(null, '', '/library#elsewhere')
       renderWithProviders(
-        <SavedShowsCalendarLink placement="section-header" opensFromHash />
+        <SavedShowsCalendarLink placement="section-header" focusesFromHash />
       )
 
-      expect(screen.queryByTestId('calendar-panel')).toBeNull()
+      expect(screen.getByRole('button')).not.toHaveFocus()
       expect(window.location.hash).toBe('#elsewhere')
     })
   })

@@ -1366,8 +1366,9 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
       expect(mockUseCalendarFeedStatus).toHaveBeenCalledWith(true)
     })
 
-    it('opens the panel once for a #calendar-feed arrival, when the lists finish loading', () => {
+    it('focuses the calendar link for a #calendar-feed arrival once the lists finish loading, and opens nothing', () => {
       window.history.replaceState(null, '', '/library#calendar-feed')
+      const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView')
       const loadedShows = [
         makeSavedShow({
           id: 1,
@@ -1383,21 +1384,24 @@ describe('LibraryPage (PSY-1440, PSY-1435)', () => {
 
       try {
         const { rerender } = renderWithProviders(<LibraryPage />)
-        expect(screen.queryByRole('dialog')).toBeNull()
+        // Nothing to scroll to while the lists load.
+        expect(scrollIntoView).not.toHaveBeenCalled()
 
         loaded = true
         rerender(<LibraryPage />)
 
-        expect(
-          screen.getByRole('dialog', { name: 'Saved shows calendar' })
-        ).toBeInTheDocument()
-
-        fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+        const link = screen.getByRole('button', { name: 'Add to calendar' })
+        expect(link).toHaveFocus()
+        expect(scrollIntoView.mock.contexts).toEqual([link])
+        expect(link).toHaveAttribute('aria-expanded', 'false')
         expect(screen.queryByRole('dialog')).toBeNull()
         expect(window.location.hash).toBe('')
 
-        rerender(<LibraryPage />)
-        expect(screen.queryByRole('dialog')).toBeNull()
+        // A click then opens it.
+        fireEvent.click(link)
+        expect(
+          screen.getByRole('dialog', { name: 'Saved shows calendar' })
+        ).toBeInTheDocument()
       } finally {
         window.history.replaceState(null, '', '/')
       }
