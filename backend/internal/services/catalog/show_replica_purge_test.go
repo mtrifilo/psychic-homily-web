@@ -202,6 +202,34 @@ func (s *ShowReplicaPurgeSuite) TestSingleCopyIsNotAGroup() {
 	s.Equal([]uint{id}, s.existing([]uint{id}))
 }
 
+// Same-date duplicates are another class of problem: they are not a
+// replicated group, so this tool neither lists nor touches them.
+func (s *ShowReplicaPurgeSuite) TestSameDateDuplicatesAreNotAGroup() {
+	room := s.venue("Great American Music Hall")
+	act := s.artist("Beth Orton")
+	var a, b uint
+	seedLegacyShowDuplicate(s.T(), s.db, func() {
+		a = s.show(act, room, evening(2027, time.September, 30), replicaTicket)
+		b = s.show(act, room, evening(2027, time.September, 30).Add(time.Hour), replicaTicket)
+	})
+
+	s.Empty(s.plan().Groups)
+	s.Equal([]uint{a, b}, s.existing([]uint{a, b}))
+}
+
+// Two copies in one year beside a copy in another year is ambiguous.
+func (s *ShowReplicaPurgeSuite) TestTwoCopiesInOneYearAreUntouched() {
+	room := s.venue("Great American Music Hall")
+	act := s.artist("Beth Orton")
+	var ids []uint
+	seedLegacyShowDuplicate(s.T(), s.db, func() {
+		ids = append(ids, s.show(act, room, evening(2026, time.September, 30), replicaTicket))
+		ids = append(ids, s.show(act, room, evening(2026, time.September, 30).Add(time.Hour), replicaTicket))
+		ids = append(ids, s.show(act, room, evening(2027, time.September, 30), replicaTicket))
+	})
+	s.assertUntouched(replicaSkipSameYear, ids)
+}
+
 func (s *ShowReplicaPurgeSuite) TestNextYearCopySurvivesWhenNoCurrentYearCopy() {
 	ids := s.replicate(s.artist("Groundation"), s.venue("Great American Music Hall"), 2027, 2028, 2029)
 
