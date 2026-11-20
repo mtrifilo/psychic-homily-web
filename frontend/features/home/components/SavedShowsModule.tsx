@@ -18,6 +18,7 @@ import {
   useSavedShows,
   useShowSaveCountBatch,
 } from '@/features/shows/hooks/useSavedShows'
+import { SavedShowsCalendarLink } from '@/features/collections/components/saved-shows-calendar/SavedShowsCalendarLink'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { cn } from '@/lib/utils'
 import { HOME_ACCENT_LINK_CLASS, ResolvedHomeCityShowsLink } from './HomeCityShowsLink'
@@ -234,14 +235,7 @@ export function SavedShowsModule() {
           {ownsCityLink && (
             <ResolvedHomeCityShowsLink className="font-data text-xs" />
           )}
-          {showsFooter && (
-            <Link
-              href="/library#calendar-feed"
-              className="text-muted-foreground transition-colors hover:text-link hover:underline underline-offset-4"
-            >
-              Subscribe to calendar →
-            </Link>
-          )}
+          {showsFooter && <SavedShowsCalendarLink placement="module-footer" />}
         </div>
       )}
 

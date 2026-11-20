@@ -1,8 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { renderToString } from 'react-dom/server'
 import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import Link from 'next/link'
 import { SavedShowsModule } from './SavedShowsModule'
-import type { SavedShowResponse } from '@/features/shows/types'
+import type {
+  CalendarFeedStatusResponse,
+  SavedShowResponse,
+} from '@/features/shows/types'
 import type { HomeCityLinkSlot, HomeDiscoverLinksSlot } from '../sections'
 
 const mockUseSavedShows = vi.fn()
@@ -57,6 +62,23 @@ const mockDiscoverLinksSlot = vi.fn<() => HomeDiscoverLinksSlot>(
   () => 'nearby'
 )
 
+// The footer's calendar link reads the status with no feed address; the
+// panel it opens has its own suite and stands in here as a marker.
+let mockCalendarStatus: CalendarFeedStatusResponse | undefined
+vi.mock('@/features/auth/hooks/useCalendarFeed', () => ({
+  useCalendarFeedStatus: (enabled: boolean) => ({
+    data: enabled ? mockCalendarStatus : undefined,
+  }),
+}))
+vi.mock(
+  '@/features/collections/components/saved-shows-calendar/LazySavedShowsCalendarPanel',
+  () => ({
+    preloadSavedShowsCalendarPanel: () => {},
+    LazySavedShowsCalendarPanel: ({ open }: { open: boolean }) =>
+      open ? <div role="dialog" aria-label="Saved shows calendar" /> : null,
+  })
+)
+
 const mockAuthStatus = vi.fn<() => 'pending' | 'authenticated' | 'anonymous'>(
   () => 'authenticated'
 )
@@ -89,6 +111,7 @@ function savedShow(
 }
 
 beforeEach(() => {
+  mockCalendarStatus = undefined
   mockAuthStatus.mockReturnValue('authenticated')
   mockUseShowSaveCountBatch.mockReturnValue({ data: undefined })
   mockCityLinkSlot.mockReturnValue('nearby')
@@ -131,10 +154,11 @@ describe('SavedShowsModule', () => {
 
     render(<SavedShowsModule />)
 
-    // The only button in the module is the row's own save control.
+    // The only buttons in the module are the row's own save control and the
+    // footer's calendar link.
     expect(
       screen.getAllByRole('button').map(button => button.textContent)
-    ).toEqual(['save-1'])
+    ).toEqual(['save-1', '[Add to calendar]'])
     expect(
       screen.getByRole('link', { name: 'All 1 saved show in Library →' })
     ).toHaveAttribute('href', '/library')
@@ -158,9 +182,99 @@ describe('SavedShowsModule', () => {
     render(<SavedShowsModule />)
 
     expect(
-      screen.getByRole('link', { name: 'Subscribe to calendar →' })
-    ).toHaveAttribute('href', '/library#calendar-feed')
+      screen.getByRole('button', { name: 'Add to calendar' })
+    ).toBeInTheDocument()
+    // Nothing points away to Library to find the calendar any more.
+    expect(
+      screen.queryByRole('link', { name: /calendar/i })
+    ).not.toBeInTheDocument()
     expect(screen.queryByText(/Past saved shows move/)).not.toBeInTheDocument()
+  })
+
+  describe('the footer calendar link', () => {
+    const HOUR = 60 * 60 * 1000
+    const DAY = 24 * HOUR
+    const googleRead = (ageMs: number) => ({
+      client: 'google' as const,
+      first_read_at: new Date(Date.now() - ageMs - 30 * DAY).toISOString(),
+      last_read_at: new Date(Date.now() - ageMs).toISOString(),
+    })
+
+    beforeEach(() => {
+      mockUseSavedShows.mockReturnValue({
+        data: { shows: [savedShow(1)], total: 1 },
+        isPending: false,
+        error: null,
+      })
+    })
+
+    it.each([
+      ['no app connected', undefined, 'Add to calendar'],
+      [
+        'an app connected',
+        { has_token: true, reads: [googleRead(2 * HOUR)] },
+        'Calendar: connected',
+      ],
+      [
+        'every app stopped',
+        { has_token: true, reads: [googleRead(12 * DAY)] },
+        'Calendar: stopped',
+      ],
+    ])('labels the link for %s', (_state, status, label) => {
+      mockCalendarStatus = status
+      render(<SavedShowsModule />)
+
+      expect(screen.getByRole('button', { name: label })).toHaveTextContent(
+        `[${label}]`
+      )
+    })
+
+    it('opens the panel in place, with no navigation', async () => {
+      const user = userEvent.setup()
+      render(<SavedShowsModule />)
+      const before = window.location.href
+
+      await user.click(screen.getByRole('button', { name: 'Add to calendar' }))
+
+      expect(
+        screen.getByRole('dialog', { name: 'Saved shows calendar' })
+      ).toBeInTheDocument()
+      expect(window.location.href).toBe(before)
+    })
+
+    // The city link beside it never moves when the label changes: the slot
+    // holds every label invisibly, so its width is the longest one's in every
+    // state, and it is in server HTML with the neutral label.
+    it('reserves the longest label\'s width beside the city link, from server HTML on', () => {
+      mockCityLinkSlot.mockReturnValue('saved')
+      const html = renderToString(<SavedShowsModule />)
+      const host = document.createElement('div')
+      host.innerHTML = html
+
+      const slot = host.querySelector(
+        '[data-testid="saved-shows-calendar-link-slot"]'
+      )
+      expect(slot?.querySelector('button')?.textContent).toBe(
+        '[Add to calendar]'
+      )
+      expect(
+        Array.from(
+          slot?.querySelectorAll('[data-calendar-link-sizer]') ?? [],
+          sizer => sizer.textContent
+        )
+      ).toEqual([
+        '[Add to calendar]',
+        '[Calendar: connected]',
+        '[Calendar: stopped]',
+      ])
+      // The city link comes first in the footer row, the slot after it.
+      const cityLink = host.querySelector('a[href="/shows?cities=Phoenix%2CAZ"]')
+      expect(cityLink?.parentElement).toBe(slot?.parentElement)
+      expect(
+        cityLink!.compareDocumentPosition(slot!) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+    })
   })
 
   it('reads exactly the rows it paints, soonest-first, scoped to the viewer', () => {
@@ -215,7 +329,7 @@ describe('SavedShowsModule', () => {
     // No Library pointer and no footer: there is nothing saved to point at.
     expect(screen.queryByRole('link', { name: /^All / })).not.toBeInTheDocument()
     expect(
-      screen.queryByRole('link', { name: 'Subscribe to calendar →' })
+      screen.queryByRole('button', { name: 'Add to calendar' })
     ).not.toBeInTheDocument()
   })
 
@@ -434,7 +548,7 @@ describe('SavedShowsModule saved-state and viewer transitions', () => {
       ).toBeInTheDocument()
       // The lines that belong to a list it does not have stay away.
       expect(
-        screen.queryByRole('link', { name: 'Subscribe to calendar →' })
+        screen.queryByRole('button', { name: 'Add to calendar' })
       ).not.toBeInTheDocument()
     })
   })
