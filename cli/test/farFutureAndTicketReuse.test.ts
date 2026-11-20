@@ -3,6 +3,7 @@ import { processBatch } from "../src/commands/batch";
 import {
   applyEventDateBound,
   buildShowPayload,
+  quoteLineValue,
   submitShows,
   type ShowPlan,
 } from "../src/commands/submit-show";
@@ -299,5 +300,12 @@ describe("ph batch carries the far-future option and prints the flags", () => {
     expect(far?.allow_far_future_date).toBe(true);
     const near = posts.find((p) => p.ticket_url === TICKET);
     expect(near && "allow_far_future_date" in near).toBe(false);
+  });
+});
+
+describe("quoteLineValue", () => {
+  test("a stored name cannot start a line of its own", () => {
+    expect(quoteLineValue("Room\n! forged line\tx")).toBe("Room ! forged line x");
+    expect(quoteLineValue("\u001b[2KRoom")).toBe("[2KRoom");
   });
 });

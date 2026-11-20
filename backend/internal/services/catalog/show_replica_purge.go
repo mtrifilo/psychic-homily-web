@@ -142,11 +142,14 @@ const (
 	replicaSkipNoNearCopy       = "no copy is in the current or the next venue-local year"
 	replicaSkipNoFarCopy        = "no copy is dated past the far-future bound"
 	replicaSkipCreatedApart     = "the copies to delete were not created within 10 minutes of each other"
+	replicaSkipPairCreatedApart = "only one copy to delete, and it was not created within 10 minutes of the copy kept"
 )
 
-// ticketURLTrimSQL is the whitespace set stripped from a stored ticket_url
-// before it is compared, matching what strings.TrimSpace strips from a query.
-const ticketURLTrimSQL = `E' \t\n\r\f\v'`
+// ticketURLTrimSQL is the ASCII whitespace set stripped from a stored
+// ticket_url before it is compared: space, tab, newline, carriage return, form
+// feed and vertical tab. The vertical tab is written as \x0b because a Postgres
+// E-string reads \v as a literal "v".
+const ticketURLTrimSQL = `E' \t\n\r\f\x0b'`
 
 // replicaRowsSQL reads every approved show with its grouping key. Rooms are the
 // FULL sorted set of show_venues ids, so two shows group only when they are at
@@ -354,6 +357,17 @@ func classifyReplicaGroup(key string, members []ReplicatedShowCopy, farBound tim
 	}
 
 	doomed := copies[1:]
+	// One copy to delete has no spread of its own to measure, so it must have
+	// been written with the copy kept.
+	if len(doomed) == 1 {
+		gap := doomed[0].CreatedAt.Sub(first.CreatedAt)
+		if gap < 0 {
+			gap = -gap
+		}
+		if gap > replicaCreatedWindow {
+			return skip(replicaSkipPairCreatedApart)
+		}
+	}
 	earliest, latest := doomed[0].CreatedAt, doomed[0].CreatedAt
 	for _, c := range doomed {
 		if c.CreatedAt.Before(earliest) {
@@ -508,8 +522,11 @@ func attachReplicaRefCounts(db *gorm.DB, plan *ReplicatedShowPlan) error {
 }
 
 // snapshotReplicaShows returns, per show id, one JSON document holding the shows
-// row and every row that names it in the tables attachReplicaRefCounts reads,
-// so a deletion can be restored by hand. Read inside the purge's transaction,
+// row and every row the delete removes or rewrites (its bill, its rooms, the
+// foreign-key cascades in showFKRefs, the ids of shows whose
+// duplicate_of_show_id it nulls, the polymorphic rows dispositioned
+// dropRefRows and its alert rows), so a deletion can be restored by hand. The
+// documents carry user ids (bookmarks, reports, notification rows). Read inside the purge's transaction,
 // after the lock, so it is exactly what the delete is about to remove.
 func snapshotReplicaShows(tx *gorm.DB, ids []uint) ([]json.RawMessage, error) {
 	parts := []string{
@@ -528,6 +545,11 @@ func snapshotReplicaShows(tx *gorm.DB, ids []uint) ([]json.RawMessage, error) {
 	parts = append(parts,
 		"'shows_pointing_here', (SELECT COALESCE(jsonb_agg(x.id), '[]'::jsonb) FROM shows x WHERE x.duplicate_of_show_id = s.id)")
 	for _, ref := range entityRefsWalkedOnDelete() {
+		// Rows kept as tombstones stay in the database, so copying them would
+		// restore nothing and only move users' text off it.
+		if entityRefDeleteDispositions[ref.table] != dropRefRows {
+			continue
+		}
 		parts = append(parts, fmt.Sprintf(
 			"'%[1]s', (SELECT COALESCE(jsonb_agg(to_jsonb(x)), '[]'::jsonb) FROM %[1]s x WHERE x.entity_type = 'show' AND x.%[2]s = s.id)",
 			ref.table, ref.idCol))

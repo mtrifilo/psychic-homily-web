@@ -18,7 +18,8 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_RefusesAnEventPastT
 	result, err := suite.svc.ImportEvents([]contracts.DiscoveredEvent{far, near}, false, false, catalogm.ShowStatusApproved)
 	suite.Require().NoError(err)
 	suite.Equal(1, result.Imported)
-	suite.Equal(1, result.Errors)
+	suite.Equal(1, result.Rejected)
+	suite.Equal(0, result.Errors, "a refusal is not a failed import")
 	suite.True(strings.Contains(strings.Join(result.Messages, "\n"), "more than 18 months ahead"), "messages: %v", result.Messages)
 
 	var n int64

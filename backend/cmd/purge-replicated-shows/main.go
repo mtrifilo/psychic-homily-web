@@ -19,10 +19,13 @@
 // for a human); at least one copy is past the far-future bound; and the copies
 // to delete were created within 10 minutes of each other.
 //
-// --confirm deletes only when the freshly computed plan has the digest the
-// reviewed dry run printed (--expect-plan), and writes every deleted show, with
-// the rows that name it, to --backup (a new file, one JSON line per show)
-// before deleting it.
+// --confirm deletes only when the freshly computed plan, against the same
+// target database, has the digest the reviewed dry run printed (--expect-plan),
+// and writes every deleted show, with the rows its delete removes, to --backup
+// (a new file, one JSON line per show) before deleting it, then one line per
+// group saying whether that group's deletion committed. The backup carries user
+// ids (bookmarks, reports, notification rows): keep it private and delete it
+// once the run is verified.
 //
 // The far-future report lists approved shows dated more than --list-beyond
 // months ahead that belong to no group. It never deletes anything.
@@ -33,6 +36,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -69,7 +74,7 @@ func main() {
 	)
 	flag.BoolVar(&opts.confirm, "confirm", false, "Delete the planned copies (default: dry-run only)")
 	flag.StringVar(&opts.expectPlan, "expect-plan", "", "With --confirm: the plan digest the reviewed dry run printed")
-	flag.StringVar(&opts.backupPath, "backup", "", "With --confirm: a NEW file that receives every deleted show as one JSON line")
+	flag.StringVar(&opts.backupPath, "backup", "", "With --confirm: a NEW file that receives every deleted show as one JSON line (holds user ids; keep private)")
 	flag.IntVar(&opts.beyondMonths, "list-beyond", catalog.ShowEventDateBoundMonths,
 		"List approved shows dated more than this many months ahead that belong to no group (never deleted)")
 	flag.StringVar(&envFile, "env", "", "Path to .env file (authoritative; defaults to .env.development / .env)")
@@ -140,7 +145,9 @@ func run(database *gorm.DB, opts options, w io.Writer) int {
 		say(w, "[ERROR] plan: %v\n", err)
 		return 1
 	}
-	digest := plan.Digest()
+	// The target is part of the digest, so a plan reviewed against one database
+	// cannot authorize deletions on another that happens to share ids.
+	digest := targetDigest(opts.target, plan.Digest())
 
 	var backup *os.File
 	if opts.confirm {
@@ -170,15 +177,27 @@ func run(database *gorm.DB, opts options, w io.Writer) int {
 		len(plan.Groups), actionable, planned, untouched)
 
 	var deletedSlugs []string
+	backupBroken := false
 	for _, g := range plan.Groups {
 		printGroup(w, g)
 		if !opts.confirm || !g.Actionable() {
 			say(w, "\n")
 			continue
 		}
+		if backupBroken {
+			failedGroups++
+			say(w, "  [SKIPPED] the backup file failed earlier; nothing deleted in this group\n\n")
+			continue
+		}
+		var backupErr error
 		err := catalog.PurgeReplicatedShowGroup(database, opts.now, g, func(snapshot []json.RawMessage) error {
-			return writeBackup(backup, g, snapshot)
+			backupErr = writeBackup(backup, g, snapshot)
+			return backupErr
 		})
+		if outcomeErr := writeOutcome(backup, g, err); outcomeErr != nil && backupErr == nil {
+			backupErr = outcomeErr
+		}
+		backupBroken = backupErr != nil
 		if err != nil {
 			failedGroups++
 			say(w, "  [ERROR] nothing deleted in this group: %v\n\n", err)
@@ -241,6 +260,38 @@ func writeBackup(f *os.File, g catalog.ReplicatedShowGroup, snapshot []json.RawM
 		}
 	}
 	return f.Sync()
+}
+
+// writeOutcome appends the line that says whether a group's deletion
+// committed, so a restore can tell snapshots of deleted shows from snapshots
+// of a group that rolled back.
+func writeOutcome(f *os.File, g catalog.ReplicatedShowGroup, purgeErr error) error {
+	if f == nil {
+		return errors.New("no backup file open")
+	}
+	outcome := struct {
+		KeptShowID     uint   `json:"group_kept_show_id"`
+		DeletedShowIDs []uint `json:"group_deleted_show_ids"`
+		Committed      bool   `json:"committed"`
+		Error          string `json:"error,omitempty"`
+	}{KeptShowID: g.KeepID, DeletedShowIDs: g.DeleteIDs, Committed: purgeErr == nil}
+	if purgeErr != nil {
+		outcome.Error = purgeErr.Error()
+	}
+	line, err := json.Marshal(outcome)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(append(line, '\n')); err != nil {
+		return err
+	}
+	return f.Sync()
+}
+
+// targetDigest binds a plan digest to the database it was computed against.
+func targetDigest(target, planDigest string) string {
+	sum := sha256.Sum256([]byte(target + "\n" + planDigest))
+	return hex.EncodeToString(sum[:8])
 }
 
 func printGroup(w io.Writer, g catalog.ReplicatedShowGroup) {
@@ -327,10 +378,11 @@ func printBeyond(w io.Writer, plan *catalog.ReplicatedShowPlan) {
 
 // clean makes a database string safe to print on the terminal a person reads
 // before confirming: control characters (which can move the cursor and rewrite
-// earlier lines) are dropped and the length is capped.
+// earlier lines), bidirectional controls (which reorder the rest of a line) and
+// line or paragraph separators are dropped, and the length is capped.
 func clean(s string) string {
 	s = strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
+		if unicode.IsControl(r) || unicode.Is(unicode.Bidi_Control, r) || unicode.In(r, unicode.Zl, unicode.Zp) {
 			return -1
 		}
 		return r

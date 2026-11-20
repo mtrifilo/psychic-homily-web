@@ -205,6 +205,7 @@ func (s *ShowReplicaPurgeSuite) TestReplicatedGroup_KeepsCurrentYearCopyAndDelet
 		ShowVenues  []json.RawMessage `json:"show_venues"`
 		Bookmarks   []json.RawMessage `json:"user_bookmarks"`
 		Reports     []json.RawMessage `json:"show_reports"`
+		Comments    json.RawMessage   `json:"comments"`
 	}
 	s.Require().NoError(json.Unmarshal(s.backups[1], &doc))
 	s.Equal(ids[2], doc.Show.ID)
@@ -214,6 +215,9 @@ func (s *ShowReplicaPurgeSuite) TestReplicatedGroup_KeepsCurrentYearCopyAndDelet
 	s.Require().NoError(json.Unmarshal(s.backups[3], &doc))
 	s.Equal(ids[4], doc.Show.ID)
 	s.Len(doc.Reports, 1)
+	s.Require().NoError(json.Unmarshal(s.backups[2], &doc))
+	s.Equal(ids[3], doc.Show.ID)
+	s.Nil(doc.Comments, "comments stay in the database as tombstones, so the backup does not copy them")
 
 	s.Equal([]uint{ids[0]}, s.existing(ids))
 	s.Equal([]uint{bystander}, s.existing([]uint{bystander}), "a different month-day is a different group")
@@ -436,6 +440,60 @@ func (s *ShowReplicaPurgeSuite) TestSurvivorCreatedEarlierStillPurges() {
 	s.Require().Len(plan.Groups, 1)
 	s.Equal(a, plan.Groups[0].KeepID)
 	s.Equal([]uint{b, c}, plan.Groups[0].DeleteIDs)
+}
+
+// With one copy to delete there is no spread to measure, so that copy must have
+// been written with the copy kept.
+func (s *ShowReplicaPurgeSuite) TestPairCreatedApartIsUntouched() {
+	room := s.venue("Great American Music Hall")
+	act := s.artist("Annual Act")
+	a := s.showFrom(act, room, evening(2027, time.June, 14), replicaTicket, replicaCreated.AddDate(-1, 0, 0), nil)
+	b := s.showFrom(act, room, evening(2028, time.June, 14), replicaTicket, replicaCreated, nil)
+	s.assertUntouched(replicaSkipPairCreatedApart, []uint{a, b})
+}
+
+func (s *ShowReplicaPurgeSuite) TestPairCreatedTogetherPurges() {
+	room := s.venue("Great American Music Hall")
+	act := s.artist("Igorrr")
+	a := s.showFrom(act, room, evening(2027, time.June, 14), replicaTicket, replicaCreated, nil)
+	b := s.showFrom(act, room, evening(2028, time.June, 14), replicaTicket, replicaCreated.Add(time.Minute), nil)
+
+	plan := s.plan()
+	s.Require().Len(plan.Groups, 1)
+	s.Equal(a, plan.Groups[0].KeepID)
+	s.Equal([]uint{b}, plan.Groups[0].DeleteIDs)
+}
+
+// Same submitter (none) but a different source is a different origin.
+func (s *ShowReplicaPurgeSuite) TestMixedSourcesAreUntouched() {
+	ids := s.replicate(s.artist("Groundation"), s.venue("Great American Music Hall"), 2026, 2027, 2028)
+	s.Require().NoError(s.db.Exec(`UPDATE shows SET source = 'discovery' WHERE id = ?`, ids[1]).Error)
+	s.assertUntouched(replicaSkipMixedOrigin, ids)
+}
+
+// Stored whitespace around a link is ignored, and a link ending in "v" keeps
+// its "v": the trim set must not read \v as a letter.
+func (s *ShowReplicaPurgeSuite) TestTicketURLTrimKeepsATrailingV() {
+	room := s.venue("Great American Music Hall")
+	act := s.artist("Igorrr")
+	nov := "https://dice.fm/event/abc-nov"
+	a := s.show(act, room, evening(2026, time.October, 3), nov+"\n")
+	b := s.show(act, room, evening(2027, time.October, 3), " "+nov)
+	c := s.show(act, room, evening(2028, time.October, 3), nov)
+	d := s.show(s.artist("Other"), room, evening(2028, time.October, 3), "https://dice.fm/event/abc-no")
+
+	plan := s.plan()
+	s.Require().Len(plan.Groups, 1)
+	s.Equal(nov, plan.Groups[0].Copies[0].TicketURL)
+	s.Equal(a, plan.Groups[0].KeepID)
+	s.Equal([]uint{b, c}, plan.Groups[0].DeleteIDs)
+
+	shows, total, err := NewShowService(s.db).GetShows(map[string]interface{}{"ticket_url": nov}, contracts.ShowsQuery{Limit: 50})
+	s.Require().NoError(err)
+	s.Equal(int64(3), total)
+	for _, sh := range shows {
+		s.NotEqual(d, sh.ID)
+	}
 }
 
 // Two years inside the bound and nothing past it is not the replication
