@@ -1,5 +1,10 @@
-import { describe, it, expect } from 'vitest'
-import { toGeoLocation, matchByGeo } from './geo-client'
+import { afterEach, describe, it, expect, vi } from 'vitest'
+import {
+  GEO_CACHE_KEY,
+  readCachedGeoAnswer,
+  toGeoLocation,
+  matchByGeo,
+} from './geo-client'
 
 describe('toGeoLocation', () => {
   it('keeps a valid {city,state} with no coords', () => {
@@ -94,5 +99,50 @@ describe('matchByGeo', () => {
         get,
       )?.city,
     ).toBe('Phoenix')
+  })
+})
+
+describe('readCachedGeoAnswer', () => {
+  afterEach(() => {
+    window.sessionStorage.clear()
+    vi.restoreAllMocks()
+  })
+
+  it('is undefined when nothing is cached', () => {
+    expect(readCachedGeoAnswer()).toBeUndefined()
+  })
+
+  it('is null for a cached answer of "no city"', () => {
+    window.sessionStorage.setItem(GEO_CACHE_KEY, JSON.stringify({ geo: null }))
+    expect(readCachedGeoAnswer()).toBeNull()
+  })
+
+  it('is the cached location, validated', () => {
+    window.sessionStorage.setItem(
+      GEO_CACHE_KEY,
+      JSON.stringify({ geo: { city: 'Mesa', state: 'AZ', latitude: 33.4, longitude: -111.8 } })
+    )
+    expect(readCachedGeoAnswer()).toEqual({
+      city: 'Mesa',
+      state: 'AZ',
+      latitude: 33.4,
+      longitude: -111.8,
+    })
+  })
+
+  it('is undefined for an entry that does not parse, or storage that throws', () => {
+    window.sessionStorage.setItem(GEO_CACHE_KEY, '{not json')
+    expect(readCachedGeoAnswer()).toBeUndefined()
+
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('blocked')
+    })
+    expect(readCachedGeoAnswer()).toBeUndefined()
+  })
+
+  it('makes no request', () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    readCachedGeoAnswer()
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 })

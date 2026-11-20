@@ -46,7 +46,7 @@ import {
  * labels describes a different set of rows. The request half and the cache-key
  * half both derive from it below, so the two cannot drift either.
  */
-interface ShowListFilterOptions {
+export interface ShowListFilterOptions {
   /** Legacy single-city filter */
   city?: string
   /** Legacy single-state filter */
@@ -172,6 +172,36 @@ export const useUpcomingShows = (options: UseUpcomingShowsOptions = {}) => {
 }
 
 /**
+ * The cache key `useShowsCalendar` reads for `options`. Exported so a reader
+ * that has to know whether that entry is cached, without creating it, names
+ * the same entry the hook does.
+ */
+export function showsCalendarQueryKey({
+  offset,
+  limit = SHOWS_PAGE_SIZE,
+  window: calendarWindow,
+  city,
+  state,
+  cities,
+  tags,
+  tagMatch,
+}: UseShowsCalendarOptions): readonly unknown[] {
+  return showQueryKeys.calendar({
+    limit,
+    offset: offset || undefined,
+    ...showsCalendarWindowKey(calendarWindow),
+    ...showListFilterKey({ city, state, cities, tags, tagMatch }),
+  })
+}
+
+/** The cache key `useShowMonths` reads for `options`, for the same reason. */
+export function showMonthsQueryKey(
+  options: ShowListFilterOptions
+): readonly unknown[] {
+  return showQueryKeys.months(showListFilterKey(options))
+}
+
+/**
  * Hook to fetch one OFFSET page of upcoming shows, the reader behind `/shows`.
  *
  * Offset rather than the cursor `useUpcomingShows` uses, because this list is
@@ -211,12 +241,7 @@ export const useShowsCalendar = (options: UseShowsCalendarOptions = {}) => {
   appendShowListFilters(params, { city, state, cities, tags, tagMatch })
 
   return useQuery({
-    queryKey: showQueryKeys.calendar({
-      limit,
-      offset: offset || undefined,
-      ...showsCalendarWindowKey(calendarWindow),
-      ...showListFilterKey({ city, state, cities, tags, tagMatch }),
-    }),
+    queryKey: showsCalendarQueryKey({ ...options, limit }),
     queryFn: async (): Promise<ShowsCalendarResponse> => {
       return apiRequest<ShowsCalendarResponse>(
         `${showEndpoints.CALENDAR}?${params.toString()}`,
@@ -245,9 +270,7 @@ export const useShowMonths = (options: ShowListFilterOptions = {}) => {
   const queryString = params.toString()
 
   return useQuery({
-    queryKey: showQueryKeys.months(
-      showListFilterKey({ city, state, cities, tags, tagMatch })
-    ),
+    queryKey: showMonthsQueryKey(options),
     queryFn: async (): Promise<ShowMonthsResponse> => {
       return apiRequest<ShowMonthsResponse>(
         queryString

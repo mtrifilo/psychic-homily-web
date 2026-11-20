@@ -2,7 +2,11 @@
 
 import type { ReactNode } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { useQueryClient, type QueryKey } from '@tanstack/react-query'
+import {
+  useQueryClient,
+  type QueryClient,
+  type QueryKey,
+} from '@tanstack/react-query'
 import { useHydrated } from '@/lib/hooks/common/useHydrated'
 import {
   isFirstScreenRequest,
@@ -97,12 +101,32 @@ function WarmCacheGate({
   )
   // Off the first screen the server seeds nothing, so the list may fetch for
   // itself. On it, the list may run only over seeded keys that already hold
-  // data; `getQueryData` reads an entry without creating one.
+  // data.
   const listCannotPreemptSeed =
-    !onSeededFirstScreen ||
-    seededKeys.every(key => queryClient.getQueryData(key) !== undefined)
+    !onSeededFirstScreen || everyKeyCached(queryClient, seededKeys)
 
   if (!listCannotPreemptSeed) return loader
+  return <CacheDrawnList>{children}</CacheDrawnList>
+}
+
+/**
+ * Whether every key holds data in `queryClient`. `getQueryData` reads an entry
+ * without creating one, so the check itself registers nothing.
+ */
+export function everyKeyCached(
+  queryClient: QueryClient,
+  keys: readonly QueryKey[]
+): boolean {
+  return keys.every(key => queryClient.getQueryData(key) !== undefined)
+}
+
+/**
+ * A list drawn from the browser's cache inside a `Suspense` fallback:
+ * view-only (`inert`) until the boundary's own list replaces it, with a status
+ * outside the copy saying the region is still loading. See
+ * `CachedListFallback` for why the copy takes no input.
+ */
+export function CacheDrawnList({ children }: { children: ReactNode }) {
   // `contents`: the wrapper adds no box, so the list lays out as it does in
   // the boundary.
   return (
