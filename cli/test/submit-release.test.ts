@@ -272,6 +272,37 @@ describe("planReleases", () => {
     expect(actions[0].resolvedArtists[0].artist_id).toBe(3);
     expect(actions[0].resolvedArtists[0].role).toBe("main");
   });
+
+  describe("placeholder label warning", () => {
+    async function planAndCaptureStderr(labels: string[]): Promise<string> {
+      const client = createMockClient({});
+      let stderr = "";
+      const origWrite = process.stderr.write;
+      process.stderr.write = ((chunk: string | Uint8Array) => {
+        stderr += String(chunk);
+        return true;
+      }) as typeof process.stderr.write;
+      try {
+        await planReleases(client, [
+          { title: "Some Release", artists: [{ name: "Some Artist" }], labels },
+        ]);
+      } finally {
+        process.stderr.write = origWrite;
+      }
+      return stderr;
+    }
+
+    test("warns when a release names a placeholder-shaped label", async () => {
+      const stderr = await planAndCaptureStderr(["3245973 Records DK"]);
+      expect(stderr).toContain('Label "3245973 Records DK" looks like a distributor placeholder');
+    });
+
+    test("does not warn for a real label", async () => {
+      const stderr = await planAndCaptureStderr(["Sub Pop"]);
+      expect(stderr).toContain('Label "Sub Pop" will be linked');
+      expect(stderr).not.toContain("distributor placeholder");
+    });
+  });
 });
 
 describe("submitReleases", () => {

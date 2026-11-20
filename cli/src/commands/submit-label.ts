@@ -5,6 +5,7 @@ import { checkDuplicate, type DuplicateCheckResult } from "../lib/duplicates";
 import { TagResolver, formatTagsPreview, formatFuzzyWarning } from "../lib/tags";
 import type { TagInput, ResolvedTag } from "../lib/tags";
 import { expandInlineRosters } from "../lib/roster";
+import { placeholderLabelWarning } from "../lib/labels";
 import * as display from "../lib/display";
 
 interface LabelInput {
@@ -197,6 +198,9 @@ export async function submitLabels(
         break;
       }
     }
+
+    const placeholderWarning = placeholderLabelWarning(label.name);
+    if (placeholderWarning) display.warn(placeholderWarning);
 
     // Show tags if any
     if (resolvedTags[planIdx].length > 0) {

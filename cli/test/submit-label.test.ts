@@ -41,6 +41,34 @@ describe("submitLabels", () => {
     expect((client.post as ReturnType<typeof mock>).mock.calls.length).toBe(0);
   });
 
+  test("warns on a placeholder-shaped label name in the dry run and still plans the create", async () => {
+    let stderr = "";
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr += String(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+    const client = createMockClient();
+
+    const result = await submitLabels([{ name: "3245973 Records DK" }], client, false);
+
+    expect(stderr).toContain('Label "3245973 Records DK" looks like a distributor placeholder');
+    expect(result.created).toBe(1);
+  });
+
+  test("does not warn on a real label name", async () => {
+    let stderr = "";
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr += String(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+    const client = createMockClient();
+
+    await submitLabels([{ name: "4AD" }], client, false);
+
+    expect(stderr).toContain("CREATE: 4AD");
+    expect(stderr).not.toContain("distributor placeholder");
+  });
+
   test("creates a single new label (--confirm)", async () => {
     const client = createMockClient();
     const items = [{ name: "Numero", city: "Chicago", state: "IL" }];
