@@ -30,6 +30,13 @@ vi.mock('next/headers', () => ({
   cookies: vi.fn(async () => ({ get: vi.fn(() => undefined) })),
 }))
 
+// The scene window pages opt out of prerendering with `connection()`, which
+// needs a request store these direct calls do not have.
+vi.mock('next/server', async importOriginal => ({
+  ...(await importOriginal<typeof import('next/server')>()),
+  connection: vi.fn(async () => {}),
+}))
+
 vi.mock('@/features/collections/components/CollectionDetail', () => ({
   CollectionDetail: (): null => null,
 }))
@@ -44,7 +51,12 @@ import { generateMetadata as showMetadata } from './app/shows/[slug]/page'
 import { generateMetadata as showsMonthMetadata } from './app/shows/[slug]/[month]/page'
 import { generateMetadata as showsDayMetadata } from './app/shows/[slug]/[month]/[day]/page'
 import { generateMetadata as venueYearMetadata } from './app/venues/[slug]/shows/[year]/page'
+import { generateMetadata as sceneMetadata } from './app/scenes/[slug]/page'
 import { generateMetadata as sceneTonightMetadata } from './app/scenes/[slug]/tonight/page'
+import { generateMetadata as sceneThisWeekendMetadata } from './app/scenes/[slug]/this-weekend/page'
+import { generateMetadata as sceneWeekMetadata } from './app/scenes/[slug]/week/page'
+import { generateMetadata as sceneNext4WeeksMetadata } from './app/scenes/[slug]/next-4-weeks/page'
+import { generateMetadata as scenePeriodMetadata } from './app/scenes/[slug]/[period]/page'
 import { generateMetadata as radioStationMetadata } from './app/radio/[station-slug]/page'
 import { generateMetadata as radioShowMetadata } from './app/radio/[station-slug]/[show-slug]/page'
 import { generateMetadata as radioEpisodeMetadata } from './app/radio/[station-slug]/[show-slug]/[date]/page'
@@ -172,6 +184,45 @@ afterEach(() => {
 })
 
 const params = <T,>(value: T) => ({ params: Promise.resolve(value) })
+
+/**
+ * The payload every scene read (the scene, a week, a day) answers with in these
+ * tests. Like `entityRecord`, it deliberately names a different scene, week and
+ * day than any request does, so a scene page that takes its canonical from the
+ * loaded payload rather than from the request path fails the agreement test.
+ */
+function sceneAnswers() {
+  backendAnswers({
+    slug: 'slug-as-stored',
+    city: 'Phoenix',
+    state: 'AZ',
+    scene_name: 'Phoenix, AZ',
+    timezone: 'America/Phoenix',
+    start_date: '2026-01-05',
+    end_date: '2026-01-11',
+    iso_week: '2026-W02',
+    date: '2026-01-06',
+    prev_date: '2026-01-05',
+    next_date: '2026-01-07',
+    days: [],
+  })
+}
+
+/** A sample request for a scene page under `slug`, paired with its metadata. */
+function sceneCase(
+  rest: string,
+  pageMetadata: (props: { params: Promise<{ slug: string; period: string }> }) => Promise<Metadata>,
+  slug = 'phoenix-az',
+): CoveredCase {
+  return [
+    `/scenes/${slug}${rest}`,
+    () => {
+      sceneAnswers()
+      return pageMetadata(params({ slug, period: rest.slice(1) }))
+    },
+  ]
+}
+
 const noSearch = { searchParams: Promise.resolve({}) }
 
 type CoveredCase = [pathname: string, pageMetadata: () => Promise<Metadata>]
@@ -296,6 +347,35 @@ const COVERED: Record<string, { route: string; cases: CoveredCase[]; calendar?: 
       ['/collections/essential-shoegaze', () => collectionMetadata(params({ slug: 'essential-shoegaze' }))],
     ],
   },
+  // A scene page names the request's own path. The proxy redirects every other
+  // spelling of a scene URL to the scene's canonical one, and a request it
+  // passes through without a redirect (a probe that cannot answer) names
+  // itself in both places; the `coeur-d'alene-id` sample is a slug with an
+  // apostrophe, which a city name can carry.
+  'scenes/[slug]': {
+    route: '/scenes/:slug',
+    cases: [sceneCase('', sceneMetadata), sceneCase('', sceneMetadata, "coeur-d'alene-id")],
+  },
+  'scenes/[slug]/tonight': {
+    route: '/scenes/:slug/tonight',
+    cases: [sceneCase('/tonight', sceneTonightMetadata)],
+  },
+  'scenes/[slug]/this-weekend': {
+    route: '/scenes/:slug/this-weekend',
+    cases: [sceneCase('/this-weekend', sceneThisWeekendMetadata)],
+  },
+  'scenes/[slug]/week': {
+    route: '/scenes/:slug/week',
+    cases: [sceneCase('/week', sceneWeekMetadata)],
+  },
+  'scenes/[slug]/next-4-weeks': {
+    route: '/scenes/:slug/next-4-weeks',
+    cases: [sceneCase('/next-4-weeks', sceneNext4WeeksMetadata)],
+  },
+  'scenes/[slug]/[period]': {
+    route: '/scenes/:slug/:period',
+    cases: [sceneCase('/2026-W47', scenePeriodMetadata), sceneCase('/2026-11-20', scenePeriodMetadata)],
+  },
 }
 
 /**
@@ -304,13 +384,6 @@ const COVERED: Record<string, { route: string; cases: CoveredCase[]; calendar?: 
  * `COVERED`.
  */
 const EXCLUDED: Record<string, string> = {
-  'scenes/[slug]':
-    'a metro member city (`/scenes/tempe-az`) and any case variant render the metro under their own URL; whether those are canonical is undecided',
-  'scenes/[slug]/tonight': 'canonical names the scene slug the backend returns',
-  'scenes/[slug]/week': 'canonical names the scene slug the backend returns',
-  'scenes/[slug]/this-weekend': 'canonical names the scene slug the backend returns',
-  'scenes/[slug]/next-4-weeks': 'canonical names the scene slug the backend returns',
-  'scenes/[slug]/[period]': 'canonical names the scene slug and date the backend returns',
   'radio/[station-slug]': "canonical follows the station's network",
   'radio/[station-slug]/channel/[sub-slug]':
     'a local segment that keeps the network prefix (`/radio/wfmu/channel/wfmu-drummer`) renders the station under a second URL that declares itself canonical, and the network segment is not checked against the station',
@@ -418,6 +491,78 @@ describe('the proxy answers for every covered route', () => {
       expect((await proxy(proxyRequestFor(target))).status, target).toBe(404)
     }
   })
+
+  // Every other spelling of a scene URL never renders: the proxy redirects it,
+  // in one hop, to the canonical path, and the redirect's own Link header names
+  // that path rather than the spelling a rule above matched.
+  const sceneSamples = Object.entries(COVERED)
+    .filter(([dir]) => dir.startsWith('scenes/'))
+    .flatMap(([, family]) => family.cases.map(([target]) => target))
+
+  it.each(sceneSamples)('redirects every other spelling of %s to it', async target => {
+    const [, , slug, ...rest] = target.split('/')
+    const tail = rest.map(segment => `/${segment}`).join('')
+    fetchMock.mockImplementation(
+      async () => new Response(null, { status: 200, headers: { 'canonical-slug': slug } }),
+    )
+    const variants = [
+      `/scenes/tempe-az${tail}`,
+      `/scenes/${slug.toUpperCase()}${tail}`,
+      `/scenes/TEMPE-AZ${tail.toLowerCase()}`,
+    ]
+    for (const variant of variants) {
+      clearExistenceVerdictsForTests()
+      const response = await proxy(proxyRequestFor(variant))
+      expect(response.status, variant).toBe(308)
+      expect(new URL(response.headers.get('location')!).pathname, variant).toBe(target)
+      expect(response.headers.get('link'), variant).toBe(`<${SITE_URL}${target}>; rel="canonical"`)
+    }
+    clearExistenceVerdictsForTests()
+    expect((await proxy(proxyRequestFor(target))).status, target).toBe(200)
+  })
+
+  // A probe that cannot name a slug (an API without the header, a failed
+  // probe) lets a member-city URL render without a redirect. The page and the
+  // header then both name that URL, never two different ones.
+  it.each([
+    ['the probe names no slug', () => new Response(null, { status: 200 })],
+    ['the probe fails', () => new Response(null, { status: 503 })],
+  ])('keeps a member-city render consistent with its header when %s', async (_case, answer) => {
+    for (const [tail, pageMetadata] of [
+      ['', sceneMetadata],
+      ['/tonight', sceneTonightMetadata],
+      ['/this-weekend', sceneThisWeekendMetadata],
+      ['/week', sceneWeekMetadata],
+      ['/next-4-weeks', sceneNext4WeeksMetadata],
+      ['/2026-W47', scenePeriodMetadata],
+      ['/2026-11-20', scenePeriodMetadata],
+    ] as const) {
+      const target = `/scenes/mesa-az${tail}`
+      clearExistenceVerdictsForTests()
+      fetchMock.mockImplementation(async () => answer())
+      expect((await proxy(proxyRequestFor(target))).status, target).toBe(200)
+
+      const [, meta] = sceneCase(tail, pageMetadata, 'mesa-az')
+      const pageCanonical = canonicalOf(await meta())
+      expect(pageCanonical, target).toBe(`${SITE_URL}${target}`)
+      expect(await headerCanonicalFor(target), target).toBe(pageCanonical)
+    }
+  })
+
+  // The share identity is the scene the payload loaded, not the request's
+  // spelling: on such a render the canonical names the request and og:url the
+  // scene.
+  it.each([
+    ['/tonight', sceneTonightMetadata, '/scenes/slug-as-stored/2026-01-06'],
+    ['/this-weekend', sceneThisWeekendMetadata, '/scenes/slug-as-stored/this-weekend'],
+    ['/week', sceneWeekMetadata, '/scenes/slug-as-stored/2026-W02'],
+    ['/next-4-weeks', sceneNext4WeeksMetadata, '/scenes/slug-as-stored/next-4-weeks'],
+  ] as const)('names the loaded scene in og:url on %s', async (tail, pageMetadata, ogPath) => {
+    const [, meta] = sceneCase(tail, pageMetadata, 'mesa-az')
+    const og = (await meta()).openGraph as { url?: string | URL } | undefined
+
+    expect(String(og?.url)).toBe(`${SITE_URL}${ogPath}`)
+  })
 })
 
 describe('no canonical Link header where the page declares a different URL', () => {
@@ -467,21 +612,6 @@ describe('no canonical Link header where the page declares a different URL', () 
     )
   })
 
-  it('leaves scene windows alone, whose page canonical names the slug the backend returns', async () => {
-    backendAnswers({
-      slug: 'phoenix-az',
-      date: '2026-11-19',
-      iso_week: '2026-W47',
-      prev_date: '2026-11-18',
-      next_date: '2026-11-20',
-      is_tonight: true,
-    })
-    const pageCanonical = canonicalOf(await sceneTonightMetadata(params({ slug: 'mesa-az' })))
-
-    expect(pageCanonical).toBe(`${SITE_URL}/scenes/phoenix-az/tonight`)
-    expect(await headerCanonicalFor('/scenes/mesa-az/tonight')).toBeNull()
-  })
-
   const day = params({ slug: '2026', month: '11', day: '14' })
 
   // Next's router keeps the header for an empty `days=` and Vercel's withholds
@@ -523,8 +653,8 @@ describe('no canonical Link header where the page declares a different URL', () 
     '/artists/espa%C3%B1ola',
     '/venues/thalia-hall-chicago-il/shows/0999',
     '/venues/thalia-hall-chicago-il/shows/25',
-    '/scenes/chicago-il',
-    '/scenes/mesa-az/2026-07-31',
+    '/scenes/phoenix-az/opengraph-image',
+    '/scenes/phoenix-az/2026-W47/opengraph-image',
     '/radio/kexp',
     '/radio/1/the-morning-show',
     '/radio/kexp/42',

@@ -56,9 +56,15 @@ export async function buildSceneWeekMetadata(
   // the scene_periods sitemap family announces it with a daily lastmod so its
   // snippet is refreshed as the week changes. A dated permalink names one week
   // forever.
+  //
+  // The canonical names the request's own path (slug and week key as
+  // requested), the same path the canonical `Link` header rule in
+  // next.config.ts names; the proxy redirects every other spelling of a scene
+  // URL, a lower-case week key included, to the canonical one before this
+  // renders. The share identity below names the week the payload loaded.
   const canonical = isRollingRoute
-    ? `${SITE_URL}${sceneWindowHref(data.slug, 'this-week')}`
-    : weekPermalink
+    ? `${SITE_URL}${sceneWindowHref(slug, 'this-week')}`
+    : `${SITE_URL}/scenes/${encodeURIComponent(slug)}/${week}`
 
   // Both routes advertise the ARCHIVED card, and that is deliberate.
   //

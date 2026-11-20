@@ -81,9 +81,15 @@ export async function buildSceneDayMetadata(slug: string, date?: string): Promis
   // every day page, which are real anchors. The JSON-LD breadcrumb also names
   // the day, but that is structured data, not a crawl edge, and the VISIBLE
   // breadcrumb stops at the scene.
+  //
+  // The canonical names the request's own path (slug and date as requested),
+  // the same path the canonical `Link` header rule in next.config.ts names; the
+  // proxy redirects every other spelling of a scene URL to the canonical one
+  // before this renders. The share identity below names the day the payload
+  // loaded.
   const canonical = isRollingRoute
-    ? `${SITE_URL}${sceneWindowHref(day.slug, 'tonight')}`
-    : dayPermalink
+    ? `${SITE_URL}${sceneWindowHref(slug, 'tonight')}`
+    : `${SITE_URL}/scenes/${encodeURIComponent(slug)}/${date}`
 
   // A dated night with nothing on it is thin content: real, worth serving,
   // worth linking out of, not worth an index entry. `follow` stays on precisely

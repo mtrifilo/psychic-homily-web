@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"fmt"
+	"log/slog"
 	"strconv"
 	"time"
 
@@ -65,7 +66,8 @@ func (s *EntityExistenceService) Exists(entityType, idOrSlug string) (bool, erro
 	case "tags":
 		return s.existsByIDOrSlug(&catalogm.Tag{}, idOrSlug)
 	case "scenes":
-		return s.sceneExists(idOrSlug)
+		_, exists, err := s.ServedSceneSlug(idOrSlug)
+		return exists, err
 	default:
 		return false, nil
 	}
@@ -182,24 +184,38 @@ func (s *EntityExistenceService) CollectionExists(collectionIDOrSlug string) (bo
 	return firstIDExists(query, "collections.id")
 }
 
-// sceneExists gates the proxy soft-404 for /scenes/{slug}.
+// ServedSceneSlug gates the proxy soft-404 for /scenes/{slug}: whether the
+// scene's page serves, and the slug that page is served at
+// (CanonicalSceneSlug's answer). The slug is "" when the scene does not exist,
+// and when no canonical slug can be named for it.
 //
 // It runs the page's own rule rather than a probe-sized restatement of it: the
 // slug resolved through ParseSceneSlug, then sceneServingScope, the existence
-// rule GetSceneDetail gates on. Restating it
-// gave the gate and the page different answers about the same slug, in both
-// directions, and a gate that disagrees with the page it guards either hides a
-// scene or announces one that 404s.
+// rule GetSceneDetail gates on. Restating it gave the gate and the page
+// different answers about the same slug, in both directions, and a gate that
+// disagrees with the page it guards either hides a scene or announces one that
+// 404s.
 //
 // An unresolvable slug is absence, not failure: ParseSceneSlug reports it as a
-// scene-not-found error, and the probe answers false.
-func (s *EntityExistenceService) sceneExists(slug string) (bool, error) {
+// scene-not-found error, and the probe answers false. A failure to NAME the
+// slug of a scene that serves is not a failure of the verdict: the slug is
+// dropped and the verdict stands, as on the week routes.
+func (s *EntityExistenceService) ServedSceneSlug(slug string) (canonicalSlug string, serves bool, err error) {
 	city, state, err := s.scenes.ParseSceneSlug(slug)
 	if err != nil {
 		if apperrors.IsSceneNotFound(err) {
-			return false, nil
+			return "", false, nil
 		}
-		return false, err
+		return "", false, err
 	}
-	return s.scenes.sceneServesPage(city, state)
+	serves, err = s.scenes.sceneServesPage(city, state)
+	if err != nil || !serves {
+		return "", false, err
+	}
+	canonicalSlug, err = s.scenes.CanonicalSceneSlug(slug, city, state)
+	if err != nil {
+		slog.Warn("scene_probe_canonical_slug_failed", "slug", slug, "error", err)
+		return "", true, nil
+	}
+	return canonicalSlug, true, nil
 }

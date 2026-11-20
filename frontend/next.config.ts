@@ -47,6 +47,12 @@ export function assertBuildApiOriginConfigured(
 const ENTITY_SLUG_SEGMENT = '[0-9]*[a-z-][a-z0-9.-]*'
 
 /**
+ * A scene slug segment: `ENTITY_SLUG_SEGMENT` plus `'`, which a city name can
+ * carry. It stays as it is in a URL path and in the header value.
+ */
+const SCENE_SLUG_SEGMENT = "[0-9]*[a-z-][a-z0-9.'-]*"
+
+/**
  * A query key or cookie whose presence, with any non-empty value, withholds the
  * header.
  */
@@ -85,7 +91,10 @@ function selfCanonicalRoute(
  * when the proxy reuses a positive verdict for a few minutes after the entity
  * is gone, and when a page treats any failed read of its entity as not found
  * (the venue page does) after a successful probe. Each names the request's own
- * URL, so the header points nowhere else.
+ * URL, so the header points nowhere else. A scene URL the proxy would redirect
+ * renders without the redirect in the same circumstances (the probe cannot
+ * answer, or cannot name the scene's slug) and names itself the same way, in
+ * the header and in the page.
  *
  * `next.config.canonical-link.test.ts` checks the rules against the pages and
  * the proxy, and records why every other dynamic page route is left out.
@@ -133,6 +142,20 @@ export const SELF_CANONICAL_ROUTES = [
   // the page's own answer, a not-found body at HTTP 200 for a collection it may
   // not see.
   selfCanonicalRoute('/collections/:slug', {}, [{ type: 'cookie', key: 'auth_token' }]),
+  // Every scene page names its request path. The proxy redirects a metro
+  // member city, a case variant of the slug and a lower-case week key to the
+  // scene's canonical URL, so the request path a scene page renders at is
+  // canonical unless the proxy's probe could not answer.
+  selfCanonicalRoute('/scenes/:slug', { slug: SCENE_SLUG_SEGMENT }),
+  selfCanonicalRoute('/scenes/:slug/tonight', { slug: SCENE_SLUG_SEGMENT }),
+  selfCanonicalRoute('/scenes/:slug/this-weekend', { slug: SCENE_SLUG_SEGMENT }),
+  selfCanonicalRoute('/scenes/:slug/week', { slug: SCENE_SLUG_SEGMENT }),
+  selfCanonicalRoute('/scenes/:slug/next-4-weeks', { slug: SCENE_SLUG_SEGMENT }),
+  // An ISO week permalink or a day permalink, the two keys `[period]` serves.
+  selfCanonicalRoute('/scenes/:slug/:period', {
+    slug: SCENE_SLUG_SEGMENT,
+    period: '\\d{4}-W\\d{2}|\\d{4}-\\d{2}-\\d{2}',
+  }),
 ]
 
 /**

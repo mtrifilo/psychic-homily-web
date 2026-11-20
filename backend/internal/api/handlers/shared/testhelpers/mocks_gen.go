@@ -3518,6 +3518,7 @@ type MockSceneService struct {
 	EnrichRosterUpcomingFn      func(string, string, []*contracts.SceneArtistResponse) error
 	GetRepresentativeEmbedFn    func(string, string, int) (*contracts.SceneRepresentativeEmbed, error)
 	ParseSceneSlugFn            func(string) (string, string, error)
+	CanonicalSceneSlugFn        func(string, string, string) (string, error)
 	GetOrCreateSceneIDFn        func(string) (uint, error)
 	LookupSceneIDFn             func(string) (uint, bool, error)
 	GetSceneCollectionsFn       func(string, string, int) ([]contracts.SceneCollectionSummary, error)
@@ -3571,6 +3572,12 @@ func (m *MockSceneService) ParseSceneSlug(slug string) (string, string, error) {
 		return m.ParseSceneSlugFn(slug)
 	}
 	return "", "", fmt.Errorf("scene not found for slug: %s", slug)
+}
+func (m *MockSceneService) CanonicalSceneSlug(requested string, city string, state string) (string, error) {
+	if m.CanonicalSceneSlugFn != nil {
+		return m.CanonicalSceneSlugFn(requested, city, state)
+	}
+	return "", nil
 }
 func (m *MockSceneService) GetOrCreateSceneID(slug string) (uint, error) {
 	if m.GetOrCreateSceneIDFn != nil {

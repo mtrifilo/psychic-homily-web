@@ -102,3 +102,63 @@ func TestSceneWeekHandlers_SceneNotFoundMapsTo404(t *testing.T) {
 		t.Errorf("error does not carry an HTTP status: %T", err)
 	}
 }
+
+// Both week routes name the scene's canonical slug in the Canonical-Slug
+// header, asked of CanonicalSceneSlug with the requested slug and the identity
+// it resolved to.
+func TestSceneWeekHandlers_NameTheCanonicalSlug(t *testing.T) {
+	mock := weekMock(nil)
+	resolve := mock.ParseSceneSlugFn
+	mock.ParseSceneSlugFn = func(slug string) (string, string, error) {
+		if slug == "tempe-az" {
+			return "Phoenix", "AZ", nil
+		}
+		return resolve(slug)
+	}
+	var asked []string
+	mock.CanonicalSceneSlugFn = func(requested, city, state string) (string, error) {
+		asked = []string{requested, city, state}
+		return "phoenix-az", nil
+	}
+	h := NewSceneHandler(mock)
+
+	current, err := h.GetSceneCurrentWeekHandler(context.Background(), &GetSceneCurrentWeekRequest{Slug: "tempe-az"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if current.CanonicalSlug != "phoenix-az" {
+		t.Errorf("current week CanonicalSlug = %q, want phoenix-az", current.CanonicalSlug)
+	}
+	if fmt.Sprint(asked) != fmt.Sprint([]string{"tempe-az", "Phoenix", "AZ"}) {
+		t.Errorf("CanonicalSceneSlug asked with %v", asked)
+	}
+
+	dated, err := h.GetSceneWeekHandler(context.Background(), &GetSceneWeekRequest{Slug: "tempe-az", Week: "2026-W31"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if dated.CanonicalSlug != "phoenix-az" {
+		t.Errorf("dated week CanonicalSlug = %q, want phoenix-az", dated.CanonicalSlug)
+	}
+}
+
+// The header is optional to every reader of the week, so a failure to name the
+// slug drops the header and still serves the week.
+func TestSceneWeekHandler_ServesTheWeekWhenTheSlugCannotBeNamed(t *testing.T) {
+	mock := weekMock(nil)
+	mock.CanonicalSceneSlugFn = func(string, string, string) (string, error) {
+		return "phoenix-az", fmt.Errorf("database down")
+	}
+	h := NewSceneHandler(mock)
+
+	resp, err := h.GetSceneWeekHandler(context.Background(), &GetSceneWeekRequest{Slug: "phoenix-az", Week: "2026-W31"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.CanonicalSlug != "" {
+		t.Errorf("CanonicalSlug = %q, want none", resp.CanonicalSlug)
+	}
+	if resp.Body == nil || resp.Body.ISOWeek != "2026-W31" {
+		t.Errorf("week not served: %+v", resp.Body)
+	}
+}

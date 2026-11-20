@@ -196,3 +196,190 @@ describe('proxy — scene period routes', () => {
     )
   })
 })
+
+/** A scene probe's 2xx naming `slug` as the scene's canonical slug. */
+function mockSceneNamed(slug: string | null) {
+  return vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response(null, {
+      status: 200,
+      headers: slug === null ? {} : { 'canonical-slug': slug },
+    })
+  )
+}
+
+function locationOf(response: Response): string {
+  const url = new URL(response.headers.get('location') ?? '')
+  return `${url.pathname}${url.search}`
+}
+
+/**
+ * Every scene probe names the slug the scene is served at. A request spelled
+ * any other way is redirected there in one hop; a request spelled that way
+ * renders, and is the only kind whose verdict is remembered for the full
+ * verdict window.
+ */
+describe('proxy: scene canonical redirects', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    clearExistenceVerdictsForTests()
+  })
+
+  it('passes a canonical slug through and remembers it', async () => {
+    const fetchMock = mockSceneNamed('phoenix-az')
+
+    expect((await proxy(requestFor('/scenes/phoenix-az'))).status).toBe(200)
+    expect((await proxy(requestFor('/scenes/phoenix-az'))).status).toBe(200)
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/entities/scenes/phoenix-az/exists',
+      expect.objectContaining({ method: 'HEAD' })
+    )
+  })
+
+  it('redirects a case variant to the lowercase slug', async () => {
+    mockSceneNamed('phoenix-az')
+
+    const response = await proxy(requestFor('/scenes/PHOENIX-AZ'))
+
+    expect(response.status).toBe(308)
+    expect(locationOf(response)).toBe('/scenes/phoenix-az')
+    expect(response.headers.get('link')).toBe(
+      '<https://psychichomily.com/scenes/phoenix-az>; rel="canonical"'
+    )
+    expect(response.headers.get('cache-control')).toBe('private, max-age=3600')
+  })
+
+  it("redirects a member city to its metro's slug", async () => {
+    mockSceneNamed('phoenix-az')
+
+    const response = await proxy(requestFor('/scenes/tempe-az'))
+
+    expect(response.status).toBe(308)
+    expect(locationOf(response)).toBe('/scenes/phoenix-az')
+  })
+
+  it('keeps a rolling period and the query string', async () => {
+    mockSceneNamed('phoenix-az')
+
+    const response = await proxy(requestFor('/scenes/tempe-az/this-weekend?utm_source=x&a=1'))
+
+    expect(response.status).toBe(308)
+    expect(locationOf(response)).toBe('/scenes/phoenix-az/this-weekend?utm_source=x&a=1')
+  })
+
+  // One hop for every scene shape, even when the slug is both a member city
+  // and a case variant and the week key is lower case.
+  it.each([
+    ['/scenes/TEMPE-AZ', '/scenes/phoenix-az'],
+    ['/scenes/TEMPE-AZ/tonight', '/scenes/phoenix-az/tonight'],
+    ['/scenes/TEMPE-AZ/this-weekend', '/scenes/phoenix-az/this-weekend'],
+    ['/scenes/TEMPE-AZ/week', '/scenes/phoenix-az/week'],
+    ['/scenes/TEMPE-AZ/next-4-weeks', '/scenes/phoenix-az/next-4-weeks'],
+    ['/scenes/TEMPE-AZ/2026-w31', '/scenes/phoenix-az/2026-W31'],
+    ['/scenes/TEMPE-AZ/2026-07-31', '/scenes/phoenix-az/2026-07-31'],
+    ['/scenes/TEMPE-AZ/opengraph-image', '/scenes/phoenix-az/opengraph-image'],
+    ['/scenes/phoenix-az/2026-w31', '/scenes/phoenix-az/2026-W31'],
+  ])('redirects %s to %s, which then renders', async (from, to) => {
+    mockSceneNamed('phoenix-az')
+
+    const response = await proxy(requestFor(from))
+    expect(response.status).toBe(308)
+    expect(locationOf(response)).toBe(to)
+
+    clearExistenceVerdictsForTests()
+    expect((await proxy(requestFor(to))).status).toBe(200)
+  })
+
+  // A redirect is decided again on every request, so the verdict that sent it
+  // never lets the same request through later.
+  it('does not remember a verdict it redirected', async () => {
+    const fetchMock = mockSceneNamed('phoenix-az')
+
+    expect((await proxy(requestFor('/scenes/tempe-az'))).status).toBe(308)
+    expect((await proxy(requestFor('/scenes/tempe-az'))).status).toBe(308)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  // A probe that named no slug is reused for a short window only: requests
+  // inside it are not probed, and the first one after it is redirected once
+  // the probe names the metro.
+  it('remembers a verdict that named no slug for a short window only', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchMock = mockSceneNamed(null)
+
+      expect((await proxy(requestFor('/scenes/tempe-az'))).status).toBe(200)
+      expect((await proxy(requestFor('/scenes/tempe-az'))).status).toBe(200)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+
+      fetchMock.mockResolvedValue(
+        new Response(null, { status: 200, headers: { 'canonical-slug': 'phoenix-az' } })
+      )
+      vi.advanceTimersByTime(29_000)
+      expect((await proxy(requestFor('/scenes/tempe-az'))).status).toBe(200)
+      vi.advanceTimersByTime(2_000)
+      const response = await proxy(requestFor('/scenes/tempe-az'))
+
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(response.status).toBe(308)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // A metro whose own slug differs from the request only by case: the
+  // lowercase request is the canonical one and passes, and the redirect target
+  // of the upper-case one is that same request.
+  it('does not loop between two spellings of one metro', async () => {
+    mockSceneNamed('tucson-az')
+
+    const upper = await proxy(requestFor('/scenes/Tucson-AZ/week'))
+    expect(locationOf(upper)).toBe('/scenes/tucson-az/week')
+    expect((await proxy(requestFor('/scenes/tucson-az/week'))).status).toBe(200)
+  })
+
+  it('still 404s an unknown slug', async () => {
+    mockBackend(404)
+    expect((await proxy(requestFor('/scenes/no-such-city-zz'))).status).toBe(404)
+    expect((await proxy(requestFor('/scenes/no-such-city-zz/tonight'))).status).toBe(404)
+  })
+
+  // Each of these renders the request as it was spelled. An unanswered probe
+  // fails open, an API that predates the header answers the status alone, and
+  // a header value is untrusted wire data: anything that is not a plain
+  // lowercase slug could put another path, a query or a host into Location.
+  const invalidSlugs = [
+    '',
+    'PHOENIX-AZ',
+    '../artists',
+    'phoenix-az/tonight',
+    'phoenix-az?x=1',
+    '//evil.example',
+    'phoenix az',
+    'espa\u00f1ola-nm',
+    '-phoenix-az',
+    'a'.repeat(201),
+  ]
+  it.each<[string, () => unknown]>([
+    ['the backend is unreachable', () => vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('fetch failed'))],
+    [
+      'the backend answers 5xx',
+      () =>
+        vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+          new Response(null, { status: 503, headers: { 'canonical-slug': 'phoenix-az' } })
+        ),
+    ],
+    ['the probe names no slug', () => mockSceneNamed(null)],
+    ...invalidSlugs.map(
+      (slug): [string, () => unknown] => [`the probe names ${JSON.stringify(slug)}`, () => mockSceneNamed(slug)]
+    ),
+  ])('redirects nothing when %s', async (_case, mockProbe) => {
+    mockProbe()
+
+    const response = await proxy(requestFor('/scenes/tempe-az/tonight'))
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('location')).toBeNull()
+  })
+})
