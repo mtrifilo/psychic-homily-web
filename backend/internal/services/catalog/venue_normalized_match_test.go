@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -72,4 +73,118 @@ func (suite *VenueServiceIntegrationTestSuite) TestFindOrCreateVenue_NormalizedM
 	suite.Require().NoError(err)
 	suite.True(created, "a same-named room in another city is a different venue")
 	suite.Equal("Baltimore", venue.City)
+}
+
+// A name that is an existing room's name followed by the room's own city is
+// that room, so it resolves to it instead of creating a twin.
+func (suite *VenueServiceIntegrationTestSuite) TestFindOrCreateVenue_NameEndingInItsCityReusesTheTwin() {
+	existing, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
+		Name:  "Rialto Theatre",
+		City:  "Tucson",
+		State: "AZ",
+	}, true)
+	suite.Require().NoError(err)
+
+	venue, created, err := suite.venueService.FindOrCreateVenue("Rialto Theater Tucson", "tucson", "az", nil, nil, nil, true)
+
+	suite.Require().NoError(err)
+	suite.False(created, "the city-suffixed spelling must resolve to the existing room")
+	suite.Equal(existing.ID, venue.ID)
+	suite.Equal("Rialto Theatre", venue.Name, "the existing record keeps its name")
+	suite.assertVenueCount(1)
+}
+
+// A room whose real name ends in its city, with no twin, is created as named,
+// even though the city already has other rooms the stripped name could be
+// compared against.
+func (suite *VenueServiceIntegrationTestSuite) TestFindOrCreateVenue_NameEndingInItsCityWithNoTwinIsCreated() {
+	metro, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
+		Name:  "Metro",
+		City:  "Chicago",
+		State: "IL",
+	}, true)
+	suite.Require().NoError(err)
+
+	venue, created, err := suite.venueService.FindOrCreateVenue("House of Blues Chicago", "Chicago", "IL", nil, nil, nil, true)
+
+	suite.Require().NoError(err)
+	suite.True(created)
+	suite.NotEqual(metro.ID, venue.ID, "another room of the city is not a twin")
+	suite.Equal("House of Blues Chicago", venue.Name, "the name is stored as given, city included")
+	suite.Require().NotNil(venue.Slug)
+	suite.Equal("house-of-blues-chicago-chicago-il", *venue.Slug)
+	suite.assertVenueCount(2)
+}
+
+// Among several rooms of the place, the twin is the one whose name the stripped
+// name matches, not the first room scanned.
+func (suite *VenueServiceIntegrationTestSuite) TestFindOrCreateVenue_TwinIsTheRoomWithTheMatchingName() {
+	_, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{Name: "Club Congress", City: "Tucson", State: "AZ"}, true)
+	suite.Require().NoError(err)
+	twin, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{Name: "Rialto Theatre", City: "Tucson", State: "AZ"}, true)
+	suite.Require().NoError(err)
+
+	venue, created, err := suite.venueService.FindOrCreateVenue("Rialto Theatre Tucson", "Tucson", "AZ", nil, nil, nil, true)
+
+	suite.Require().NoError(err)
+	suite.False(created)
+	suite.Equal(twin.ID, venue.ID)
+}
+
+// A normalized match outranks a city-suffixed twin: when the suffixed room
+// already exists, a respelling of it resolves to that room, not to the twin.
+func (suite *VenueServiceIntegrationTestSuite) TestFindOrCreateVenue_NormalizedMatchOutranksTheTwin() {
+	_, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{Name: "Rialto Theatre", City: "Tucson", State: "AZ"}, true)
+	suite.Require().NoError(err)
+	suffixed, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{Name: "Rialto Theatre Tucson", City: "Tucson", State: "AZ"}, true)
+	suite.Require().NoError(err)
+
+	venue, created, err := suite.venueService.FindOrCreateVenue("The Rialto Theater Tucson", "Tucson", "AZ", nil, nil, nil, true)
+
+	suite.Require().NoError(err)
+	suite.False(created)
+	suite.Equal(suffixed.ID, venue.ID, "the normalized match wins over the city-stripped one")
+}
+
+// The twin must be in the same city: "House of Blues" in Las Vegas does not
+// make "House of Blues Chicago" in Chicago a duplicate.
+func (suite *VenueServiceIntegrationTestSuite) TestFindOrCreateVenue_CityStrippedMatchIgnoresOtherCities() {
+	_, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
+		Name:  "House of Blues",
+		City:  "Las Vegas",
+		State: "NV",
+	}, true)
+	suite.Require().NoError(err)
+
+	venue, created, err := suite.venueService.FindOrCreateVenue("House of Blues Chicago", "Chicago", "IL", nil, nil, nil, true)
+
+	suite.Require().NoError(err)
+	suite.True(created, "a same-named room in another city is a different venue")
+	suite.Equal("Chicago", venue.City)
+	suite.assertVenueCount(2)
+}
+
+// The city-stripped match also requires the state: Portland, Maine is not
+// Portland, Oregon, so a suffixed name in one never resolves to a room in the
+// other.
+func (suite *VenueServiceIntegrationTestSuite) TestFindOrCreateVenue_CityStrippedMatchRequiresTheState() {
+	_, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
+		Name:  "State Theatre",
+		City:  "Portland",
+		State: "OR",
+	}, true)
+	suite.Require().NoError(err)
+
+	venue, created, err := suite.venueService.FindOrCreateVenue("State Theatre Portland", "Portland", "ME", nil, nil, nil, true)
+
+	suite.Require().NoError(err)
+	suite.True(created, "a twin in a same-named city of another state is a different room")
+	suite.Equal("ME", venue.State)
+	suite.assertVenueCount(2)
+}
+
+func (suite *VenueServiceIntegrationTestSuite) assertVenueCount(want int64) {
+	var count int64
+	suite.Require().NoError(suite.db.Model(&catalogm.Venue{}).Count(&count).Error)
+	suite.Equal(want, count)
 }

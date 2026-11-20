@@ -733,17 +733,38 @@ func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipc
 	// venue row means a second venue_id. Matching here RESOLVES to the existing
 	// room instead of rejecting the write, which is what ingest needs.
 	//
-	// Scoped to the same city, so normalization can never join rooms in
-	// different places.
+	// Scoped by city name only, not state, so two rooms of one name in
+	// same-named cities of different states (Portland, ME and Portland, OR) can
+	// still meet here.
+	//
+	// The same scan then looks for a city-suffixed twin: a name that is an
+	// existing room's name followed by its own city ("Rialto Theatre Tucson" in
+	// Tucson is "Rialto Theatre" in Tucson). That match is taken only when no
+	// normalized match exists, so it adds a match but never changes one. Unlike
+	// the normalized match, which is scoped by city alone, it also requires the
+	// state, because it joins two DIFFERENT names and a city name alone does not
+	// place a room. A name whose city is part of the room's real name is created
+	// as named when no twin exists: "House of Blues Chicago" stays itself unless
+	// Chicago already has a "House of Blues".
 	if normalized := utils.NormalizeVenueName(name); normalized != "" {
 		var candidates []catalogm.Venue
-		if err := query.Where("LOWER(city) = LOWER(?)", city).Find(&candidates).Error; err != nil {
+		if err := query.Where("LOWER(city) = LOWER(?)", city).Order("id").Find(&candidates).Error; err != nil {
 			return nil, false, fmt.Errorf("failed to check existing venue by normalized name: %w", err)
 		}
+		stripped, hasCitySuffix := utils.VenueNameWithoutTrailingCity(name, city)
+		place := VenuePlaceKey(&catalogm.Venue{City: city, State: state})
+		var twin *catalogm.Venue
 		for i := range candidates {
-			if utils.NormalizeVenueName(candidates[i].Name) == normalized {
+			key := utils.NormalizeVenueName(candidates[i].Name)
+			if key == normalized {
 				return &candidates[i], false, nil
 			}
+			if twin == nil && hasCitySuffix && key == stripped && VenuePlaceKey(&candidates[i]) == place {
+				twin = &candidates[i]
+			}
+		}
+		if twin != nil {
+			return twin, false, nil
 		}
 	}
 
