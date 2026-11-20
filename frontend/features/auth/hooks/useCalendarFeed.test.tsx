@@ -36,7 +36,6 @@ import { PERSONAL_FEED_TOKEN_REVOKED_EVENT } from '@/features/collections/compon
 
 // Import hooks after mocks are set up
 import {
-  calendarLinkWasResetBy,
   forgetRevokedCalendarLink,
   useCalendarFeedStatus,
   useCalendarTokenStatus,
@@ -72,25 +71,6 @@ describe('useCalendarFeedStatus', () => {
 
     expect(result.current.fetchStatus).toBe('idle')
     expect(mockApiRequest).not.toHaveBeenCalled()
-  })
-})
-
-describe('calendarLinkWasResetBy', () => {
-  const marker = {
-    has_token: false,
-    link_reset_at: '2026-11-10T12:00:00Z',
-    link_reset_reason: 'sign_out_everywhere' as const,
-  }
-
-  it('is true only for a marker left by the named action', () => {
-    expect(calendarLinkWasResetBy(marker, 'sign_out_everywhere')).toBe(true)
-    expect(calendarLinkWasResetBy(marker, 'password_reset')).toBe(false)
-  })
-
-  it('is false without a marker or without a status', () => {
-    expect(calendarLinkWasResetBy({ has_token: false }, 'sign_out_everywhere')).toBe(false)
-    expect(calendarLinkWasResetBy({ has_token: true }, 'password_reset')).toBe(false)
-    expect(calendarLinkWasResetBy(undefined, 'sign_out_everywhere')).toBe(false)
   })
 })
 

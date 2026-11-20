@@ -292,6 +292,30 @@ func TestCompletePasswordResetHandler_SetsThePasswordAndSignsIn(t *testing.T) {
 	}
 }
 
+// The response says a calendar link was reset exactly when the service says
+// this reset reset one.
+func TestCompletePasswordResetHandler_ReportsTheCalendarLinkReset(t *testing.T) {
+	owner := &authm.User{ID: 31, Email: strPtr("owner@example.com"), IsActive: true}
+	for _, reset := range []bool{true, false} {
+		h := authHandler(func(ah *AuthHandler) {
+			ah.jwtService = resetJWT()
+			ah.authService = &testhelpers.MockAuthService{
+				CompletePasswordResetFn: func(*contracts.PasswordResetTokenClaims, string) (*contracts.PasswordResetCompletion, error) {
+					return &contracts.PasswordResetCompletion{User: owner, Token: "new-session", CalendarLinkReset: reset}, nil
+				},
+			}
+		})
+
+		resp, err := h.CompletePasswordResetHandler(context.Background(), completeRequest("good-link", "owners-new-password-1!"))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !resp.Body.Success || resp.Body.CalendarLinkReset != reset {
+			t.Errorf("got success=%v calendar_link_reset=%v, want success and the service's %v", resp.Body.Success, resp.Body.CalendarLinkReset, reset)
+		}
+	}
+}
+
 // A weak or breached password is refused with the validator's message before
 // the service runs, so the link stays unspent.
 func TestCompletePasswordResetHandler_ValidatorRefusal(t *testing.T) {

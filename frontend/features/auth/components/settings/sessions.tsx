@@ -2,11 +2,7 @@
 
 import { useState, type MouseEvent } from 'react'
 import * as Sentry from '@sentry/nextjs'
-import {
-  calendarLinkWasResetBy,
-  useCalendarFeedStatus,
-  useSignOutEverywhereElse,
-} from '@/features/auth'
+import { useCalendarFeedStatus, useSignOutEverywhereElse } from '@/features/auth'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -65,36 +61,23 @@ function CalendarCardLink() {
  *
  * The same step deletes the account's calendar link. The line under the
  * button says so only while the feed status confirms there is a link. The
- * success line says a link was reset only when the status read after the
- * action carries this action's reset marker, and that marker is not the one
- * the status held as the action was confirmed: a marker outlives its action,
- * and an action that deletes no link leaves it unchanged, so an unchanged
- * marker is an earlier action's. An unknown status, then or after, adds no
- * calendar sentence.
+ * success line says a link was reset only when the response says this
+ * sign-out reset one a calendar app had been reading, whatever the feed
+ * status holds.
  */
 export function SessionsSettings() {
   const signOutEverywhereElse = useSignOutEverywhereElse()
   const { data: feedStatus } = useCalendarFeedStatus()
   const [confirmOpen, setConfirmOpen] = useState(false)
-  // The reset marker the status held as the action was confirmed, or null
-  // while the status was unknown then.
-  const [markerWhenConfirmed, setMarkerWhenConfirmed] = useState<{
-    resetAt: string | undefined
-  } | null>(null)
   const anchorRef = useAnchorScroll(SESSIONS_SETTINGS_ANCHOR)
 
   const staysSignedInLine =
     feedStatus?.has_token === true
       ? 'This device stays signed in. Your calendar link is reset too.'
       : 'This device stays signed in.'
-  const calendarLinkWasReset =
-    signOutEverywhereElse.isSuccess &&
-    markerWhenConfirmed !== null &&
-    feedStatus?.link_reset_at !== markerWhenConfirmed.resetAt &&
-    calendarLinkWasResetBy(feedStatus, 'sign_out_everywhere')
+  const calendarLinkWasReset = signOutEverywhereElse.data?.calendar_link_reset === true
 
   const handleConfirm = () => {
-    setMarkerWhenConfirmed(feedStatus ? { resetAt: feedStatus.link_reset_at } : null)
     signOutEverywhereElse.mutate(undefined, {
       // Closed either way, so the outcome line on the card is what the reader
       // sees next.

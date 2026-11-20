@@ -282,10 +282,30 @@ func (s *JWTIntegrationSuite) TestCompletePasswordReset_RevokesTheCalendarFeedTo
 	claims := s.resetClaimsFor(user.ID)
 
 	before := time.Now()
-	_, err := s.authSvc.CompletePasswordReset(claims, "owners-new-password-1!")
+	completion, err := s.authSvc.CompletePasswordReset(claims, "owners-new-password-1!")
 	s.Require().NoError(err)
 
+	s.True(completion.CalendarLinkReset, "a link a calendar app had read is reported as reset")
 	s.requireFeedTokenRevoked(user.ID, feed)
+	s.requireLinkReset(user.ID, engagementm.CalendarLinkResetPasswordReset, before)
+}
+
+// A second reset with no link added since the first finds the first's marker
+// still on the account and reports no reset of its own.
+func (s *JWTIntegrationSuite) TestCompletePasswordReset_SecondResetDoesNotReportTheFirstsReset() {
+	user := s.createActiveUser("reset-feed-twice@test.com")
+	s.setPasswordHash(user.ID, "planted-password-1!")
+	s.recordCalendarRead(s.feedToken(user.ID))
+
+	before := time.Now()
+	first, err := s.authSvc.CompletePasswordReset(s.resetClaimsFor(user.ID), "owners-new-password-1!")
+	s.Require().NoError(err)
+	s.Require().True(first.CalendarLinkReset)
+
+	second, err := s.authSvc.CompletePasswordReset(s.resetClaimsFor(user.ID), "owners-newer-password-1!")
+	s.Require().NoError(err)
+
+	s.False(second.CalendarLinkReset, "the first reset's marker is not the second's reset")
 	s.requireLinkReset(user.ID, engagementm.CalendarLinkResetPasswordReset, before)
 }
 
@@ -297,9 +317,10 @@ func (s *JWTIntegrationSuite) TestCompletePasswordReset_UnreadFeedTokenNoLinkRes
 	feed := s.feedToken(user.ID)
 	claims := s.resetClaimsFor(user.ID)
 
-	_, err := s.authSvc.CompletePasswordReset(claims, "owners-new-password-1!")
+	completion, err := s.authSvc.CompletePasswordReset(claims, "owners-new-password-1!")
 	s.Require().NoError(err)
 
+	s.False(completion.CalendarLinkReset, "a link nothing had read is not reported as reset")
 	s.requireFeedTokenRevoked(user.ID, feed)
 	s.requireNoLinkReset(user.ID)
 }
@@ -311,9 +332,10 @@ func (s *JWTIntegrationSuite) TestCompletePasswordReset_NoFeedTokenNoLinkReset()
 	s.setPasswordHash(user.ID, "planted-password-1!")
 	claims := s.resetClaimsFor(user.ID)
 
-	_, err := s.authSvc.CompletePasswordReset(claims, "owners-new-password-1!")
+	completion, err := s.authSvc.CompletePasswordReset(claims, "owners-new-password-1!")
 	s.Require().NoError(err)
 
+	s.False(completion.CalendarLinkReset, "no link is not reported as reset")
 	s.requireNoLinkReset(user.ID)
 }
 
