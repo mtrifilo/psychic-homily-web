@@ -253,12 +253,12 @@ func (suite *CalendarIntegrationTestSuite) TestCreateToken_ReplacingTheTokenRemo
 	suite.Empty(status.Reads)
 }
 
-func (suite *CalendarIntegrationTestSuite) TestDeleteCalendarTokensTx_RemovesItsReads() {
+func (suite *CalendarIntegrationTestSuite) TestRetireCalendarTokensTx_RemovesItsReads() {
 	user := suite.createTestUser(true)
 	token := suite.mintFeedToken(user.ID)
 	suite.Require().NoError(suite.svc.RecordFeedRead(context.Background(), token, appleUA))
 
-	deleted, err := DeleteCalendarTokensTx(suite.db, user.ID)
+	deleted, err := RetireCalendarTokensTx(suite.db, user.ID, engagementm.CalendarLinkRetiredReset, time.Now())
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), deleted)
 
@@ -472,7 +472,7 @@ func (suite *CalendarIntegrationTestSuite) TestDeleteToken_ClearsTheLinkReset() 
 func (suite *CalendarIntegrationTestSuite) TestDeleteToken_AfterAResetClearsTheMarker() {
 	user := suite.createTestUser(true)
 	token := suite.mintFeedToken(user.ID)
-	deleted, err := DeleteCalendarTokensTx(suite.db, user.ID)
+	deleted, err := RetireCalendarTokensTx(suite.db, user.ID, engagementm.CalendarLinkRetiredReset, time.Now())
 	suite.Require().NoError(err)
 	suite.Require().Equal(int64(1), deleted)
 	suite.markLinkReset(user.ID, time.Now(), engagementm.CalendarLinkResetPasswordReset)
@@ -584,7 +584,7 @@ func (suite *CalendarIntegrationTestSuite) TestRecordFeedRead_TokenDeletedUnderT
 	revocation := suite.db.Begin()
 	suite.Require().NoError(revocation.Error)
 	defer revocation.Rollback()
-	deleted, err := DeleteCalendarTokensTx(revocation, user.ID)
+	deleted, err := RetireCalendarTokensTx(revocation, user.ID, engagementm.CalendarLinkRetiredReset, time.Now())
 	suite.Require().NoError(err)
 	suite.Require().Equal(int64(1), deleted)
 

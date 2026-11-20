@@ -2,6 +2,7 @@ package engagement
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -76,6 +77,10 @@ func (h *CalendarHandler) GetCalendarFeedHandler(w http.ResponseWriter, r *http.
 
 	user, err := h.calendarService.ValidateCalendarToken(token)
 	if err != nil {
+		if h.answerRetiredLink(w, r, token, err, h.calendarService.RetiredSavedShowsNotice,
+			icsContentType, savedShowsFeedFilename) {
+			return
+		}
 		logger.FromContext(r.Context()).Warn("calendar_feed_invalid_token",
 			"error", err.Error(),
 		)
@@ -98,8 +103,8 @@ func (h *CalendarHandler) GetCalendarFeedHandler(w http.ResponseWriter, r *http.
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/calendar; charset=utf-8")
-	w.Header().Set("Content-Disposition", "inline; filename=\"psychic-homily-saved-shows.ics\"")
+	w.Header().Set("Content-Type", icsContentType)
+	w.Header().Set("Content-Disposition", "inline; filename=\""+savedShowsFeedFilename+"\"")
 	// Short private cache: calendar clients poll coarsely; regenerate clears
 	// the server-side cache immediately, and private avoids shared-proxy reuse.
 	w.Header().Set("Cache-Control", "private, max-age=120")
@@ -123,6 +128,10 @@ func (h *CalendarHandler) GetFollowsActivityFeedHandler(w http.ResponseWriter, r
 
 	user, err := h.calendarService.ValidateCalendarToken(token)
 	if err != nil {
+		if h.answerRetiredLink(w, r, token, err, h.calendarService.RetiredFollowsNotice,
+			atomContentType, followsFeedFilename) {
+			return
+		}
 		logger.FromContext(r.Context()).Warn("follows_activity_feed_invalid_token",
 			"error", err.Error(),
 		)
@@ -145,11 +154,57 @@ func (h *CalendarHandler) GetFollowsActivityFeedHandler(w http.ResponseWriter, r
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/atom+xml; charset=utf-8")
-	w.Header().Set("Content-Disposition", "inline; filename=\"psychic-homily-follows.atom\"")
+	w.Header().Set("Content-Type", atomContentType)
+	w.Header().Set("Content-Disposition", "inline; filename=\""+followsFeedFilename+"\"")
 	w.Header().Set("Cache-Control", "private, max-age=120")
 	w.WriteHeader(http.StatusOK)
 	respond.SafeWrite(r.Context(), w, atomData)
+}
+
+// The filenames the personal feeds are served under, live or retired.
+const (
+	savedShowsFeedFilename = "psychic-homily-saved-shows.ics"
+	followsFeedFilename    = "psychic-homily-follows.atom"
+)
+
+// atomContentType is the Content-Type of every answer at a follows address,
+// the live feed and a retired link's notice alike.
+const atomContentType = "application/atom+xml; charset=utf-8"
+
+// retiredLinkCacheControl lets a client keep a retired address's notice for
+// an hour; the notice's ETag lets it revalidate without the body after that.
+const retiredLinkCacheControl = "private, max-age=3600"
+
+// answerRetiredLink answers a feed request whose token ValidateCalendarToken
+// refused with refusal, when the retired-link notice is switched on, the
+// refusal is contracts.ErrCalendarTokenUnknown and lookup finds the token is
+// a remembered retired link, with the notice lookup renders, and reports
+// whether it answered. Otherwise it writes nothing and the caller answers as
+// for any unknown token. With the switch off it calls nothing.
+//
+// A notice is answered without a log line and without a recorded feed read:
+// a calendar app may poll a retired address for as long as it stays
+// subscribed. A failed lookup is logged as an error and left to the caller's
+// answer, so a degraded database answers a retired address as it would with
+// the switch off.
+func (h *CalendarHandler) answerRetiredLink(w http.ResponseWriter, r *http.Request, token string, refusal error,
+	lookup func(plainToken string) (*contracts.RetiredFeedNotice, error), contentType, filename string,
+) bool {
+	if !h.config.Calendar.RetiredLinkNoticeEnabled || !errors.Is(refusal, contracts.ErrCalendarTokenUnknown) {
+		return false
+	}
+	notice, err := lookup(token)
+	if err != nil {
+		logger.FromContext(r.Context()).Error("calendar_feed_retired_link_lookup_failed",
+			"error", err.Error(),
+		)
+		return false
+	}
+	if notice == nil {
+		return false
+	}
+	writeCalendarResponse(w, r, contentType, retiredLinkCacheControl, "inline", filename, notice.ETag, notice.Body)
+	return true
 }
 
 // --- Token CRUD endpoints (Huma, protected) ---

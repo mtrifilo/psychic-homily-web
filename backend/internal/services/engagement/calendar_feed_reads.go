@@ -218,11 +218,14 @@ func (s *CalendarService) linkResetMarker(userID uint) (*time.Time, *engagementm
 }
 
 // RevokeCalendarLinkTx deletes userID's feed token through tx, which the
-// caller commits, for a security revocation, and records the link reset at
-// the instant at for reason when the deleted token had a read still
+// caller commits, for a security revocation. Its address is remembered as
+// CalendarLinkRetiredReset whatever markerReason is (RetireCalendarTokensTx):
+// the address memory has one reason for every security revocation, while the
+// owner's link-reset marker names which one it was. The marker is recorded at
+// the instant at for markerReason when the deleted token had a read still
 // remembered at at (feedReadForgetAfter). A link with none leaves no marker:
-// no calendar app its owner is still told about could stop updating. An
-// account with no token is left as it is, its marker included.
+// no calendar app its owner is still told about could stop updating.
+// An account with no token is left as it is, its marker included.
 //
 // It reports whether it recorded a link reset: true only when this call
 // deleted a token a calendar app had read, never for a marker an earlier
@@ -232,7 +235,7 @@ func (s *CalendarService) linkResetMarker(userID uint) (*time.Time, *engagementm
 // recorded concurrently either commits first and is counted, or waits for
 // this transaction and then fails its foreign-key check and writes nothing.
 // The count runs before the delete, whose cascade removes the reads.
-func RevokeCalendarLinkTx(tx *gorm.DB, userID uint, at time.Time, reason engagementm.CalendarLinkResetReason) (bool, error) {
+func RevokeCalendarLinkTx(tx *gorm.DB, userID uint, at time.Time, markerReason engagementm.CalendarLinkResetReason) (bool, error) {
 	var tokenIDs []uint
 	if err := tx.Model(&engagementm.CalendarToken{}).
 		Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -252,13 +255,13 @@ func RevokeCalendarLinkTx(tx *gorm.DB, userID uint, at time.Time, reason engagem
 		return false, fmt.Errorf("failed to check calendar feed reads: %w", err)
 	}
 
-	if _, err := DeleteCalendarTokensTx(tx, userID); err != nil {
+	if _, err := RetireCalendarTokensTx(tx, userID, engagementm.CalendarLinkRetiredReset, at); err != nil {
 		return false, err
 	}
 	if !read {
 		return false, nil
 	}
-	if err := MarkCalendarLinkResetTx(tx, userID, at, reason); err != nil {
+	if err := MarkCalendarLinkResetTx(tx, userID, at, markerReason); err != nil {
 		return false, err
 	}
 	return true, nil

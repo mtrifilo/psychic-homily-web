@@ -727,7 +727,7 @@ func (suite *CalendarIntegrationTestSuite) TearDownTest() {
 	for _, table := range []string{
 		"show_artists", "show_venues", "artist_releases",
 		"shows", "releases", "artists", "venues",
-		"user_bookmarks", "calendar_tokens", "users",
+		"user_bookmarks", "calendar_tokens", "retired_calendar_links", "users",
 	} {
 		_, _ = sqlDB.Exec("DELETE FROM " + table)
 	}

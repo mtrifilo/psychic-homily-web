@@ -131,7 +131,7 @@ func (suite *CalendarIntegrationTestSuite) TestCreateToken_RevocationThatStartsD
 					Update("sessions_valid_after", time.Now().UTC().Truncate(time.Second)).Error; err != nil {
 					return err
 				}
-				_, err := DeleteCalendarTokensTx(tx, user.ID)
+				_, err := RetireCalendarTokensTx(tx, user.ID, engagementm.CalendarLinkRetiredReset, time.Now())
 				return err
 			})
 		})
@@ -165,7 +165,7 @@ func (suite *CalendarIntegrationTestSuite) TestCreateToken_ReadsNoTokenAfterItCo
 			return
 		}
 		readAfterCommit = true
-		_, err := DeleteCalendarTokensTx(suite.db, user.ID)
+		_, err := RetireCalendarTokensTx(suite.db, user.ID, engagementm.CalendarLinkRetiredReset, time.Now())
 		suite.Require().NoError(err)
 	}))
 	svc := &CalendarService{db: hooked, savedShowSvc: suite.svc.savedShowSvc}
