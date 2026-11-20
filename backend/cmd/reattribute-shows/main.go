@@ -19,14 +19,18 @@
 // room. A merged show's URL stops answering; the show it was merged into keeps
 // its own.
 //
-// Every row runs in its own transaction. The dry run runs the same statements
-// and rolls each row back, so it reports exactly what --confirm would do,
-// including a row the database would reject. A refused or failed row is
+// Rows run in file order, each in its own transaction under --confirm. The dry
+// run holds the whole file in one transaction, runs every row in a savepoint
+// exactly as --confirm would, and rolls the lot back at the end. A row that
+// depends on an earlier one (a merge into a show an earlier row moved) is
+// therefore previewed against the state the earlier row leaves, and a row the
+// database would reject is reported as failed. A refused or failed row is
 // reported and the run goes on; the exit status is 1 when any row was refused
 // or failed, 2 when the worklist itself cannot be read.
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -44,7 +48,7 @@ import (
 )
 
 func main() {
-	confirm := flag.Bool("confirm", false, "Apply the worklist (default: dry run, every row rolled back)")
+	confirm := flag.Bool("confirm", false, "Apply the worklist (default: dry run, the whole file rolled back)")
 	envFile := flag.String("env", "", "Path to .env file (defaults to .env.development / .env)")
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "usage: reattribute-shows [--confirm] [--env FILE] WORKLIST.csv\n")
@@ -77,11 +81,34 @@ func main() {
 		log.Fatalf("connect db: %v", err)
 	}
 
-	tally := run(os.Stdout, db.GetDB(), rows, *confirm)
+	database := db.GetDB()
+	var tally runTally
+	if *confirm {
+		tally = run(os.Stdout, rows, true, func(r catalog.ShowReattribution) catalog.ShowReattributionResult {
+			return catalog.ReattributeShow(database, r, true)
+		})
+	} else {
+		err := database.Transaction(func(tx *gorm.DB) error {
+			tally = run(os.Stdout, rows, false, func(r catalog.ShowReattribution) catalog.ShowReattributionResult {
+				return catalog.ReattributeShow(tx, r, true)
+			})
+			return errDryRun
+		})
+		if !errors.Is(err, errDryRun) {
+			log.Fatalf("dry run did not roll back cleanly: %v", err)
+		}
+	}
 	if tally.refused+tally.failed > 0 {
 		os.Exit(1)
 	}
 }
+
+// errDryRun rolls back the dry run's outer transaction.
+var errDryRun = errors.New("dry run: roll back")
+
+// reattributeFunc applies one row. Under the dry run it runs inside the run's
+// outer transaction, so its commit is a released savepoint.
+type reattributeFunc func(catalog.ShowReattribution) catalog.ShowReattributionResult
 
 type runTally struct {
 	moved, merged, unchanged, skipped, refused, failed int
@@ -89,9 +116,10 @@ type runTally struct {
 }
 
 // run applies, or previews, every row in file order and prints one block per
-// row followed by the totals.
-func run(w io.Writer, database *gorm.DB, rows []worklistRow, confirm bool) runTally {
-	mode := "DRY RUN: every row is rolled back"
+// row followed by the totals. confirm only chooses the wording; what is written
+// is decided by reattribute.
+func run(w io.Writer, rows []worklistRow, confirm bool, reattribute reattributeFunc) runTally {
+	mode := "DRY RUN: the whole file runs and is rolled back"
 	if confirm {
 		mode = "LIVE: each row commits on its own"
 	}
@@ -111,7 +139,7 @@ func run(w io.Writer, database *gorm.DB, rows []worklistRow, confirm bool) runTa
 			tally.skipped++
 			continue
 		default:
-			res = catalog.ReattributeShow(database, row.Row, confirm)
+			res = reattribute(row.Row)
 		}
 		printResult(w, row, res, confirm)
 		tally.count(res)

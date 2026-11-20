@@ -73,19 +73,33 @@ func TestParseWorklist_RejectsAnUnusableFile(t *testing.T) {
 	}
 }
 
-// Rows refused or skipped before the database is reached never touch it, so a
-// nil handle is enough to pin how they are reported and counted.
-func TestRun_ReportsRefusedAndSkippedRowsAndCountsThem(t *testing.T) {
+// Rows refused or skipped while parsing never reach the database, and every
+// other row is handed to reattribute in file order.
+func TestRun_ReportsRefusedAndSkippedRowsAndSendsTheRestInOrder(t *testing.T) {
 	rows := []worklistRow{
 		{Line: 2, Row: catalog.ShowReattribution{RoomSlug: "sunshine"}, Refusal: "no show slug"},
 		{Line: 3, Row: catalog.ShowReattribution{ShowSlug: "locked-shut"}, Skip: true, Note: "right room"},
+		{Line: 4, Row: catalog.ShowReattribution{ShowSlug: "cenit", RoomSlug: "el-rey"}},
+		{Line: 5, Row: catalog.ShowReattribution{ShowSlug: "cenit-mezz", RoomSlug: "el-rey", MergeIntoSlug: "cenit"}},
 	}
 	var out bytes.Buffer
+	var sent []string
 
-	tally := run(&out, nil, rows, false)
+	tally := run(&out, rows, false, func(r catalog.ShowReattribution) catalog.ShowReattributionResult {
+		sent = append(sent, r.ShowSlug)
+		if r.MergeIntoSlug != "" {
+			return catalog.ShowReattributionResult{ShowSlug: r.ShowSlug, Outcome: catalog.ReattributionFailed, Reason: "boom"}
+		}
+		return catalog.ShowReattributionResult{ShowSlug: r.ShowSlug, Outcome: catalog.ReattributionMoved}
+	})
 
+	assert.Equal(t, []string{"cenit", "cenit-mezz"}, sent)
 	assert.Equal(t, 1, tally.refused)
 	assert.Equal(t, 1, tally.skipped)
+	assert.Equal(t, 1, tally.moved)
+	assert.Equal(t, 1, tally.failed)
+	assert.Contains(t, out.String(), "line 4  WOULD BE MOVED  cenit")
+	assert.Contains(t, out.String(), "line 5  FAILED  cenit-mezz")
 	text := out.String()
 	assert.Contains(t, text, "DRY RUN")
 	assert.Contains(t, text, "line 2  REFUSED")

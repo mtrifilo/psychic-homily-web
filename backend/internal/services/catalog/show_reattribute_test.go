@@ -368,6 +368,35 @@ func (s *ShowReattributeTestSuite) TestMerge_RefusesUnknownTargetAndSelf() {
 	s.Equal(before, s.snapshot())
 }
 
+// The CLI's dry run: every row inside one outer transaction, each in its own
+// savepoint, the lot rolled back. A merge into a show an earlier row moved sees
+// that move, and a refused row in between does not poison the rows after it.
+func (s *ShowReattributeTestSuite) TestRowsInsideAnOuterTransactionSeeEarlierRowsAndRollBackTogether() {
+	launchpad := s.room("launchpad", "Launchpad", "Albuquerque", "NM")
+	s.room("el-rey", "El Rey Theater", "Albuquerque", "NM")
+	cenit := s.artist("Cenit")
+	mezz := s.artist("Cenit / The Mezzanine")
+	s.show("cenit", albuquerqueEvening, launchpad.ID, cenit.ID)
+	s.show("cenit-mezz", albuquerqueEvening, launchpad.ID, mezz.ID)
+	before := s.snapshot()
+
+	var outcomes []ReattributionOutcome
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		for _, row := range []ShowReattribution{
+			{ShowSlug: "cenit", RoomSlug: "el-rey"},
+			{ShowSlug: "missing", RoomSlug: "el-rey"},
+			{ShowSlug: "cenit-mezz", RoomSlug: "el-rey", MergeIntoSlug: "cenit"},
+		} {
+			outcomes = append(outcomes, ReattributeShow(tx, row, true).Outcome)
+		}
+		return errReattributionRollback
+	})
+
+	s.ErrorIs(err, errReattributionRollback)
+	s.Equal([]ReattributionOutcome{ReattributionMoved, ReattributionRefused, ReattributionMerged}, outcomes)
+	s.Equal(before, s.snapshot(), "the outer rollback takes every row with it")
+}
+
 // --- refusals ---
 
 func (s *ShowReattributeTestSuite) TestRefusesUnknownSlugs() {
