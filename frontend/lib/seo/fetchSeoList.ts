@@ -177,13 +177,11 @@ export async function fetchSeoList<T>({
  * unpaginated projection reporting one means rows the set contains cannot form
  * a URL. Both are the same defect to a crawler and both want a human.
  *
- * NO CURRENT CALLER REPORTS A `total`, so this fires for none of them today.
- * It stays for the next caller pointed at an endpoint that does.
- *
- * A MISSING `total` MEANS UNKNOWN, NOT ZERO. An endpoint that reports no total
- * is not claiming a larger set, so it must not be read as a shortfall of
- * everything returned. `GET /artists/listing` drops slugless artists and
- * reports no total, so this returns early for it and that ItemList can shorten
+ * ONLY A RESPONSE CARRYING A `total` CAN FIRE THIS. A MISSING `total` MEANS
+ * UNKNOWN, NOT ZERO: an endpoint that reports no total is not claiming a
+ * larger set, so it must not be read as a shortfall of everything returned.
+ * This returns early for such an endpoint, and an ItemList built from it can
+ * shorten
  * in silence. Do not read this helper's generality as coverage.
  *
  * It does NOT fail the render, for the reason the whole helper fails open: a

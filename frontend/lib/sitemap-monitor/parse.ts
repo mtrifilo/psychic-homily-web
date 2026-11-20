@@ -222,7 +222,7 @@ export function classifyLoc(loc: string): LocBucket {
   }
 
   // `/venues/{slug}` is a venue, `/venues/{slug}/shows/{year}` a year archive
-  // (PSY-1756). Stricter than the scenes rule on purpose: `/venues` has room for
+  // Stricter than the scenes rule on purpose: `/venues` has room for
   // other child routes, so anything that is not exactly the archive shape is
   // 'other' rather than being counted as an archive the generator never emitted.
   if (prefix === bareVenuesPrefix) {

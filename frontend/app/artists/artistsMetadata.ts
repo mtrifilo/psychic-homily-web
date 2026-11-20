@@ -29,14 +29,12 @@ export type ArtistListItem = components['schemas']['ArtistListingEntry']
  *
  * WHY 100. A product default, and nothing in this file constrains it; a larger
  * number would work. What an SEO `ItemList` is worth on a route whose URLs are
- * already in a sitemap family is the question PSY-1794 settles for this page.
- * `/venues` answers it with no `ItemList` at all: its venue URLs are announced
- * by the `venues` sitemap family alone.
+ * already in a sitemap family is an open question for this page.
  *
  * WHAT IT COSTS. 100 of ~6,200 is a real truncation and nothing reports the
  * shortfall. It does NOT cost discoverability: every slugged artist is in the
  * `artists` sitemap family, a superset of this activity-gated set. What is lost
- * is `ItemList` enrichment on the least active artists. Tracked in PSY-1794.
+ * is `ItemList` enrichment on the least active artists.
  *
  * WHICH 100. `GET /artists/listing` shares `artistBrowseOrder` with the browse
  * page (upcoming show count DESC, then name ASC), so taking the HEAD keeps the
