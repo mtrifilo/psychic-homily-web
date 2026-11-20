@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -129,7 +130,7 @@ func (s *WorklistSuite) run(csv string, confirm bool) (string, runSummary) {
 func (s *WorklistSuite) venueByID(id uint) *catalogm.Venue {
 	var v catalogm.Venue
 	err := s.db.First(&v, id).Error
-	if err == gorm.ErrRecordNotFound {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil
 	}
 	s.Require().NoError(err)

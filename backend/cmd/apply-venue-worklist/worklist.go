@@ -48,7 +48,7 @@ type worklistRow struct {
 // and target; note is optional and any other column is ignored, so the review
 // context can stay in the file. Values are trimmed and the action is
 // lowercased. A malformed file is an error for the whole file; a malformed row
-// is left for planRows to refuse, so one bad row never hides the others.
+// is left for runWorklist to refuse, so one bad row never hides the others.
 func parseWorklist(r io.Reader) ([]worklistRow, error) {
 	raw, err := io.ReadAll(r)
 	if err != nil {
@@ -376,7 +376,7 @@ var errDryRunRollback = errors.New("dry run rollback")
 
 // renameInTx renames one room inside tx through UpdateVenue, after locking the
 // room and refusing a name that another room in the same city and state
-// already carries under PSY-1596's normalization. UpdateVenue's own check adds
+// already carries under NormalizeVenueName. UpdateVenue's own check adds
 // the exact, case-insensitive match across every room of that city name. The
 // slug is left exactly as UpdateVenue leaves it.
 func renameInTx(tx *gorm.DB, roomID uint, name string) error {
@@ -490,31 +490,37 @@ func printPlan(out io.Writer, p *rowPlan) {
 	if p.Row.Target != "" {
 		target = " -> " + p.Row.Target
 	}
-	fmt.Fprintf(out, "[line %d] %s %s%s\n", p.Row.Line, p.Row.Action, p.Row.RoomSlug, target)
+	printf(out, "[line %d] %s %s%s\n", p.Row.Line, p.Row.Action, p.Row.RoomSlug, target)
 	for _, d := range p.Detail {
-		fmt.Fprintf(out, "  %s\n", d)
+		printf(out, "  %s\n", d)
 	}
 	if p.Row.Note != "" {
-		fmt.Fprintf(out, "  note: %s\n", p.Row.Note)
+		printf(out, "  note: %s\n", p.Row.Note)
 	}
 	if p.Reason != "" {
-		fmt.Fprintf(out, "  %s: %s\n\n", p.Status, p.Reason)
+		printf(out, "  %s: %s\n\n", p.Status, p.Reason)
 		return
 	}
-	fmt.Fprintf(out, "  %s\n\n", p.Status)
+	printf(out, "  %s\n\n", p.Status)
+}
+
+// printf writes one piece of the report. The report goes to a terminal or a
+// pipe, and a failed write there has nowhere better to be reported.
+func printf(out io.Writer, format string, args ...any) {
+	_, _ = fmt.Fprintf(out, format, args...)
 }
 
 func printSummary(out io.Writer, s runSummary, confirm bool) {
-	fmt.Fprintln(out, "=== Summary ===")
+	printf(out, "=== Summary ===\n")
 	statuses := []rowStatus{statusApplied, statusWouldApply, statusDone, statusKept, statusRefused}
 	for _, st := range statuses {
-		fmt.Fprintf(out, "%-13s %d\n", string(st)+":", s[st])
+		printf(out, "%-13s %d\n", string(st)+":", s[st])
 	}
 	if !confirm {
-		fmt.Fprintln(out, "DRY RUN: nothing was written. Re-run with --confirm to apply the rows marked WOULD APPLY.")
+		printf(out, "DRY RUN: nothing was written. Re-run with --confirm to apply the rows marked WOULD APPLY.\n")
 	}
 	if s.Refused() {
-		fmt.Fprintln(out, "Some rows were REFUSED; nothing was written for them. Exit status 1.")
+		printf(out, "Some rows were REFUSED; nothing was written for them. Exit status 1.\n")
 	}
 }
 
