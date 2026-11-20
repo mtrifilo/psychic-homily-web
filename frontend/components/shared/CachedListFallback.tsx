@@ -103,6 +103,16 @@ function WarmCacheGate({
     seededKeys.every(key => queryClient.getQueryData(key) !== undefined)
 
   if (!listCannotPreemptSeed) return loader
+  return <CacheDrawnList>{children}</CacheDrawnList>
+}
+
+/**
+ * A list drawn from the browser's cache inside a `Suspense` fallback:
+ * view-only (`inert`) until the boundary's own list replaces it, with a status
+ * outside the copy saying the region is still loading. See
+ * `CachedListFallback` for why the copy takes no input.
+ */
+export function CacheDrawnList({ children }: { children: ReactNode }) {
   // `contents`: the wrapper adds no box, so the list lays out as it does in
   // the boundary.
   return (

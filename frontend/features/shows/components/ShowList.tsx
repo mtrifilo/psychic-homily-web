@@ -6,8 +6,11 @@ import { usePathname, useSearchParams, useRouter } from 'next/navigation'
 import { parseAsInteger, useQueryState } from 'nuqs'
 import { useShowsCalendar, useShowCities, useShowMonths } from '../hooks/useShows'
 import { useShowSaveCountBatch } from '../hooks/useSavedShows'
+import {
+  showListFilters,
+  useShowListCitySelection,
+} from '../hooks/useShowListCitySelection'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { useProfile } from '@/features/auth'
 import type { CityState } from '@/components/filters'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -35,16 +38,9 @@ import {
   showsWindowPath,
   type ShowsCalendarWindow,
 } from '../showsCalendarRoute'
-import { CityFilters, type CityWithCount } from '@/components/filters'
-import {
-  citiesEqual,
-  citiesParser,
-  ALL_CITIES,
-} from '@/components/filters/cityParams'
-import {
-  useGeoDefaultCity,
-  shouldShowGeoAffordance,
-} from '@/components/filters/useGeoDefaultCity'
+import { CityFilters } from '@/components/filters'
+import { citiesEqual, ALL_CITIES } from '@/components/filters/cityParams'
+import { shouldShowGeoAffordance } from '@/components/filters/useGeoDefaultCity'
 import { GeoDefaultAffordance } from '@/components/filters/GeoDefaultAffordance'
 import { SaveDefaultsButton } from '@/components/filters/SaveDefaultsButton'
 import {
@@ -84,10 +80,9 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const { user, isAuthenticated, authStatus } = useAuthContext()
+  const { user, isAuthenticated } = useAuthContext()
   const isAdmin = user?.is_admin ?? false
   const [isPending, startTransition] = useTransition()
-  const { data: profileData } = useProfile()
   // NOTE (PSY-1624): `useDensity` reads localStorage through a server snapshot,
   // so the server HTML and the hydration render are ALWAYS 'comfortable'. A
   // viewer who chose compact or expanded now gets one whole-list re-layout on
@@ -99,37 +94,11 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
   // the shift by reserving row height across densities is the cheap follow-up.
   const { density, setDensity } = useDensity('shows')
 
-  // Read favorites from profile — the per-user default city.
-  const favoriteCities: CityState[] = useMemo(() => {
-    const prefs = profileData?.user?.preferences
-    if (!prefs?.favorite_cities) return []
-    return prefs.favorite_cities
-  }, [profileData?.user?.preferences])
-
-  // `?cities=` is the source of truth, read/written via nuqs. Three states:
-  //   null        → param absent → apply the default (favorites/geo), derived below
-  //   ALL_CITIES  → ?cities=all → explicit "all cities"
-  //   CityState[] → explicit selection
-  // Filter changes push a history entry so the back button steps through them.
-  const [citiesState, setCities] = useQueryState(
-    'cities',
-    citiesParser.withOptions({ history: 'push', startTransition })
-  )
-
-  // Legacy single-city params (?city=&state=) — read-only, for back-compat.
-  const legacyCity = searchParams.get('city')
-  const legacyState = searchParams.get('state')
-
   // Parse multi-tag from URL (PSY-309)
   const tagsParam = searchParams.get('tags')
   const tagMatchParam = searchParams.get('tag_match')
   const selectedTags = useMemo(() => parseTagsParam(tagsParam), [tagsParam])
   const tagMatch: 'all' | 'any' = tagMatchParam === 'any' ? 'any' : 'all'
-
-  // Any explicit selection (?cities=<pick>, ?cities=all, or legacy single-city)
-  // means geo must not seed. Authed favorites also stand the geo hook down
-  // (handled inside the hook via favoriteCities + isAuthenticated).
-  const hasExistingSelection = citiesState !== null || !!(legacyCity && legacyState)
 
   // The page in view. `parseAsInteger.withDefault(1)` is the archive family's
   // reading of `?page=`, and `clampPage` bounds a hand-edited one so it becomes
@@ -154,10 +123,6 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
   // picker's counts and the sheet's apply button describe the rows about to be
   // rendered. NOT scoped to the city selection: the response is the per-city
   // breakdown.
-  //
-  // The geo default below is derived from this same list, which is the point:
-  // an anon visitor whose nearest city has nothing in the active window should
-  // not be defaulted into an empty page.
   const {
     data: citiesData,
     isLoading: citiesLoading,
@@ -165,56 +130,21 @@ export function ShowList({ window: calendarWindow }: ShowListProps) {
     isPlaceholderData: citiesArePlaceholder,
   } = useShowCities({ tags: selectedTags, tagMatch, window: calendarWindow })
 
-  // Map ShowCity → CityWithCount (the has-shows list). Lifted above the early
-  // returns so the geo hook can read it unconditionally.
-  const cities: CityWithCount[] = useMemo(
-    () =>
-      citiesData?.cities?.map(c => ({
-        city: c.city,
-        state: c.state,
-        count: c.show_count,
-        // Geocoded centroid (PSY-981) — drives the nearest-has-shows-city geo
-        // default when the visitor's exact city has no shows.
-        latitude: c.latitude,
-        longitude: c.longitude,
-      })) ?? [],
-    [citiesData?.cities]
-  )
-
-  // IP-geo soft default for anon visitors (PSY-946). /shows reads geo via the
-  // `/api/geo` edge route handler client-side (the page stays ISR — it must
-  // not read `next/headers`). The hook RETURNS the derived canonical city;
-  // it's folded into the derived selection below (never written to the URL).
-  // Favorites and an existing `?cities=`/legacy selection both win (the hook
-  // stands down).
-  const { appliedGeoDefault, notifyUserInteracted } = useGeoDefaultCity({
+  // The selection and the facet as filter options. The geo default is derived
+  // from this same facet, which is the point: an anon visitor whose nearest
+  // city has nothing in the active window should not be defaulted into an
+  // empty page.
+  const {
     cities,
-    authStatus,
+    selectedCities,
     favoriteCities,
-    hasExistingSelection,
-    enableClientFetch: true,
-  })
-
-  // The effective city filter, DERIVED during render — never seeded into the
-  // URL by an effect. A bare /shows resolves to the user's favorite (or, for
-  // anon visitors, the geo default); an explicit ?cities=all or ?cities=<pick>
-  // wins. Deriving (rather than writing the default from a mount effect) is
-  // what makes the default survive client-side navigation: the URL, not a
-  // mount ref, is the source of truth.
-  const selectedCities: CityState[] = useMemo(() => {
-    if (citiesState === ALL_CITIES) return []
-    if (citiesState) return citiesState
-    if (legacyCity && legacyState) return [{ city: legacyCity, state: legacyState }]
-    if (favoriteCities.length > 0) return favoriteCities
-    return appliedGeoDefault ? [appliedGeoDefault] : []
-  }, [citiesState, legacyCity, legacyState, favoriteCities, appliedGeoDefault])
+    appliedGeoDefault,
+    notifyUserInteracted,
+    setCities,
+  } = useShowListCitySelection({ citiesData, startTransition })
 
   const listFilters = useMemo(
-    () => ({
-      cities: selectedCities.length > 0 ? selectedCities : undefined,
-      tags: selectedTags.length > 0 ? selectedTags : undefined,
-      tagMatch,
-    }),
+    () => showListFilters(selectedCities, selectedTags, tagMatch),
     [selectedCities, selectedTags, tagMatch]
   )
 
