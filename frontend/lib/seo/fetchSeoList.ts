@@ -19,14 +19,12 @@ import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
  * a JSON-LD block that crawlers read, not anything a human waits on, so an hour
  * of staleness costs nothing.
  *
- * This hint is the only source of the `1h` half of the `1h`/`1y` window on
- * `/artists`, `/shows` and `/venues`. (The `1y` is not from here — Next fills
- * expire from config `expireTime`; see `app/sitemap.ts`.) Unlike that sitemap,
- * whose backend-dependent shards drop to `ƒ` when the build-time fetch fails,
- * these three keep their window in EITHER build condition — measured on
- * 50000af1, backend reachable and backend blackholed: both exit 0, both emit
- * `◐ … 1h 1y` and `initialRevalidateSeconds: 3600` for all three. `fetchSeoList`
- * fails open, so the render always succeeds and the fetch always registers its
+ * On a route that calls this helper, this hint is a source of the `1h` half
+ * of the `1h`/`1y` window. (The `1y` is not from here: Next fills expire from
+ * config `expireTime`; see `app/sitemap.ts`.) Unlike that sitemap, whose
+ * backend-dependent shards drop to `ƒ` when the build-time fetch fails, a
+ * caller keeps its window in EITHER build condition, because `fetchSeoList`
+ * fails open: the render always succeeds and the fetch always registers its
  * hint.
  *
  * A LARGE `Age` ON THESE ROUTES IS NOT EVIDENCE OF A STUCK REVALIDATION.
@@ -178,6 +176,9 @@ export async function fetchSeoList<T>({
  * endpoint reporting a larger `total` means rows were left on the next page; an
  * unpaginated projection reporting one means rows the set contains cannot form
  * a URL. Both are the same defect to a crawler and both want a human.
+ *
+ * NO CURRENT CALLER REPORTS A `total`, so this fires for none of them today.
+ * It stays for the next caller pointed at an endpoint that does.
  *
  * A MISSING `total` MEANS UNKNOWN, NOT ZERO. An endpoint that reports no total
  * is not claiming a larger set, so it must not be read as a shortfall of

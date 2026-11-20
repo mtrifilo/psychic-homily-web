@@ -230,8 +230,9 @@ export const ENTITY_SHARD_IDS: readonly string[] = [...FAMILY_BY_SHARD_ID.keys()
  * The freshness monitor runs from the default branch against a deployment that
  * can predate a shard's removal, so a served index may still list one of
  * these; the monitor skips such a document rather than reporting it as an
- * unknown shard. An id stays here while any deployment the monitor reads can
- * still list it, and never names a shard in ALL_SHARD_IDS.
+ * unknown shard. An id stays here until production's `/sitemap-index` no
+ * longer lists it, which is once production is promoted past the change that
+ * retired it, and never names a shard in ALL_SHARD_IDS.
  */
 export const RETIRED_SHARD_IDS: ReadonlySet<string> = new Set(['venue_cities'])
 

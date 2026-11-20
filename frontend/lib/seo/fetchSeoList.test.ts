@@ -154,12 +154,9 @@ describe('fetchSeoList', () => {
   })
 })
 
-// PSY-1764. The truncation that replaced the 422 above: the call asked for a
-// page, the response carried `total`, the call discarded it, and the ItemList
-// advertised a fraction of the catalogue while every available signal said
-// healthy. `/venues` no longer asks for a page at all, so these tests guard the
-// reachable cause on a complete list (rows that cannot form a URL) and the next
-// caller pointed at a paginated endpoint.
+// A response that reports a `total` larger than the list it carries is a short
+// ItemList: rows left on a next page, or rows that cannot form a URL. These
+// tests guard both causes for any caller pointed at an endpoint with a total.
 describe('fetchSeoList and a short list', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -177,9 +174,9 @@ describe('fetchSeoList and a short list', () => {
       expect.stringContaining('seo-list-fixture: list is short of the total'),
       expect.objectContaining({
         // WARNING, not error: on a limitless endpoint the reachable cause is a
-        // venue with no slug, which no deploy fixes and which would otherwise
-        // re-page someone hourly forever — and would do it in the same Sentry
-        // issue a real truncation lands in.
+        // row with no slug, which no deploy fixes and which would otherwise
+        // re-page someone hourly in the same Sentry issue a real truncation
+        // lands in.
         level: 'warning',
         tags: { service: 'seo-list-fixture' },
         extra: expect.objectContaining({ received: 1, total: 8, missing: 7 }),
