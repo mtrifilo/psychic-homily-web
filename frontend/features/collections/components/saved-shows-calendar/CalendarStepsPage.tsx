@@ -18,15 +18,17 @@ import {
 } from '@/lib/utils/calendarFeedUrls'
 import { cn } from '@/lib/utils'
 import {
+  CALENDAR_LINK_TEXT_CLASS,
+  CALENDAR_SURFACE_PROPS,
   CalendarPanelLayoutContext,
+  LinkFailedLine,
   ManageInSettingsLink,
   PRIVATE_LINK_CLASS,
-  PanelError,
-  PanelErrorWithRetry,
   PanelNote,
   PanelRowLink,
 } from './CalendarPanelParts'
 import { CalendarConnectedApps } from './CalendarAppStatus'
+import { CalendarRowNoteLines } from './CalendarRowNoteLines'
 import { PANEL_COPY } from './savedShowsCalendarCopy'
 import { STEPS_PAGE_COPY } from './calendarStepsPageCopy'
 import { useSavedShowsCalendarActions } from './useSavedShowsCalendarActions'
@@ -34,7 +36,6 @@ import {
   useCalendarStepsLink,
   useGoogleCalendarCheck,
   type CalendarStepsLink,
-  type GoogleCalendarCheck,
 } from './useCalendarStepsPage'
 
 const BODY_TEXT = 'text-sm leading-normal text-foreground'
@@ -63,26 +64,29 @@ export function CalendarStepsPage() {
     )
   }
 
+  const computer = isCalendarComputer(device)
   return (
     <div className="container mx-auto max-w-6xl px-4 py-5 md:py-10">
-      {/* Focusable, and marked as the calendar surface, so a retry line that
-          unmounts as it is pressed leaves focus here rather than on the body
-          (holdFocusInPanel). */}
+      {/* Focusable, so a retry line that unmounts as it is pressed leaves
+          focus here rather than on the body (holdFocusInPanel). */}
       <div
-        data-saved-shows-calendar-panel=""
+        {...CALENDAR_SURFACE_PROPS}
         tabIndex={-1}
         className="flex max-w-2xl flex-col gap-4 focus:outline-none md:gap-6"
       >
         <h1 className="pb-1 font-display text-2xl font-semibold tracking-tight text-foreground md:text-[28px] md:leading-9">
           {STEPS_PAGE_COPY.heading}
         </h1>
-        {isCalendarComputer(device) ? (
-          <ComputerSteps device={device} />
-        ) : device.kind === 'iphone' ? (
-          <IphoneSteps />
-        ) : (
-          <AndroidSteps />
-        )}
+        {/* A phone's controls get the sheet's 44px tap targets. */}
+        <CalendarPanelLayoutContext.Provider value={computer ? 'popover' : 'sheet'}>
+          {computer ? (
+            <ComputerSteps device={device} />
+          ) : device.kind === 'iphone' ? (
+            <IphoneSteps />
+          ) : (
+            <AndroidSteps />
+          )}
+        </CalendarPanelLayoutContext.Provider>
       </div>
     </div>
   )
@@ -90,11 +94,8 @@ export function CalendarStepsPage() {
 
 function ComputerSteps({ device }: { device: CalendarDevice }) {
   const link = useCalendarStepsLink()
-  const google = useGoogleCalendarCheck({ pollUntilGoogle: true })
 
-  if (link.kind === 'unrecoverable') {
-    return <UnrecoverableLink check={google} />
-  }
+  if (link.kind === 'unrecoverable') return <UnrecoverableLink />
 
   return (
     <>
@@ -116,9 +117,7 @@ function ComputerSteps({ device }: { device: CalendarDevice }) {
         </Step>
         <Step number={3} text={STEPS_PAGE_COPY.stepPaste} />
       </ol>
-      <div aria-live="polite" className="empty:hidden">
-        <GoogleCheckStatus check={google} />
-      </div>
+      <GoogleCheckStatus pollUntilGoogle={link.kind === 'ready'} />
       {link.kind === 'ready' ? (
         <>
           <div role="separator" className="h-px bg-border" />
@@ -165,17 +164,11 @@ function CopyLinkStep({ link }: { link: CalendarStepsLink }) {
     link.kind === 'ready' ? link.feedUrl : ''
   )
   if (link.kind === 'failed') {
-    return (
-      <PanelErrorWithRetry onRetry={link.retry}>
-        {link.failure === 'create'
-          ? PANEL_COPY.createFailed
-          : PANEL_COPY.loadFailed}
-      </PanelErrorWithRetry>
-    )
+    return <LinkFailedLine failure={link.failure} onRetry={link.retry} />
   }
   const note = actions.notes.copy
   return (
-    <>
+    <div className="flex flex-col">
       {/* A live region, so the label turning to "Copied" is announced. */}
       <div aria-live="polite" className="flex">
         <Button
@@ -191,49 +184,34 @@ function CopyLinkStep({ link }: { link: CalendarStepsLink }) {
             : STEPS_PAGE_COPY.copyButton}
         </Button>
       </div>
-      {note === 'copy_failed' ? (
-        <div className="flex flex-col gap-0.5">
-          <PanelError>{PANEL_COPY.copyFailed}</PanelError>
-          <ManageInSettingsLink />
-        </div>
-      ) : null}
-    </>
+      {/* The button's own label confirms a copy; only a refusal adds lines. */}
+      <CalendarRowNoteLines note={note === 'copy_failed' ? note : undefined} />
+    </div>
   )
 }
 
 /** The line under the steps: waiting for Google, or Google's status block. */
-function GoogleCheckStatus({ check }: { check: GoogleCalendarCheck }) {
-  switch (check.kind) {
-    case 'unknown':
-      return null
-    case 'failed':
-      return (
-        <PanelErrorWithRetry onRetry={check.retry}>
-          {PANEL_COPY.loadFailed}
-        </PanelErrorWithRetry>
-      )
-    case 'waiting':
-      return (
+function GoogleCheckStatus({ pollUntilGoogle }: { pollUntilGoogle: boolean }) {
+  const check = useGoogleCalendarCheck({ pollUntilGoogle })
+  return (
+    <div aria-live="polite" className="empty:hidden">
+      {check.kind === 'failed' ? (
+        <LinkFailedLine failure="load" onRetry={check.retry} />
+      ) : check.kind === 'waiting' ? (
         <p className="text-sm leading-normal text-muted-foreground">
           {STEPS_PAGE_COPY.waiting}
         </p>
-      )
-    case 'connected':
-      return (
+      ) : check.kind === 'connected' ? (
         <div className="flex flex-col gap-1">
           <CalendarConnectedApps
             apps={[{ app: check.google, checkedLine: check.checkedLine }]}
           />
           <p className={BODY_TEXT}>{STEPS_PAGE_COPY.done}</p>
         </div>
-      )
-  }
+      ) : null}
+    </div>
+  )
 }
-
-const LINK_CLASS = cn(
-  'rounded-sm font-medium text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-  PRIVATE_LINK_CLASS
-)
 
 /** "Using a different calendar?" and the calendars this computer can add. */
 function OtherCalendars({
@@ -266,7 +244,7 @@ function OtherCalendars({
           {index > 0 ? <span aria-hidden="true"> · </span> : null}
           <a
             href={href}
-            className={LINK_CLASS}
+            className={cn(CALENDAR_LINK_TEXT_CLASS, PRIVATE_LINK_CLASS)}
             {...(newTab ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
           >
             {label}
@@ -282,14 +260,11 @@ function OtherCalendars({
  * page says so as the panel does and points to Settings. Its last sentence,
  * that a new link disconnects what is connected, waits for the status.
  */
-function UnrecoverableLink({ check }: { check: GoogleCalendarCheck }) {
+function UnrecoverableLink() {
+  const check = useGoogleCalendarCheck({ pollUntilGoogle: false })
   if (check.kind === 'unknown') return null
   if (check.kind === 'failed') {
-    return (
-      <PanelErrorWithRetry onRetry={check.retry}>
-        {PANEL_COPY.loadFailed}
-      </PanelErrorWithRetry>
-    )
+    return <LinkFailedLine failure="load" onRetry={check.retry} />
   }
   return (
     <div className="flex flex-col gap-1">
@@ -305,36 +280,37 @@ function UnrecoverableLink({ check }: { check: GoogleCalendarCheck }) {
 
 function IphoneSteps() {
   const link = useCalendarStepsLink()
-  const check = useGoogleCalendarCheck({ pollUntilGoogle: false })
+  const needsComputer = <p className={BODY_TEXT}>{STEPS_PAGE_COPY.phoneNeedsComputer}</p>
+
+  if (link.kind === 'unrecoverable') {
+    return (
+      <>
+        {needsComputer}
+        <UnrecoverableLink />
+      </>
+    )
+  }
+
   return (
     <>
-      <p className={BODY_TEXT}>{STEPS_PAGE_COPY.phoneNeedsComputer}</p>
-      {link.kind === 'unrecoverable' ? (
-        <UnrecoverableLink check={check} />
-      ) : (
-        <div className="flex flex-col">
-          <p className={BODY_TEXT}>{STEPS_PAGE_COPY.iphoneAppleInstead}</p>
-          {link.kind === 'ready' ? (
-            // The sheet layout gives the row the phone's 44px tap target.
-            <CalendarPanelLayoutContext.Provider value="sheet">
-              <PanelRowLink
-                href={webcalUrl(link.feedUrl)}
-                icon={ExternalLink}
-                handlesLink
-              >
-                {PANEL_COPY.rowApple}
-              </PanelRowLink>
-              <PanelNote>{PANEL_COPY.iphoneGoogleAppHint}</PanelNote>
-            </CalendarPanelLayoutContext.Provider>
-          ) : link.kind === 'failed' ? (
-            <PanelErrorWithRetry onRetry={link.retry}>
-              {link.failure === 'create'
-                ? PANEL_COPY.createFailed
-                : PANEL_COPY.loadFailed}
-            </PanelErrorWithRetry>
-          ) : null}
-        </div>
-      )}
+      {needsComputer}
+      <div className="flex flex-col">
+        <p className={BODY_TEXT}>{STEPS_PAGE_COPY.iphoneAppleInstead}</p>
+        {link.kind === 'ready' ? (
+          <>
+            <PanelRowLink
+              href={webcalUrl(link.feedUrl)}
+              icon={ExternalLink}
+              handlesLink
+            >
+              {PANEL_COPY.rowApple}
+            </PanelRowLink>
+            <PanelNote>{PANEL_COPY.iphoneGoogleAppHint}</PanelNote>
+          </>
+        ) : link.kind === 'failed' ? (
+          <LinkFailedLine failure={link.failure} onRetry={link.retry} />
+        ) : null}
+      </div>
     </>
   )
 }

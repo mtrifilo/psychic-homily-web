@@ -93,11 +93,13 @@ export const useCalendarFeedStatus = (
           // call (the calendar panel shows only a read made since it opened),
           // so the retry does not depend on it. A refused session is not
           // retried: it will not change by waiting.
+          // A poll runs only after a successful read; a failed one, the
+          // refused session included, follows the retry rule above.
           refetchInterval: (query: Query<CalendarFeedStatusResponse, Error>) => {
-            const retry = retryWhileFailed(query)
-            if (retry !== false || !pollUntil) return retry
-            const { data, error } = query.state
-            if (isAuthError(error)) return false
+            if (!pollUntil || query.state.status === 'error') {
+              return retryWhileFailed(query)
+            }
+            const { data } = query.state
             return data && pollUntil(data) ? false : CALENDAR_STATUS_POLL_MS
           },
         }

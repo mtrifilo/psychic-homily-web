@@ -30,14 +30,22 @@ export function useCalendarPanelLayout(): CalendarPanelLayout {
  */
 export const PRIVATE_LINK_CLASS = 'ph-no-capture sentry-block'
 
+const CALENDAR_SURFACE_ATTRIBUTE = 'data-saved-shows-calendar-panel'
+
 /**
- * Moves focus to the panel itself before a control that is about to unmount
- * (a retry line, a stopped app's block) acts. The popover does not trap
- * focus, so focus on a removed control would drop to the page's body and
- * leave the person outside the panel they are still using.
+ * Spread on the element that holds a calendar surface (the panel's popover or
+ * sheet, the steps page): the element holdFocusInPanel returns focus to.
+ */
+export const CALENDAR_SURFACE_PROPS = { [CALENDAR_SURFACE_ATTRIBUTE]: '' }
+
+/**
+ * Moves focus to the calendar surface itself before a control that is about
+ * to unmount (a retry line, a stopped app's block) acts. The popover does not
+ * trap focus, so focus on a removed control would drop to the page's body and
+ * leave the person outside the surface they are still using.
  */
 export function holdFocusInPanel(control: HTMLElement) {
-  control.closest<HTMLElement>('[data-saved-shows-calendar-panel]')?.focus()
+  control.closest<HTMLElement>(`[${CALENDAR_SURFACE_ATTRIBUTE}]`)?.focus()
 }
 
 /** The rows' stack: spaced in the popover, edge to edge in the sheet. */
@@ -45,8 +53,14 @@ export function rowStackClass(layout: CalendarPanelLayout): string {
   return layout === 'sheet' ? 'flex flex-col' : 'flex flex-col gap-2.5'
 }
 
-const ROW_CLASS =
-  'inline-flex items-center gap-1.5 self-start rounded-sm text-left text-sm font-medium text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50'
+/** How a calendar link reads, in a row or inside a sentence. */
+export const CALENDAR_LINK_TEXT_CLASS =
+  'rounded-sm font-medium text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+
+const ROW_CLASS = cn(
+  'inline-flex items-center gap-1.5 self-start text-left text-sm disabled:opacity-50',
+  CALENDAR_LINK_TEXT_CLASS
+)
 
 function rowClass(layout: CalendarPanelLayout, className?: string) {
   return cn(ROW_CLASS, layout === 'sheet' && 'min-h-11', className)
@@ -207,6 +221,24 @@ export function PanelErrorWithRetry({
         {TRY_AGAIN}
       </button>
     </p>
+  )
+}
+
+/**
+ * The link could not be loaded, or made, so nothing that needs it can act:
+ * the line for the step that failed, ending in its retry.
+ */
+export function LinkFailedLine({
+  failure,
+  onRetry,
+}: {
+  failure: 'load' | 'create'
+  onRetry: () => void
+}) {
+  return (
+    <PanelErrorWithRetry onRetry={onRetry}>
+      {failure === 'create' ? PANEL_COPY.createFailed : PANEL_COPY.loadFailed}
+    </PanelErrorWithRetry>
   )
 }
 

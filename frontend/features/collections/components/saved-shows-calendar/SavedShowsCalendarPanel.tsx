@@ -16,8 +16,9 @@ import {
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { useMediaQuery } from '@/lib/hooks/common/useMediaQuery'
 import {
+  CALENDAR_SURFACE_PROPS,
   CalendarPanelLayoutContext,
-  PanelErrorWithRetry,
+  LinkFailedLine,
   PanelNote,
   type CalendarPanelLayout,
 } from './CalendarPanelParts'
@@ -172,7 +173,7 @@ export function SavedShowsCalendarPanel({
           onCloseAutoFocus={returnFocusToAnchor}
           onKeyDown={closeOnTabOut}
           className="w-72 p-4 shadow-md"
-          data-saved-shows-calendar-panel=""
+          {...CALENDAR_SURFACE_PROPS}
           data-testid="saved-shows-calendar-panel"
         >
           <PanelContents
@@ -192,7 +193,7 @@ export function SavedShowsCalendarPanel({
         aria-describedby={undefined}
         onCloseAutoFocus={returnFocusToAnchor}
         className="max-h-[85dvh] gap-0 overflow-y-auto rounded-t-lg px-5 pb-6 pt-4"
-        data-saved-shows-calendar-panel=""
+        {...CALENDAR_SURFACE_PROPS}
         data-testid="saved-shows-calendar-panel"
       >
         <PanelContents layout="sheet" headingId={headingId} onNavigate={close} />
@@ -242,11 +243,7 @@ function PanelContents({
             onNavigate={onNavigate}
           />
         ) : state.kind === 'link_failed' ? (
-          <PanelErrorWithRetry onRetry={state.retry}>
-            {state.failure === 'create'
-              ? PANEL_COPY.createFailed
-              : PANEL_COPY.loadFailed}
-          </PanelErrorWithRetry>
+          <LinkFailedLine failure={state.failure} onRetry={state.retry} />
         ) : (
           <PanelNote>{PANEL_COPY.loading}</PanelNote>
         )}
