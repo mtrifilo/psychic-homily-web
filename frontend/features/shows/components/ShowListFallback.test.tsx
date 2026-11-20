@@ -338,6 +338,18 @@ describe('ShowListFallback on a client-side navigation, skeleton', () => {
     expect(geoRequests(fetchSpy)).toHaveLength(0)
   })
 
+  // A cached city the facet does not list draws nothing either: a facet
+  // refetch that adds it would make it the default under the drawn copy.
+  it('is the skeleton for a cached location the facet does not list', () => {
+    cacheGeoAnswer({ city: 'Flagstaff', state: 'AZ' })
+    const client = warmClient(ALL_CITIES_ENTRIES)
+
+    const { container } = navigate(client)
+
+    expectSkeleton(container)
+    expect(geoRequests(fetchSpy)).toHaveLength(0)
+  })
+
   it("is the skeleton while a signed-in viewer's own profile has not answered", () => {
     setViewer(SIGNED_IN, [TUCSON])
     viewer.profile = 'unanswered'

@@ -29,9 +29,8 @@ interface UseShowListCitySelectionParams {
    * arrives after the first render.
    *
    * `'cache'`: the session cache only, read on the first render, and never a
-   * request. When the answer the selection needs is not cached,
-   * `locationAnswerMissing` is true and the selection reads as all cities.
-   * Browser only: read it after hydration.
+   * request. `geoDefaultPossible` says whether the geo default could still
+   * decide the selection. Browser only: read it after hydration.
    */
   geoSource?: 'request' | 'cache'
 }
@@ -139,8 +138,7 @@ export function useShowListCitySelection({
     })
 
   // `useGeoDefaultCity`'s eligibility for the options passed above, on a mount
-  // with no filter interaction yet. Cache-only mode needs it to tell "no city"
-  // from "not cached".
+  // with no filter interaction yet.
   const geoEligible =
     (authStatus === 'anonymous' ||
       (GEO_DEFAULT_FOR_SIGNED_IN &&
@@ -148,8 +146,11 @@ export function useShowListCitySelection({
         favoritesKnown)) &&
     favoriteCities.length === 0 &&
     !hasExistingSelection
-  const locationAnswerMissing =
-    geoSource === 'cache' && geoEligible && cachedGeo === undefined
+  // Only a cached "no city" settles an eligible selection for good. A cached
+  // location can still become the default when the facet changes (a refetch
+  // that adds its city), and no cached answer is no answer at all.
+  const geoDefaultPossible =
+    geoSource === 'cache' && geoEligible && cachedGeo !== null
 
   // The effective city filter, DERIVED during render, never seeded into the
   // URL by an effect. A bare /shows resolves to the user's favorite (or, for
@@ -176,8 +177,11 @@ export function useShowListCitySelection({
     isResolving,
     /** False while a signed-in viewer's own profile, and so their favourites, has not answered. */
     favoritesKnown,
-    /** Cache-only mode: the location answer this selection depends on is not cached. */
-    locationAnswerMissing,
+    /**
+     * Cache-only mode: the geo default could decide this selection, now or
+     * after a facet change, because the cached answer is not "no city".
+     */
+    geoDefaultPossible,
     notifyUserInteracted,
     setCities,
   }

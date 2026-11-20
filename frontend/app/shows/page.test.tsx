@@ -3,10 +3,26 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const { fetchListPayload } = vi.hoisted(() => ({ fetchListPayload: vi.fn() }))
 vi.mock('@/lib/ssr/fetchListPayload', () => ({ fetchListPayload }))
 
+// `seedFirstScreen` awaits `connection()`, which marks a request-time render and
+// has nothing to do outside Next.
+vi.mock('next/server', () => ({ connection: async () => {} }))
+
+// On the server `getQueryClient()` mints a fresh client per call. Under jsdom it
+// would hand back the browser singleton, so the server behaviour is restored.
+vi.mock('@/lib/queryClient', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/lib/queryClient')>()
+  const { QueryClient } = await import('@tanstack/react-query')
+  return { ...actual, getQueryClient: () => new QueryClient() }
+})
+
 import { Suspense, type ReactElement } from 'react'
 import { findElement } from '@/test/elementTree'
 import { ShowListFallback } from '@/features/shows/components/ShowListFallback'
+import { hashKey } from '@tanstack/react-query'
+import { boundaryStateOf } from '@/test/firstScreenRender'
+import { showListFirstPaintKeys } from '@/features/shows/components/ShowListFallback'
 import ShowsPage, {
+  HydratedShowList,
   UPCOMING_SHOWS_LIMIT,
   getScenesForWeekIndex,
   getShowsMonthsPayload,
@@ -217,5 +233,29 @@ describe('ShowsPage', () => {
           ShowListFallback
     )
     expect(boundary).toBeDefined()
+  })
+})
+
+describe('HydratedShowList', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  // The fallback draws the all-cities list only over these entries, so the
+  // keys the page seeds have to be exactly the ones it checks.
+  it('seeds exactly the entries the fallback checks for the all-cities list', async () => {
+    fetchListPayload.mockImplementation(async ({ collection }: { collection: string }) =>
+      collection === 'shows'
+        ? { shows: [], total: 0, limit: 50, offset: 0, year: 0, month: 0, day: 0, days: 0 }
+        : collection === 'cities'
+          ? { cities: [] }
+          : { months: [], total: 0 }
+    )
+
+    const boundary = (await HydratedShowList()) as ReactElement
+
+    expect(
+      new Set(boundaryStateOf(boundary).queries.map(q => hashKey(q.queryKey)))
+    ).toEqual(new Set(showListFirstPaintKeys([]).map(hashKey)))
   })
 })

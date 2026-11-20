@@ -231,7 +231,7 @@ export function getShowsMonthsPayload(): Promise<ShowMonthsResponse | null> {
  * component fetches for itself and owns the error state (see
  * `fetchListPayload`).
  */
-async function HydratedShowList() {
+export async function HydratedShowList() {
   const [shows, cities, months] = await Promise.all([
     fetchListPayload<ShowsCalendarResponse>({
       url: SHOWS_CALENDAR_FIRST_SCREEN_URL,

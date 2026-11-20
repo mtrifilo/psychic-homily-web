@@ -75,23 +75,16 @@ function CachedFacetGate() {
 
 function CachedSelectionGate({ citiesData }: { citiesData: ShowCitiesResponse }) {
   const queryClient = useQueryClient()
-  const {
-    selectedCities,
-    appliedGeoDefault,
-    isResolving,
-    favoritesKnown,
-    locationAnswerMissing,
-  } = useShowListCitySelection({ citiesData, geoSource: 'cache' })
+  const { selectedCities, isResolving, favoritesKnown, geoDefaultPossible } =
+    useShowListCitySelection({ citiesData, geoSource: 'cache' })
 
-  // Drawn only for a selection that is settled and is the one the list's
-  // first render reads. A geo-default selection fails the second test: the
-  // list derives that default after it mounts, so its first render would paint
-  // the all-cities rows.
-  const selectionSettled =
-    !isResolving && favoritesKnown && !locationAnswerMissing
+  // Drawn only for a settled selection the geo default cannot decide. The list
+  // derives that default after it mounts, so for a geo-default selection its
+  // first render would paint the all-cities rows.
   if (
-    !selectionSettled ||
-    appliedGeoDefault !== null ||
+    isResolving ||
+    !favoritesKnown ||
+    geoDefaultPossible ||
     !everyKeyCached(queryClient, showListFirstPaintKeys(selectedCities))
   ) {
     return <ShowListSkeleton />
