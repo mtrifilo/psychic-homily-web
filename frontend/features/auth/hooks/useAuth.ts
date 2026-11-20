@@ -673,13 +673,35 @@ type SendMagicLinkBody = components['schemas']['SendMagicLinkRequestBody']
 
 /**
  * The send's wire body. The fallback destination is left off, as the Google
- * start leaves it off its URL, so a request with no destination worth
- * returning to asks for exactly what it did before links carried one.
+ * start leaves it off its URL: a request with no destination worth returning
+ * to sends `{ email }` alone.
  */
 function sendMagicLinkBody({ email, returnTo }: SendMagicLinkRequest): SendMagicLinkBody {
   return returnTo === undefined || returnTo === FALLBACK_RETURN_TO
     ? { email }
     : { email, return_to: returnTo }
+}
+
+/**
+ * The send's request, with `body` as its JSON body.
+ */
+function postSendMagicLink(body: SendMagicLinkBody): Promise<SendMagicLinkResponse> {
+  return apiRequest<SendMagicLinkResponse>(API_ENDPOINTS.AUTH.MAGIC_LINK_SEND, {
+    method: 'POST',
+    body: JSON.stringify(body),
+    credentials: 'include',
+  })
+}
+
+/**
+ * Whether a send that carried a destination was refused for its shape. The
+ * send's body is closed (unknown fields answer 422), so a backend whose
+ * request has no `return_to` field refuses the destination itself, and the
+ * frontend and backend deploy independently. The link is then asked for
+ * without one, which every backend accepts, rather than not at all.
+ */
+function refusedForItsDestination(body: SendMagicLinkBody, error: unknown): boolean {
+  return body.return_to !== undefined && (error as { status?: number } | null)?.status === 422
 }
 
 interface SendMagicLinkResponse {
@@ -939,18 +961,15 @@ export const useSendMagicLink = () => {
         email: request.email.slice(0, 2) + '***',
       })
 
-      const response = await apiRequest<SendMagicLinkResponse>(
-        API_ENDPOINTS.AUTH.MAGIC_LINK_SEND,
-        {
-          method: 'POST',
-          body: JSON.stringify(sendMagicLinkBody(request)),
-          credentials: 'include',
-        }
-      )
-
+      const body = sendMagicLinkBody(request)
       // Note: We don't throw on !success for email enumeration protection
       // The error_code field indicates specific issues like EMAIL_NOT_VERIFIED
-      return response
+      try {
+        return await postSendMagicLink(body)
+      } catch (error) {
+        if (!refusedForItsDestination(body, error)) throw error
+        return postSendMagicLink({ email: body.email })
+      }
     },
     onSuccess: data => {
       authLogger.info(

@@ -50,7 +50,7 @@ func TestOAuthLinkToken_IsNotAMagicLinkOrASession(t *testing.T) {
 		t.Error("a link token parsed as a session")
 	}
 
-	plain, err := svc.CreateMagicLinkToken(7, "alice@example.com", "")
+	plain, err := svc.CreateMagicLinkToken(7, "alice@example.com", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

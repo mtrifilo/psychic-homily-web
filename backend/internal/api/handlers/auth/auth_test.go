@@ -2528,7 +2528,7 @@ func TestSendMagicLinkHandler_ResponseIdenticalAcrossAccountStates(t *testing.T)
 			}
 			ah.userService = &testhelpers.MockUserService{GetUserByEmailFn: state.user}
 			ah.jwtService = &testhelpers.MockJWTService{
-				CreateMagicLinkTokenFn:    func(uint, string, string) (string, error) { return "magic-token", nil },
+				CreateMagicLinkTokenFn:    func(uint, string, uint) (string, error) { return "magic-token", nil },
 				CreateVerificationTokenFn: func(uint, string) (string, error) { return "verify-token", nil },
 			}
 		})

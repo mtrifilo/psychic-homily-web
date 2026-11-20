@@ -196,9 +196,10 @@ func sanitizeOAuthReturnTo(raw string) string {
 
 // magicLinkReturnTo is the destination a plain magic link carries for raw: the
 // path sanitizeOAuthReturnTo accepts, the rule Google sign-in applies, or ""
-// when that rule falls back to the site root, so a link that names no
-// destination is the link it was before it could name one. The send applies
-// it to the request's value, and the verify applies it again to the token's.
+// when that rule falls back to the site root. "" is no destination at every
+// hop: no row value, no token ref, no return_to in the verify response. The
+// send applies it to the request's value, and the verify applies it again to
+// the value read back from the outbox row.
 func magicLinkReturnTo(raw string) string {
 	if path := sanitizeOAuthReturnTo(raw); path != oauthReturnToFallback {
 		return path

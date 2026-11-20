@@ -100,6 +100,10 @@ func (s *AuthHandlerIntegrationSuite) latestOutboxRow(userID uint) authm.AuthEma
 	return rows[len(rows)-1]
 }
 
+// magicLinkClaimKeys are the claims every plain magic link token carries;
+// a link with a destination adds only "dst", the outbox row's id.
+var magicLinkClaimKeys = []string{"email", "exp", "iat", "iss", "sub", "user_id"}
+
 func (s *AuthHandlerIntegrationSuite) TestMagicLinkReturnTo_TheRequestsDestinationComesBackOnVerify() {
 	const destination = "/library?tab=shows#saved"
 	user := s.verifiedMagicLinkUser("ml-return@test.com")
@@ -115,9 +119,10 @@ func (s *AuthHandlerIntegrationSuite) TestMagicLinkReturnTo_TheRequestsDestinati
 	s.Equal(destination, *row.ReturnTo)
 
 	token := s.deliverMagicLink(env)
-	claims, err := env.jwt.ValidateMagicLinkToken(token)
-	s.Require().NoError(err)
-	s.Equal(destination, claims.ReturnTo, "the poller signs the row's destination into the token")
+	payload := tokenPayload(s, token)
+	s.ElementsMatch(append([]string{"dst"}, magicLinkClaimKeys...), keysOf(payload),
+		"the token names the row and carries nothing of the destination")
+	s.Equal(float64(row.ID), payload["dst"])
 
 	body := s.openMagicLink(env, token)
 	s.Equal(destination, body["return_to"])
@@ -132,15 +137,37 @@ func (s *AuthHandlerIntegrationSuite) TestMagicLinkReturnTo_NoDestinationBehaves
 	s.Nil(s.latestOutboxRow(user.ID).ReturnTo)
 
 	token := s.deliverMagicLink(env)
-	payload := tokenPayload(s, token)
-	s.NotContains(payload, "return_to", "a link without a destination carries no destination claim")
+	s.ElementsMatch(magicLinkClaimKeys, keysOf(tokenPayload(s, token)),
+		"a link without a destination carries no destination claim")
 
 	body := s.openMagicLink(env, token)
-	s.NotContains(body, "return_to", "the verify answer names no destination, as before")
+	s.NotContains(body, "return_to", "the verify answer names no destination")
+}
+
+// The emailed URL does not grow with the destination: a destination at the
+// rule's length limit, every byte of it one JSON escapes, mints a token as
+// long as a short destination's.
+func (s *AuthHandlerIntegrationSuite) TestMagicLinkReturnTo_TheLinkIsTheSameLengthWhateverTheDestination() {
+	long := "/?" + strings.Repeat("<", oauthReturnToMaxLength-2)
+	s.Require().Equal(long, magicLinkReturnTo(long), "the rule accepts the long destination")
+	env := s.newMagicLinkEnv()
+
+	lengths := map[string]int{}
+	for email, destination := range map[string]string{"ml-short@test.com": "/library", "ml-long@test.com": long} {
+		user := s.verifiedMagicLinkUser(email)
+		s.askForMagicLink(env, map[string]any{"email": email, "return_to": destination})
+		s.Require().NotNil(s.latestOutboxRow(user.ID).ReturnTo)
+		token := s.deliverMagicLink(env)
+		// The two accounts' emails are the same length, so the tokens differ
+		// only in the row ids they name.
+		lengths[destination] = len(token)
+		s.Equal(destination, s.openMagicLink(env, token)["return_to"])
+	}
+	s.InDelta(lengths["/library"], lengths[long], 4)
 }
 
 // One case of each kind, end to end; the handler unit tests run every case of
-// refusedMagicLinkDestinations and the shared corpus.
+// destinationsThatCarryNone and the shared corpus.
 func (s *AuthHandlerIntegrationSuite) TestMagicLinkReturnTo_ARefusedDestinationIsDropped() {
 	user := s.verifiedMagicLinkUser("ml-refused@test.com")
 	env := s.newMagicLinkEnv()
@@ -160,30 +187,59 @@ func (s *AuthHandlerIntegrationSuite) TestMagicLinkReturnTo_ARefusedDestinationI
 	}
 }
 
-// A token minted with a destination the rule refuses, which no request can
-// cause, still returns none: the verify checks the token's destination again.
-func (s *AuthHandlerIntegrationSuite) TestMagicLinkReturnTo_VerifyChecksTheTokensDestinationAgain() {
+// sentMagicLinkRow writes a sent magic link row of userID's holding
+// destination, the way a send and its delivery leave one, and returns its id.
+func (s *AuthHandlerIntegrationSuite) sentMagicLinkRow(userID uint, destination string) uint {
+	s.T().Helper()
+	row := authm.AuthEmailOutboxItem{
+		Kind:     authm.AuthEmailKindMagicLink,
+		UserID:   userID,
+		Status:   authm.AuthEmailStatusSent,
+		ReturnTo: &destination,
+	}
+	s.Require().NoError(s.deps.DB.Create(&row).Error)
+	return row.ID
+}
+
+// A row holding a destination the rule refuses, which no request can write,
+// still returns none: the verify checks the stored destination again.
+func (s *AuthHandlerIntegrationSuite) TestMagicLinkReturnTo_VerifyChecksTheStoredDestinationAgain() {
 	user := s.verifiedMagicLinkUser("ml-recheck@test.com")
 	env := s.newMagicLinkEnv()
 	for _, destination := range []string{"//evil.example", "https://evil.example/library", `/\evil.example`, "/auth"} {
-		token, err := env.jwt.CreateMagicLinkToken(user.ID, "ml-recheck@test.com", destination)
+		token, err := env.jwt.CreateMagicLinkToken(user.ID, "ml-recheck@test.com", s.sentMagicLinkRow(user.ID, destination))
 		s.Require().NoError(err)
 		s.NotContains(s.openMagicLink(env, token), "return_to", destination)
 	}
 }
 
-// The emailed token is signed whole, so editing its destination, the one
+// A token naming another account's row signs its own account in and returns
+// no destination: a ref only ever reads its own account's request.
+func (s *AuthHandlerIntegrationSuite) TestMagicLinkReturnTo_ARefToAnotherAccountsRowReturnsNone() {
+	owner := s.verifiedMagicLinkUser("ml-owner@test.com")
+	other := s.verifiedMagicLinkUser("ml-other@test.com")
+	env := s.newMagicLinkEnv()
+	token, err := env.jwt.CreateMagicLinkToken(other.ID, "ml-other@test.com", s.sentMagicLinkRow(owner.ID, "/library"))
+	s.Require().NoError(err)
+
+	body := s.openMagicLink(env, token)
+	s.Equal(float64(other.ID), body["user"].(map[string]any)["id"])
+	s.NotContains(body, "return_to")
+}
+
+// The emailed token is signed whole, so editing the row it names, the one
 // part of the link a person who opens it could change, spoils the link.
-func (s *AuthHandlerIntegrationSuite) TestMagicLinkReturnTo_EditingTheTokensDestinationSpoilsTheLink() {
-	s.verifiedMagicLinkUser("ml-edit@test.com")
+func (s *AuthHandlerIntegrationSuite) TestMagicLinkReturnTo_EditingTheTokensRefSpoilsTheLink() {
+	user := s.verifiedMagicLinkUser("ml-edit@test.com")
 	env := s.newMagicLinkEnv()
 	s.askForMagicLink(env, map[string]any{"email": "ml-edit@test.com", "return_to": "/library"})
 	token := s.deliverMagicLink(env)
+	otherRow := s.sentMagicLinkRow(user.ID, "/venues")
 
-	for _, edited := range []any{"//evil.example", "/venues", nil} {
-		resp := env.api.Post("/auth/magic-link/verify", map[string]any{"token": withEditedReturnTo(s, token, edited)})
+	for _, edited := range []any{otherRow, nil} {
+		resp := env.api.Post("/auth/magic-link/verify", map[string]any{"token": withEditedClaim(s, token, "dst", edited)})
 		body := decodeWireBody(s.T(), resp.Body.Bytes())
-		s.Equal(false, body["success"], "an edited destination %v", edited)
+		s.Equal(false, body["success"], "an edited ref %v", edited)
 		s.Equal("INVALID_TOKEN", body["error_code"])
 		s.Nil(setCookies(resp)[config.AuthCookieName])
 	}
@@ -196,7 +252,7 @@ func (s *AuthHandlerIntegrationSuite) TestMagicLinkReturnTo_EditingTheTokensDest
 func (s *AuthHandlerIntegrationSuite) TestMagicLinkReturnTo_TheVerifyRequestCannotNameOne() {
 	user := s.verifiedMagicLinkUser("ml-body@test.com")
 	env := s.newMagicLinkEnv()
-	token, err := env.jwt.CreateMagicLinkToken(user.ID, "ml-body@test.com", "")
+	token, err := env.jwt.CreateMagicLinkToken(user.ID, "ml-body@test.com", 0)
 	s.Require().NoError(err)
 
 	resp := env.api.Post("/auth/magic-link/verify", map[string]any{"token": token, "return_to": "/library"})
@@ -242,15 +298,23 @@ func tokenPayload(s *AuthHandlerIntegrationSuite, token string) map[string]any {
 	return claims
 }
 
-// withEditedReturnTo is token with its return_to claim set to returnTo (nil
-// removes it) and its original signature kept.
-func withEditedReturnTo(s *AuthHandlerIntegrationSuite, token string, returnTo any) string {
+func keysOf(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// withEditedClaim is token with claim set to value (nil removes it) and its
+// original signature kept.
+func withEditedClaim(s *AuthHandlerIntegrationSuite, token, claim string, value any) string {
 	s.T().Helper()
 	claims := tokenPayload(s, token)
-	if returnTo == nil {
-		delete(claims, "return_to")
+	if value == nil {
+		delete(claims, claim)
 	} else {
-		claims["return_to"] = returnTo
+		claims[claim] = value
 	}
 	raw, err := json.Marshal(claims)
 	s.Require().NoError(err)

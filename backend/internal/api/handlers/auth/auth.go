@@ -1266,7 +1266,7 @@ func (h *AuthHandler) ConfirmVerificationHandler(ctx context.Context, input *Con
 type SendMagicLinkRequest struct {
 	Body struct {
 		Email    string `json:"email" example:"user@example.com" doc:"Email address to send magic link to"`
-		ReturnTo string `json:"return_to,omitempty" required:"false" example:"/library" doc:"Where the link returns to once followed, a path on the frontend; a value Google sign-in would refuse as a destination is ignored"`
+		ReturnTo string `json:"return_to,omitempty" required:"false" example:"/library" doc:"Where the link returns to once followed, a path on the frontend. Checked with the rule Google sign-in applies to its destination, which also drops OAuth link result parameters; a refused value, the site root, and any value sent for an account whose address is unverified (which gets a verification email instead) leave the link with no destination."`
 	}
 }
 
@@ -1493,8 +1493,24 @@ func (h *AuthHandler) VerifyMagicLinkHandler(ctx context.Context, input *VerifyM
 	resp.Body.Message = "Login successful"
 	resp.Body.Token = token
 	resp.Body.User = user
-	resp.Body.ReturnTo = magicLinkReturnTo(claims.ReturnTo)
+	resp.Body.ReturnTo = h.magicLinkDestination(ctx, claims)
 	return resp, nil
+}
+
+// magicLinkDestination is where a verified plain magic link returns to: the
+// destination its token's outbox row holds, checked again with
+// magicLinkReturnTo, or "" when the token names no row. The sign-in has
+// already succeeded, so a failed read costs the destination, not the sign-in.
+func (h *AuthHandler) magicLinkDestination(ctx context.Context, claims *contracts.MagicLinkTokenClaims) string {
+	if claims.DestinationRef == 0 {
+		return ""
+	}
+	destination, err := h.emailOutbox.MagicLinkDestination(ctx, claims.DestinationRef, claims.UserID)
+	if err != nil {
+		logger.AuthError(ctx, "magic_link_destination_read_failed", err, "user_id", claims.UserID)
+		return ""
+	}
+	return magicLinkReturnTo(destination)
 }
 
 // verifyOAuthLink finishes the pending provider link an emailed link proves

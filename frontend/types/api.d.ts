@@ -15278,7 +15278,7 @@ export interface components {
              */
             email: string;
             /**
-             * @description Where the link returns to once followed, a path on the frontend; a value Google sign-in would refuse as a destination is ignored
+             * @description Where the link returns to once followed, a path on the frontend. Checked with the rule Google sign-in applies to its destination, which also drops OAuth link result parameters; a refused value, the site root, and any value sent for an account whose address is unverified (which gets a verification email instead) leave the link with no destination.
              * @example /library
              */
             return_to?: string;

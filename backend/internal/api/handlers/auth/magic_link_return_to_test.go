@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -11,10 +12,12 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-// refusedMagicLinkDestinations are destinations the sign-in destination rule
-// refuses, each named for the attack or mistake it stands for. A magic link
-// asked for with any of them carries none.
-var refusedMagicLinkDestinations = []struct {
+// destinationsThatCarryNone are values a magic link asked for with carries no
+// destination for: every one but the last is refused by
+// sanitizeOAuthReturnTo, each named for the attack or mistake it stands for,
+// and the last is its fallback, the site root, which magicLinkReturnTo maps
+// to none.
+var destinationsThatCarryNone = []struct {
 	name  string
 	input string
 }{
@@ -85,7 +88,7 @@ func TestSendMagicLinkHandler_QueuesTheRequestsDestination(t *testing.T) {
 }
 
 func TestSendMagicLinkHandler_DropsARefusedDestination(t *testing.T) {
-	for _, tc := range refusedMagicLinkDestinations {
+	for _, tc := range destinationsThatCarryNone {
 		t.Run(tc.name, func(t *testing.T) {
 			got := sendMagicLinkTo(t, tc.input)
 			want := []queuedAuthEmail{{kind: authm.AuthEmailKindMagicLink, userID: 7}}
@@ -135,21 +138,32 @@ func TestSendMagicLinkHandler_DestinationLeavesTheResponseAlone(t *testing.T) {
 	}
 }
 
-// verifyMagicLinkWithClaims runs the verify handler on a token whose claims
-// carry returnTo and returns the response.
-func verifyMagicLinkWithClaims(t *testing.T, returnTo string) *VerifyMagicLinkResponse {
+// testDestinationRef is the outbox row the verify tests' tokens name.
+const testDestinationRef = 9
+
+// verifyMagicLinkWith runs the verify handler on a token for account 1 whose
+// claims name ref (0 for none), with destination answering the outbox read,
+// and returns the response and the reads the handler made.
+func verifyMagicLinkWith(t *testing.T, ref uint, destination func() (string, error)) (*VerifyMagicLinkResponse, [][2]uint) {
 	t.Helper()
 	email := "test@example.com"
+	var reads [][2]uint
 	h := authHandler(func(ah *AuthHandler) {
 		ah.jwtService = &testhelpers.MockJWTService{
 			ValidateMagicLinkTokenFn: func(string) (*contracts.MagicLinkTokenClaims, error) {
-				return &contracts.MagicLinkTokenClaims{UserID: 1, Email: email, ReturnTo: returnTo}, nil
+				return &contracts.MagicLinkTokenClaims{UserID: 1, Email: email, DestinationRef: ref}, nil
 			},
 			CreateTokenFn: func(*authm.User) (string, error) { return "session-token", nil },
 		}
 		ah.userService = &testhelpers.MockUserService{
 			GetUserByIDFn: func(uint) (*authm.User, error) {
 				return &authm.User{ID: 1, Email: &email, IsActive: true}, nil
+			},
+		}
+		ah.emailOutbox = &testhelpers.MockAuthEmailOutbox{
+			MagicLinkDestinationFn: func(_ context.Context, ref, userID uint) (string, error) {
+				reads = append(reads, [2]uint{ref, userID})
+				return destination()
 			},
 		}
 	})
@@ -162,27 +176,57 @@ func verifyMagicLinkWithClaims(t *testing.T, returnTo string) *VerifyMagicLinkRe
 	if !resp.Body.Success {
 		t.Fatalf("expected success=true, got message=%q", resp.Body.Message)
 	}
-	return resp
+	return resp, reads
 }
 
-func TestVerifyMagicLinkHandler_ReturnsTheTokensDestination(t *testing.T) {
-	for name, destination := range map[string]string{
-		"a destination":  "/library?tab=shows#saved",
-		"no destination": "",
-	} {
-		if got := verifyMagicLinkWithClaims(t, destination).Body.ReturnTo; got != destination {
-			t.Errorf("%s: return_to = %q, want %q", name, got, destination)
-		}
+// destinationOf answers the outbox read with destination.
+func destinationOf(destination string) func() (string, error) {
+	return func() (string, error) { return destination, nil }
+}
+
+func TestVerifyMagicLinkHandler_ReturnsTheDestinationItsRowHolds(t *testing.T) {
+	const destination = "/library?tab=shows#saved"
+	resp, reads := verifyMagicLinkWith(t, testDestinationRef, destinationOf(destination))
+	if got := resp.Body.ReturnTo; got != destination {
+		t.Errorf("return_to = %q, want %q", got, destination)
+	}
+	if want := [][2]uint{{testDestinationRef, 1}}; !reflect.DeepEqual(reads, want) {
+		t.Errorf("outbox reads = %v, want %v (the token's ref, for the token's account)", reads, want)
 	}
 }
 
-// The verify checks the token's destination again, so a token minted with a
-// destination the rule refuses still returns none.
-func TestVerifyMagicLinkHandler_ChecksTheTokensDestinationAgain(t *testing.T) {
-	for _, tc := range refusedMagicLinkDestinations {
+// A token that names no row reads nothing and returns no destination.
+func TestVerifyMagicLinkHandler_NoRefReadsNothing(t *testing.T) {
+	resp, reads := verifyMagicLinkWith(t, 0, destinationOf("/library"))
+	if got := resp.Body.ReturnTo; got != "" {
+		t.Errorf("return_to = %q, want none", got)
+	}
+	if len(reads) != 0 {
+		t.Errorf("outbox reads = %v, want none", reads)
+	}
+}
+
+// A failed read costs the destination, not the sign-in.
+func TestVerifyMagicLinkHandler_AFailedReadSignsInWithNoDestination(t *testing.T) {
+	resp, _ := verifyMagicLinkWith(t, testDestinationRef, func() (string, error) {
+		return "", errors.New("connection reset")
+	})
+	if got := resp.Body.ReturnTo; got != "" {
+		t.Errorf("return_to = %q, want none", got)
+	}
+	if resp.Body.Token != "session-token" {
+		t.Errorf("token = %q, want the session token", resp.Body.Token)
+	}
+}
+
+// The verify checks the stored destination again, so a row holding one the
+// rule refuses still returns none.
+func TestVerifyMagicLinkHandler_ChecksTheStoredDestinationAgain(t *testing.T) {
+	for _, tc := range destinationsThatCarryNone {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := verifyMagicLinkWithClaims(t, tc.input).Body.ReturnTo; got != "" {
-				t.Errorf("return_to = %q for a token carrying %q, want none", got, tc.input)
+			resp, _ := verifyMagicLinkWith(t, testDestinationRef, destinationOf(tc.input))
+			if got := resp.Body.ReturnTo; got != "" {
+				t.Errorf("return_to = %q for a row holding %q, want none", got, tc.input)
 			}
 		})
 	}

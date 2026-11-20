@@ -132,6 +132,10 @@ var ErrAuthEmailSenderNotConfigured = errors.New("auth email outbox: no email pr
 // AuthEmailKindCalendarSteps, which only EnqueueCalendarSteps queues.
 var ErrCalendarStepsNeedsItsOwnEnqueue = errors.New("auth email outbox: calendar_steps is queued only by EnqueueCalendarSteps")
 
+// ErrMagicLinkNeedsItsOwnEnqueue is Enqueue's error for AuthEmailKindMagicLink,
+// which only EnqueueMagicLink queues.
+var ErrMagicLinkNeedsItsOwnEnqueue = errors.New("auth email outbox: magic_link is queued only by EnqueueMagicLink")
+
 // AuthEmailOutboxDisabled reports whether the kill switch is set. Enqueue and
 // the poller both read it through this function, so the two ends cannot
 // disagree about its spelling or parse.
@@ -147,7 +151,7 @@ type (
 		GetDaysUntilPermanentDeletion(user *authm.User) int
 	}
 	authEmailTokens interface {
-		CreateMagicLinkToken(userID uint, email, returnTo string) (string, error)
+		CreateMagicLinkToken(userID uint, email string, destinationRef uint) (string, error)
 		CreateOAuthLinkToken(userID uint, email, pendingLink string) (string, error)
 		CreateAccountRecoveryToken(userID uint, email string) (string, error)
 		CreateVerificationToken(userID uint, email string) (string, error)
@@ -316,10 +320,16 @@ func capped[T int | time.Duration](key string, v, limit T) T {
 //
 // It refuses AuthEmailKindCalendarSteps (ErrCalendarStepsNeedsItsOwnEnqueue):
 // that kind's cap holds only while every row of it is written by
-// EnqueueCalendarSteps.
+// EnqueueCalendarSteps. It refuses AuthEmailKindMagicLink
+// (ErrMagicLinkNeedsItsOwnEnqueue): a row written here would carry no
+// destination, so the link would land on the site root whatever its request
+// named.
 func (o *AuthEmailOutbox) Enqueue(ctx context.Context, kind authm.AuthEmailKind, userID uint) error {
-	if kind == authm.AuthEmailKindCalendarSteps {
+	switch kind {
+	case authm.AuthEmailKindCalendarSteps:
 		return ErrCalendarStepsNeedsItsOwnEnqueue
+	case authm.AuthEmailKindMagicLink:
+		return ErrMagicLinkNeedsItsOwnEnqueue
 	}
 	return o.enqueue(ctx, authm.AuthEmailOutboxItem{Kind: kind, UserID: userID}, nil)
 }
@@ -332,17 +342,40 @@ func (o *AuthEmailOutbox) EnqueueOAuthLink(ctx context.Context, userID uint, ref
 }
 
 // EnqueueMagicLink queues the sign-in link for userID on Enqueue's terms, with
-// returnTo, a path the caller has already accepted by the sign-in destination
-// rule, as the destination the poller signs into its token; "" is none. While
-// one is queued for the account, a call is a no-op and the queued row keeps
-// its own destination: the person gets one email, which goes where the first
-// request was headed.
+// returnTo, a path the caller has already accepted by sanitizeOAuthReturnTo,
+// as the destination following it returns; "" is none. The row keeps the
+// destination and the poller signs only the row's id into the token
+// (MagicLinkTokenClaims.DestinationRef), so the emailed URL is the same
+// length whatever the destination. While one is queued for the account, a
+// call is a no-op and the queued row keeps its own destination: the person
+// gets one email, which goes where the first request was headed.
 func (o *AuthEmailOutbox) EnqueueMagicLink(ctx context.Context, userID uint, returnTo string) error {
 	item := authm.AuthEmailOutboxItem{Kind: authm.AuthEmailKindMagicLink, UserID: userID}
 	if returnTo != "" {
 		item.ReturnTo = &returnTo
 	}
 	return o.enqueue(ctx, item, nil)
+}
+
+// MagicLinkDestination is the destination of the magic link row ref names,
+// read for the verify of a token that carries ref. It is "" unless the row is
+// a magic link row of userID's that holds one, so a ref can only return a
+// destination its own account asked for. Rows outlive the token: terminal
+// rows are kept for authEmailRetention, far past MagicLinkTokenTTL.
+func (o *AuthEmailOutbox) MagicLinkDestination(ctx context.Context, ref, userID uint) (string, error) {
+	var row authm.AuthEmailOutboxItem
+	err := o.db.WithContext(ctx).Select("return_to").
+		Where("id = ? AND user_id = ? AND kind = ?", ref, userID, authm.AuthEmailKindMagicLink).
+		Take(&row).Error
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		return "", nil
+	case err != nil:
+		return "", err
+	case row.ReturnTo == nil:
+		return "", nil
+	}
+	return *row.ReturnTo, nil
 }
 
 // EnqueueCalendarSteps queues the calendar steps email for user, the signed-in
@@ -692,11 +725,13 @@ func (o *AuthEmailOutbox) deliver(ctx context.Context, item authm.AuthEmailOutbo
 		if !user.EmailVerified {
 			return authEmailSkipIneligible, nil
 		}
-		returnTo := ""
+		// A row without a destination mints the token it always did, with
+		// no ref, so its verify reads nothing back.
+		var destinationRef uint
 		if item.ReturnTo != nil {
-			returnTo = *item.ReturnTo
+			destinationRef = item.ID
 		}
-		token, err := o.tokens.CreateMagicLinkToken(user.ID, email, returnTo)
+		token, err := o.tokens.CreateMagicLinkToken(user.ID, email, destinationRef)
 		if err != nil {
 			return "", err
 		}

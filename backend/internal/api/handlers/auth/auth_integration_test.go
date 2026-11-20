@@ -821,7 +821,7 @@ func (s *AuthHandlerIntegrationSuite) TestVerifyMagicLink_Success() {
 	s.verifyEmail(user.ID)
 
 	jwtSvc := auth.NewJWTService(s.deps.DB, s.cfg, s.deps.UserService)
-	token, err := jwtSvc.CreateMagicLinkToken(user.ID, "ml-ok@test.com", "")
+	token, err := jwtSvc.CreateMagicLinkToken(user.ID, "ml-ok@test.com", 0)
 	s.Require().NoError(err)
 
 	input := &VerifyMagicLinkRequest{}
@@ -839,7 +839,7 @@ func (s *AuthHandlerIntegrationSuite) TestVerifyMagicLink_UserNotFound() {
 	h := s.newAuthHandler(false)
 
 	jwtSvc := auth.NewJWTService(s.deps.DB, s.cfg, s.deps.UserService)
-	token, err := jwtSvc.CreateMagicLinkToken(99999, "ghost@test.com", "")
+	token, err := jwtSvc.CreateMagicLinkToken(99999, "ghost@test.com", 0)
 	s.Require().NoError(err)
 
 	input := &VerifyMagicLinkRequest{}
@@ -856,7 +856,7 @@ func (s *AuthHandlerIntegrationSuite) TestVerifyMagicLink_EmailMismatch() {
 	user := s.createUserWithPassword("ml-mm@test.com", "strong-password-123!")
 
 	jwtSvc := auth.NewJWTService(s.deps.DB, s.cfg, s.deps.UserService)
-	token, err := jwtSvc.CreateMagicLinkToken(user.ID, "different@test.com", "")
+	token, err := jwtSvc.CreateMagicLinkToken(user.ID, "different@test.com", 0)
 	s.Require().NoError(err)
 
 	input := &VerifyMagicLinkRequest{}

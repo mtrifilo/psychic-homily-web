@@ -65,8 +65,9 @@ test.describe('Magic Link Authentication', () => {
   // The link is asked for from a page that needs sign-in and opened in a
   // browser that never saw the request, so the only thing that can carry the
   // destination is the link itself. The E2E backend has no email provider, so
-  // the send is answered here and the token is minted the way the outbox
-  // mints it, from the destination the request carried.
+  // the send is answered here, and the outbox row the backend's send writes
+  // and the token its poller mints are made the same way: the row holds the
+  // destination the request carried and the token names the row.
   test('returns a link asked for from a deep page to that page, opened in another browser', async ({
     page,
     browser,
@@ -94,7 +95,14 @@ test.describe('Magic Link Authentication', () => {
     })
     expect(sendBody).toEqual({ email: TEST_USER_EMAIL, return_to: '/library' })
 
-    const token = await createMagicLinkToken(userId, TEST_USER_EMAIL, sendBody!.return_to)
+    const destinationRef = parseInt(
+      execSync(
+        `psql "${E2E_DB_URL}" -tAc "INSERT INTO auth_email_outbox (kind, user_id, status, return_to) VALUES ('magic_link', ${userId}, 'sent', '/library') RETURNING id"`,
+        { encoding: 'utf-8' }
+      ).trim(),
+      10
+    )
+    const token = await createMagicLinkToken(userId, TEST_USER_EMAIL, destinationRef)
     const otherBrowser = await browser.newContext()
     try {
       const opened = await otherBrowser.newPage()
