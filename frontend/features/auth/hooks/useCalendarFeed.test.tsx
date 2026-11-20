@@ -309,11 +309,11 @@ describe('useCreateCalendarToken', () => {
     await waitFor(() => expect(result.current.data).toEqual(mockResponse))
   })
 
-  it('surfaces errors to the caller and does NOT silently invalidate', async () => {
-    // Core PSY-700 risk for this hook: if the mutation swallowed the
-    // rejection, the calendar UI would show "success" while no token
-    // exists server-side. The mutation MUST reject mutateAsync AND skip
-    // invalidation so the cache doesn't refetch the (still-missing) status.
+  it('surfaces errors to the caller and still re-reads the calendar', async () => {
+    // If the mutation swallowed the rejection, the calendar UI would show
+    // "success" while no token exists server-side, so mutateAsync MUST
+    // reject. The calendar reads are still refetched: a create whose answer
+    // was lost may have committed, and only the server can say.
     const error = new Error('Server error')
     Object.assign(error, { status: 500 })
     mockApiRequest.mockRejectedValueOnce(error)
@@ -427,9 +427,10 @@ describe('useDeleteCalendarToken', () => {
     expect(mockInvalidateCalendar).toHaveBeenCalled()
   })
 
-  it('surfaces errors to the caller and skips invalidation on failure', async () => {
+  it('surfaces errors to the caller and still re-reads the calendar on failure', async () => {
     // Same risk class as Create: silent swallow here would leave the UI
-    // claiming the feed is disabled while the backend record persists.
+    // claiming the feed is disabled while the backend record persists. The
+    // re-read settles the card on what the server holds.
     const error = new Error('Not found')
     Object.assign(error, { status: 404 })
     mockApiRequest.mockRejectedValueOnce(error)

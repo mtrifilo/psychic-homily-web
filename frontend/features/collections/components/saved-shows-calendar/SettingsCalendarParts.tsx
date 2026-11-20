@@ -80,3 +80,23 @@ export function useHoldFocusOnLeave<T extends HTMLElement>() {
   }, [])
   return ref
 }
+
+/**
+ * A block of the card that can leave under focus: an add button whose app
+ * just connected, a stopped app that checked again. Focus inside it moves to
+ * the card as it leaves.
+ */
+export function FocusHold({
+  className,
+  children,
+}: {
+  className?: string
+  children: React.ReactNode
+}) {
+  const ref = useHoldFocusOnLeave<HTMLDivElement>()
+  return (
+    <div ref={ref} className={className}>
+      {children}
+    </div>
+  )
+}

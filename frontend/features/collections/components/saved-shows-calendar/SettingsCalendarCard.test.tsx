@@ -71,6 +71,8 @@ interface Server {
   mint: () => Promise<unknown>
   turnOff: () => Promise<unknown>
   newestSavedAt: string | null
+  /** Holds or fails the saved-shows read when set. */
+  savedShows?: Promise<unknown> | Error
   emailSteps: () => Promise<unknown>
 }
 
@@ -176,6 +178,8 @@ beforeEach(() => {
       return server.emailSteps()
     }
     if (url.includes('/saved-shows?')) {
+      if (server.savedShows instanceof Error) throw server.savedShows
+      if (server.savedShows) return server.savedShows
       const shows = server.newestSavedAt
         ? [{ id: 1, saved_at: server.newestSavedAt }]
         : []
@@ -678,19 +682,6 @@ describe('SettingsCalendarCard', () => {
       expect(await screen.findByText(COPY.copyFailed)).toBeInTheDocument()
     })
 
-    // The field is set right to left with left-aligned text, so a field too
-    // narrow for the address (at 390) shows its end. jsdom has no layout; the
-    // screenshots in the PR show the result.
-    it('sets each field to show the end of its address', async () => {
-      withLink()
-      await renderReadCard()
-      for (const field of screen.getAllByTestId('calendar-link-field')) {
-        expect(field.className).toContain('[direction:rtl]')
-        expect(field.className).toContain('text-left')
-        expect(field).toHaveAttribute('readonly')
-      }
-    })
-
     it('puts both private classes on every element that carries an address', async () => {
       withLink([readOf('google', 12 * DAY)])
       const { container } = await renderReadCard()
@@ -764,6 +755,40 @@ describe('SettingsCalendarCard', () => {
       expect(screen.queryByRole('group', { name: COPY.confirmNewLink })).toBeNull()
       expect(screen.queryByText(PANEL_COPY.createFailed)).toBeNull()
       expect(screen.getByRole('button', { name: COPY.newLink })).toHaveFocus()
+    })
+
+    it('does not pull focus back from elsewhere when a question closes later', async () => {
+      withLink()
+      let commit: () => void = () => {}
+      server.mint = () =>
+        new Promise((_resolve, reject) => {
+          commit = () => reject(new Error('connection reset'))
+        })
+      const user = setupUser()
+      const outside = document.createElement('input')
+      document.body.appendChild(outside)
+      try {
+        await renderReadCard()
+        await user.click(screen.getByRole('button', { name: COPY.newLink }))
+        await user.click(
+          screen.getByRole('button', { name: COPY.confirmNewLinkAction })
+        )
+        // The person moves on to another card while the request is out.
+        outside.focus()
+        // Another window replaced the link; the failed request's re-read
+        // finds it and the question closes.
+        server.token = {
+          has_token: true,
+          url_recoverable: true,
+          feed_url: NEW_FEED_URL,
+          follows_feed_url: NEW_FOLLOWS_URL,
+        }
+        commit()
+        await waitFor(() => expect(fieldValues()).toEqual([NEW_FEED_URL, NEW_FOLLOWS_URL]))
+        expect(outside).toHaveFocus()
+      } finally {
+        outside.remove()
+      }
     })
 
     it('keeps asking, with the create line, when it fails', async () => {
@@ -907,6 +932,42 @@ describe('SettingsCalendarCard', () => {
     renderCard(client)
     expect(await screen.findByRole('alert')).toHaveTextContent(PANEL_COPY.loadFailed)
     expect(fieldValues()).toEqual([])
+  })
+
+  it.each([
+    ['still pending', () => new Promise<unknown>(() => {})],
+    ['failing', () => Object.assign(new Error('down'), { status: 500 })],
+  ])(
+    'shows the link and its checked lines while the saved-shows read is %s',
+    async (_case, answer) => {
+      server.savedShows = answer()
+      withLink([readOf('google', 2 * HOUR)])
+      renderCard()
+      await waitFor(() => expect(fieldValues()).toEqual([FEED_URL, FOLLOWS_URL]))
+      // No comparison with a save the card has not read.
+      expect(
+        screen.getByText(calendarCheckedLine(ago(2 * HOUR), null, new Date()))
+      ).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: COPY.turnOff })).toBeInTheDocument()
+    }
+  )
+
+  it('keeps focus in the card when the add button just used leaves as its app connects', async () => {
+    withLink()
+    const user = setupUser()
+    await renderReadCard()
+    const apple = screen.getByRole('link', { name: COPY.addApple })
+    await user.click(apple)
+    apple.focus()
+    expect(apple).toHaveFocus()
+
+    // Apple Calendar checks the link; the person comes back to the window.
+    withLink([readOf('apple_mac', MINUTE)])
+    window.dispatchEvent(new Event('focus'))
+    await waitFor(() =>
+      expect(screen.queryByRole('link', { name: COPY.addApple })).toBeNull()
+    )
+    expect(document.getElementById('calendar')).toHaveFocus()
   })
 
   it('reads the status again when the window regains focus', async () => {

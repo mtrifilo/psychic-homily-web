@@ -39,6 +39,7 @@ import {
 import {
   CalendarCardButton,
   CalendarCardSendButton,
+  FocusHold,
   useHoldFocusOnLeave,
 } from './SettingsCalendarParts'
 import { SettingsCalendarLinks } from './SettingsCalendarLinks'
@@ -131,7 +132,6 @@ function SettingsCalendarBody() {
   }
 }
 
-/** The status sentence: why the link was reset, or that nothing checks it. */
 /**
  * No link: the status sentence and the one "Add to calendar". The block is
  * replaced by the add buttons and the links once a link is read, including
@@ -167,6 +167,7 @@ function NoLink({
   )
 }
 
+/** The status sentence: why the link was reset, or that nothing checks it. */
 function statusSentence(resetReason: CalendarLinkResetReason | null): string {
   return resetReason ? SETTINGS_RESET_SENTENCE[resetReason] : COPY.noneChecking
 }
@@ -205,12 +206,9 @@ function CalendarAppsAndAdd({
           <CalendarConnectedApps apps={model.connected} />
         ) : null}
         {model.stopped.map(view => (
-          <CalendarStoppedApp
-            key={view.app.client}
-            view={view}
-            feedUrl={feedUrl}
-            actions={actions}
-          />
+          <FocusHold key={view.app.client}>
+            <CalendarStoppedApp view={view} feedUrl={feedUrl} actions={actions} />
+          </FocusHold>
         ))}
       </div>
       {feedUrl ? (
@@ -253,12 +251,14 @@ function AddBlock({
     <div className="flex flex-col">
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start">
         {buttons.map(row => (
-          <div key={row} className="flex flex-col">
+          // A row leaves when its app connects, often under focus: the person
+          // just used its button and came back from the calendar app.
+          <FocusHold key={row} className="flex flex-col">
             <AddButton row={row} device={device} feedUrl={feedUrl} actions={actions} />
             <div className="sm:hidden">
               <CalendarRowNoteLines note={actions.notes[row]} />
             </div>
-          </div>
+          </FocusHold>
         ))}
       </div>
       <div className="hidden sm:flex sm:flex-col">

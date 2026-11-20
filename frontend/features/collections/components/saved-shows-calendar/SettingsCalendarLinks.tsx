@@ -104,9 +104,15 @@ export function SettingsCalendarLinks({
     })
   }
 
+  // Returns focus to the control that opened a question, but only from
+  // inside the card (or from nowhere): a question that closes later, after
+  // the person moved on to another card, must not pull focus back.
   const focusWhenReturning = (which: Confirming) => (el: HTMLElement | null) => {
-    if (el && returnFocusTo.current === which) {
-      returnFocusTo.current = null
+    if (!el || returnFocusTo.current !== which) return
+    returnFocusTo.current = null
+    const active = document.activeElement
+    const card = el.closest('[data-saved-shows-calendar-panel]')
+    if (!active || active === document.body || card?.contains(active)) {
       el.focus()
     }
   }
@@ -198,7 +204,8 @@ export function SettingsCalendarLinks({
 /**
  * One address: its label, the read-only field and Copy. The field is set
  * right to left with left-aligned text, so a field too narrow for the whole
- * address shows its END, the part that tells the two apart.
+ * address shows its END, the part that tells the two apart, with an ellipsis
+ * where the beginning is cut (a browser check covers what it draws).
  */
 function LinkField({
   id,
@@ -232,7 +239,7 @@ function LinkField({
           value={address}
           onFocus={event => event.currentTarget.select()}
           className={cn(
-            'h-11 text-left font-code text-xs [direction:rtl] sm:h-8 md:text-xs',
+            'h-11 text-left text-ellipsis font-code text-xs [direction:rtl] sm:h-8 md:text-xs',
             PRIVATE_LINK_CLASS
           )}
           data-testid="calendar-link-field"

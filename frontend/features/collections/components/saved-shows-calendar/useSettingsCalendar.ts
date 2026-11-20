@@ -145,12 +145,13 @@ function useAddCalendar(onHeld: (held: HeldResetReason) => void) {
  * Only status data written to the cache since this mount is shown (counted,
  * not timed, so a write in the same millisecond as the mount does not pass),
  * so no address held from before (one since replaced, or another account's
- * from earlier in the tab) is ever painted. The status is read again whenever the page becomes
- * visible or the window regains focus: a calendar app's first check is made
- * while the person is in that app, and the address may have been replaced in
- * another window. A connected app's line compares its last check with the
- * newest save; a failed saved-shows read drops that comparison rather than
- * blocking the card, as the panel does.
+ * from earlier in the tab) is ever painted. The status is read again whenever
+ * the page becomes visible or the window regains focus: a calendar app's first
+ * check is made while the person is in that app, and the address may have
+ * been replaced in another window. A connected app's line compares its last
+ * check with the newest save once that read lands; the saved-shows read never
+ * holds the card back, and while it is pending or after it fails the line
+ * names only the check, as the panel's does.
  *
  * The reset sentence keeps showing after "Add to calendar" made a new link in
  * this visit, because creating a link clears the marker on the server and the
@@ -180,7 +181,6 @@ export function useSettingsCalendar() {
   // Sorted newest save first when no time filter is given.
   const newest = useSavedShows({ limit: 1, userId, retryUntilRead: true })
   const device = useCalendarDevice()
-  const [mountedAt] = useState(() => Date.now())
   const [heldResetReason, setHeldResetReason] =
     useState<HeldResetReason | null>(null)
   const add = useAddCalendar(setHeldResetReason)
@@ -195,15 +195,21 @@ export function useSettingsCalendar() {
   }
 
   function settingsCalendarState(): SettingsCalendarState {
-    const counts = statusState()
+    // React Query re-renders a component only for the result properties it
+    // reads. `isFetchedAfterMount` flips on the first read to settle after
+    // this mount, even one that returns the data already cached, and
+    // `status` and `errorUpdateCount` change with every failure and recovery,
+    // so reading them here is what lets the count gate below open.
+    const fetchedSinceMount = status.isFetchedAfterMount
+    const dataWrittenSinceMount =
+      (statusState()?.dataUpdateCount ?? 0) > countsAtMount.data
     const current =
-      status.data && (counts?.dataUpdateCount ?? 0) > countsAtMount.data
-        ? status.data
-        : undefined
+      fetchedSinceMount && dataWrittenSinceMount ? status.data : undefined
     if (!current) {
-      // A failure since this mount, which survives the pending frame of each
-      // retry and ignores one another surface left in the shared cache.
-      return (counts?.errorUpdateCount ?? 0) > countsAtMount.error
+      // A failure since this mount, kept while its retries run, and never one
+      // another surface left in the shared cache.
+      return status.status === 'error' &&
+        status.errorUpdateCount > countsAtMount.error
         ? { kind: 'load_failed', retry: () => void status.refetch() }
         : { kind: 'loading' }
     }
@@ -217,9 +223,7 @@ export function useSettingsCalendar() {
       setHeldResetReason({ ...heldResetReason, feedUrl: current.feed_url })
     }
 
-    const newestSettled =
-      !!newest.data || newest.errorUpdatedAt >= mountedAt
-    if (!device || !newestSettled) return { kind: 'loading' }
+    if (!device) return { kind: 'loading' }
 
     const links =
       current.url_recoverable && current.feed_url && current.follows_feed_url
@@ -235,7 +239,8 @@ export function useSettingsCalendar() {
         heldResetReason.feedUrl === current.feed_url
           ? heldResetReason.reason
           : null,
-      // Unknown reads as no saved shows: the line then names only the check.
+      // Pending or failed reads as no saved shows: the line then names only
+      // the check, and gains its comparison when the read lands.
       newestSavedAt: newest.data?.shows[0]?.saved_at ?? null,
       // The card has no download row.
       upcomingCount: 0,
