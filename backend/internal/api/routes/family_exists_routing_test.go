@@ -80,6 +80,35 @@ func TestUnroutedFamilyExistsSiblingsDoNotLookLikeApiErrors(t *testing.T) {
 	}
 }
 
+// The other half: an error each probe authors carries the API's error content
+// type, so the proxy's guard has something to match on. With the nil-DB test
+// container each probe answers the service's error, written by the same huma
+// writer as its 404; whatever would strip the header from one strips it from
+// both.
+func TestFamilyExistsProbeErrorsCarryTheApiErrorContentType(t *testing.T) {
+	router := newTestRouter(t)
+
+	for _, path := range []string{
+		"/radio-stations/kexp/exists",
+		"/radio-stations/kexp/radio-shows/the-morning-show/exists",
+		"/radio-stations/kexp/radio-shows/the-morning-show/episodes/2025-01-15/exists",
+		"/collections/my-list/exists",
+	} {
+		req := httptest.NewRequest(http.MethodHead, path, nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code < 400 || w.Code == http.StatusNotFound || w.Code == http.StatusMethodNotAllowed {
+			t.Errorf("HEAD %s = %d, want the probe's own error: this test's premise is gone", path, w.Code)
+			continue
+		}
+		if got := w.Header().Get("Content-Type"); !strings.Contains(got, "application/problem+json") {
+			t.Errorf("HEAD %s answers %d with Content-Type %q; without application/problem+json "+
+				"the proxy reads every missing page behind this probe as no answer", path, w.Code, got)
+		}
+	}
+}
+
 // The station parameter is spelled as on every other /radio-stations/{slug}
 // route, so chi reports the shared prefix node under one name.
 func TestFamilyExistsRoutesShareTheirSiblingsParameterNames(t *testing.T) {

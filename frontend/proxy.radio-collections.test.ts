@@ -1,15 +1,14 @@
 import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { NextRequest } from 'next/server'
+import { NextRequest } from 'next/server'
 import { clearExistenceVerdictsForTests, proxy, RESERVED_SEGMENTS } from './proxy'
 
-function requestFor(pathname: string, cookies: string[] = []): NextRequest {
-  return {
-    nextUrl: new URL(`http://localhost:3000${pathname}`),
-    url: `http://localhost:3000${pathname}`,
-    cookies: { has: (name: string) => cookies.includes(name) },
-  } as unknown as NextRequest
+/** A real request, so cookie parsing is Next's own. */
+function requestFor(pathname: string, cookie?: string): NextRequest {
+  return new NextRequest(`http://localhost:3000${pathname}`, {
+    headers: cookie === undefined ? {} : { cookie },
+  })
 }
 
 function passedThrough(response: Response): boolean {
@@ -147,17 +146,47 @@ describe('proxy: radio routes', () => {
     expect(missing).toHaveBeenCalledTimes(2)
   })
 
-  // Only the exact `/radio/<segment>` address is the static page, so the
-  // registry must name every static directory under app/radio and nothing else.
-  it('reserves exactly the static pages under app/radio', () => {
+  // `radioCheck` encodes the app/radio route tree at each depth: the static
+  // pages one level down, `channel` as the only static segment under a
+  // station, nothing static under a show, and no page below a static page. A
+  // new route in any of those places has to be taught to `radioCheck` (and to
+  // the radio rules in next.config.ts) before this passes.
+  describe('agrees with the app/radio route tree', () => {
     const appRadio = join(__dirname, 'app', 'radio')
-    const staticPages = readdirSync(appRadio, { withFileTypes: true })
-      .filter(entry => entry.isDirectory() && !/^[[_(]/.test(entry.name))
-      .filter(entry => existsSync(join(appRadio, entry.name, 'page.tsx')))
-      .map(entry => entry.name)
-      .sort()
+    /** Child directories of `dir` that are URL segments: not `[param]`, `_private` or `(group)`. */
+    const staticChildren = (dir: string) =>
+      readdirSync(dir, { withFileTypes: true })
+        .filter(entry => entry.isDirectory() && !/^[[_(]/.test(entry.name))
+        .map(entry => entry.name)
+        .sort()
+    /** Whether any `page.tsx` sits below `dir`, excluding `dir` itself. */
+    const hasNestedPage = (dir: string): boolean =>
+      readdirSync(dir, { withFileTypes: true }).some(
+        entry =>
+          entry.isDirectory() &&
+          (existsSync(join(dir, entry.name, 'page.tsx')) || hasNestedPage(join(dir, entry.name)))
+      )
 
-    expect([...RESERVED_SEGMENTS.radio].sort()).toEqual(staticPages)
+    it('reserves exactly the static pages under app/radio', () => {
+      const staticPages = staticChildren(appRadio).filter(name =>
+        existsSync(join(appRadio, name, 'page.tsx'))
+      )
+      expect([...RESERVED_SEGMENTS.radio].sort()).toEqual(staticPages)
+    })
+
+    it('has no page below a static radio page', () => {
+      for (const name of RESERVED_SEGMENTS.radio) {
+        expect(hasNestedPage(join(appRadio, name)), name).toBe(false)
+      }
+    })
+
+    it('has `channel` as the only static segment under a station', () => {
+      expect(staticChildren(join(appRadio, '[station-slug]'))).toEqual(['channel'])
+    })
+
+    it('has no static segment under a show', () => {
+      expect(staticChildren(join(appRadio, '[station-slug]', '[show-slug]'))).toEqual([])
+    })
   })
 })
 
@@ -184,7 +213,7 @@ describe('proxy: collections', () => {
   it('sends no session to the probe', async () => {
     const fetchMock = mockStatus(200)
 
-    await proxy(requestFor(PAGE, ['theme']))
+    await proxy(requestFor(PAGE, 'theme=dark'))
 
     const init = fetchMock.mock.calls[0][1] as RequestInit
     expect(JSON.stringify(init.headers ?? {})).not.toMatch(/cookie|auth_token/i)
@@ -195,8 +224,17 @@ describe('proxy: collections', () => {
   it('does not probe a request that carries a session', async () => {
     const fetchMock = mockStatus(404)
 
-    expect(passedThrough(await proxy(requestFor(PAGE, ['auth_token'])))).toBe(true)
+    expect(passedThrough(await proxy(requestFor(PAGE, 'auth_token=abc')))).toBe(true)
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  // An empty cookie is no session to the matcher and to the Link header rule
+  // (Next counts a `missing` cookie only with a value), so the proxy agrees.
+  it('probes a request whose session cookie is empty', async () => {
+    const fetchMock = mockStatus(404)
+
+    expect((await proxy(requestFor(PAGE, 'auth_token='))).status).toBe(404)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   it('renders the page when the API has no such probe route, errors or is unreachable', async () => {

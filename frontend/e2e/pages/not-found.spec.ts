@@ -43,6 +43,7 @@ import { expect } from '@playwright/test'
  *
  * Intentionally EXCLUDED (still soft-404 / 200 — asserting 404 would FAIL):
  *   - blog, dj-sets (local MDX soft-404)
+ * These get coverage when their fixes land.
  *
  * The `error-detection` fixture (no auth — these are public, read-only routes)
  * auto-fails on console.error / failed browser request / 5xx. A clean 404 page

@@ -314,8 +314,8 @@ const EXCLUDED: Record<string, string> = {
   'radio/[station-slug]': "canonical follows the station's network",
   'radio/[station-slug]/channel/[sub-slug]':
     'a local segment that keeps the network prefix (`/radio/wfmu/channel/wfmu-drummer`) renders the station under a second URL that declares itself canonical, and the network segment is not checked against the station',
-  'blog/[slug]': 'prerendered with the canonical inside <head>',
-  'dj-sets/[slug]': 'prerendered with the canonical inside <head>',
+  'blog/[slug]': 'prerendered with the canonical inside <head>; unknown slugs are outside the proxy existence checks',
+  'dj-sets/[slug]': 'prerendered with the canonical inside <head>; unknown slugs are outside the proxy existence checks',
   'categories/[category]':
     'prerendered with the canonical inside <head>; unknown slugs are outside the proxy existence checks',
   'charts/[module]':
@@ -365,7 +365,7 @@ function proxyRequestFor(pathname: string): NextRequest {
   return {
     nextUrl: new URL(`http://localhost:3000${pathname}`),
     url: `http://localhost:3000${pathname}`,
-    cookies: { has: () => false },
+    cookies: { get: () => undefined },
   } as unknown as NextRequest
 }
 

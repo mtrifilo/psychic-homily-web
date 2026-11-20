@@ -43,7 +43,9 @@ import {
  * unresolvable slug or a location below the scene threshold. Adding an entity
  * is a single `ENTITY_CHECKS` entry + a single `config.matcher` source.
  * Radio and collections have branches of their own (`radioCheck`,
- * `collectionCheck`). Blog and DJ-set posts (local MDX) remain out of scope.
+ * `collectionCheck`). Blog and DJ-set posts (local MDX) still soft-404 for an
+ * unknown slug: the route-level `dynamicParams = false` is refused under
+ * `cacheComponents`, and they have no check here.
  *
  * How the 404 is produced
  * ------------------------
@@ -186,12 +188,10 @@ export const RESERVED_SEGMENTS: Record<string, ReadonlySet<string>> = {
 /**
  * The cookie that carries a session; the collection page forwards it to read
  * the collection as the viewer. `config.matcher` and the collection `Link`
- * header rule in next.config.ts spell it too.
+ * header rule in next.config.ts spell it too. All three count the cookie only
+ * with a non-empty value, as Next's `missing` condition does.
  */
 const SESSION_COOKIE = 'auth_token'
-
-/** The 404 reading for a probe whose route is new: see `failedProbeResponse`. */
-const NEW_ROUTE_PROBE = { requireApiAuthoredNotFound: true }
 
 /**
  * Shape of the date segments under `/shows/`: `/shows/2026/11` and
@@ -949,37 +949,31 @@ function radioCheck(
   const [, , station, second, third] = segments
   const stationUrl = (slug: string) =>
     `${API_BASE_URL}/radio-stations/${encodeURIComponent(slug)}`
+  const showUrl = () =>
+    `${stationUrl(station)}/radio-shows/${encodeURIComponent(second)}`
 
+  let probe: string
   if (segments.length === 3) {
     if (RESERVED_SEGMENTS.radio.has(station)) {
       return NextResponse.next()
     }
-    return existenceCheck(request, `${stationUrl(station)}/exists`, NEW_ROUTE_PROBE)
-  }
-
-  const showUrl = `${stationUrl(station)}/radio-shows/${encodeURIComponent(second)}`
-  if (segments.length === 4) {
-    return existenceCheck(request, `${showUrl}/exists`, NEW_ROUTE_PROBE)
-  }
-
-  if (segments.length === 5) {
+    probe = `${stationUrl(station)}/exists`
+  } else if (segments.length === 4) {
+    probe = `${showUrl()}/exists`
+  } else if (segments.length === 5 && second === 'channel') {
     // The static `channel` segment outranks `[show-slug]` only at this depth;
     // `/radio/{station}/channel` is the show route with `channel` as the show.
-    if (second === 'channel') {
-      const channel = channelStationSlug(station, third)
-      return existenceCheck(request, `${stationUrl(channel)}/exists`, NEW_ROUTE_PROBE)
-    }
+    probe = `${stationUrl(channelStationSlug(station, third))}/exists`
+  } else if (segments.length === 5) {
     if (!CALENDAR_DATE_SEGMENT.test(third) || !isRealCalendarDate(third)) {
       return notFoundResponse(request)
     }
-    return existenceCheck(
-      request,
-      `${showUrl}/episodes/${encodeURIComponent(third)}/exists`,
-      NEW_ROUTE_PROBE
-    )
+    probe = `${showUrl()}/episodes/${encodeURIComponent(third)}/exists`
+  } else {
+    return NextResponse.next()
   }
 
-  return NextResponse.next()
+  return existenceCheck(request, probe, { requireApiAuthoredNotFound: true })
 }
 
 /**
@@ -1000,13 +994,13 @@ function collectionCheck(
   request: NextRequest,
   slug: string
 ): Promise<NextResponse> | NextResponse {
-  if (request.cookies.has(SESSION_COOKIE)) {
+  if (request.cookies.get(SESSION_COOKIE)?.value) {
     return NextResponse.next()
   }
   return existenceCheck(
     request,
     `${API_BASE_URL}/collections/${encodeURIComponent(slug)}/exists`,
-    NEW_ROUTE_PROBE
+    { requireApiAuthoredNotFound: true }
   )
 }
 

@@ -280,7 +280,7 @@ func (suite *EntityExistenceServiceIntegrationTestSuite) TestRadioEpisodeExists_
 // A collection exists to the probe exactly when the detail route serves it to a
 // caller without a session: private and closed-creator collections answer as an
 // unused slug does, by slug and by numeric id alike.
-func (suite *EntityExistenceServiceIntegrationTestSuite) TestCollectionExists_AnswersAsAnAnonymousDetailRead() {
+func (suite *EntityExistenceServiceIntegrationTestSuite) TestCollectionExists_RefusesHiddenCollections() {
 	creator := suite.createEntityExistenceUser()
 	closedCreator := suite.createEntityExistenceUser()
 	suite.Require().NoError(suite.db.Model(closedCreator).Update("is_active", false).Error)
