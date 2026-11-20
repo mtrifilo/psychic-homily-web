@@ -14,7 +14,11 @@ const PRIVATE_TITLE = `PSY-551 Private ${Date.now()}`
 test.describe('Private collection detail (owner access)', () => {
   test(
     'create-private redirects to detail page and renders (not 404)',
-    async ({ authenticatedPage }) => {
+    async ({ authenticatedPage, browser }) => {
+      // Six navigations across two browser contexts, the first of them a cold
+      // compile on the dev server.
+      test.setTimeout(60_000)
+
       // 1. Open the collections browse page and start the create flow.
       await authenticatedPage.goto('/collections')
       await authenticatedPage
@@ -66,10 +70,25 @@ test.describe('Private collection detail (owner access)', () => {
 
       // 5. Hard reload — the SSR fetch (which is what regressed) runs again
       // here, so this is the strongest signal that auth forwarding works.
-      await authenticatedPage.reload()
+      const reloaded = await authenticatedPage.reload()
+      expect(reloaded?.status()).toBe(200)
       await expect(
         authenticatedPage.getByRole('heading', { name: PRIVATE_TITLE })
       ).toBeVisible({ timeout: 10_000 })
+
+      // 5b. A visitor without a session gets the same real 404 for this
+      // collection as for a slug nobody has used, so the status says nothing
+      // about whether a private collection exists.
+      const anonymous = await browser.newContext()
+      try {
+        const anonPage = await anonymous.newPage()
+        const hidden = await anonPage.goto(`/collections/${slug}`)
+        const unused = await anonPage.goto(`/collections/${slug}-unused`)
+        expect(hidden?.status()).toBe(404)
+        expect(unused?.status()).toBe(404)
+      } finally {
+        await anonymous.close()
+      }
 
       // 6. Navigating from the "Yours" tab also runs the SSR detail fetch.
       await authenticatedPage.goto('/collections')

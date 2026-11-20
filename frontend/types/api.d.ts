@@ -3912,6 +3912,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/collections/{slug}/exists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        /** Head collections by slug exists */
+        head: operations["head-collections-by-slug-exists"];
+        patch?: never;
+        trace?: never;
+    };
     "/collections/{slug}/feature": {
         parameters: {
             query?: never;
@@ -5555,6 +5572,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/radio-stations/{slug}/exists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        /** Head radio stations by slug exists */
+        head: operations["head-radio-stations-by-slug-exists"];
+        patch?: never;
+        trace?: never;
+    };
     "/radio-stations/{slug}/graph": {
         parameters: {
             query?: never;
@@ -5586,6 +5620,40 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/radio-stations/{slug}/radio-shows/{show_slug}/episodes/{date}/exists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        /** Head radio stations by slug radio shows by show slug episodes by date exists */
+        head: operations["head-radio-stations-by-slug-radio-shows-by-show-slug-episodes-by-date-exists"];
+        patch?: never;
+        trace?: never;
+    };
+    "/radio-stations/{slug}/radio-shows/{show_slug}/exists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        /** Head radio stations by slug radio shows by show slug exists */
+        head: operations["head-radio-stations-by-slug-radio-shows-by-show-slug-exists"];
         patch?: never;
         trace?: never;
     };
@@ -25749,6 +25817,39 @@ export interface operations {
             };
         };
     };
+    "head-collections-by-slug-exists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Collection slug or numeric ID
+                 * @example my-favorite-artists
+                 */
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "put-collections-by-slug-feature": {
         parameters: {
             query?: never;
@@ -30381,6 +30482,39 @@ export interface operations {
             };
         };
     };
+    "head-radio-stations-by-slug-exists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Radio station slug or numeric ID
+                 * @example kexp
+                 */
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "get-radio-stations-by-slug-graph": {
         parameters: {
             query?: {
@@ -30450,6 +30584,87 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["RadioNowPlayingResponse"];
                 };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "head-radio-stations-by-slug-radio-shows-by-show-slug-episodes-by-date-exists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Radio station slug or numeric ID
+                 * @example kexp
+                 */
+                slug: string;
+                /**
+                 * @description Radio show slug or numeric ID
+                 * @example the-morning-show
+                 */
+                show_slug: string;
+                /**
+                 * @description Air date (YYYY-MM-DD)
+                 * @example 2025-01-15
+                 */
+                date: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "head-radio-stations-by-slug-radio-shows-by-show-slug-exists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description Radio station slug or numeric ID
+                 * @example kexp
+                 */
+                slug: string;
+                /**
+                 * @description Radio show slug or numeric ID
+                 * @example the-morning-show
+                 */
+                show_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Error */
             default: {

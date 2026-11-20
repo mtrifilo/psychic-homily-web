@@ -1,5 +1,7 @@
 import { test } from '../fixtures/error-detection'
 import { expect } from '@playwright/test'
+import { workerAuthFile } from '../fixtures/auth'
+import { lookupWorkerUserId } from '../fixtures/test-fixtures-reset'
 
 /**
  * PSY-721: HTTP-404 regression guard for not-found pages.
@@ -38,8 +40,10 @@ import { expect } from '@playwright/test'
  * `/scenes/<slug>` backend call 404s for an unresolvable or below-threshold
  * slug. All eight are covered below.
  *
+ * Radio routes and collections have proxy branches of their own, each covered
+ * in its own describe block below.
+ *
  * Intentionally EXCLUDED (still soft-404 / 200 — asserting 404 would FAIL):
- *   - collections (auth-gated soft-404)
  *   - blog, dj-sets (local MDX soft-404)
  * These get coverage when their fixes land.
  *
@@ -472,6 +476,77 @@ test.describe('Not-found pages — HTTP 404 status', () => {
         response?.status(),
         '/scenes/nowhere-zz/tonight must return 404 — the scene itself does not resolve'
       ).toBe(404)
+    })
+  })
+
+  /**
+   * Radio station, show, episode and channel routes. Seeded rows come from
+   * backend/internal/seeddata/radio.go: KEXP carries The Morning Show, which
+   * has an episode on 2025-01-15, and WFMU's Give the Drummer Radio stream is
+   * `wfmu-drummer`. A show is a 404 under any station segment but its own.
+   */
+  test.describe('Radio routes', () => {
+    // Titles carry `{nonce}` rather than NONCE itself: each worker computes its
+    // own NONCE, and a title that differs between processes is not found.
+    const missing = [
+      '/radio/nonexistent-{nonce}',
+      '/radio/kexp/nonexistent-{nonce}',
+      '/radio/nonexistent-{nonce}/the-morning-show',
+      '/radio/wfmu/the-morning-show',
+      '/radio/kexp/nonexistent-{nonce}/2025-01-15',
+      '/radio/kexp/the-morning-show/2025-01-16',
+      '/radio/kexp/the-morning-show/2025-02-30',
+      '/radio/wfmu/channel/nonexistent-{nonce}',
+      '/radio/playlists/nonexistent-{nonce}',
+    ]
+    for (const template of missing) {
+      const pathname = template.replace('{nonce}', NONCE)
+      test(`${template} returns HTTP 404`, async ({ page }) => {
+        const response = await page.goto(pathname)
+        expect(response?.status(), `${pathname} must return 404, not a not-found body at 200`).toBe(404)
+      })
+    }
+
+    const present = [
+      '/radio',
+      '/radio/kexp',
+      '/radio/kexp/the-morning-show',
+      '/radio/kexp/the-morning-show/2025-01-15',
+      '/radio/wfmu/channel/drummer',
+      '/radio/new-releases',
+      '/radio/playlists',
+    ]
+    for (const pathname of present) {
+      test(`${pathname} returns HTTP 200 (proxy does not over-404)`, async ({ page }) => {
+        const response = await page.goto(pathname)
+        expect(response?.status(), `${pathname} must return 200`).toBe(200)
+        await expect(page.getByRole('main').getByRole('heading', { level: 1 })).toBeVisible({
+          timeout: 10_000,
+        })
+      })
+    }
+  })
+
+  /**
+   * Collections, as a visitor without a session sees them. A private
+   * collection answers exactly as a missing one; the backend existence suite
+   * pins that, since no private collection is seeded here.
+   */
+  test.describe('Collections', () => {
+    test('an unknown collection returns HTTP 404', async ({ page }) => {
+      const response = await page.goto(`/collections/nonexistent-${NONCE}`)
+      expect(response?.status()).toBe(404)
+    })
+
+    test('a public collection returns HTTP 200 (proxy does not over-404)', async ({ page }, testInfo) => {
+      // setup-db.sh seeds one public collection per worker user, slugged
+      // with that user's id; it is read here rather than assumed.
+      const userId = await lookupWorkerUserId(workerAuthFile(testInfo.workerIndex))
+      const response = await page.goto(`/collections/e2e-worker-collection-${userId}`)
+      expect(response?.status()).toBe(200)
+      await expect(page.getByRole('main').getByRole('heading', { level: 1 })).toBeVisible({
+        timeout: 10_000,
+      })
     })
   })
 })
