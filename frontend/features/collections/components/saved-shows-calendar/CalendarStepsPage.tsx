@@ -127,9 +127,7 @@ function ComputerSteps({ device }: { device: CalendarDevice }) {
           {/* Numbered because the order matters. */}
           <ol className="flex flex-col gap-4">
             <Step number={1} text={STEPS_PAGE_COPY.stepCopy}>
-              {/* Keyed by the address: a replaced link starts with no
-                  "Copied", which was about the old one. */}
-              <CopyLinkStep key={link.feedUrl} feedUrl={link.feedUrl} />
+              <CopyLinkStep feedUrl={link.feedUrl} />
             </Step>
             <Step number={2} text={STEPS_PAGE_COPY.stepOpen}>
               <Button asChild variant="outline" size="sm" className="self-start">
@@ -471,8 +469,7 @@ function IphoneSteps({ device }: { device: CalendarDevice }) {
             <PanelNote>{PANEL_COPY.iphoneGoogleAppHint}</PanelNote>
           </>
         ) : (
-          // Keyed by the address, as step 1's Copy link is.
-          <CopyOutsideSafari key={link.feedUrl} feedUrl={link.feedUrl} />
+          <CopyOutsideSafari feedUrl={link.feedUrl} />
         )}
       </div>
     </>

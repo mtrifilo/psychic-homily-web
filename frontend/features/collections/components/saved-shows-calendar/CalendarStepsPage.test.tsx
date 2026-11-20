@@ -537,19 +537,20 @@ describe('CalendarStepsPage: with no link', () => {
     expect(calls('/calendar/token', 'POST')).toHaveLength(0)
   })
 
-  it('a link replaced after a copy no longer says Copied', async () => {
+  it('a link replaced after a copy no longer says Copied, and the button keeps focus', async () => {
     withLink()
     const user = setupUser()
-    await user.click(await renderReadyComputerPage())
+    const button = await renderReadyComputerPage()
+    await user.click(button)
     await screen.findByRole('button', { name: STEPS_PAGE_COPY.copiedButton })
+    expect(button).toHaveFocus()
 
     server.token = linkOf(NEW_FEED_URL)
     refocusWindow()
 
-    expect(
-      await screen.findByRole('button', { name: STEPS_PAGE_COPY.copyButton })
-    ).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: STEPS_PAGE_COPY.copiedButton })).not.toBeInTheDocument()
+    await waitFor(() => expect(button).toHaveTextContent(STEPS_PAGE_COPY.copyButton))
+    expect(screen.getByRole('button', { name: STEPS_PAGE_COPY.copyButton })).toBe(button)
+    expect(button).toHaveFocus()
   })
 
   it('a link replaced while the page is open is the one Copy link copies', async () => {
@@ -647,6 +648,31 @@ describe('CalendarStepsPage: reading the status on an interval', () => {
       await screen.findByRole('button', { name: STEPS_PAGE_COPY.addToCalendar })
     ).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: STEPS_PAGE_COPY.copyButton })).not.toBeInTheDocument()
+
+    // Nothing to wait on: the interval stops.
+    const afterTurnOff = statusReads()
+    await advance(CALENDAR_STATUS_POLL_MS * 4)
+    expect(statusReads()).toBe(afterTurnOff)
+  })
+
+  it('a link replaced elsewhere is noticed at the next interval read, and the click makes none', async () => {
+    const madeBefore = ago(DAY)
+    const madeSince = ago(0)
+    server.token = { ...linkOf(FEED_URL), created_at: madeBefore }
+    server.status = { has_token: true, created_at: madeBefore, reads: [] }
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    await renderReadyComputerPage()
+
+    server.token = { ...linkOf(NEW_FEED_URL), created_at: madeSince }
+    server.status = { has_token: true, created_at: madeSince, reads: [] }
+    await advance(CALENDAR_STATUS_POLL_MS + 1_000)
+
+    const add = await screen.findByRole('button', { name: STEPS_PAGE_COPY.addToCalendar })
+    await user.click(add)
+    expect(
+      await screen.findByRole('button', { name: STEPS_PAGE_COPY.copyButton })
+    ).toBeInTheDocument()
+    expect(calls('/calendar/token', 'POST')).toHaveLength(0)
   })
 
   it('after its time limit, coming back to the page reads on the interval again', async () => {

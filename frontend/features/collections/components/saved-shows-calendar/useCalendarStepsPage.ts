@@ -82,8 +82,9 @@ export function useCalendarStepsPage({
   const create = useCreateCalendarToken()
   const [keptResetReason, setKeptResetReason] =
     useState<CalendarLinkResetReason | null>(null)
-  // When this visit's Add to calendar made a link; 0 until it has.
-  const [createdAt, setCreatedAt] = useState(0)
+  // When this visit's Add to calendar last finished (a link made, or found
+  // made elsewhere); 0 until it has. Reads older than it are not trusted.
+  const [addedAt, setAddedAt] = useState(0)
   // Add to calendar reads the link fresh and makes one only if that read says
   // there is none: making a link replaces any the account holds, so a link
   // made elsewhere since the page last read (another device, another tab)
@@ -100,13 +101,15 @@ export function useCalendarStepsPage({
   const add = useMutation({
     mutationFn: async () => {
       const fresh = await token.refetch({ throwOnError: true })
-      if (fresh.data?.has_token) return false
+      if (fresh.data?.has_token) {
+        // Nothing is made, so nothing refreshes the status: read it for the
+        // link found.
+        void status.refetch()
+        return
+      }
       await create.mutateAsync()
-      return true
     },
-    onSuccess: made => {
-      if (made) setCreatedAt(Date.now())
-    },
+    onSuccess: () => setAddedAt(Date.now()),
   })
 
   const readSinceOpen = <T>(query: {
@@ -121,31 +124,44 @@ export function useCalendarStepsPage({
   // A link this visit created stands until a read finished after it says
   // otherwise (a later turn-off or replacement elsewhere).
   const created =
-    create.data && createdAt > token.dataUpdatedAt ? create.data : null
+    create.data && addedAt > token.dataUpdatedAt ? create.data : null
   const heldUrl = created
     ? created.feed_url
     : currentToken?.has_token && currentToken.url_recoverable
       ? currentToken.feed_url
       : undefined
+  // When the link the page holds was made: it tells a status read about that
+  // link from one about a link made since.
+  const heldCreatedAt = created ? created.created_at : currentToken?.created_at
 
   const status = useCalendarFeedStatus(true, {
     live: true,
     pollUntil:
       pollGoogle && heldUrl
         ? (read: CalendarFeedStatusResponse) =>
+            !read.has_token ||
             googleConnected(classifyCalendarApps(read, new Date())) ||
-            Date.now() - Math.max(openedAt, createdAt, shownAt.current) >=
+            Date.now() - Math.max(openedAt, addedAt, shownAt.current) >=
               GOOGLE_CHECK_POLL_LIMIT_MS
         : undefined,
   })
   const currentStatus = readSinceOpen(status)
   // The status is read more often than the link (on the interval). When a
-  // status read newer than both the link read and this visit's create says
-  // there is no link, the link was turned off elsewhere: the address held is
-  // dead, and the page offers the one button again.
+  // status read newer than both the link read and this visit's click says
+  // there is no link, or describes a link made at another time, the link was
+  // turned off or replaced elsewhere: the address held is dead, and the page
+  // offers the one button again, whose click reads the link fresh and makes
+  // one only if there is none.
+  const statusNewer =
+    status.dataUpdatedAt > Math.max(token.dataUpdatedAt, addedAt)
   const statusSaysNoLink =
-    currentStatus?.has_token === false &&
-    status.dataUpdatedAt > Math.max(token.dataUpdatedAt, createdAt)
+    statusNewer &&
+    currentStatus !== undefined &&
+    (!currentStatus.has_token ||
+      (heldUrl !== undefined &&
+        !!currentStatus.created_at &&
+        !!heldCreatedAt &&
+        Date.parse(currentStatus.created_at) !== Date.parse(heldCreatedAt)))
   const feedUrl = statusSaysNoLink ? undefined : heldUrl
 
   const failedSinceOpen = (query: { errorUpdatedAt: number }) =>
