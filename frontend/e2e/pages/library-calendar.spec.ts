@@ -51,9 +51,9 @@ test.describe('Library calendar page', () => {
       timeout: 10_000,
     })
 
-    // The password form, the sign-in path the other specs use. Google sign-in
-    // carries the destination through the backend; magic-link sign-in does not
-    // yet, which is tracked separately.
+    // The password form, the sign-in path the other specs use. Google and
+    // magic-link sign-in carry the destination through the backend; the
+    // magic-link return has its own spec (e2e/auth/magic-link.spec.ts).
     await page
       .getByLabel('Email')
       .fill(userEmailForWorker(testInfo.workerIndex % USER_COUNT))
