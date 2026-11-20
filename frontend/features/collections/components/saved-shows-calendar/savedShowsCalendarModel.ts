@@ -95,7 +95,9 @@ function deviceRows(device: CalendarDevice): CalendarRow[] {
  * - A stopped app gets "Add to ... again" in place of its row when this device
  *   can add it; otherwise its row (if this device has one) stays as it is,
  *   since that row is then the way to add it again. One such link per app.
- * - The reset heading shows only while the status carries the reset marker.
+ * - The reset heading shows while the status carries the reset marker, and
+ *   for the rest of an open whose new link cleared that marker on the server
+ *   (`resetReasonBeforeCreate`).
  */
 export function buildSavedShowsCalendarModel({
   status,

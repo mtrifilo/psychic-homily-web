@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import dynamic from 'next/dynamic'
 import { Heart } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -23,8 +23,8 @@ import { FirstSaveHint } from './FirstSaveHint'
 // Loaded when the one-time hint opens, the panel's only way in, so it is
 // usually ready by the time the hint's link is chosen; every list row renders
 // a SaveButton, and none pays for it otherwise. A chunk that fails to load renders
-// nothing rather than throwing into the page's error boundary and replacing
-// the page the person is on.
+// nothing (returning focus to Save) rather than throwing into the page's
+// error boundary and replacing the page the person is on.
 const loadCalendarPanel = () =>
   import(
     '@/features/collections/components/saved-shows-calendar/SavedShowsCalendarPanel'
@@ -37,7 +37,18 @@ const SavedShowsCalendarPanel = dynamic(
   { ssr: false }
 )
 
-function NoCalendarPanel() {
+/**
+ * Stands in for a panel whose code failed to load. The hint that opened it is
+ * already gone, so focus goes back to the Save control rather than <body>.
+ */
+function NoCalendarPanel({
+  anchorRef,
+}: {
+  anchorRef: RefObject<HTMLElement | null>
+}) {
+  useEffect(() => {
+    anchorRef.current?.querySelector<HTMLElement>('button, a')?.focus()
+  }, [anchorRef])
   return null
 }
 

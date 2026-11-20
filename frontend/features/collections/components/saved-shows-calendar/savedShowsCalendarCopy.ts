@@ -2,8 +2,10 @@ import type { CalendarLinkResetReason } from '@/features/shows/types'
 import type { CalendarAddTarget } from '@/features/collections/lib/calendarFeedStatus'
 
 /**
- * The panel's own strings, verbatim from the owner-approved board spec
- * (docs/research/calendar-subscribe-v4.1-board-spec). The app names and the
+ * The panel's own strings, verbatim from the owner-approved board spec,
+ * docs/research/calendar-subscribe-v4.1-board-spec-2026-11.md (an agent-only
+ * document kept outside version control; the boards in Product Designs show
+ * the same strings). The app names and the
  * checked and stopped lines are in lib/calendarFeedStatus, which other
  * calendar surfaces share; the panel's copy test covers both sets. The one
  * other sentence, the expired-session line under Verify email, is the

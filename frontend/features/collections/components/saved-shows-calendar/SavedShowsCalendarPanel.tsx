@@ -63,14 +63,19 @@ export function SavedShowsCalendarPanel({
   align = 'start',
 }: SavedShowsCalendarPanelProps) {
   const fitsPopover = useMediaQuery(POPOVER_MIN_WIDTH_QUERY)
-  // The shell is chosen as the panel opens and kept until it closes: swapping
-  // popover and sheet mid-open (a phone rotated across the breakpoint) would
-  // remount the contents and lose this open's notes and its reset heading.
+  // The shell is chosen as the panel opens and kept until it opens again:
+  // swapping popover and sheet mid-open (a phone rotated across the
+  // breakpoint) would remount the contents and lose this open's notes and its
+  // reset heading, and swapping as it closes would cut its exit animation.
   // Adjusted during render, the house way to follow a prop without an effect.
-  const [openShell, setOpenShell] = useState<CalendarPanelLayout | null>(null)
-  if (open && openShell === null) setOpenShell(fitsPopover ? 'popover' : 'sheet')
-  if (!open && openShell !== null) setOpenShell(null)
-  const shell = openShell ?? (fitsPopover ? 'popover' : 'sheet')
+  const [shell, setShell] = useState<CalendarPanelLayout>(() =>
+    fitsPopover ? 'popover' : 'sheet'
+  )
+  const [wasOpen, setWasOpen] = useState(open)
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) setShell(fitsPopover ? 'popover' : 'sheet')
+  }
   const headingId = useId()
   const close = useCallback(() => onOpenChange(false), [onOpenChange])
 
@@ -111,7 +116,13 @@ export function SavedShowsCalendarPanel({
         )
       )
       const edge = event.shiftKey ? controls[0] : controls[controls.length - 1]
-      if (controls.length === 0 || document.activeElement === edge) {
+      // The panel itself holds focus when it opened before its rows existed;
+      // Shift+Tab from there is also a step out.
+      const leaving =
+        controls.length === 0 ||
+        document.activeElement === edge ||
+        (event.shiftKey && document.activeElement === event.currentTarget)
+      if (leaving) {
         event.preventDefault()
         onOpenChange(false)
       }

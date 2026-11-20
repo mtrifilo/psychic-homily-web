@@ -418,13 +418,16 @@ describe('SavedShowsCalendarPanel: preparing the link as it opens', () => {
     server.mint = async () => {
       throw new AuthError('expired', 'UNAUTHORIZED' as never, { status: 401 })
     }
-    render(<Harness />, {
-      wrapper: createWrapperWithClient(createTestQueryClient()),
-    })
+    const client = createTestQueryClient()
+    render(<Harness />, { wrapper: createWrapperWithClient(client) })
     const panel = await screen.findByTestId('saved-shows-calendar-panel')
     expect(await within(panel).findByRole('alert')).toHaveTextContent(
       PANEL_COPY.createFailed
     )
+    // The query cache sees the AuthError itself, so session recovery runs.
+    expect(
+      client.getQueryState(['calendarPanelLink', '7'])?.error
+    ).toBeInstanceOf(AuthError)
   })
 
   it('H: a link whose address cannot be shown is known on open, with no rows', async () => {
@@ -888,6 +891,31 @@ describe('SavedShowsCalendarPanel: keeps this open together', () => {
 })
 
 describe('SavedShowsCalendarPanel: focus', () => {
+  it('Shift+Tab from the panel itself closes it and returns focus to Save', async () => {
+    const user = setupUser()
+    // A page control after Save, as a real page has: the portaled panel sits
+    // after it, so a plain Shift+Tab would land there.
+    render(
+      <>
+        <Harness />
+        <a href="#footer">footer</a>
+      </>,
+      { wrapper: createWrapperWithClient(createTestQueryClient()) }
+    )
+    const panel = await screen.findByTestId('saved-shows-calendar-panel')
+    await waitFor(() =>
+      expect(within(panel).queryByText(PANEL_COPY.loading)).not.toBeInTheDocument()
+    )
+    panel.focus()
+
+    await user.tab({ shift: true })
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('saved-shows-calendar-panel')).not.toBeInTheDocument()
+    )
+    expect(screen.getByRole('button', { name: 'Saved' })).toHaveFocus()
+  })
+
   it('Tab past the last control closes the popover and returns focus to Save', async () => {
     const user = setupUser()
     withLink([google(2 * HOUR)])

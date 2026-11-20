@@ -44,8 +44,8 @@ export type SavedShowsCalendarState =
  * since this mount, and the newest save, the upcoming count and the device
  * are known, since every row and line depends on one of them. A status
  * cached by another surface is never shown. Once read, a later refetch that
- * fails keeps the last good read on screen; a first read that fails stays
- * loading and is retried on its own. The panel has no wording for a status it
+ * fails keeps the last good read on screen; until a first read succeeds the
+ * panel stays loading while the status query retries on its own. The panel has no wording for a status it
  * could not read, and never guesses one.
  */
 export function useSavedShowsCalendar(): SavedShowsCalendarState {

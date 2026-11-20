@@ -558,6 +558,32 @@ describe('useCalendarFeedStatus live', () => {
     await waitFor(() => expect(mockApiRequest).toHaveBeenCalledTimes(1))
   })
 
+  it('retries a failed live read on its own, even with older data cached', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const queryClient = createTestQueryClient()
+      queryClient.setQueryData(['calendar', 'feedStatus'], { has_token: false })
+      mockApiRequest
+        .mockRejectedValueOnce(new Error('502'))
+        .mockResolvedValue({ has_token: true })
+
+      const { result } = renderHook(
+        () => useCalendarFeedStatus(true, { live: true }),
+        { wrapper: createWrapperWithClient(queryClient) }
+      )
+      await waitFor(() => expect(result.current.isError).toBe(true))
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000)
+      })
+
+      await waitFor(() => expect(result.current.data).toEqual({ has_token: true }))
+      expect(mockApiRequest).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('keeps a fresh status when a plain observer mounts', async () => {
     const queryClient = createTestQueryClient()
     queryClient.setQueryData(['calendar', 'feedStatus'], { has_token: false })

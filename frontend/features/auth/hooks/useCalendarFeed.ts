@@ -73,12 +73,12 @@ export const useCalendarFeedStatus = (
       ? {
           refetchOnMount: 'always',
           refetchOnWindowFocus: 'always',
-          // A read that has never succeeded is retried on its own, since the
-          // surface has nothing else to show and nothing to press meanwhile.
+          // A failed read is retried on its own until one succeeds. Whether
+          // the data still held from before is fit to show is the surface's
+          // call (the calendar panel shows only a read made since it opened),
+          // so the retry does not depend on it.
           refetchInterval: query =>
-            query.state.status === 'error' && query.state.data === undefined
-              ? FAILED_STATUS_RETRY_MS
-              : false,
+            query.state.status === 'error' ? FAILED_STATUS_RETRY_MS : false,
         }
       : {}),
   })
