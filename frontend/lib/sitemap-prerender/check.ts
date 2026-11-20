@@ -15,8 +15,8 @@
  * Counts are written as "all" rather than a number on purpose: the shard count
  * is a property of app/sitemap-shards.ts and changes with every sharding
  * decision, while the BEHAVIOUR each row describes does not. Rows 1 and 3 are
- * measured again at each count; at the current 32: `32 of 32 shards have a
- * fallback document` against a healthy backend, and `31 of 32 shards have no
+ * measured again at each count. Row 1 at 34: `34 of 34 shards have a fallback
+ * document` against a healthy backend. Row 3 at 32: `31 of 32 shards have no
  * fallback document` with the backend unreachable, exit 1.
  *
  * The stale-serving fallback the sitemap needs is the PRERENDERED BODY that
