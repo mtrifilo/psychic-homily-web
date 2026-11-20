@@ -11,12 +11,19 @@ import (
 // (cli/src/lib/dateBound.ts); the two are kept equal by hand.
 const ShowEventDateBoundMonths = 18
 
-// ShowEventDateBound is the latest event_date CreateShow accepts at `now`
+// showEventDateBound is the latest event_date CreateShow accepts at `now`
 // without the override: now plus ShowEventDateBoundMonths calendar months, in
 // UTC. At an 18 month horizon a venue's zone cannot move the answer by more
 // than a day, so the comparison is between instants.
-func ShowEventDateBound(now time.Time) time.Time {
-	return now.UTC().AddDate(0, ShowEventDateBoundMonths, 0)
+func showEventDateBound(now time.Time) time.Time {
+	return monthsAfter(now, ShowEventDateBoundMonths)
+}
+
+// monthsAfter is `now` plus `months` calendar months in UTC, with Go's AddDate
+// overflow (Aug 31 plus 18 months is Mar 2 or 3). The far-future bound and the
+// purge tool's far-future report both measure with it.
+func monthsAfter(now time.Time, months int) time.Time {
+	return now.UTC().AddDate(0, months, 0)
 }
 
 // checkShowEventDateBound refuses an event_date after ShowEventDateBound(now)
@@ -25,7 +32,7 @@ func checkShowEventDateBound(eventDate, now time.Time, override bool) error {
 	if override {
 		return nil
 	}
-	bound := ShowEventDateBound(now)
+	bound := showEventDateBound(now)
 	if eventDate.After(bound) {
 		return apperrors.ErrShowEventDateBeyondBound(eventDate, bound, ShowEventDateBoundMonths)
 	}

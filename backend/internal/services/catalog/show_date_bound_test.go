@@ -12,14 +12,14 @@ import (
 func TestShowEventDateBound_IsEighteenCalendarMonthsInUTC(t *testing.T) {
 	now := time.Date(2026, 11, 20, 23, 30, 0, 0, time.FixedZone("UTC-8", -8*3600))
 	want := time.Date(2028, 5, 21, 7, 30, 0, 0, time.UTC)
-	if got := ShowEventDateBound(now); !got.Equal(want) {
-		t.Fatalf("ShowEventDateBound(%s) = %s, want %s", now, got, want)
+	if got := showEventDateBound(now); !got.Equal(want) {
+		t.Fatalf("showEventDateBound(%s) = %s, want %s", now, got, want)
 	}
 }
 
 func TestCheckShowEventDateBound_BothSidesAndOverride(t *testing.T) {
 	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
-	bound := ShowEventDateBound(now)
+	bound := showEventDateBound(now)
 
 	cases := []struct {
 		name     string

@@ -28,13 +28,39 @@ interface ShowWithTicket {
 const TICKET_REUSE_PAGE = 200;
 const TICKET_REUSE_SCAN_CAP = 600;
 
+/** Shows already read for one ticket URL, shared by every show in a run. */
+export type TicketURLLookupCache = Map<string, Promise<{ shows: ShowWithTicket[]; truncated: boolean }>>;
+
+async function fetchShowsByTicketURL(
+  client: APIClient,
+  url: string,
+): Promise<{ shows: ShowWithTicket[]; truncated: boolean }> {
+  const shows: ShowWithTicket[] = [];
+  let truncated = false;
+  for (let offset = 0; offset < TICKET_REUSE_SCAN_CAP; offset += TICKET_REUSE_PAGE) {
+    const page = await client.get<ShowWithTicket[] | { shows?: ShowWithTicket[] }>("/shows", {
+      ticket_url: url,
+      limit: String(TICKET_REUSE_PAGE),
+      offset: String(offset),
+    });
+    // Both shapes, as checkShowDuplicate reads this endpoint: a reader of one
+    // shape alone silently sees nothing in the other.
+    const rows = Array.isArray(page) ? page : (page?.shows ?? []);
+    shows.push(...rows);
+    if (rows.length < TICKET_REUSE_PAGE) break;
+    truncated = offset + TICKET_REUSE_PAGE >= TICKET_REUSE_SCAN_CAP;
+  }
+  return { shows, truncated };
+}
+
 /**
  * Finds approved shows at one of `venueIds` whose ticket URL is exactly
  * `ticketUrl` and whose event_date is outside the new show's venue-local day
  * (the same day is the duplicate check's question, not this one).
  *
  * `state` and `timezone` are the zone the new show is written in, so the day
- * window brackets the instant the writer will store.
+ * window brackets the instant the writer will store. Passing one `cache` for a
+ * whole run reads each distinct URL once.
  */
 export async function findTicketURLReuse(
   client: APIClient,
@@ -43,6 +69,7 @@ export async function findTicketURLReuse(
   eventDate: string,
   state?: string,
   timezone?: string,
+  cache: TicketURLLookupCache = new Map(),
 ): Promise<{ reuse: TicketURLReuse[]; truncated: boolean }> {
   const url = ticketUrl.trim();
   if (!url || venueIds.length === 0) return { reuse: [], truncated: false };
@@ -51,19 +78,12 @@ export async function findTicketURLReuse(
   const from = Date.parse(fromDate);
   const to = Date.parse(toDate);
 
-  const shows: ShowWithTicket[] = [];
-  let truncated = false;
-  for (let offset = 0; offset < TICKET_REUSE_SCAN_CAP; offset += TICKET_REUSE_PAGE) {
-    const page = await client.get<{ shows?: ShowWithTicket[] }>("/shows", {
-      ticket_url: url,
-      limit: String(TICKET_REUSE_PAGE),
-      offset: String(offset),
-    });
-    const rows = page?.shows ?? [];
-    shows.push(...rows);
-    if (rows.length < TICKET_REUSE_PAGE) break;
-    truncated = offset + TICKET_REUSE_PAGE >= TICKET_REUSE_SCAN_CAP;
+  let lookup = cache.get(url);
+  if (!lookup) {
+    lookup = fetchShowsByTicketURL(client, url);
+    cache.set(url, lookup);
   }
+  const { shows, truncated } = await lookup;
 
   const reuse: TicketURLReuse[] = [];
   for (const show of shows) {

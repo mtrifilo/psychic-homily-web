@@ -62,10 +62,11 @@ import (
 //     position, so they already prefer curation and, unlike a classification
 //     predicate, name an act whenever the bill has one at all (on an
 //     artist-less show they degrade to '' or omit the show rather than
-//     reporting "no headline slot"). Four sites, in two shapes:
+//     reporting "no headline slot"). Five sites, in two shapes:
 //
-//     tag_service.enrichShows, explore.headlinerNameByShow, and
-//     show_dedup.RecanonicaliseShowSlug RANK the bill. The required shape is
+//     tag_service.enrichShows, explore.headlinerNameByShow,
+//     show_dedup.RecanonicaliseShowSlug and show_replica_purge.replicaRowsSQL
+//     RANK the bill. The required shape is
 //     rank, then position, then a stable id:
 //
 //     CASE WHEN set_type = 'headliner' THEN 0 ELSE 1 END, position ASC, <id> ASC

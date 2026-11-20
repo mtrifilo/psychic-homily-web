@@ -37,15 +37,21 @@ type ReplicatedShowCopy struct {
 	VenueName     string
 	HeadlinerName string
 
-	// The rows the delete path drops (bookmarks, crate items) or keeps as
-	// tombstones (comments), counted so a reviewer sees what a copy carries.
-	Bookmarks       int64
-	CollectionItems int64
-	Comments        int64
+	// Refs counts the polymorphic reference rows naming this show, per table,
+	// over the same inventory DeleteShow sweeps; only non-zero tables appear.
+	Refs []ReplicaRefCount
 
 	venueIDs    string
 	headlinerID uint
 	localToday  string
+}
+
+// ReplicaRefCount is how many rows in one reference table name a show, and
+// whether DeleteShow drops them or keeps them as tombstones.
+type ReplicaRefCount struct {
+	Table   string
+	Dropped bool
+	Rows    int64
 }
 
 // ReplicatedShowGroup is every approved show sharing one (rooms, headliner,
@@ -79,7 +85,6 @@ func (g ReplicatedShowGroup) Actionable() bool {
 // ReplicatedShowPlan is the whole dry-run answer: the groups, and the shows
 // dated past the bound that no group explains.
 type ReplicatedShowPlan struct {
-	Now          time.Time
 	BeyondMonths int
 	BeyondCutoff time.Time
 	Groups       []ReplicatedShowGroup
@@ -175,7 +180,7 @@ func (c ReplicatedShowCopy) groupKey() string {
 	return c.venueIDs + "|" + strconv.FormatUint(uint64(c.headlinerID), 10) + "|" + c.LocalDate[5:]
 }
 
-func scanReplicaRows(db *gorm.DB, now time.Time, showIDs []uint) ([]replicaRow, error) {
+func scanReplicaCopies(db *gorm.DB, now time.Time, showIDs []uint) ([]ReplicatedShowCopy, error) {
 	query := replicaRowsSQL
 	args := []any{now}
 	if showIDs != nil {
@@ -186,7 +191,11 @@ func scanReplicaRows(db *gorm.DB, now time.Time, showIDs []uint) ([]replicaRow, 
 	if err := db.Raw(query+` ORDER BY shows.id`, args...).Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("failed to read shows for replica grouping: %w", err)
 	}
-	return rows, nil
+	copies := make([]ReplicatedShowCopy, len(rows))
+	for i, r := range rows {
+		copies[i] = r.toCopy()
+	}
+	return copies, nil
 }
 
 // groupReplicaCopies buckets copies by key and classifies every bucket that
@@ -274,20 +283,17 @@ func classifyReplicaGroup(key string, members []ReplicatedShowCopy) ReplicatedSh
 		seenYears[year] = true
 	}
 
+	// Copies are sorted by date, so the first copy holds the earliest year.
+	firstYear := localYear(first.LocalDate)
 	if group.CurrentYear == 0 {
 		group.SkipReason = replicaSkipNoNearCopy
 		return group
 	}
-	for _, c := range copies {
-		if localYear(c.LocalDate) < group.CurrentYear {
-			group.SkipReason = replicaSkipPastYear
-			return group
-		}
+	if firstYear < group.CurrentYear {
+		group.SkipReason = replicaSkipPastYear
+		return group
 	}
-
-	// Copies are sorted by date and every year is distinct and not past, so the
-	// first copy is the earliest year that is not before the current one.
-	if localYear(first.LocalDate) > group.CurrentYear+1 {
+	if firstYear > group.CurrentYear+1 {
 		group.SkipReason = replicaSkipNoNearCopy
 		return group
 	}
@@ -321,20 +327,15 @@ func PlanReplicatedShowPurge(db *gorm.DB, now time.Time, beyondMonths int) (*Rep
 		return nil, fmt.Errorf("beyond months must be at least 1, got %d", beyondMonths)
 	}
 
-	rows, err := scanReplicaRows(db, now, nil)
+	copies, err := scanReplicaCopies(db, now, nil)
 	if err != nil {
 		return nil, err
-	}
-	copies := make([]ReplicatedShowCopy, len(rows))
-	for i, r := range rows {
-		copies[i] = r.toCopy()
 	}
 
 	groups, loners := groupReplicaCopies(copies)
 	plan := &ReplicatedShowPlan{
-		Now:          now,
 		BeyondMonths: beyondMonths,
-		BeyondCutoff: now.UTC().AddDate(0, beyondMonths, 0),
+		BeyondCutoff: monthsAfter(now, beyondMonths),
 		Groups:       groups,
 	}
 	for _, c := range loners {
@@ -355,8 +356,10 @@ func PlanReplicatedShowPurge(db *gorm.DB, now time.Time, beyondMonths int) (*Rep
 	return plan, nil
 }
 
-// attachReplicaRefCounts fills the per-copy reference counts for every show the
-// plan prints.
+// attachReplicaRefCounts fills each printed copy's Refs from the same
+// inventory DeleteShow sweeps (entityRefsWalkedOnDelete and its recorded
+// dispositions), plus the alert rows that inventory cannot see, so the dry run
+// reports what a confirmed run drops and what it keeps.
 func attachReplicaRefCounts(db *gorm.DB, plan *ReplicatedShowPlan) error {
 	var ids []uint
 	for _, g := range plan.Groups {
@@ -371,38 +374,46 @@ func attachReplicaRefCounts(db *gorm.DB, plan *ReplicatedShowPlan) error {
 		return nil
 	}
 
-	counts := make(map[string]map[uint]int64, 3)
-	for _, table := range []string{"user_bookmarks", "collection_items", "comments"} {
+	refs := make(map[uint][]ReplicaRefCount)
+	count := func(label, table, idCol string, types []string, dropped bool) error {
 		var rows []struct {
 			EntityID uint
 			N        int64
 		}
-		// #nosec G201 -- table comes from the literal list above.
+		// #nosec G201 -- table and column come from the hardcoded inventory.
 		q := fmt.Sprintf(
-			"SELECT entity_id, COUNT(*) AS n FROM %s WHERE entity_type = 'show' AND entity_id IN ? GROUP BY entity_id",
-			table)
-		if err := db.Raw(q, ids).Scan(&rows).Error; err != nil {
+			"SELECT %[2]s AS entity_id, COUNT(*) AS n FROM %[1]s WHERE entity_type IN ? AND %[2]s IN ? GROUP BY %[2]s",
+			table, idCol)
+		if err := db.Raw(q, types, ids).Scan(&rows).Error; err != nil {
 			return fmt.Errorf("failed to count %s on replica copies: %w", table, err)
 		}
-		byID := make(map[uint]int64, len(rows))
 		for _, r := range rows {
-			byID[r.EntityID] = r.N
+			refs[r.EntityID] = append(refs[r.EntityID], ReplicaRefCount{Table: label, Dropped: dropped, Rows: r.N})
 		}
-		counts[table] = byID
+		return nil
+	}
+	for _, ref := range entityRefsWalkedOnDelete() {
+		disposition, ok := entityRefDeleteDispositions[ref.table]
+		if !ok {
+			return fmt.Errorf("%s has no recorded delete disposition", ref.table)
+		}
+		if err := count(ref.table, ref.table, ref.idCol, []string{string(entityTypeShow)}, disposition == dropRefRows); err != nil {
+			return err
+		}
+	}
+	if err := count("notification_log (alert discriminators)", "notification_log", "entity_id",
+		alertTypesKeyedOnEntity[entityTypeShow], true); err != nil {
+		return err
 	}
 
-	fill := func(c *ReplicatedShowCopy) {
-		c.Bookmarks = counts["user_bookmarks"][c.ShowID]
-		c.CollectionItems = counts["collection_items"][c.ShowID]
-		c.Comments = counts["comments"][c.ShowID]
-	}
 	for gi := range plan.Groups {
 		for ci := range plan.Groups[gi].Copies {
-			fill(&plan.Groups[gi].Copies[ci])
+			c := &plan.Groups[gi].Copies[ci]
+			c.Refs = refs[c.ShowID]
 		}
 	}
 	for i := range plan.Beyond {
-		fill(&plan.Beyond[i])
+		plan.Beyond[i].Refs = refs[plan.Beyond[i].ShowID]
 	}
 	return nil
 }
@@ -440,16 +451,12 @@ func PurgeReplicatedShowGroup(db *gorm.DB, now time.Time, group ReplicatedShowGr
 			return fmt.Errorf("failed to lock replica group: %w", err)
 		}
 
-		rows, err := scanReplicaRows(tx, now, ids)
+		copies, err := scanReplicaCopies(tx, now, ids)
 		if err != nil {
 			return err
 		}
-		if len(rows) != len(ids) {
-			return fmt.Errorf("%w: %d of %d shows are still approved", ErrReplicaGroupChanged, len(rows), len(ids))
-		}
-		copies := make([]ReplicatedShowCopy, len(rows))
-		for i, r := range rows {
-			copies[i] = r.toCopy()
+		if len(copies) != len(ids) {
+			return fmt.Errorf("%w: %d of %d shows are still approved", ErrReplicaGroupChanged, len(copies), len(ids))
 		}
 		fresh, loners := groupReplicaCopies(copies)
 		if len(loners) != 0 || len(fresh) != 1 {

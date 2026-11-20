@@ -13,6 +13,7 @@ import { submitReleases } from "./commands/submit-release";
 import { runSubmitLabel } from "./commands/submit-label";
 import { runSubmitFestival } from "./commands/submit-festival";
 import { runBatch } from "./commands/batch";
+import { SHOW_EVENT_DATE_BOUND_MONTHS } from "./lib/dateBound";
 import { runStatus } from "./commands/status";
 import { runFestivalLinkArtists, runFestivalUnlinkArtist } from "./commands/festival";
 import { runShowAddArtist, runShowRemoveArtist } from "./commands/show";
@@ -91,7 +92,7 @@ program
   .option("--confirm", "Actually submit (default is dry-run)")
   .option("--force", "Skip duplicate checking (force create)")
   .option("--overwrite-catalog", "Overwrite existing release↔label catalog numbers (release only; default is write-once)")
-  .option("--allow-far-future", "Send the override for shows dated more than 18 months ahead (show only; admin)")
+  .option("--allow-far-future", `Send the override for shows dated more than ${SHOW_EVENT_DATE_BOUND_MONTHS} months ahead (show only; admin)`)
   .action(async (entityType: string, json: string | undefined, opts: { confirm?: boolean; force?: boolean; overwriteCatalog?: boolean; allowFarFuture?: boolean }) => {
     if (!SUBMIT_TYPES.includes(entityType)) {
       display.error(
@@ -135,7 +136,7 @@ program
   .command("batch <file>")
   .description("Submit a mixed-entity JSON file for batch creation/update")
   .option("--confirm", "Actually submit (default is dry-run)")
-  .option("--allow-far-future", "Send the override for shows dated more than 18 months ahead (admin)")
+  .option("--allow-far-future", `Send the override for shows dated more than ${SHOW_EVENT_DATE_BOUND_MONTHS} months ahead (admin)`)
   .action(async (file: string, opts: { confirm?: boolean; allowFarFuture?: boolean }) => {
     const env = await resolveEnvOrExit(program.opts().env);
     await runBatch(file, env, !!opts.confirm, { allowFarFuture: !!opts.allowFarFuture });

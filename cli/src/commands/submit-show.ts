@@ -17,7 +17,7 @@ import {
   showEventDateBound,
 } from "../lib/dateBound";
 import { batchTicketURLReuse, findTicketURLReuse } from "../lib/ticketReuse";
-import type { TicketURLReuse } from "../lib/ticketReuse";
+import type { TicketURLLookupCache, TicketURLReuse } from "../lib/ticketReuse";
 
 /**
  * Normalize a date string to an ISO 8601 UTC timestamp.
@@ -597,19 +597,19 @@ export async function flagTicketURLReuse(client: APIClient, plans: ShowPlan[]): 
     creatable[index].batchTicketReuse = others.map((j) => plans.indexOf(creatable[j]));
   }
 
+  const cache: TicketURLLookupCache = new Map();
   for (const plan of creatable) {
-    const url = plan.input.ticket_url?.trim();
     const venueIds = plan.venues.filter((v) => v.id !== undefined).map((v) => v.id!);
-    if (!url || venueIds.length === 0) continue;
     const zone = planVenueZone(plan);
     try {
       const { reuse, truncated } = await findTicketURLReuse(
         client,
-        url,
+        plan.input.ticket_url ?? "",
         venueIds,
         plan.input.event_date,
         zone.state,
         zone.timezone,
+        cache,
       );
       if (reuse.length > 0) plan.ticketReuse = reuse;
       if (truncated) {
