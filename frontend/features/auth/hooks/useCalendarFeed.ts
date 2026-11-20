@@ -4,6 +4,7 @@ import {
   useQuery,
   useMutation,
   useQueryClient,
+  type Query,
   type QueryClient,
 } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
@@ -40,6 +41,14 @@ export const useCalendarTokenStatus = (enabled: boolean = true) => {
 }
 
 /**
+ * How often a live status read that is waiting for a calendar app's first
+ * check (`pollUntil`) reads again while its page is visible. A calendar app
+ * usually fetches a newly added link within a minute or two; the window-focus
+ * refetch covers the person coming back from that app's tab.
+ */
+export const CALENDAR_STATUS_POLL_MS = 15_000
+
+/**
  * The calendar feed's status with no feed address in it: whether a link
  * exists, the calendar apps seen reading it, and the marker a security action
  * leaves when it reset a link an app had been reading. For surfaces that talk
@@ -54,8 +63,17 @@ export const useCalendarFeedStatus = (
      * person adds the calendar in another tab or app and comes back.
      */
     live?: boolean
+    /**
+     * With `live`: also read again every CALENDAR_STATUS_POLL_MS until the
+     * latest status satisfies this. The interval belongs to the observer, so
+     * it ends when the surface unmounts, and React Query holds it while the
+     * page is hidden. A refused session ends it, since waiting will not change
+     * that answer.
+     */
+    pollUntil?: (status: CalendarFeedStatusResponse) => boolean
   } = {}
 ) => {
+  const { live, pollUntil } = options
   return useQuery({
     queryKey: queryKeys.calendar.feedStatus,
     queryFn: async (): Promise<CalendarFeedStatusResponse> => {
@@ -66,7 +84,7 @@ export const useCalendarFeedStatus = (
     },
     enabled,
     staleTime: 5 * 60 * 1000, // 5 minutes
-    ...(options.live
+    ...(live
       ? {
           refetchOnMount: 'always',
           refetchOnWindowFocus: 'always',
@@ -75,7 +93,13 @@ export const useCalendarFeedStatus = (
           // call (the calendar panel shows only a read made since it opened),
           // so the retry does not depend on it. A refused session is not
           // retried: it will not change by waiting.
-          refetchInterval: retryWhileFailed,
+          refetchInterval: (query: Query<CalendarFeedStatusResponse, Error>) => {
+            const retry = retryWhileFailed(query)
+            if (retry !== false || !pollUntil) return retry
+            const { data, error } = query.state
+            if (isAuthError(error)) return false
+            return data && pollUntil(data) ? false : CALENDAR_STATUS_POLL_MS
+          },
         }
       : {}),
   })

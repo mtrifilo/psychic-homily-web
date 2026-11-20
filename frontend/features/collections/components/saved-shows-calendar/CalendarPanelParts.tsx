@@ -120,8 +120,11 @@ export function PanelRowLink({
   )
 }
 
-/** "Manage in Settings": the one way into the Settings calendar card. */
-export function ManageInSettingsLink({ onNavigate }: { onNavigate: () => void }) {
+/**
+ * "Manage in Settings": the one way into the Settings calendar card.
+ * `onNavigate` closes a panel the link leaves; a page has nothing to close.
+ */
+export function ManageInSettingsLink({ onNavigate }: { onNavigate?: () => void }) {
   const layout = useCalendarPanelLayout()
   return (
     <Link

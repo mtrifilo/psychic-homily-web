@@ -39,6 +39,7 @@ import { PERSONAL_FEED_TOKEN_REVOKED_EVENT } from '@/features/collections/compon
 // Import hooks after mocks are set up
 import { AuthError } from '@/lib/errors'
 import {
+  CALENDAR_STATUS_POLL_MS,
   emailCalendarStepsFailure,
   forgetRevokedCalendarLink,
   sendCalendarStepsEmail,
@@ -559,6 +560,87 @@ describe('useCalendarFeedStatus live', () => {
 
       await waitFor(() => expect(result.current.data).toEqual({ has_token: true }))
       expect(mockApiRequest).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('with pollUntil, reads again on an interval until the status satisfies it', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const connected = { has_token: true, reads: [] as unknown[], done: true }
+      mockApiRequest
+        .mockResolvedValueOnce({ has_token: true, reads: [] })
+        .mockResolvedValueOnce({ has_token: true, reads: [] })
+        .mockResolvedValue(connected)
+      const pollUntil = (status: object) => 'done' in status
+
+      const { result } = renderHook(
+        () => useCalendarFeedStatus(true, { live: true, pollUntil }),
+        { wrapper: createWrapper() }
+      )
+      // Reading `data` here subscribes the hook to its changes.
+      await waitFor(() => expect(result.current.data).toBeDefined())
+      expect(mockApiRequest).toHaveBeenCalledTimes(1)
+
+      // The interval restarts with each read, so each step waits a little
+      // past it.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(CALENDAR_STATUS_POLL_MS + 1_000)
+      })
+      await waitFor(() => expect(mockApiRequest).toHaveBeenCalledTimes(2))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(CALENDAR_STATUS_POLL_MS + 1_000)
+      })
+      await waitFor(() => expect(mockApiRequest).toHaveBeenCalledTimes(3))
+
+      // Satisfied: no further reads.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(CALENDAR_STATUS_POLL_MS * 3)
+      })
+      expect(mockApiRequest).toHaveBeenCalledTimes(3)
+      expect(result.current.data).toEqual(connected)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('with pollUntil, stops reading when the observer unmounts', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      mockApiRequest.mockResolvedValue({ has_token: true, reads: [] })
+      const { result, unmount } = renderHook(
+        () => useCalendarFeedStatus(true, { live: true, pollUntil: () => false }),
+        { wrapper: createWrapper() }
+      )
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      unmount()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(CALENDAR_STATUS_POLL_MS * 3)
+      })
+      expect(mockApiRequest).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('with pollUntil, stops on a refused session', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      mockApiRequest.mockRejectedValue(
+        new AuthError('expired', 'TOKEN_EXPIRED' as never, { status: 401 })
+      )
+      const { result } = renderHook(
+        () => useCalendarFeedStatus(true, { live: true, pollUntil: () => false }),
+        { wrapper: createWrapper() }
+      )
+      await waitFor(() => expect(result.current.isError).toBe(true))
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(CALENDAR_STATUS_POLL_MS * 3)
+      })
+      expect(mockApiRequest).toHaveBeenCalledTimes(1)
     } finally {
       vi.useRealTimers()
     }
