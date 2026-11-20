@@ -1,3 +1,5 @@
+// Separate from `page.test.tsx`, which stubs `ArtistList` and `seedFirstScreen`:
+// this suite needs the real list and the real seed.
 import { vi } from 'vitest'
 import { describeCachedListFallback } from '@/test/cachedListFallbackSuite'
 import { cachedListFallbackOf } from '@/test/firstScreenRender'

@@ -19,7 +19,9 @@ interface CachedListFallbackProps {
   defeatingParams?: readonly string[]
   /**
    * The route's loader: rendered on the server, through hydration, and on a
-   * client navigation the cache cannot answer, so it must create no query.
+   * client navigation to the seeded first screen whose seeded keys are not all
+   * cached. It must create no query. Off the first screen `children` render
+   * instead and fetch for themselves.
    */
   loader: ReactNode
   /** The list itself, unseeded. */
@@ -89,16 +91,18 @@ function WarmCacheGate({
   const queryClient = useQueryClient()
   const searchParams = useSearchParams()
 
-  const seeded = isFirstScreenRequest(
+  const onSeededFirstScreen = isFirstScreenRequest(
     routeSearchParamsOf(searchParams, defeatingParams),
     defeatingParams,
   )
-  // `getQueryData` reads an entry without creating one.
-  const seedCannotBePreempted =
-    !seeded ||
+  // Off the first screen the server seeds nothing, so the list may fetch for
+  // itself. On it, the list may run only over seeded keys that already hold
+  // data; `getQueryData` reads an entry without creating one.
+  const listCannotPreemptSeed =
+    !onSeededFirstScreen ||
     seededKeys.every(key => queryClient.getQueryData(key) !== undefined)
 
-  if (!seedCannotBePreempted) return loader
+  if (!listCannotPreemptSeed) return loader
   // `contents`: the wrapper adds no box, so the list lays out as it does in
   // the boundary.
   return (

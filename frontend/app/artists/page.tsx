@@ -116,6 +116,15 @@ export async function HydratedArtistList({
 }
 
 /**
+ * The two keys a bare `/artists` seeds, in seed order: the first page of
+ * artists and the city facet counts. The page's fallback gates on them.
+ */
+const FIRST_SCREEN_SEEDED_KEYS = [
+  ARTIST_LIST_FIRST_SCREEN_KEY,
+  artistQueryKeys.cities,
+] as const
+
+/**
  * The seeds for this request, or an empty state when there are none to give.
  *
  * Split out so the caller's returned element type never varies — see the note
@@ -152,15 +161,6 @@ async function dehydratedFirstScreen(
     { queryKey: citiesKey, data: cities },
   ])
 }
-
-/**
- * The two keys a bare `/artists` seeds, in seed order: the first page of
- * artists and the city facet counts. The page's fallback gates on them.
- */
-const FIRST_SCREEN_SEEDED_KEYS = [
-  ARTIST_LIST_FIRST_SCREEN_KEY,
-  artistQueryKeys.cities,
-] as const
 
 /** What `dehydrate()` produces for an empty client: hydrates nothing. */
 const EMPTY_DEHYDRATED_STATE: DehydratedState = { mutations: [], queries: [] }
