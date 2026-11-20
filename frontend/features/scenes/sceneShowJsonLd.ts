@@ -52,6 +52,11 @@ export function isDescribableEvent(show: SceneWeekShow): boolean {
  * structured data starts lying. A show with no bill gets no `performer` for the
  * same reason (Google marks it recommended, not required).
  *
+ * No `description` and no `doorTime`. The payload carries neither the bill's
+ * roles nor the show's authored description, so a sentence built from it
+ * could name an opener as the lead, or contradict the authored text the show
+ * page publishes for the same URL. It carries no announced door time either.
+ *
  * `sceneTimezone` is preferred over the state map as the fallback zone: the
  * backend bucketed this show into its day using the scene's modal venue zone,
  * and a venue whose own zone is missing must not be rendered against a
