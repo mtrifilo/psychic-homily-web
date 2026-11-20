@@ -246,7 +246,7 @@ func TestJWTService_ValidateToken_RejectsCrossTypeTokens(t *testing.T) {
 	jwtService := NewJWTService(nil, cfg, newNilDBUserService())
 
 	t.Run("RejectsMagicLinkToken", func(t *testing.T) {
-		token, err := jwtService.CreateMagicLinkToken(123, "magic@example.com")
+		token, err := jwtService.CreateMagicLinkToken(123, "magic@example.com", 0)
 		require.NoError(t, err)
 
 		user, err := jwtService.ValidateToken(token)
@@ -423,7 +423,7 @@ func TestJWTService_MagicLinkToken(t *testing.T) {
 	jwtService := NewJWTService(nil, cfg, newNilDBUserService())
 
 	t.Run("CreateAndValidate_Success", func(t *testing.T) {
-		token, err := jwtService.CreateMagicLinkToken(123, "magic@example.com")
+		token, err := jwtService.CreateMagicLinkToken(123, "magic@example.com", 0)
 		require.NoError(t, err)
 		assert.NotEmpty(t, token)
 
@@ -433,6 +433,36 @@ func TestJWTService_MagicLinkToken(t *testing.T) {
 		assert.Equal(t, "magic@example.com", claims.Email)
 		assert.Equal(t, "magic-link", claims.Subject)
 		assert.Equal(t, "psychic-homily-backend", claims.Issuer)
+		assert.Zero(t, claims.DestinationRef)
+	})
+
+	t.Run("CreateAndValidate_CarriesTheDestinationRef", func(t *testing.T) {
+		token, err := jwtService.CreateMagicLinkToken(123, "magic@example.com", 42)
+		require.NoError(t, err)
+
+		claims, err := jwtService.ValidateMagicLinkToken(token)
+		require.NoError(t, err)
+		assert.Equal(t, uint(42), claims.DestinationRef)
+	})
+
+	// A token with no dst claim, the shape of every link minted without a
+	// destination, validates with no ref.
+	t.Run("Validate_TokenWithoutADestinationClaim", func(t *testing.T) {
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+			"user_id": 123,
+			"email":   "magic@example.com",
+			"exp":     time.Now().Add(time.Minute).Unix(),
+			"iat":     time.Now().Unix(),
+			"iss":     "psychic-homily-backend",
+			"sub":     "magic-link",
+		})
+		tokenStr, err := token.SignedString([]byte(secretKey))
+		require.NoError(t, err)
+
+		claims, err := jwtService.ValidateMagicLinkToken(tokenStr)
+		require.NoError(t, err)
+		assert.Equal(t, uint(123), claims.UserID)
+		assert.Zero(t, claims.DestinationRef)
 	})
 
 	t.Run("Validate_ExpiredToken", func(t *testing.T) {

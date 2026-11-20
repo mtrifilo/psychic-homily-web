@@ -180,7 +180,7 @@ describe('Forgot password? on the Sign in tab', () => {
     await user.click(screen.getByRole('button', { name: 'Email me a sign-in link instead' }))
 
     expect(mockSendMagicLink).toHaveBeenCalledTimes(1)
-    expect(mockSendMagicLink.mock.calls[0][0]).toEqual({ email: 'owner@example.com' })
+    expect(mockSendMagicLink.mock.calls[0][0]).toEqual({ email: 'owner@example.com', returnTo: '/' })
     expect(mockRequestReset).not.toHaveBeenCalled()
   })
 })

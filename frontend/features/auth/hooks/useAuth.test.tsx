@@ -1359,6 +1359,75 @@ describe('useAuth hooks', () => {
       )
     })
 
+    // The destination goes out as return_to; the fallback, like no
+    // destination at all, sends { email } alone.
+    it.each([
+      ['a deep page', '/library?tab=shows', { email: 'test@example.com', return_to: '/library?tab=shows' }],
+      ['the fallback', '/', { email: 'test@example.com' }],
+      ['no destination', undefined, { email: 'test@example.com' }],
+    ])('sends the destination for %s', async (_name, returnTo, body) => {
+      mockApiRequest.mockResolvedValueOnce({ success: true, message: 'If eligible, sent' })
+
+      const { result } = renderHook(() => useSendMagicLink(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        await result.current.mutateAsync({ email: 'test@example.com', returnTo })
+      })
+
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/auth/magic-link/send',
+        expect.objectContaining({ method: 'POST', body: JSON.stringify(body) })
+      )
+    })
+
+    const statusError = (status: number) => Object.assign(new Error(`HTTP ${status}`), { status })
+
+    // A backend whose send has no return_to field refuses the body with 422;
+    // the link is then asked for without the destination.
+    it('asks again without the destination when the backend refuses it with 422', async () => {
+      mockApiRequest
+        .mockRejectedValueOnce(statusError(422))
+        .mockResolvedValueOnce({ success: true, message: 'If eligible, sent' })
+
+      const { result } = renderHook(() => useSendMagicLink(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        await result.current.mutateAsync({ email: 'test@example.com', returnTo: '/library' })
+      })
+
+      expect(mockApiRequest).toHaveBeenCalledTimes(2)
+      expect(mockApiRequest.mock.calls[0][1]).toEqual(
+        expect.objectContaining({ body: JSON.stringify({ email: 'test@example.com', return_to: '/library' }) })
+      )
+      expect(mockApiRequest.mock.calls[1][1]).toEqual(
+        expect.objectContaining({ body: JSON.stringify({ email: 'test@example.com' }) })
+      )
+      await waitFor(() => expect(result.current.data?.success).toBe(true))
+    })
+
+    it.each([
+      ['a 422 for a request without a destination', 422, undefined],
+      ['a 500 for a request with a destination', 500, '/library'],
+    ])('does not ask again for %s', async (_name, status, returnTo) => {
+      mockApiRequest.mockRejectedValueOnce(statusError(status))
+
+      const { result } = renderHook(() => useSendMagicLink(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        await expect(
+          result.current.mutateAsync({ email: 'test@example.com', returnTo })
+        ).rejects.toThrow(`HTTP ${status}`)
+      })
+
+      expect(mockApiRequest).toHaveBeenCalledTimes(1)
+    })
+
     it('does NOT throw on success=false (enumeration-safe path)', async () => {
       // The backend returns 200 with success=false on cases like
       // EMAIL_NOT_VERIFIED to avoid leaking which addresses exist. The

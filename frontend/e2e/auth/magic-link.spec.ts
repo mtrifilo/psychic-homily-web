@@ -62,6 +62,66 @@ test.describe('Magic Link Authentication', () => {
     ).not.toBeVisible()
   })
 
+  // The link is asked for from a page that needs sign-in and opened in a
+  // browser that never saw the request, so the only thing that can carry the
+  // destination is the link itself. The E2E backend has no email provider, so
+  // the send is answered here, and the outbox row the backend's send writes
+  // and the token its poller mints are made the same way: the row holds the
+  // destination the request carried and the token names the row.
+  test('returns a link asked for from a deep page to that page, opened in another browser', async ({
+    page,
+    browser,
+  }) => {
+    const userId = getUserId(TEST_USER_EMAIL)
+    let sendBody: { email?: string; return_to?: string } | null = null
+    await page.route('**/auth/magic-link/send', async route => {
+      sendBody = route.request().postDataJSON()
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          message: 'If an account exists with this email, a magic link has been sent.',
+        }),
+      })
+    })
+
+    await page.goto('/library')
+    await page.waitForURL(/\/auth\?returnTo=%2Flibrary/, { timeout: 15_000 })
+    await page.locator('#email').fill(TEST_USER_EMAIL)
+    await page.getByRole('button', { name: 'Email me a sign-in link instead' }).click()
+    await expect(page.getByText(/Check your email for a sign-in link/)).toBeVisible({
+      timeout: 10_000,
+    })
+    expect(sendBody).toEqual({ email: TEST_USER_EMAIL, return_to: '/library' })
+
+    const destinationRef = parseInt(
+      execSync(
+        `psql "${E2E_DB_URL}" -tAc "INSERT INTO auth_email_outbox (kind, user_id, status, return_to) VALUES ('magic_link', ${userId}, 'sent', '/library') RETURNING id"`,
+        { encoding: 'utf-8' }
+      ).trim(),
+      10
+    )
+    const token = await createMagicLinkToken(userId, TEST_USER_EMAIL, destinationRef)
+    const otherBrowser = await browser.newContext()
+    try {
+      const opened = await otherBrowser.newPage()
+      // A destination added to the emailed URL is ignored: the link's own wins.
+      await opened.goto(`/auth/magic-link?token=${token}&returnTo=%2Fvenues`)
+      await expect(opened.getByText('Welcome back!')).toBeVisible({ timeout: 15_000 })
+      await opened.waitForURL(url => url.pathname === '/library', { timeout: 10_000 })
+      await expect(opened.getByRole('button', { name: 'User menu' })).toBeVisible({
+        timeout: 10_000,
+      })
+    } finally {
+      await otherBrowser.close()
+    }
+
+    // The tab that asked keeps its sent state; it shares no session with the
+    // browser that opened the link.
+    await expect(page.getByText(/Check your email for a sign-in link/)).toBeVisible()
+  })
+
   test('shows error for expired/invalid magic link', async ({ page }) => {
     await page.goto('/auth/magic-link?token=expired-invalid-token')
 

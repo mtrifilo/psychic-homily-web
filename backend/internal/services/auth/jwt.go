@@ -408,11 +408,13 @@ func (s *JWTService) ValidateVerificationToken(tokenString string) (*contracts.V
 }
 
 // CreateMagicLinkToken generates a JWT token for magic link login, expiring
-// after contracts.MagicLinkTokenTTL.
-func (s *JWTService) CreateMagicLinkToken(userID uint, email string) (string, error) {
+// after contracts.MagicLinkTokenTTL, naming destinationRef (0 for none) as
+// the outbox row that holds its destination.
+func (s *JWTService) CreateMagicLinkToken(userID uint, email string, destinationRef uint) (string, error) {
 	claims := contracts.MagicLinkTokenClaims{
-		UserID: userID,
-		Email:  email,
+		UserID:         userID,
+		Email:          email,
+		DestinationRef: destinationRef,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(contracts.MagicLinkTokenTTL)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
