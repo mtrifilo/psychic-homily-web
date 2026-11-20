@@ -487,6 +487,16 @@ func FindShowDedupClusters(db *gorm.DB) ([]ShowDedupCluster, error) {
 // loser's row is dropped and the winner's pre-existing row survives. This
 // matches the tag_merge.go pattern.
 //
+// Precondition: every room the loser lists is one the winner lists too, or the
+// loser lists none. The show_venues re-point below moves any other room onto
+// the winner as an extra room, and the bill move is safe only because the
+// loser's rooms collapse into the winner's first (see showFKColumns). A
+// duplicate cluster meets this by sharing its room; the show reattribution
+// (show_reattribute.go) meets it by clearing the loser's rooms before calling.
+// The loser's venue_show_alert_batch rows keep their venue_id and move onto
+// the winner; every query that lists a batch's shows joins show_venues on that
+// venue, so a row whose venue the winner does not list names no show.
+//
 // The steps run in the order of the inventory at the top of this file: foreign
 // keys to shows.id first, then the two history tables that require a provenance
 // decision, then the shared polymorphic inventory, then the delete. Only the
@@ -884,6 +894,12 @@ func moveShowFKRows(tx *gorm.DB, table, showCol, dedupeOn string, winnerID, lose
 	return moved, skipped, nil
 }
 
+// showBillHeadlinerRank orders a join of show_artists and artists so the
+// show's headliner comes first: curated rank, then position, then a stable id.
+// See headline_slot.go for why each part is required.
+const showBillHeadlinerRank = "CASE WHEN show_artists.set_type='headliner' THEN 0 ELSE 1 END, " +
+	"show_artists.position ASC, artists.id ASC"
+
 // RecanonicaliseShowSlug recomputes the show's slug using the canonical
 // venue-timezone-aware GenerateShowSlug helper. Idempotent: if the
 // computed slug already matches the stored slug, no DB write happens.
@@ -906,7 +922,7 @@ func RecanonicaliseShowSlug(tx *gorm.DB, showID uint) (bool, error) {
 	if err := tx.Table("artists").
 		Joins("JOIN show_artists ON show_artists.artist_id = artists.id").
 		Where("show_artists.show_id = ?", showID).
-		Order("CASE WHEN show_artists.set_type='headliner' THEN 0 ELSE 1 END, show_artists.position ASC, artists.id ASC").
+		Order(showBillHeadlinerRank).
 		Find(&artists).Error; err != nil {
 		return false, fmt.Errorf("load show artists: %w", err)
 	}

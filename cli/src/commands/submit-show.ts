@@ -11,6 +11,7 @@ import { resolveVenueTimezone, localTimeToUTC } from "../lib/timezone";
 import { isValidSetType, statedSlot } from "../lib/setType";
 import { readEventDate, resolveShowTimes } from "../lib/showTimes";
 import type { ShowTimes, ShowTimesRefusal } from "../lib/showTimes";
+import { reportSameNightOtherRooms } from "../lib/sameNightOtherRoom";
 
 /**
  * Normalize a date string to an ISO 8601 UTC timestamp.
@@ -663,6 +664,7 @@ export async function submitShows(
 
   // 3. Display preview
   displayPreview(plans, resolvedTags);
+  if (!confirm) await reportSameNightOtherRooms(client, plans, planVenueZone);
 
   // 4. Fill empty venue addresses the batch states. Duplicate shows count:
   // a calendar refresh whose shows all exist still carries the address.
