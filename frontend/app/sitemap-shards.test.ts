@@ -7,6 +7,7 @@ import {
   FAMILY_URL_PREFIXES,
   PAGES_SHARD_ID,
   RELEASE_SHARD_IDS,
+  RETIRED_SHARD_IDS,
   shardFamily,
   shardIdsFor,
   SHOW_SHARD_IDS,
@@ -127,6 +128,16 @@ describe.each(SUB_SHARDED)('the %s sub-shards', (family, ids) => {
       expect(FAMILY_URL_PREFIXES[shardFamily(id) as Family]).toBe(
         FAMILY_URL_PREFIXES[family]
       )
+    }
+  })
+})
+
+// The monitor drops a retired id before it looks at the shard table, so an id
+// in both would silently stop a live document being checked.
+describe('RETIRED_SHARD_IDS', () => {
+  it('names no shard the sitemap still emits', () => {
+    for (const id of RETIRED_SHARD_IDS) {
+      expect(ALL_SHARD_IDS).not.toContain(id)
     }
   })
 })

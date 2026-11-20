@@ -165,8 +165,9 @@ describe('classifyLoc', () => {
    * The guard that matters, and the reason the URL shape is shared rather than
    * restated here: the sample URLs are BUILT by `familyLoc`, the same function
    * the generator writes `<loc>` values with, so renaming a prefix moves the
-   * generator and this classifier together. A hand-written sample map would keep passing while
-   * `classifyLoc` silently bucketed the changed family as `other`.
+   * generator and this classifier together. A hand-written sample map would
+   * keep passing while `classifyLoc` silently bucketed the changed family as
+   * `other`.
    */
   it('classifies every family from the shared URL builder', () => {
     // The composite-slug families, whose slug is itself a path tail.

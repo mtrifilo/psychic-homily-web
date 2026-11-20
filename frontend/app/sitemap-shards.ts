@@ -225,6 +225,17 @@ export function shardFamily(id: string): Family | undefined {
 export const ENTITY_SHARD_IDS: readonly string[] = [...FAMILY_BY_SHARD_ID.keys()]
 
 /**
+ * Shard ids that no family serves any more.
+ *
+ * The freshness monitor runs from the default branch against a deployment that
+ * can predate a shard's removal, so a served index may still list one of
+ * these; the monitor skips such a document rather than reporting it as an
+ * unknown shard. An id stays here while any deployment the monitor reads can
+ * still list it, and never names a shard in ALL_SHARD_IDS.
+ */
+export const RETIRED_SHARD_IDS: ReadonlySet<string> = new Set(['venue_cities'])
+
+/**
  * Every shard `generateSitemaps()` emits, in route-table order.
  *
  * Named here rather than composed inline at each site: four modules need the
