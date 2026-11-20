@@ -94,15 +94,56 @@ func (suite *VenueServiceIntegrationTestSuite) TestFindOrCreateVenue_NameEndingI
 	suite.assertVenueCount(1)
 }
 
-// A room whose real name ends in its city, with no twin, is created as named.
+// A room whose real name ends in its city, with no twin, is created as named,
+// even though the city already has other rooms the stripped name could be
+// compared against.
 func (suite *VenueServiceIntegrationTestSuite) TestFindOrCreateVenue_NameEndingInItsCityWithNoTwinIsCreated() {
+	metro, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{
+		Name:  "Metro",
+		City:  "Chicago",
+		State: "IL",
+	}, true)
+	suite.Require().NoError(err)
+
 	venue, created, err := suite.venueService.FindOrCreateVenue("House of Blues Chicago", "Chicago", "IL", nil, nil, nil, true)
 
 	suite.Require().NoError(err)
 	suite.True(created)
+	suite.NotEqual(metro.ID, venue.ID, "another room of the city is not a twin")
 	suite.Equal("House of Blues Chicago", venue.Name, "the name is stored as given, city included")
 	suite.Require().NotNil(venue.Slug)
 	suite.Equal("house-of-blues-chicago-chicago-il", *venue.Slug)
+	suite.assertVenueCount(2)
+}
+
+// Among several rooms of the place, the twin is the one whose name the stripped
+// name matches, not the first room scanned.
+func (suite *VenueServiceIntegrationTestSuite) TestFindOrCreateVenue_TwinIsTheRoomWithTheMatchingName() {
+	_, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{Name: "Club Congress", City: "Tucson", State: "AZ"}, true)
+	suite.Require().NoError(err)
+	twin, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{Name: "Rialto Theatre", City: "Tucson", State: "AZ"}, true)
+	suite.Require().NoError(err)
+
+	venue, created, err := suite.venueService.FindOrCreateVenue("Rialto Theatre Tucson", "Tucson", "AZ", nil, nil, nil, true)
+
+	suite.Require().NoError(err)
+	suite.False(created)
+	suite.Equal(twin.ID, venue.ID)
+}
+
+// A normalized match outranks a city-suffixed twin: when the suffixed room
+// already exists, a respelling of it resolves to that room, not to the twin.
+func (suite *VenueServiceIntegrationTestSuite) TestFindOrCreateVenue_NormalizedMatchOutranksTheTwin() {
+	_, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{Name: "Rialto Theatre", City: "Tucson", State: "AZ"}, true)
+	suite.Require().NoError(err)
+	suffixed, err := suite.venueService.CreateVenue(&contracts.CreateVenueRequest{Name: "Rialto Theatre Tucson", City: "Tucson", State: "AZ"}, true)
+	suite.Require().NoError(err)
+
+	venue, created, err := suite.venueService.FindOrCreateVenue("The Rialto Theater Tucson", "Tucson", "AZ", nil, nil, nil, true)
+
+	suite.Require().NoError(err)
+	suite.False(created)
+	suite.Equal(suffixed.ID, venue.ID, "the normalized match wins over the city-stripped one")
 }
 
 // The twin must be in the same city: "House of Blues" in Las Vegas does not

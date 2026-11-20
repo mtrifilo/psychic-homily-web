@@ -103,10 +103,17 @@ func NormalizeVenueName(name string) string {
 //
 // Both sides go through NormalizeVenueName, so "Myth Live St Paul" in
 // "St. Paul" strips to "myth live", a key comparable with NormalizeVenueName of
-// any other room's name.
+// any other room's name. A city's leading "the" is kept, because inside a name
+// it is not leading and NormalizeVenueName keeps it there: "Dosey Doe The
+// Woodlands" in "The Woodlands" strips to "dosey doe". Spellings the
+// normalization does not unify do not match ("Saint Paul" is not "St. Paul"),
+// which leaves a twin for a person to find rather than joining the wrong room.
 func VenueNameWithoutTrailingCity(name, city string) (string, bool) {
 	nameWords := strings.Fields(NormalizeVenueName(name))
 	cityWords := strings.Fields(NormalizeVenueName(city))
+	if raw := strings.Fields(strings.ToLower(city)); len(raw) > 1 && raw[0] == "the" {
+		cityWords = append([]string{"the"}, cityWords...)
+	}
 	if len(cityWords) == 0 || len(nameWords) <= len(cityWords) {
 		return "", false
 	}

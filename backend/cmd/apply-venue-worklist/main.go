@@ -14,21 +14,25 @@
 //
 // Refused, reported, and the run continues: an unknown room or target slug, a
 // merge into the room itself, a merge across cities or states, a rename onto a
-// name another room of the same city and state already has, a room named on
-// two rows, and a merge into a room another row merges away. Any refusal makes
+// name another room already has (see renameInTx and refuseCollidingRenames), a
+// rename target shaped like a slug, a room named on two rows, a merge into a
+// room another row merges away, and two merges into one room. Any refusal makes
 // the exit status 1.
 //
 // Usage:
 //
-//	go run ./cmd/apply-venue-worklist --file reviewed.csv              # dry run (default)
-//	go run ./cmd/apply-venue-worklist --file reviewed.csv --confirm    # apply
-//	go run ./cmd/apply-venue-worklist --file reviewed.csv --env .env.x # pick a target
+//	go run ./cmd/apply-venue-worklist --file reviewed.csv --actor 2 --env .env.x            # dry run (default)
+//	go run ./cmd/apply-venue-worklist --file reviewed.csv --actor 2 --env .env.x --confirm  # apply
+//
+// --actor names the admin user every write is recorded against: the merge's
+// audit row and a revision for each rename. --confirm requires --env.
 //
 // The dry run runs each merge and each rename in a transaction it rolls back,
 // so it prints what the write would do. --confirm applies each accepted row in
 // its own transaction. A second run over the same file changes nothing: a
 // renamed room already has its name, and a merged room is recognised from the
-// merge's audit record, which names the slug it removed.
+// merge's audit record, which names the slug it removed. A confirmed run checks
+// that record for every merge it applied and exits 1 if one is missing.
 package main
 
 import (
@@ -51,16 +55,23 @@ import (
 func main() {
 	var (
 		file    string
+		actorID uint
 		confirm bool
 		envFile string
 	)
 	flag.StringVar(&file, "file", "", "Path to the reviewed worklist CSV (required)")
+	flag.UintVar(&actorID, "actor", 0, "ID of the admin user the merges and renames are recorded against (required)")
 	flag.BoolVar(&confirm, "confirm", false, "Apply the accepted rows (default: dry run only)")
-	flag.StringVar(&envFile, "env", "", "Path to .env file (defaults to .env.development / .env)")
+	flag.StringVar(&envFile, "env", "", "Path to .env file (defaults to .env.development / .env; required with --confirm)")
 	flag.Parse()
 
 	if file == "" {
 		log.Fatal("--file is required")
+	}
+	// A confirmed run names its database explicitly, so it cannot write to
+	// whichever env file happens to sit in the working directory.
+	if confirm && envFile == "" {
+		log.Fatal("--confirm requires --env, naming the database to write to")
 	}
 	f, err := os.Open(file)
 	if err != nil {
@@ -90,17 +101,23 @@ func main() {
 	// at the wrong database is visible. Credentials are not printed.
 	fmt.Printf("Target: ENVIRONMENT=%q db=%s\n\n", os.Getenv(config.EnvEnvironment), redactDBHost(cfg.Database.URL))
 
-	summary := runWorklist(db.GetDB(), rows, confirm, os.Stdout)
+	if err := requireAdminActor(db.GetDB(), actorID); err != nil {
+		log.Fatal(err)
+	}
+
+	report := runWorklist(db.GetDB(), rows, actorID, confirm, os.Stdout)
 
 	// Merge audit rows are written after each merge commits, on a background
-	// writer; they are what a second run reads, so they are drained before exit.
+	// writer; they are what a second run reads, so they are drained before exit
+	// and then checked one by one.
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	if err := shared.ShutdownAuditWrites(ctx); err != nil {
 		log.Printf("WARNING: audit writes did not finish: %v", err)
 	}
 	cancel()
+	unrecorded := reportUnrecordedMerges(db.GetDB(), report, os.Stdout)
 
-	if summary.Refused() {
+	if report.Summary.Refused() || unrecorded > 0 {
 		os.Exit(1)
 	}
 }

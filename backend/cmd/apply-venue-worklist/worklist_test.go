@@ -65,6 +65,7 @@ type WorklistSuite struct {
 	suite.Suite
 	testDB *testutil.TestDatabase
 	db     *gorm.DB
+	actor  uint
 }
 
 func TestWorklistSuite(t *testing.T) {
@@ -84,6 +85,7 @@ func (s *WorklistSuite) TearDownSuite() { s.testDB.Cleanup() }
 func (s *WorklistSuite) SetupTest() {
 	for _, stmt := range []string{
 		"DELETE FROM audit_logs",
+		"DELETE FROM revisions",
 		"DELETE FROM user_bookmarks",
 		"DELETE FROM source_configs",
 		"DELETE FROM show_artists",
@@ -94,6 +96,8 @@ func (s *WorklistSuite) SetupTest() {
 	} {
 		s.Require().NoError(s.db.Exec(stmt).Error, stmt)
 	}
+	s.actor = s.user()
+	s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", s.actor).Update("is_admin", true).Error)
 }
 
 func (s *WorklistSuite) venue(name, city, state string) *catalogm.Venue {
@@ -120,11 +124,16 @@ func (s *WorklistSuite) user() uint {
 }
 
 func (s *WorklistSuite) run(csv string, confirm bool) (string, runSummary) {
+	out, report := s.runReport(csv, confirm)
+	return out, report.Summary
+}
+
+func (s *WorklistSuite) runReport(csv string, confirm bool) (string, runReport) {
 	rows, err := parseWorklist(strings.NewReader(csv))
 	s.Require().NoError(err)
 	var out bytes.Buffer
-	summary := runWorklist(s.db, rows, confirm, &out)
-	return out.String(), summary
+	report := runWorklist(s.db, rows, s.actor, confirm, &out)
+	return out.String(), report
 }
 
 func (s *WorklistSuite) venueByID(id uint) *catalogm.Venue {
@@ -243,9 +252,10 @@ func (s *WorklistSuite) TestRefusedRowsAreReportedAndTheRunContinues() {
 	sameB := s.venue("Same Name Reno NV", "Reno", "NV")
 	scout := s.venue("Scout Bar Houston", "Houston", "TX")
 	keepRoom := s.venue("Keep Room Austin", "Austin", "TX")
+	lonely := s.venue("Lonely Room", "Tucson", "AZ")
 
 	rows := [][]string{
-		{"no-such-room", "merge", *tucson.Slug},         // unknown room
+		{"no-such-room", "merge", *lonely.Slug},         // unknown room
 		{*tucsonTwin.Slug, "merge", "no-such-target"},   // unknown target
 		{*tucson.Slug, "merge", *tucson.Slug},           // the room itself
 		{*phoenix.Slug, "merge", *tucson.Slug},          // another city
@@ -293,7 +303,7 @@ func (s *WorklistSuite) TestRefusedRowsAreReportedAndTheRunContinues() {
 		"appears on 2 rows",
 		"is itself merged away on line 11",
 		"is the merge target on line 10",
-		"would give two rooms in Reno, NV the same name",
+		"would give two rooms in Reno the same name",
 		`keep takes no target, got "Keep Room"`,
 		`unknown action "demolish"`,
 		"rename needs a target",
@@ -366,4 +376,103 @@ func (s *WorklistSuite) TestMissingRoomWithoutAMergeRecordIsRefused() {
 
 	s.True(summary.Refused(), "merged into a different room than this row names")
 	s.Contains(out, "no room has slug "+twinSlug)
+}
+
+// Every write is recorded against the actor: the merge's audit row names it,
+// and each rename leaves a revision naming it, with the old and new name. The
+// dry run leaves neither.
+func (s *WorklistSuite) TestWritesAreRecordedAgainstTheActor() {
+	kept := s.venue("Rialto Theatre", "Tucson", "AZ")
+	twin := s.venue("Rialto Theatre Tucson", "Tucson", "AZ")
+	room := s.venue("Scout Bar Houston", "Houston", "TX")
+	csv := "room_slug,action,target\n" +
+		*twin.Slug + ",merge," + *kept.Slug + "\n" +
+		*room.Slug + ",rename,Scout Bar\n"
+
+	_, summary := s.run(csv, false)
+	s.Require().False(summary.Refused())
+	s.Equal(int64(0), s.count(`SELECT COUNT(*) FROM revisions`), "the dry run records nothing")
+
+	_, summary = s.run(csv, true)
+	s.Require().False(summary.Refused())
+	s.waitForMergeAudit(kept.ID)
+
+	s.Equal(int64(1), s.count(`SELECT COUNT(*) FROM audit_logs WHERE action = ? AND entity_id = ? AND actor_id = ?`,
+		catalog.AuditActionMergeVenues, kept.ID, s.actor))
+	s.Equal(int64(1), s.count(`SELECT COUNT(*) FROM revisions
+		WHERE entity_type = 'venue' AND entity_id = ? AND user_id = ?
+		  AND field_changes @> '[{"field": "name", "old_value": "Scout Bar Houston", "new_value": "Scout Bar"}]'`,
+		room.ID, s.actor))
+}
+
+// Two renames to one name in two same-named cities of different states would
+// pass the tool's own same-place rule, but the unique index on
+// (lower(name), lower(city)) refuses the second. Both are refused up front, so
+// the dry run and the confirmed run agree.
+func (s *WorklistSuite) TestRenamesCollidingOnTheCityNameAcrossStatesAreRefused() {
+	maine := s.venue("The Den Portland", "Portland", "ME")
+	oregon := s.venue("Den Portland", "Portland", "OR")
+	csv := "room_slug,action,target\n" + *maine.Slug + ",rename,The Den\n" + *oregon.Slug + ",rename,the den\n"
+
+	out, summary := s.run(csv, true)
+
+	s.Equal(2, summary[statusRefused], out)
+	s.Contains(out, "renames on lines 2, 3 would give two rooms in Portland the same name")
+	s.Equal("The Den Portland", s.venueByID(maine.ID).Name)
+	s.Equal("Den Portland", s.venueByID(oregon.ID).Name)
+}
+
+// Two merges into one room are refused: the second merge's preview cannot see
+// the shows the first one moves.
+func (s *WorklistSuite) TestTwoMergesIntoOneRoomAreRefused() {
+	kept := s.venue("Rialto Theatre", "Tucson", "AZ")
+	a := s.venue("Rialto Theatre Tucson", "Tucson", "AZ")
+	b := s.venue("Rialto Theater Tucson AZ", "Tucson", "AZ")
+	csv := "room_slug,action,target\n" + *a.Slug + ",merge," + *kept.Slug + "\n" + *b.Slug + ",merge," + *kept.Slug + "\n"
+
+	out, summary := s.run(csv, true)
+
+	s.Equal(2, summary[statusRefused], out)
+	s.Contains(out, "receives merges on lines 2, 3")
+	s.NotNil(s.venueByID(a.ID))
+	s.NotNil(s.venueByID(b.ID))
+}
+
+func (s *WorklistSuite) TestRenameTargetShapedLikeASlugIsRefused() {
+	room := s.venue("Rialto Theatre Tucson", "Tucson", "AZ")
+	csv := "room_slug,action,target\n" + *room.Slug + ",rename,rialto-theatre-tucson-az\n"
+
+	out, summary := s.run(csv, true)
+
+	s.True(summary.Refused())
+	s.Contains(out, "looks like a slug")
+	s.Equal("Rialto Theatre Tucson", s.venueByID(room.ID).Name)
+}
+
+func (s *WorklistSuite) TestTheActorMustBeAnActiveAdmin() {
+	s.NoError(requireAdminActor(s.db, s.actor))
+	s.ErrorContains(requireAdminActor(s.db, 0), "--actor is required")
+	s.ErrorContains(requireAdminActor(s.db, s.actor+1000), "no such user")
+	fan := s.user()
+	s.ErrorContains(requireAdminActor(s.db, fan), "not an active admin")
+	s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", s.actor).Update("is_active", false).Error)
+	s.ErrorContains(requireAdminActor(s.db, s.actor), "not an active admin")
+}
+
+// A confirmed merge whose audit row is missing is reported, because without it
+// a later run cannot recognise the merge.
+func (s *WorklistSuite) TestMergeWithoutAnAuditRowIsReported() {
+	kept := s.venue("Rialto Theatre", "Tucson", "AZ")
+	twin := s.venue("Rialto Theatre Tucson", "Tucson", "AZ")
+	_, report := s.runReport("room_slug,action,target\n"+*twin.Slug+",merge,"+*kept.Slug+"\n", true)
+	s.Require().Len(report.Merged, 1)
+	s.waitForMergeAudit(kept.ID)
+
+	var out bytes.Buffer
+	s.Equal(0, reportUnrecordedMerges(s.db, report, &out), out.String())
+
+	s.Require().NoError(s.db.Exec(`DELETE FROM audit_logs`).Error)
+	out.Reset()
+	s.Equal(1, reportUnrecordedMerges(s.db, report, &out))
+	s.Contains(out.String(), "WARNING: merge of "+*twin.Slug+" into "+*kept.Slug+" (line 2) is applied but has no audit row")
 }
