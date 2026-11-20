@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 
 	"gorm.io/gorm"
@@ -67,18 +66,7 @@ func (t *triage) plan(p *rowPlan) {
 		}
 	}
 
-	var detail []string
-	err = t.db.Transaction(func(tx *gorm.DB) error {
-		if err := setRowTimeouts(tx); err != nil {
-			return err
-		}
-		d, err := t.execute(tx, p)
-		detail = d
-		if err != nil {
-			return err
-		}
-		return errDryRunRollback
-	})
+	detail, err := t.runRow(p, true)
 	p.Detail = detail
 	if !errors.Is(err, errDryRunRollback) {
 		p.refuse("%v", err)
@@ -128,15 +116,7 @@ func (t *triage) planMissingSubject(p *rowPlan) {
 // apply writes one accepted row in its own transaction. A failure leaves the
 // row unapplied and is reported as a refusal.
 func (t *triage) apply(p *rowPlan) {
-	var detail []string
-	err := t.db.Transaction(func(tx *gorm.DB) error {
-		if err := setRowTimeouts(tx); err != nil {
-			return err
-		}
-		d, err := t.execute(tx, p)
-		detail = d
-		return err
-	})
+	detail, err := t.runRow(p, false)
 	if err == nil {
 		p.Detail = detail
 		p.Status = statusApplied
@@ -171,14 +151,31 @@ func (t *triage) rowTookEffect(p *rowPlan) (bool, error) {
 	return p.Row.Action == actionRename && a.Name == p.Row.Target, nil
 }
 
+// runRow runs a row's write in its own transaction and returns the lines that
+// describe it. With rollback set the transaction is always rolled back, and a
+// write that succeeded returns errDryRunRollback.
+func (t *triage) runRow(p *rowPlan, rollback bool) ([]string, error) {
+	var detail []string
+	err := t.db.Transaction(func(tx *gorm.DB) error {
+		if err := setRowTimeouts(tx); err != nil {
+			return err
+		}
+		d, err := t.execute(tx, p)
+		detail = d
+		if err == nil && rollback {
+			return errDryRunRollback
+		}
+		return err
+	})
+	return detail, err
+}
+
 // setRowTimeouts bounds how long a row's transaction waits on a lock the site
 // holds and how long one statement may run, so a busy row fails instead of
-// stalling the run or the site.
+// stalling the run or the site. Both settings last for the transaction only.
 func setRowTimeouts(tx *gorm.DB) error {
-	for _, stmt := range []string{"SET LOCAL lock_timeout = '5s'", "SET LOCAL statement_timeout = '60s'"} {
-		if err := tx.Exec(stmt).Error; err != nil {
-			return fmt.Errorf("%s: %w", stmt, err)
-		}
+	if err := tx.Exec("SELECT set_config('lock_timeout', '5s', true), set_config('statement_timeout', '60s', true)").Error; err != nil {
+		return fmt.Errorf("set the row's lock and statement timeouts: %w", err)
 	}
 	return nil
 }
@@ -214,6 +211,8 @@ func (t *triage) rename(tx *gorm.DB, p *rowPlan, subject *catalogm.Artist) ([]st
 	name := p.Row.Target
 	detail := []string{describeArtist(tx, "artist", subject)}
 
+	// UpdateArtist refuses the same name; checking first lets the refusal name
+	// the other artist's slug.
 	other, err := artistByName(tx, name, subject.ID)
 	if err != nil {
 		return detail, err
@@ -277,10 +276,11 @@ func (t *triage) merge(tx *gorm.DB, p *rowPlan, subject *catalogm.Artist) ([]str
 	p.TargetID = into.ID
 	detail = append(detail, describeArtist(tx, "into", into))
 
-	handMade, err := countHandMadeRelationships(tx, subject.ID)
+	handMadeCount, err := countAll(tx, subject.ID, []labeledCount{handMadeRelationships})
 	if err != nil {
 		return detail, err
 	}
+	handMade := handMadeCount[0]
 	lost := linksTheTargetLacks(subject, into)
 
 	result, err := catalog.NewArtistService(tx).MergeArtists(into.ID, subject.ID)
@@ -375,28 +375,20 @@ func (t *triage) remove(tx *gorm.DB, p *rowPlan, subject *catalogm.Artist) ([]st
 		for i, e := range kept {
 			newBill[i] = keptAct(e)
 		}
-		after, _, err := showSvc.UpdateShowWithRelations(sh.ID, req, nil, newBill, true)
-		if err != nil {
-			return detail, fmt.Errorf("update show %s: %w", slugText(sh.Slug), err)
-		}
-		if writeTitle {
-			changes := revisiondiff.Compare(before, after, revisiondiff.ShowFields)
-			if err := admin.NewRevisionService(tx).RecordRevision("show", sh.ID, t.actor, changes, titleRevisionSummary); err != nil {
-				return detail, fmt.Errorf("record title revision: %w", err)
-			}
-		}
-		p.BillShows = append(p.BillShows, showRef{ID: sh.ID, Slug: slugText(sh.Slug)})
-
-		newState, err := billOf(tx, sh.ID)
+		after, line, err := rewriteBill(tx, p, sh, bill, req, newBill)
 		if err != nil {
 			return detail, err
 		}
-		detail = append(detail, fmt.Sprintf("show %s (%s): bill %s -> %s", slugText(sh.Slug), sh.Status, describeBill(bill), describeBill(newState)))
+		detail = append(detail, line)
 		if writeTitle {
+			changes := revisiondiff.Compare(before, after.show, revisiondiff.ShowFields)
+			if err := admin.NewRevisionService(tx).RecordRevision("show", sh.ID, t.actor, changes, titleRevisionSummary); err != nil {
+				return detail, fmt.Errorf("record title revision: %w", err)
+			}
 			detail = append(detail, fmt.Sprintf("  title: (empty) -> %q", title))
 		}
 		if headlineSlot(bill)[subject.ID] {
-			detail = append(detail, "  WARNING: "+headlineSlotWarning(bill, newState))
+			detail = append(detail, "  WARNING: "+headlineSlotWarning(after.bill))
 		}
 	}
 
@@ -450,7 +442,6 @@ func (t *triage) split(tx *gorm.DB, p *rowPlan, subject *catalogm.Artist) ([]str
 		detail = append(detail, line)
 	}
 
-	showSvc := catalog.NewShowService(tx)
 	for _, sh := range shows {
 		bill, err := billOf(tx, sh.ID)
 		if err != nil {
@@ -477,15 +468,11 @@ func (t *triage) split(tx *gorm.DB, p *rowPlan, subject *catalogm.Artist) ([]str
 				newBill = append(newBill, act)
 			}
 		}
-		if _, _, err := showSvc.UpdateShowWithRelations(sh.ID, &contracts.UpdateShowRequest{}, nil, newBill, true); err != nil {
-			return detail, fmt.Errorf("update show %s: %w", slugText(sh.Slug), err)
-		}
-		p.BillShows = append(p.BillShows, showRef{ID: sh.ID, Slug: slugText(sh.Slug)})
-		newState, err := billOf(tx, sh.ID)
+		_, line, err := rewriteBill(tx, p, sh, bill, &contracts.UpdateShowRequest{}, newBill)
 		if err != nil {
 			return detail, err
 		}
-		detail = append(detail, fmt.Sprintf("show %s (%s): bill %s -> %s", slugText(sh.Slug), sh.Status, describeBill(bill), describeBill(newState)))
+		detail = append(detail, line)
 	}
 
 	deleted, err := deleteArtist(tx, t.actor, subject)
@@ -518,8 +505,36 @@ func deleteArtist(tx *gorm.DB, actor uint, subject *catalogm.Artist) ([]string, 
 	if err := catalog.NewArtistService(tx).DeleteArtist(subject.ID, contracts.EntityDeleteActor{UserID: actor, IsAdmin: true}); err != nil {
 		return nil, fmt.Errorf("delete artist: %w", err)
 	}
-	lines := []string{fmt.Sprintf("delete: %s; %d derived graph edge(s) deleted", collateral, len(edges))}
-	return append(lines, fmt.Sprintf("after the delete /artists/%s answers 404", slugOf(subject))), nil
+	return []string{
+		fmt.Sprintf("delete: %s; %d derived graph edge(s) deleted", collateral, len(edges)),
+		fmt.Sprintf("after the delete /artists/%s answers 404", slugOf(subject)),
+	}, nil
+}
+
+// rewrittenShow is a show as a bill rewrite left it.
+type rewrittenShow struct {
+	show *contracts.ShowResponse
+	bill []billEntry
+}
+
+// rewriteBill writes newBill (and req's scalar fields) to the show through
+// ShowService.UpdateShowWithRelations, records the show in the row's
+// footprint, and returns the show as written with a line comparing its bill
+// before and after.
+func rewriteBill(tx *gorm.DB, p *rowPlan, sh billedShow, before []billEntry,
+	req *contracts.UpdateShowRequest, newBill []contracts.CreateShowArtist) (rewrittenShow, string, error) {
+	slug := slugText(sh.Slug)
+	show, _, err := catalog.NewShowService(tx).UpdateShowWithRelations(sh.ID, req, nil, newBill, true)
+	if err != nil {
+		return rewrittenShow{}, "", fmt.Errorf("update show %s: %w", slug, err)
+	}
+	p.BillShows = append(p.BillShows, showRef{ID: sh.ID, Slug: slug})
+	after, err := billOf(tx, sh.ID)
+	if err != nil {
+		return rewrittenShow{}, "", err
+	}
+	line := fmt.Sprintf("show %s (%s): bill %s -> %s", slug, sh.Status, describeBill(before), describeBill(after))
+	return rewrittenShow{show: show, bill: after}, line, nil
 }
 
 // keptAct is the request for an act that stays on a rewritten bill, carrying
@@ -567,7 +582,7 @@ func headlineSlot(bill []billEntry) map[uint]bool {
 
 // headlineSlotWarning says who holds the headline slot once the artist that
 // held it is off the bill.
-func headlineSlotWarning(before, after []billEntry) string {
+func headlineSlotWarning(after []billEntry) string {
 	var names []string
 	slot := headlineSlot(after)
 	for _, e := range after {
@@ -593,10 +608,11 @@ func lockArtist(tx *gorm.DB, id uint) (*catalogm.Artist, error) {
 	return &a, nil
 }
 
-// artistBySlug returns the artist with this slug, or nil when none has it.
-func artistBySlug(db *gorm.DB, slug string) (*catalogm.Artist, error) {
+// firstArtistOrNil returns the first artist the query finds, or nil when it
+// finds none.
+func firstArtistOrNil(q *gorm.DB) (*catalogm.Artist, error) {
 	var a catalogm.Artist
-	err := db.Where("slug = ?", slug).First(&a).Error
+	err := q.First(&a).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -606,34 +622,31 @@ func artistBySlug(db *gorm.DB, slug string) (*catalogm.Artist, error) {
 	return &a, nil
 }
 
+// artistBySlug returns the artist with this slug, or nil when none has it.
+func artistBySlug(db *gorm.DB, slug string) (*catalogm.Artist, error) {
+	return firstArtistOrNil(db.Where("slug = ?", slug))
+}
+
 // artistByName returns the artist other than exceptID whose name matches name
 // without regard to case (the rule the unique index artists_lower_name_uniq and
 // FindOrCreateArtistTx apply), or nil.
 func artistByName(db *gorm.DB, name string, exceptID uint) (*catalogm.Artist, error) {
-	var a catalogm.Artist
-	err := db.Where("LOWER(name) = LOWER(?) AND id <> ?", name, exceptID).First(&a).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, nil
-	}
+	a, err := firstArtistOrNil(db.Where("LOWER(name) = LOWER(?) AND id <> ?", name, exceptID))
 	if err != nil {
 		return nil, fmt.Errorf("look up artist named %q: %w", name, err)
 	}
-	return &a, nil
+	return a, nil
 }
 
 // aliasOwnerOf returns the artist other than exceptID that carries name as an
 // alias, or nil.
 func aliasOwnerOf(db *gorm.DB, name string, exceptID uint) (*catalogm.Artist, error) {
-	var a catalogm.Artist
-	err := db.Where("id <> ? AND id IN (SELECT artist_id FROM artist_aliases WHERE LOWER(alias) = LOWER(?))", exceptID, name).
-		Order("id").First(&a).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, nil
-	}
+	a, err := firstArtistOrNil(db.Order("id").
+		Where("id <> ? AND id IN (SELECT artist_id FROM artist_aliases WHERE LOWER(alias) = LOWER(?))", exceptID, name))
 	if err != nil {
 		return nil, fmt.Errorf("look up alias %q: %w", name, err)
 	}
-	return &a, nil
+	return a, nil
 }
 
 // mergeRecorded reports whether an audit row records that the artist with this
@@ -647,30 +660,38 @@ func mergeRecorded(db *gorm.DB, slug string, intoID uint) (bool, error) {
 	return n > 0, err
 }
 
-// artistLinks are the artist's link columns, named the way the worklist names
-// them; any non-blank one marks the artist as a real act.
-func artistLinks(a *catalogm.Artist) map[string]*string {
-	return map[string]*string{
-		"instagram":          a.Social.Instagram,
-		"facebook":           a.Social.Facebook,
-		"twitter":            a.Social.Twitter,
-		"youtube":            a.Social.YouTube,
-		"spotify":            a.Social.Spotify,
-		"soundcloud":         a.Social.SoundCloud,
-		"bandcamp":           a.Social.Bandcamp,
-		"website":            a.Social.Website,
-		"bandcamp_embed_url": a.BandcampEmbedURL,
+// artistLink is one of the artist's link columns, named the way the worklist
+// names it.
+type artistLink struct {
+	name  string
+	value *string
+}
+
+// artistLinks are the artist's link columns in a fixed order; any non-blank
+// one marks the artist as a real act.
+func artistLinks(a *catalogm.Artist) []artistLink {
+	return []artistLink{
+		{"bandcamp", a.Social.Bandcamp},
+		{"bandcamp_embed_url", a.BandcampEmbedURL},
+		{"facebook", a.Social.Facebook},
+		{"instagram", a.Social.Instagram},
+		{"soundcloud", a.Social.SoundCloud},
+		{"spotify", a.Social.Spotify},
+		{"twitter", a.Social.Twitter},
+		{"website", a.Social.Website},
+		{"youtube", a.Social.YouTube},
 	}
 }
 
+func (l artistLink) set() bool { return l.value != nil && strings.TrimSpace(*l.value) != "" }
+
 func setLinks(a *catalogm.Artist) []string {
 	var names []string
-	for name, v := range artistLinks(a) {
-		if v != nil && strings.TrimSpace(*v) != "" {
-			names = append(names, name)
+	for _, l := range artistLinks(a) {
+		if l.set() {
+			names = append(names, l.name)
 		}
 	}
-	sort.Strings(names)
 	return names
 }
 
@@ -679,9 +700,9 @@ func setLinks(a *catalogm.Artist) []string {
 func linksTheTargetLacks(from, into *catalogm.Artist) []string {
 	intoLinks := artistLinks(into)
 	var lost []string
-	for _, name := range setLinks(from) {
-		if v := intoLinks[name]; v == nil || strings.TrimSpace(*v) == "" {
-			lost = append(lost, name)
+	for i, l := range artistLinks(from) {
+		if l.set() && !intoLinks[i].set() {
+			lost = append(lost, l.name)
 		}
 	}
 	return lost
@@ -696,24 +717,13 @@ func refuseRealAct(tx *gorm.DB, a *catalogm.Artist) error {
 	if links := setLinks(a); len(links) > 0 {
 		found = append(found, "links ("+strings.Join(links, ", ")+")")
 	}
-	counts := []struct {
-		what  string
-		query string
-	}{
-		{"release credit(s)", "SELECT COUNT(*) FROM artist_releases WHERE artist_id = @id"},
-		{"label(s)", "SELECT COUNT(*) FROM artist_labels WHERE artist_id = @id"},
-		{"festival lineup(s)", "SELECT COUNT(*) FROM festival_artists WHERE artist_id = @id"},
-		{"matched radio play(s)", "SELECT COUNT(*) FROM radio_plays WHERE artist_id = @id"},
-		{"hand-made relationship(s)", "SELECT COUNT(*) FROM artist_relationships WHERE (source_artist_id = @id OR target_artist_id = @id) AND NOT auto_derived"},
-		{"relationship vote(s)", "SELECT COUNT(*) FROM artist_relationship_votes WHERE source_artist_id = @id OR target_artist_id = @id"},
+	counts, err := countAll(tx, a.ID, realActCounts)
+	if err != nil {
+		return err
 	}
-	for _, c := range counts {
-		var n int64
-		if err := tx.Raw(c.query, map[string]interface{}{"id": a.ID}).Scan(&n).Error; err != nil {
-			return fmt.Errorf("count %s: %w", c.what, err)
-		}
+	for i, n := range counts {
 		if n > 0 {
-			found = append(found, fmt.Sprintf("%d %s", n, c.what))
+			found = append(found, fmt.Sprintf("%d %s", n, realActCounts[i].what))
 		}
 	}
 	if len(found) == 0 {
@@ -723,38 +733,77 @@ func refuseRealAct(tx *gorm.DB, a *catalogm.Artist) error {
 		a.Name, strings.Join(found, ", "))
 }
 
-func countHandMadeRelationships(tx *gorm.DB, id uint) (int64, error) {
-	var n int64
-	err := tx.Raw(`SELECT COUNT(*) FROM artist_relationships
-		WHERE (source_artist_id = ? OR target_artist_id = ?) AND NOT auto_derived`, id, id).Scan(&n).Error
-	if err != nil {
-		return 0, fmt.Errorf("count hand-made relationships: %w", err)
-	}
-	return n, nil
+// labeledCount is one COUNT(*) query reading the artist id as @id.
+type labeledCount struct {
+	what  string
+	query string
 }
 
-// deleteCollateral describes the rows DeleteArtist drops with the artist:
-// follows and saves, tags, crate items and aliases. Comments, revisions and
+// handMadeRelationships counts the artist's relationships a person made.
+var handMadeRelationships = labeledCount{"hand-made relationship(s)",
+	"SELECT COUNT(*) FROM artist_relationships WHERE (source_artist_id = @id OR target_artist_id = @id) AND NOT auto_derived"}
+
+// realActCounts are the rows refuseRealAct refuses a delete over.
+var realActCounts = []labeledCount{
+	{"release credit(s)", "SELECT COUNT(*) FROM artist_releases WHERE artist_id = @id"},
+	{"label(s)", "SELECT COUNT(*) FROM artist_labels WHERE artist_id = @id"},
+	{"festival lineup(s)", "SELECT COUNT(*) FROM festival_artists WHERE artist_id = @id"},
+	{"matched radio play(s)", "SELECT COUNT(*) FROM radio_plays WHERE artist_id = @id"},
+	handMadeRelationships,
+	{"relationship vote(s)", "SELECT COUNT(*) FROM artist_relationship_votes WHERE source_artist_id = @id OR target_artist_id = @id"},
+}
+
+// collateralCounts are the rows deleteCollateral reports.
+var collateralCounts = []labeledCount{
+	{"follow/save row(s)", "SELECT COUNT(*) FROM user_bookmarks WHERE entity_type = 'artist' AND entity_id = @id"},
+	{"tag(s)", "SELECT COUNT(*) FROM entity_tags WHERE entity_type = 'artist' AND entity_id = @id"},
+	{"crate item(s)", "SELECT COUNT(*) FROM collection_items WHERE entity_type = 'artist' AND entity_id = @id"},
+	{"alias(es)", "SELECT COUNT(*) FROM artist_aliases WHERE artist_id = @id"},
+}
+
+// summaryCounts are the counts describeArtist prints.
+var summaryCounts = []labeledCount{
+	{"bills", "SELECT COUNT(*) FROM show_artists WHERE artist_id = @id"},
+	{"releases", "SELECT COUNT(*) FROM artist_releases WHERE artist_id = @id"},
+	{"follows", "SELECT COUNT(*) FROM user_bookmarks WHERE entity_type = 'artist' AND entity_id = @id"},
+}
+
+// countAll runs every count for one artist in a single query and returns them
+// in order.
+func countAll(db *gorm.DB, id uint, counts []labeledCount) ([]int64, error) {
+	cols := make([]string, len(counts))
+	for i, c := range counts {
+		cols[i] = fmt.Sprintf("(%s) AS c%d", c.query, i)
+	}
+	row := map[string]interface{}{}
+	if err := db.Raw("SELECT "+strings.Join(cols, ", "), map[string]interface{}{"id": id}).Scan(&row).Error; err != nil {
+		return nil, fmt.Errorf("count rows for artist %d: %w", id, err)
+	}
+	out := make([]int64, len(counts))
+	for i, c := range counts {
+		n, ok := row[fmt.Sprintf("c%d", i)].(int64)
+		if !ok {
+			return nil, fmt.Errorf("count %s for artist %d: got %T", c.what, id, row[fmt.Sprintf("c%d", i)])
+		}
+		out[i] = n
+	}
+	return out, nil
+}
+
+// deleteCollateral describes rows DeleteArtist drops with the artist: follows
+// and saves, tags, crate items and aliases among them (its sweep also clears
+// comment subscriptions, tag votes and queued work). Comments, revisions and
 // audit rows stay as history.
 func deleteCollateral(tx *gorm.DB, id uint) (string, error) {
-	counts := []struct {
-		what  string
-		query string
-	}{
-		{"follow/save row(s)", "SELECT COUNT(*) FROM user_bookmarks WHERE entity_type = 'artist' AND entity_id = ?"},
-		{"tag(s)", "SELECT COUNT(*) FROM entity_tags WHERE entity_type = 'artist' AND entity_id = ?"},
-		{"crate item(s)", "SELECT COUNT(*) FROM collection_items WHERE entity_type = 'artist' AND entity_id = ?"},
-		{"alias(es)", "SELECT COUNT(*) FROM artist_aliases WHERE artist_id = ?"},
+	counts, err := countAll(tx, id, collateralCounts)
+	if err != nil {
+		return "", err
 	}
-	parts := make([]string, 0, len(counts))
-	for _, c := range counts {
-		var n int64
-		if err := tx.Raw(c.query, id).Scan(&n).Error; err != nil {
-			return "", fmt.Errorf("count %s: %w", c.what, err)
-		}
-		parts = append(parts, fmt.Sprintf("%d %s", n, c.what))
+	parts := make([]string, len(counts))
+	for i, n := range counts {
+		parts[i] = fmt.Sprintf("%d %s", n, collateralCounts[i].what)
 	}
-	return "drops " + strings.Join(parts, ", ") + "; comments and revisions stay as history", nil
+	return "drops, among others, " + strings.Join(parts, ", ") + "; comments and revisions stay as history", nil
 }
 
 // billedShow is one show an artist is billed on.
@@ -822,22 +871,18 @@ func describeBill(bill []billEntry) string {
 
 // describeArtist is one line naming an artist the way a reviewer checks it.
 func describeArtist(db *gorm.DB, label string, a *catalogm.Artist) string {
-	count := func(query string) string {
-		var n int64
-		if err := db.Raw(query, a.ID).Scan(&n).Error; err != nil {
-			return "?"
+	stats := []string{"?", "?", "?"}
+	if counts, err := countAll(db, a.ID, summaryCounts); err == nil {
+		for i, n := range counts {
+			stats[i] = fmt.Sprintf("%d", n)
 		}
-		return fmt.Sprintf("%d", n)
 	}
 	links := strings.Join(setLinks(a), "+")
 	if links == "" {
 		links = "none"
 	}
 	return fmt.Sprintf("%s: %q id=%d slug=%s bills=%s releases=%s follows=%s links=%s", label, a.Name, a.ID, slugOf(a),
-		count("SELECT COUNT(*) FROM show_artists WHERE artist_id = ?"),
-		count("SELECT COUNT(*) FROM artist_releases WHERE artist_id = ?"),
-		count("SELECT COUNT(*) FROM user_bookmarks WHERE entity_type = 'artist' AND entity_id = ?"),
-		links)
+		stats[0], stats[1], stats[2], links)
 }
 
 func slugOf(a *catalogm.Artist) string { return slugText(a.Slug) }

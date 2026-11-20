@@ -337,7 +337,7 @@ func (s *TriageSuite) TestRemoveTakesItOffTheBillAndDeletesIt() {
 
 	s.False(summary.Refused(), out)
 	s.Contains(out, `bill ["Ouija Macc" [headliner], "LIVE AT LAUNCHPAD" [performer], "Mikey Rotten" [opener]] -> ["Ouija Macc" [headliner], "Mikey Rotten" [opener]]`)
-	s.Contains(out, "drops 1 follow/save row(s), 1 tag(s), 0 crate item(s), 0 alias(es)")
+	s.Contains(out, "drops, among others, 1 follow/save row(s), 1 tag(s), 0 crate item(s), 0 alias(es)")
 	s.Contains(out, "2 derived graph edge(s) deleted")
 	s.Contains(out, "/artists/live-at-launchpad answers 404")
 	s.NotNil(s.artistByID(junk.ID), "the dry run deletes nothing")

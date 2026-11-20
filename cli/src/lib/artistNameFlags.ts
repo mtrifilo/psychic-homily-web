@@ -25,7 +25,7 @@ import { searchArtistsByName, normalizeForComparison } from "./duplicates";
  */
 
 /** The batch key that carries a source's subtitle lines for a show. */
-export const SOURCE_SUBTITLES_KEY = "source_subtitles";
+const SOURCE_SUBTITLES_KEY = "source_subtitles";
 
 /** The part of a show plan this check reads. */
 export interface ArtistNamePlan {
@@ -196,7 +196,7 @@ export async function reportArtistNameFlags(
       cities: [plan.input.city, ...plan.venues.map((v) => v.city)].filter((c): c is string => !!c),
       subtitles: sourceSubtitles(plan.input as Record<string, unknown>),
     };
-    const where = `${plan.input.event_date} at ${plan.venues.map((v) => v.name).join(" + ")}`;
+    const where = `${plan.input.event_date} at ${context.rooms.join(" + ")}`;
     for (const artist of plan.artists) {
       const which = artist.status === "existing" && artist.id !== undefined ? `existing artist #${artist.id}` : "new artist";
       const flags = await artistNameFlags(artist.name, context, isArtist);

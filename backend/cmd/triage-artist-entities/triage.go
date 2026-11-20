@@ -208,8 +208,7 @@ func refuseEntangledRows(plans []*rowPlan) {
 	mergesInto := map[uint][]*rowPlan{}
 	doneInto := map[uint]*rowPlan{}
 	nameRows := map[string][]*rowPlan{}
-	billRows := map[uint][]*rowPlan{}
-	billSlug := map[uint]string{}
+	billRows := map[showRef][]*rowPlan{}
 	for _, p := range plans {
 		switch p.Status {
 		case statusWouldApply:
@@ -222,8 +221,7 @@ func refuseEntangledRows(plans []*rowPlan) {
 				nameRows[name] = append(nameRows[name], p)
 			}
 			for _, s := range p.BillShows {
-				billRows[s.ID] = append(billRows[s.ID], p)
-				billSlug[s.ID] = s.Slug
+				billRows[s] = append(billRows[s], p)
 			}
 		case statusDone:
 			if p.Row.Action == actionMerge {
@@ -270,10 +268,10 @@ func refuseEntangledRows(plans []*rowPlan) {
 			}
 		}
 	}
-	for id, group := range billRows {
+	for show, group := range billRows {
 		if len(group) > 1 {
 			for _, p := range group {
-				add(p, "lines %s each rewrite the bill of show %s; apply one of them per run", joinInts(linesOf(group)), billSlug[id])
+				add(p, "lines %s each rewrite the bill of show %s; apply one of them per run", joinInts(linesOf(group)), show.Slug)
 			}
 		}
 	}
