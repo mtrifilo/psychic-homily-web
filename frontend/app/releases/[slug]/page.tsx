@@ -6,6 +6,16 @@ import * as Sentry from '@sentry/nextjs'
 import { Loader2 } from 'lucide-react'
 import { HydrationBoundary } from '@tanstack/react-query'
 import type { ReleaseDetail as ReleaseDetailData } from '@/features/releases/types'
+import {
+  creditedReleaseArtists,
+  knownReleaseYear,
+  releaseLabelName,
+  releaseListenServiceNames,
+  releaseTypeLabel,
+} from '@/features/releases/releaseSearchFacts'
+import { JsonLd } from '@/components/seo/JsonLd'
+import { generateMusicAlbumSchema } from '@/lib/seo/jsonld'
+import { releaseSnippet } from '@/lib/seo/entitySnippets'
 import { API_BASE_URL } from '@/lib/api-base'
 import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
 import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
@@ -67,16 +77,23 @@ export async function generateMetadata({
   const release = await getRelease(slug)
 
   if (release) {
-    const yearSuffix = release.release_year ? ` (${release.release_year})` : ''
+    const { title, description } = releaseSnippet({
+      title: release.title,
+      artists: creditedReleaseArtists(release.artists).map(artist => artist.name),
+      typeLabel: releaseTypeLabel(release.release_type),
+      year: knownReleaseYear(release.release_year),
+      label: releaseLabelName(release.labels),
+      listenServices: releaseListenServiceNames(release.external_links),
+    })
     return {
-      title: `${release.title}${yearSuffix}`,
-      description: `${release.title}${yearSuffix} - release details on Psychic Homily`,
+      title,
+      description,
       alternates: {
         canonical: `https://psychichomily.com/releases/${slug}`,
       },
       openGraph: {
-        title: `${release.title}${yearSuffix}`,
-        description: `View details for ${release.title}`,
+        title,
+        description,
         type: 'website',
         url: `/releases/${slug}`,
       },
@@ -116,10 +133,20 @@ export default async function ReleasePage({ params }: ReleasePageProps) {
   )
 
   return (
-    <HydrationBoundary state={dehydratedState}>
-      <Suspense fallback={<ReleaseLoadingFallback />}>
-        <ReleaseDetail idOrSlug={slug} />
-      </Suspense>
-    </HydrationBoundary>
+    <>
+      <JsonLd data={generateMusicAlbumSchema({
+        title: releaseData.title,
+        slug: releaseData.slug || slug,
+        year: knownReleaseYear(releaseData.release_year),
+        release_type: releaseData.release_type,
+        cover_art_url: releaseData.cover_art_url,
+        artists: creditedReleaseArtists(releaseData.artists),
+      })} />
+      <HydrationBoundary state={dehydratedState}>
+        <Suspense fallback={<ReleaseLoadingFallback />}>
+          <ReleaseDetail idOrSlug={slug} />
+        </Suspense>
+      </HydrationBoundary>
+    </>
   )
 }
