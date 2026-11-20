@@ -11,9 +11,12 @@ const CALENDAR_ARRIVAL_PATH = '/library'
  * Loads Library afresh at the calendar fragment, where the panel opens on
  * arrival. A full page load, not a client navigation: it is the way back to
  * the panel when this page's copy of its code failed to load, and a fresh load
- * fetches the code again.
+ * fetches the code again. Not while the browser reports itself offline: the
+ * load would replace the page the person is reading with an error page, so
+ * the open is refused in place and the next click, once online, tries again.
  */
 export function reloadIntoCalendarPanel(): void {
+  if (!navigator.onLine) return
   const target = CALENDAR_ARRIVAL_PATH + CALENDAR_ARRIVAL_HASH
   if (window.location.pathname === CALENDAR_ARRIVAL_PATH) {
     // Assigning a URL that differs only by fragment would not reload.
