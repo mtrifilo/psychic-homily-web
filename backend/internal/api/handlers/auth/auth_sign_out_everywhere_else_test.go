@@ -77,9 +77,6 @@ func TestSignOutEverywhereElseHandler_RenewsTheCallersSession(t *testing.T) {
 	if lifetime := time.Until(resp.SetCookie.Expires); lifetime < want-time.Minute || lifetime > want {
 		t.Errorf("cookie lifetime = %v, want the configured session lifetime %v", lifetime, want)
 	}
-	if resp.Body.CalendarLinkReset {
-		t.Error("calendar_link_reset is true for a sign-out that reset no calendar link")
-	}
 }
 
 // The response says a calendar link was reset exactly when the service says

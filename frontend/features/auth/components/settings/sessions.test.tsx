@@ -372,6 +372,7 @@ describe('SessionsSettings', () => {
       expect(window.location.hash).toBe(hashBefore)
     })
   })
+
   // The password reset's "Review signed-in devices" links here.
   it('is the target of its own Settings fragment', () => {
     renderWithProviders(<SessionsSettings />)

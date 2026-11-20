@@ -60,7 +60,8 @@ export const useCalendarFeedStatus = (enabled: boolean = true) => {
  * link-reset marker.
  *
  * The feed status is RESET rather than refetched, so its pre-action value is
- * gone the moment the action succeeds and no surface goes on reading it.
+ * gone the moment the action succeeds: no surface goes on saying there is a
+ * link, the one the action deleted, while the new read is in flight.
  * Resetting cancels any fetch in flight, and an active query refetches at
  * once. The token status refetches in place instead, so the Settings calendar
  * card keeps its content on screen until the new answer lands. The feed cards
