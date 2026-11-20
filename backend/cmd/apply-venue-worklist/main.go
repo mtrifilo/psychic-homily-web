@@ -25,13 +25,15 @@
 //	go run ./cmd/apply-venue-worklist --file reviewed.csv --actor 2 --env .env.x --confirm  # apply
 //
 // --actor names the admin user every write is recorded against: the merge's
-// audit row and a revision for each rename. --confirm requires --env.
+// audit row and a revision for each rename. --env is required on every run and
+// the named file decides the database, so a dry run previews the same database
+// the confirmed run with the same --env writes to.
 //
 // The dry run runs each merge and each rename in a transaction it rolls back,
 // so it prints what the write would do, with both rooms' places, show counts
 // and verification; a merge of a verified room into an unverified one is
-// flagged, because the merge keeps the unverified room's fields. --confirm applies each accepted row in
-// its own transaction. A second run over the same file changes nothing: a
+// flagged, because the merge keeps the unverified room's fields. --confirm
+// applies each accepted row in its own transaction. A second run over the same file changes nothing: a
 // renamed room already has its name, and a merged room is recognised from the
 // merge's audit record, which names the slug it removed. A confirmed run checks
 // that record for every merge it applied and exits 1 if one is missing.
@@ -64,16 +66,14 @@ func main() {
 	flag.StringVar(&file, "file", "", "Path to the reviewed worklist CSV (required)")
 	flag.UintVar(&actorID, "actor", 0, "ID of the admin user the merges and renames are recorded against (required)")
 	flag.BoolVar(&confirm, "confirm", false, "Apply the accepted rows (default: dry run only)")
-	flag.StringVar(&envFile, "env", "", "Path to .env file (defaults to .env.development / .env; required with --confirm)")
+	flag.StringVar(&envFile, "env", "", "Path to the .env file that names the database (required, on dry runs too)")
 	flag.Parse()
 
 	if file == "" {
 		log.Fatal("--file is required")
 	}
-	// A confirmed run names its database explicitly, so it cannot write to
-	// whichever env file happens to sit in the working directory.
-	if confirm && envFile == "" {
-		log.Fatal("--confirm requires --env, naming the database to write to")
+	if err := requireEnvFlag(envFile); err != nil {
+		log.Fatal(err)
 	}
 	f, err := os.Open(file)
 	if err != nil {
@@ -85,7 +85,10 @@ func main() {
 		log.Fatalf("worklist %s: %v", file, err)
 	}
 
-	loadEnv(envFile)
+	if err := loadNamedEnv(envFile); err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("loaded env from %s (authoritative)", envFile)
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("load config: %v", err)
@@ -124,24 +127,16 @@ func main() {
 	}
 }
 
-func loadEnv(envFile string) {
-	if envFile != "" {
-		if err := loadNamedEnv(envFile); err != nil {
-			log.Fatal(err)
-		}
-		log.Printf("loaded env from %s (authoritative)", envFile)
-		return
+// requireEnvFlag refuses a run with no --env. A dry run and a confirmed run both
+// name their database, so a dry run cannot preview one database (whichever env
+// file sits in the working directory, or the shell's) while the confirmed run
+// writes to another.
+func requireEnvFlag(envFile string) error {
+	if strings.TrimSpace(envFile) == "" {
+		return fmt.Errorf("--env is required on every run, dry run included: the file that names the database; " +
+			"dry-run with the same --env you will confirm with")
 	}
-	for _, ef := range []string{".env.development", ".env"} {
-		if _, err := os.Stat(ef); err == nil {
-			if err := godotenv.Load(ef); err != nil {
-				log.Fatalf("load env file %s: %v", ef, err)
-			}
-			log.Printf("loaded env from %s", ef)
-			return
-		}
-	}
-	log.Println("no .env loaded; using process environment")
+	return nil
 }
 
 // loadNamedEnv makes the file named by --env decide the database. It uses

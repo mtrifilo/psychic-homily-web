@@ -36,6 +36,15 @@ func TestLoadNamedEnvRefusesAFileWithoutADatabaseURL(t *testing.T) {
 	assert.Equal(t, "development", os.Getenv("ENVIRONMENT"), "nothing from the refused file is loaded")
 }
 
+// --env is required on every run, so a dry run cannot read a different
+// database from the confirmed run it previews.
+func TestEnvIsRequiredOnEveryRun(t *testing.T) {
+	for _, envFile := range []string{"", "   "} {
+		require.ErrorContains(t, requireEnvFlag(envFile), "--env is required on every run, dry run included")
+	}
+	require.NoError(t, requireEnvFlag("prod.env"))
+}
+
 func TestLoadNamedEnvRefusesAMissingFile(t *testing.T) {
 	require.ErrorContains(t, loadNamedEnv(filepath.Join(t.TempDir(), "absent.env")), "read env file")
 }

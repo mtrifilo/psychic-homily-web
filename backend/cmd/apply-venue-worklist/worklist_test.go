@@ -481,6 +481,31 @@ func (s *WorklistSuite) TestTwoMergesIntoOneRoomAreRefused() {
 	s.Nil(s.venueByID(b.ID))
 }
 
+// A three-link chain is refused whole whatever order its rows come in: every
+// link either merges away another row's target or receives another row's
+// merge, and the verdicts are taken over the plan before any refusal.
+func (s *WorklistSuite) TestThreeLinkChainIsRefusedInEitherOrder() {
+	x := s.venue("Chain X Boise", "Boise", "ID")
+	y := s.venue("Chain Y Boise", "Boise", "ID")
+	z := s.venue("Chain Z Boise", "Boise", "ID")
+	w := s.venue("Chain W", "Boise", "ID")
+	a := *x.Slug + ",merge," + *y.Slug + "\n"
+	b := *y.Slug + ",merge," + *z.Slug + "\n"
+	c := *z.Slug + ",merge," + *w.Slug + "\n"
+
+	for name, csv := range map[string]string{
+		"A, B, C": "room_slug,action,target\n" + a + b + c,
+		"C, B, A": "room_slug,action,target\n" + c + b + a,
+	} {
+		out, summary := s.run(csv, true)
+		s.Equal(3, summary[statusRefused], "%s: %s", name, out)
+		s.Equal(0, summary[statusApplied], "%s: %s", name, out)
+		for _, v := range []*catalogm.Venue{x, y, z, w} {
+			s.NotNil(s.venueByID(v.ID), "%s: no room is merged away", name)
+		}
+	}
+}
+
 // A merge chain stays refused after its first link was applied by an earlier
 // run: merging the kept room away would leave the done row with no target, and
 // the file would never run clean again.

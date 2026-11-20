@@ -299,53 +299,69 @@ func refuseRepeatedRooms(plans []*rowPlan) {
 }
 
 // refuseEntangledMerges refuses merges whose write would depend on another
-// merge of the same run: a merge into a room that another row merges away, and
-// two merges into one room (the second merge's preview cannot see the shows the
-// first one moves, so its duplicate count would be wrong). Every side of each
-// conflict is refused, so none is applied by the accident of file order.
+// merge of the same run: a merge into a room that another row merges away, a
+// merge of a room that another row merges into, and two merges into one room
+// (the second merge's preview cannot see the shows the first one moves, so its
+// duplicate count would be wrong).
 //
-// It runs after planning. The same-target rule counts only merges that would
-// apply: a merge already done moves nothing in this run, so a file whose first
-// merges were applied by an earlier run can go on to apply the rest. The chain
-// rule also counts a merge already done into the room a pending merge would
-// remove: removing it would leave that done row naming a target that no longer
-// exists, so the file could never run clean again.
+// Every verdict is decided over the set of merges as planned, before any of
+// them is refused, so a refusal never changes which other rows count and the
+// outcome does not depend on file order.
+//
+// It runs after planning. The rules count only merges that would apply: a merge
+// already done moves nothing in this run, so a file whose first merges were
+// applied by an earlier run can go on to apply the rest. One rule also counts a
+// merge already done: a pending merge of the room that done merge went into
+// would leave the done row naming a target that no longer exists, so the file
+// could never run clean again.
 func refuseEntangledMerges(plans []*rowPlan) {
-	pending := func(p *rowPlan) bool { return p.Status == statusWouldApply && p.Row.Action == actionMerge }
-	done := func(p *rowPlan) bool { return p.Status == statusDone && p.Row.Action == actionMerge }
-
+	var pending []*rowPlan
 	mergedAwayOn := map[string]*rowPlan{}
 	mergesInto := map[string][]*rowPlan{}
 	doneInto := map[string]*rowPlan{}
 	for _, p := range plans {
-		switch {
-		case pending(p):
+		if p.Row.Action != actionMerge {
+			continue
+		}
+		switch p.Status {
+		case statusWouldApply:
+			pending = append(pending, p)
 			mergedAwayOn[p.Row.RoomSlug] = p
 			mergesInto[p.Row.Target] = append(mergesInto[p.Row.Target], p)
-		case done(p):
+		case statusDone:
 			doneInto[p.Row.Target] = p
 		}
 	}
 
-	for _, p := range plans {
-		if !pending(p) {
-			continue
+	reasons := map[*rowPlan]string{}
+	for _, p := range pending {
+		switch {
+		case doneInto[p.Row.RoomSlug] != nil:
+			prior := doneInto[p.Row.RoomSlug].Row.Line
+			reasons[p] = fmt.Sprintf("room %s already received the merge on line %d; merging it away would leave that row "+
+				"with no target, so merge it from a file without line %d", p.Row.RoomSlug, prior, prior)
+		case mergedAwayOn[p.Row.Target] != nil:
+			reasons[p] = fmt.Sprintf("target %s is itself merged away on line %d; merge both rooms into the final room instead",
+				p.Row.Target, mergedAwayOn[p.Row.Target].Row.Line)
+		case len(mergesInto[p.Row.RoomSlug]) > 0:
+			reasons[p] = fmt.Sprintf("room %s is the merge target on line %s; merge both rooms into the final room instead",
+				p.Row.RoomSlug, joinInts(linesOf(mergesInto[p.Row.RoomSlug])))
+		case len(mergesInto[p.Row.Target]) > 1:
+			reasons[p] = fmt.Sprintf("target %s receives merges on lines %s; apply one of them per run so each preview is exact",
+				p.Row.Target, joinInts(linesOf(mergesInto[p.Row.Target])))
 		}
-		if prior, ok := doneInto[p.Row.RoomSlug]; ok {
-			p.refuse("room %s already received the merge on line %d; merging it away would leave that row with no target, "+
-				"so merge it from a file without line %d", p.Row.RoomSlug, prior.Row.Line, prior.Row.Line)
-			continue
-		}
-		other, ok := mergedAwayOn[p.Row.Target]
-		if !ok || !pending(other) {
-			continue
-		}
-		p.refuse("target %s is itself merged away on line %d; merge both rooms into the final room instead", p.Row.Target, other.Row.Line)
-		other.refuse("room %s is the merge target on line %d; merge both rooms into the final room instead", other.Row.RoomSlug, p.Row.Line)
 	}
-	refuseGroups(mergesInto, func(lines string, p *rowPlan) {
-		p.refuse("target %s receives merges on lines %s; apply one of them per run so each preview is exact", p.Row.Target, lines)
-	})
+	for p, reason := range reasons {
+		p.refuse("%s", reason)
+	}
+}
+
+func linesOf(plans []*rowPlan) []int {
+	lines := make([]int, len(plans))
+	for i, p := range plans {
+		lines[i] = p.Row.Line
+	}
+	return lines
 }
 
 // refuseCollidingRenames refuses renames that would give two rooms the same
