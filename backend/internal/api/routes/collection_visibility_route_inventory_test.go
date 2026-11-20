@@ -116,7 +116,9 @@ var collectionAddressableRoutes = map[string]collectionRouteDisposition{
 	"GET /collections/{slug}/stats": collectionGated,
 	"GET /crates/{slug}/stats":      collectionGated,
 	// The frontend proxy's existence probe, a 404 for a private collection
-	// whoever calls it; TestCollectionExists_* in services/catalog pins it.
+	// whoever calls it; TestCollectionExistsAgreesWithTheAnonymousDetailRead
+	// and the suite's TestCollectionExists_RefusesHiddenCollections in
+	// services/catalog pin it.
 	// Registered under /collections only.
 	"HEAD /collections/{slug}/exists": collectionGated,
 

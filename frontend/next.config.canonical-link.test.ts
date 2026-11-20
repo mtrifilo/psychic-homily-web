@@ -460,6 +460,11 @@ describe('no canonical Link header where the page declares a different URL', () 
     }
     // Date-shaped, so the episode rule would match it if `channel` were a show.
     expect(await headerCanonicalFor('/radio/wfmu/channel/2025-01-15')).toBeNull()
+    // Only the exact segment is excluded: a show slug that starts with it is
+    // still an episode route.
+    expect(await headerCanonicalFor('/radio/kexp/channel-surfing/2025-01-15')).toBe(
+      `${SITE_URL}/radio/kexp/channel-surfing/2025-01-15`,
+    )
   })
 
   it('leaves scene windows alone, whose page canonical names the slug the backend returns', async () => {

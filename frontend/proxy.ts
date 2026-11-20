@@ -79,7 +79,10 @@ const NOT_FOUND_REWRITE_PATH = '/_psy-not-found'
 const ISO_WEEK_SEGMENT = /^\d{4}-W\d{2}$/i
 
 /**
- * Shape of a calendar-date segment (`2026-07-31`) under `/scenes/<slug>/`.
+ * Shape of a calendar-date path segment (`2026-07-31`): a scene day permalink
+ * under `/scenes/<slug>/` and a radio episode under `/radio/<station>/<show>/`.
+ * Shape only and unbounded in year; the scene branch applies its own year
+ * window beside it.
  *
  * Shape only, for the same reason as the week: `2026-02-30` is well-formed and
  * impossible, and the backend — which owns the calendar maths and the scene's
@@ -108,7 +111,8 @@ function periodYearInRange(segment: string): boolean {
 }
 
 /**
- * Whether a date segment names a day that actually exists.
+ * Whether a date segment names a day that actually exists. Scene permalinks,
+ * shows calendar days and radio episodes all rely on it.
  *
  * `2026-02-30` is well-formed and impossible. Deciding that here — rather than
  * asking the backend — is what lets the dated route use the cheap scene probe:

@@ -164,7 +164,8 @@ describe('proxy: radio routes', () => {
  * routes and are skipped.
  */
 function routeFiles(dir: string, base = dir): string[] {
-  const routeFile = /^(page|route|opengraph-image|twitter-image|icon|apple-icon|sitemap|manifest)\.[a-z]+$/
+  const routeFile =
+    /^(?:page|route|sitemap|manifest|(?:opengraph-image|twitter-image|icon|apple-icon)\d?)\.[a-z]+$/
   const found: string[] = []
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name)

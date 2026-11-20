@@ -1,5 +1,7 @@
 import { test } from '../fixtures/error-detection'
 import { expect } from '@playwright/test'
+import { workerAuthFile } from '../fixtures/auth'
+import { lookupWorkerUserId } from '../fixtures/test-fixtures-reset'
 
 /**
  * PSY-721: HTTP-404 regression guard for not-found pages.
@@ -536,9 +538,11 @@ test.describe('Not-found pages — HTTP 404 status', () => {
       expect(response?.status()).toBe(404)
     })
 
-    test('a public collection returns HTTP 200 (proxy does not over-404)', async ({ page }) => {
-      // Reserved per-worker collection from setup-db.sh; its slug is stable.
-      const response = await page.goto('/collections/e2e-worker-collection-1')
+    test('a public collection returns HTTP 200 (proxy does not over-404)', async ({ page }, testInfo) => {
+      // setup-db.sh seeds one public collection per worker user, slugged
+      // with that user's id; it is read here rather than assumed.
+      const userId = await lookupWorkerUserId(workerAuthFile(testInfo.workerIndex))
+      const response = await page.goto(`/collections/e2e-worker-collection-${userId}`)
       expect(response?.status()).toBe(200)
       await expect(page.getByRole('main').getByRole('heading', { level: 1 })).toBeVisible({
         timeout: 10_000,
