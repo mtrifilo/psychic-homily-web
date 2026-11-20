@@ -15,6 +15,10 @@ test.describe('Private collection detail (owner access)', () => {
   test(
     'create-private redirects to detail page and renders (not 404)',
     async ({ authenticatedPage, browser }) => {
+      // Six navigations across two browser contexts, the first of them a cold
+      // compile on the dev server.
+      test.setTimeout(60_000)
+
       // 1. Open the collections browse page and start the create flow.
       await authenticatedPage.goto('/collections')
       await authenticatedPage
