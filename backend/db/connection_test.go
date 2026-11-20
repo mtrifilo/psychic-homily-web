@@ -172,25 +172,28 @@ func TestConnectReportsARefusedConnectionWithoutTheBound(t *testing.T) {
 }
 
 // A failed connect closes the pool it opened. Each open database/sql pool runs
-// one connection-opener goroutine until it is closed, so the count of those is
-// the count of pools nothing has closed.
+// one connection-opener goroutine until it is closed, so an opener goroutine
+// created after the test started belongs to a pool opened since then that
+// nothing has closed. The test looks only at those because Close does not
+// wait for an opener to exit: a pool an earlier test closed can still be
+// running its opener at the start and stop at any point after.
 func TestConnectClosesThePoolWhenItFails(t *testing.T) {
 	dsn := refusingDSN(t)
 	cfg := connectConfig(t, dsn)
-	before := settledOpenPools(t)
+	before := poolOpeners()
 
-	// The count sees a pool left open, so its return to the baseline after the
+	// The check sees a pool left open, so finding no new opener after the
 	// connect below means that pool was closed.
 	leaked, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: logger.Discard, DisableAutomaticPing: true})
 	require.NoError(t, err)
-	require.Eventually(t, func() bool { return openPools() == before+1 }, 2*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return poolOpenersSince(before) == 1 }, 2*time.Second, 10*time.Millisecond)
 	leakedDB, err := leaked.DB()
 	require.NoError(t, err)
 	require.NoError(t, leakedDB.Close())
-	require.Eventually(t, func() bool { return openPools() == before }, 2*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return poolOpenersSince(before) == 0 }, 2*time.Second, 10*time.Millisecond)
 
 	require.Error(t, connectWithin(cfg, 30*time.Second))
-	require.Eventually(t, func() bool { return openPools() == before }, 2*time.Second, 10*time.Millisecond,
+	require.Eventually(t, func() bool { return poolOpenersSince(before) == 0 }, 2*time.Second, 10*time.Millisecond,
 		"a failed connect left its pool open")
 }
 
@@ -204,31 +207,43 @@ func refusingDSN(t *testing.T) string {
 	return fmt.Sprintf("host=127.0.0.1 port=%d user=nobody dbname=nothing sslmode=disable", port)
 }
 
-// settledOpenPools is openPools once two samples agree. Close does not wait
-// for a pool's opener goroutine to exit, so a pool an earlier test closed can
-// still be counted for a moment.
-func settledOpenPools(t *testing.T) int {
-	t.Helper()
-	count := openPools()
-	require.Eventually(t, func() bool {
-		next := openPools()
-		settled := next == count
-		count = next
-		return settled
-	}, 2*time.Second, 50*time.Millisecond)
+// poolOpenersSince counts the pool opener goroutines running now that were not
+// in before.
+func poolOpenersSince(before map[string]bool) int {
+	count := 0
+	for id := range poolOpeners() {
+		if !before[id] {
+			count++
+		}
+	}
 	return count
 }
 
-// openPools counts the database/sql pools in this process that are not closed.
-func openPools() int {
+// poolOpeners returns the IDs of the database/sql pool opener goroutines in
+// this process, one per pool that is not closed or whose opener has not yet
+// exited. Goroutine IDs are never reused, so an ID names one pool for the life
+// of the process. An opener is found by the "created by database/sql.OpenDB"
+// line of its trace rather than by its connectionOpener frame, which a
+// goroutine that has not run yet does not show.
+func poolOpeners() map[string]bool {
 	buf := make([]byte, 1<<20)
 	for {
 		n := runtime.Stack(buf, true)
 		if n < len(buf) {
-			return bytes.Count(buf[:n], []byte("database/sql.(*DB).connectionOpener("))
+			buf = buf[:n]
+			break
 		}
 		buf = make([]byte, 2*len(buf))
 	}
+	openers := map[string]bool{}
+	for _, trace := range bytes.Split(buf, []byte("\n\n")) {
+		if !bytes.Contains(trace, []byte("\ncreated by database/sql.OpenDB")) {
+			continue
+		}
+		id, _, _ := bytes.Cut(bytes.TrimPrefix(trace, []byte("goroutine ")), []byte(" "))
+		openers[string(id)] = true
+	}
+	return openers
 }
 
 func TestDescribeBound(t *testing.T) {
