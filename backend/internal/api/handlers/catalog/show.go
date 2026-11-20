@@ -639,11 +639,11 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 	// Create show using service
 	show, err := h.showService.CreateShow(serviceReq)
 	if boundErr, ok := apperrors.AsShowEventDateBeyondBound(err); ok {
-		// Surfaced verbatim, unlike the generic failure below: the message names
-		// the bound and the override, which is what the caller acts on.
-		return nil, huma.Error422UnprocessableEntity(
-			fmt.Sprintf("%s [%s] (request_id: %s)", boundErr.Message, boundErr.Code, requestID),
+		logger.FromContext(ctx).Info("show_create_refused_date_bound",
+			"event_date", req.Body.EventDate,
+			"request_id", requestID,
 		)
+		return nil, shared.ShowEventDateBoundHTTPError(boundErr)
 	}
 	if err != nil {
 		showErr := apperrors.ErrShowCreateFailed(err)

@@ -1,13 +1,15 @@
 import { describe, test, expect, afterEach } from "bun:test";
 import { processBatch } from "../src/commands/batch";
 import {
+  SHOW_EVENT_DATE_BEYOND_BOUND,
   applyEventDateBound,
   buildShowPayload,
+  farFutureRefusalHint,
   quoteLineValue,
   submitShows,
   type ShowPlan,
 } from "../src/commands/submit-show";
-import { APIClient } from "../src/lib/api";
+import { APIClient, APIError } from "../src/lib/api";
 import {
   SHOW_EVENT_DATE_BOUND_MONTHS,
   isBeyondShowEventDateBound,
@@ -307,6 +309,43 @@ describe("quoteLineValue", () => {
   test("a stored name cannot start a line of its own", () => {
     expect(quoteLineValue("Room\n! forged line\tx")).toBe("Room ! forged line x");
     expect(quoteLineValue("\u001b[2KRoom")).toBe("[2KRoom");
+  });
+});
+
+describe("the API's far-future refusal", () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  test("ph reads the code from the structured error and adds its own hint", async () => {
+    const sentence = "event_date 2028-10-04T03:00:00Z is more than 18 months ahead";
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          title: "Unprocessable Entity",
+          status: 422,
+          detail: sentence,
+          errors: [{ message: sentence, location: "body.event_date", value: { code: "SHOW_EVENT_DATE_BEYOND_BOUND" } }],
+        }),
+        { status: 422 },
+      )) as unknown as typeof fetch;
+    const api = new APIClient({ url: "http://api.test", token: "phk_test" });
+    let caught: unknown;
+    try {
+      await api.post("/shows", {});
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(APIError);
+    expect((caught as APIError).errorCode).toBe(SHOW_EVENT_DATE_BEYOND_BOUND);
+    expect(farFutureRefusalHint(caught)).toContain("--allow-far-future");
+    expect(farFutureRefusalHint(caught)).toContain(`"allow_far_future_date": true`);
+  });
+
+  test("no hint for any other error", () => {
+    expect(farFutureRefusalHint(new APIError(422, "SHOW_CREATE_FAILED", "x"))).toBeNull();
+    expect(farFutureRefusalHint(new Error("x"))).toBeNull();
   });
 });
 

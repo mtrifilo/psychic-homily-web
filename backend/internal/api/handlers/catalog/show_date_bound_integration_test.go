@@ -50,7 +50,13 @@ func (s *ShowHandlerIntegrationSuite) TestCreateShow_FarFutureDateRefusedWithBou
 	se := s.requireStatus(err, http.StatusUnprocessableEntity)
 	s.Contains(se.Error(), "more than 18 months ahead")
 	s.Contains(se.Error(), "POST /shows with allow_far_future_date: true")
-	s.Contains(se.Error(), "SHOW_EVENT_DATE_BEYOND_BOUND")
+	s.NotContains(se.Error(), "SHOW_EVENT_DATE_BEYOND_BOUND", "the sentence a person reads carries no code")
+
+	// The code travels in the structured error, for clients that add their own hint.
+	var model *huma.ErrorModel
+	s.Require().True(errors.As(err, &model))
+	s.Equal(model.Detail, model.Errors[0].Message)
+	s.Equal(map[string]any{"code": "SHOW_EVENT_DATE_BEYOND_BOUND"}, model.Errors[0].Value)
 	s.Equal(int64(0), s.showCount())
 }
 

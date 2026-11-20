@@ -590,9 +590,7 @@ func (h *AdminShowHandler) ImportShowConfirmHandler(ctx context.Context, req *Im
 			"request_id", requestID,
 		)
 		if boundErr, ok := apperrors.AsShowEventDateBeyondBound(err); ok {
-			return nil, huma.Error422UnprocessableEntity(
-				fmt.Sprintf("%s (request_id: %s)", boundErr.Message, requestID),
-			)
+			return nil, shared.ShowEventDateBoundHTTPError(boundErr)
 		}
 		return nil, huma.Error422UnprocessableEntity(
 			fmt.Sprintf("Failed to import show (request_id: %s)", requestID),
