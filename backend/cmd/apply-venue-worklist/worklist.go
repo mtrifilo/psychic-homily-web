@@ -255,7 +255,7 @@ func refuseCollidingRenames(plans []*rowPlan) {
 		if p.Status != statusWouldApply || p.Row.Action != actionRename {
 			continue
 		}
-		key := placeKey(p.Room) + "|" + utils.NormalizeVenueName(p.Row.Target)
+		key := catalog.VenuePlaceKey(p.Room) + "|" + utils.NormalizeVenueName(p.Row.Target)
 		byKey[key] = append(byKey[key], p)
 	}
 	for _, group := range byKey {
@@ -281,21 +281,24 @@ func planRow(db *gorm.DB, venues *catalog.VenueService, p *rowPlan) {
 	}
 	p.Room = room
 
-	switch p.Row.Action {
-	case actionMerge:
+	if p.Row.Action == actionMerge {
 		planMerge(db, venues, p)
-	case actionRename:
-		planRename(db, p)
-	case actionKeep:
-		if room == nil {
-			p.refuse("no room has slug %s", p.Row.RoomSlug)
-			return
-		}
-		p.Status = statusKept
-		p.Detail = []string{describeRoom("room", db, room)}
+		return
 	}
+	if room == nil {
+		p.refuse("no room has slug %s", p.Row.RoomSlug)
+		return
+	}
+	p.Detail = []string{describeRoom("room", db, room)}
+	if p.Row.Action == actionRename {
+		planRename(db, p)
+		return
+	}
+	p.Status = statusKept
 }
 
+// planMerge previews a merge. A missing room is not refused outright: the merge
+// audit trail may show this very row was applied by an earlier run.
 func planMerge(db *gorm.DB, venues *catalog.VenueService, p *rowPlan) {
 	into, err := venueBySlug(db, p.Row.Target)
 	if err != nil {
@@ -305,32 +308,32 @@ func planMerge(db *gorm.DB, venues *catalog.VenueService, p *rowPlan) {
 	p.Into = into
 
 	if p.Room == nil {
-		if into != nil && alreadyMerged(db, p.Row.RoomSlug, into.ID) {
-			p.Status = statusDone
-			p.Detail = []string{
-				fmt.Sprintf("an audit record shows %s was merged into %s", p.Row.RoomSlug, p.Row.Target),
-				describeRoom("into", db, into),
-			}
+		if into == nil {
+			p.refuse("no room has slug %s", p.Row.RoomSlug)
 			return
 		}
-		p.refuse("no room has slug %s", p.Row.RoomSlug)
+		merged, err := venues.WasMergedInto(p.Row.RoomSlug, into.ID)
+		if err != nil {
+			p.refuse("%v", err)
+			return
+		}
+		if !merged {
+			p.refuse("no room has slug %s", p.Row.RoomSlug)
+			return
+		}
+		p.Status = statusDone
+		p.Detail = []string{
+			fmt.Sprintf("an audit record shows %s was merged into %s", p.Row.RoomSlug, p.Row.Target),
+			describeRoom("into", db, into),
+		}
 		return
 	}
 	if into == nil {
 		p.refuse("no room has target slug %s", p.Row.Target)
 		return
 	}
-	if into.ID == p.Room.ID {
-		p.refuse("target %s is the room itself", p.Row.Target)
-		return
-	}
 
 	p.Detail = []string{describeRoom("from", db, p.Room), describeRoom("into", db, into)}
-	if placeKey(p.Room) != placeKey(into) {
-		p.refuse("the rooms are in different places (%s, %s and %s, %s)", p.Room.City, p.Room.State, into.City, into.State)
-		return
-	}
-
 	preview, err := venues.PreviewMergeVenuesInSamePlace(into.ID, p.Room.ID)
 	if err != nil {
 		p.refuse("merge preview: %v", err)
@@ -343,11 +346,6 @@ func planMerge(db *gorm.DB, venues *catalog.VenueService, p *rowPlan) {
 }
 
 func planRename(db *gorm.DB, p *rowPlan) {
-	if p.Room == nil {
-		p.refuse("no room has slug %s", p.Row.RoomSlug)
-		return
-	}
-	p.Detail = []string{describeRoom("room", db, p.Room)}
 	if p.Room.Name == p.Row.Target {
 		p.Status = statusDone
 		p.Detail = append(p.Detail, fmt.Sprintf("already named %q", p.Row.Target))
@@ -385,15 +383,15 @@ func renameInTx(tx *gorm.DB, roomID uint, name string) error {
 		return fmt.Errorf("lock room %d: %w", roomID, err)
 	}
 
-	var sameCity []catalogm.Venue
-	if err := tx.Where("id <> ? AND LOWER(TRIM(city)) = LOWER(TRIM(?))", room.ID, room.City).
-		Order("id").Find(&sameCity).Error; err != nil {
-		return fmt.Errorf("load rooms in %s: %w", room.City, err)
+	var samePlace []catalogm.Venue
+	if err := tx.Where("id <> ? AND LOWER(TRIM(city)) = LOWER(TRIM(?)) AND LOWER(TRIM(state)) = LOWER(TRIM(?))",
+		room.ID, room.City, room.State).Order("id").Find(&samePlace).Error; err != nil {
+		return fmt.Errorf("load rooms in %s, %s: %w", room.City, room.State, err)
 	}
 	want := utils.NormalizeVenueName(name)
-	for i := range sameCity {
-		other := &sameCity[i]
-		if placeKey(other) == placeKey(&room) && utils.NormalizeVenueName(other.Name) == want {
+	for i := range samePlace {
+		other := &samePlace[i]
+		if utils.NormalizeVenueName(other.Name) == want {
 			return fmt.Errorf("%s, %s already has %q (slug %s); merge the rooms instead", room.City, room.State, other.Name, slugOf(other))
 		}
 	}
@@ -428,19 +426,6 @@ func applyRow(db *gorm.DB, venues *catalog.VenueService, p *rowPlan) {
 	p.Status = statusApplied
 }
 
-// alreadyMerged reports whether the merge audit trail records a room with this
-// slug merged into the room with id into. It is the only record of a merged
-// room's slug once its row is gone.
-func alreadyMerged(db *gorm.DB, slug string, into uint) bool {
-	var found bool
-	err := db.Raw(`SELECT EXISTS (
-		SELECT 1 FROM audit_logs
-		 WHERE action = ? AND entity_type = 'venue' AND entity_id = ?
-		   AND metadata->>'merged_venue_slug' = ?)`,
-		catalog.AuditActionMergeVenues, into, slug).Scan(&found).Error
-	return err == nil && found
-}
-
 // venueBySlug returns the room with this slug, or nil when none has it.
 func venueBySlug(db *gorm.DB, slug string) (*catalogm.Venue, error) {
 	var v catalogm.Venue
@@ -452,12 +437,6 @@ func venueBySlug(db *gorm.DB, slug string) (*catalogm.Venue, error) {
 		return nil, err
 	}
 	return &v, nil
-}
-
-// placeKey is a room's city and state as the merge and rename checks compare
-// them: trimmed and case-insensitive.
-func placeKey(v *catalogm.Venue) string {
-	return strings.ToLower(strings.TrimSpace(v.City)) + "|" + strings.ToLower(strings.TrimSpace(v.State))
 }
 
 func slugOf(v *catalogm.Venue) string {

@@ -735,17 +735,34 @@ func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipc
 	//
 	// Scoped to the same city, so normalization can never join rooms in
 	// different places.
+	//
+	// The same scan then looks for a city-suffixed twin: a name that is an
+	// existing room's name followed by its own city ("Rialto Theatre Tucson" in
+	// Tucson is "Rialto Theatre" in Tucson). That match is taken only when no
+	// normalized match exists, so it adds a match but never changes one. Unlike
+	// the normalized match, which is scoped by city alone, it also requires the
+	// state, because it joins two DIFFERENT names and a city name alone does not
+	// place a room. A name whose city is part of the room's real name is created
+	// as named when no twin exists: "House of Blues Chicago" stays itself unless
+	// Chicago already has a "House of Blues".
 	if normalized := utils.NormalizeVenueName(name); normalized != "" {
 		var candidates []catalogm.Venue
 		if err := query.Where("LOWER(city) = LOWER(?)", city).Order("id").Find(&candidates).Error; err != nil {
 			return nil, false, fmt.Errorf("failed to check existing venue by normalized name: %w", err)
 		}
+		stripped, hasCitySuffix := utils.VenueNameWithoutTrailingCity(name, city)
+		place := VenuePlaceKey(&catalogm.Venue{City: city, State: state})
+		var twin *catalogm.Venue
 		for i := range candidates {
-			if utils.NormalizeVenueName(candidates[i].Name) == normalized {
+			key := utils.NormalizeVenueName(candidates[i].Name)
+			if key == normalized {
 				return &candidates[i], false, nil
 			}
+			if twin == nil && hasCitySuffix && key == stripped && VenuePlaceKey(&candidates[i]) == place {
+				twin = &candidates[i]
+			}
 		}
-		if twin := cityStrippedTwin(name, city, state, candidates); twin != nil {
+		if twin != nil {
 			return twin, false, nil
 		}
 	}
@@ -782,35 +799,6 @@ func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipc
 	}
 
 	return &venue, true, nil // true = newly created
-}
-
-// cityStrippedTwin returns the room among candidates that name already
-// describes once its own city is taken off the end ("Rialto Theatre Tucson" in
-// Tucson is "Rialto Theatre" in Tucson), or nil.
-//
-// It runs only after the exact and normalized matches have found nothing, so it
-// can add a match but never change one. Unlike the normalized match, which is
-// scoped by city alone, it also requires the candidate's state, because it
-// joins two DIFFERENT names and a city name alone does not place a room.
-//
-// A name whose city is part of the room's real name is unaffected when no twin
-// exists: "House of Blues Chicago" is created as named unless Chicago already
-// has a "House of Blues".
-func cityStrippedTwin(name, city, state string, candidates []catalogm.Venue) *catalogm.Venue {
-	stripped, ok := utils.VenueNameWithoutTrailingCity(name, city)
-	if !ok {
-		return nil
-	}
-	state = strings.TrimSpace(state)
-	for i := range candidates {
-		if !strings.EqualFold(strings.TrimSpace(candidates[i].State), state) {
-			continue
-		}
-		if utils.NormalizeVenueName(candidates[i].Name) == stripped {
-			return &candidates[i]
-		}
-	}
-	return nil
 }
 
 // VerifyVenue marks a venue as verified by an admin.
