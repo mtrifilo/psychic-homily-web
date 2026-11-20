@@ -28,7 +28,9 @@ func RevokeAllSessions(db *gorm.DB, user *authm.User, now time.Time) error {
 // feed URL is a bearer credential a session can carry away and no session
 // revocation reaches. API tokens, passkeys and provider identities stay. The
 // mailbox-proof reclaim deletes the token through evictOtherCredentials
-// instead, with the provider identities it removes.
+// instead, with the provider identities it removes. Either way the token's
+// address is remembered as reset, so a calendar app still polling it can be
+// told why it stopped.
 //
 // When the deleted token had been read by a calendar app, the same
 // transaction records the link reset at now for reason, so the owner can be

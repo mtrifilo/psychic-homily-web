@@ -717,6 +717,8 @@ type MockCalendarService struct {
 	GenerateICSFeedFn             func(uint, string) ([]byte, error)
 	RenderSavedShowsCalendarFn    func(uint, string) ([]byte, error)
 	GenerateFollowsActivityFeedFn func(uint, string) ([]byte, error)
+	RetiredSavedShowsNoticeFn     func(string) (*contracts.RetiredFeedNotice, error)
+	RetiredFollowsNoticeFn        func(string) (*contracts.RetiredFeedNotice, error)
 }
 
 func (m *MockCalendarService) CreateToken(userID uint, sessionsValidAfter *time.Time, apiBaseURL string) (*contracts.CalendarTokenCreateResponse, error) {
@@ -770,6 +772,18 @@ func (m *MockCalendarService) RenderSavedShowsCalendar(userID uint, frontendURL 
 func (m *MockCalendarService) GenerateFollowsActivityFeed(userID uint, frontendURL string) ([]byte, error) {
 	if m.GenerateFollowsActivityFeedFn != nil {
 		return m.GenerateFollowsActivityFeedFn(userID, frontendURL)
+	}
+	return nil, nil
+}
+func (m *MockCalendarService) RetiredSavedShowsNotice(plainToken string) (*contracts.RetiredFeedNotice, error) {
+	if m.RetiredSavedShowsNoticeFn != nil {
+		return m.RetiredSavedShowsNoticeFn(plainToken)
+	}
+	return nil, nil
+}
+func (m *MockCalendarService) RetiredFollowsNotice(plainToken string) (*contracts.RetiredFeedNotice, error) {
+	if m.RetiredFollowsNoticeFn != nil {
+		return m.RetiredFollowsNoticeFn(plainToken)
 	}
 	return nil, nil
 }
