@@ -92,12 +92,9 @@ interface SeoListOptions {
  * to protect a crawler enrichment. Reporting to Sentry and rendering without
  * the block keeps the failure visible without making it the reader's problem.
  *
- * Read the "and nothing else" literally, because PSY-1624 narrowed it. The
- * human-visible list is now server-rendered on `/shows`, `/venues` and — since
- * PSY-1774 bounded `GET /artists` — `/artists`, but from
- * `lib/ssr/fetchListPayload.ts`, not from here: `/venues` and `/artists` still
- * call this for their `ItemList` alongside that, and `/shows` no longer calls
- * it at all. No browse list is client-only any more.
+ * Read the "and nothing else" literally. `/artists` calls this for its
+ * `ItemList` only; its human-visible rows come from
+ * `lib/ssr/fetchListPayload.ts`, not from here.
  *
  * The opposite call is right whenever the fetch IS the artifact — see
  * `app/sitemap.ts`, where an empty document is a false success, so the fetch
@@ -106,7 +103,7 @@ interface SeoListOptions {
  * Every non-OK status is reported, not just 5xx: a 4xx here is a defect in our
  * own request rather than a backend outage, both ends being ours. Treating one
  * as unremarkable is how `/venues?limit=200` rendered without its `ItemList` in
- * production for months — see `app/venues/venuesMetadata.ts`.
+ * production for months.
  *
  * A SHORT LIST IS REPORTED TOO, which is the other half of the same lesson: a
  * 200 carrying part of the set looks exactly like a 200 carrying all of it from
@@ -182,8 +179,7 @@ export async function fetchSeoList<T>({
  * endpoint reporting a larger `total` means rows were left on the next page; a
  * listing projection reporting one (`/venues/listing`) means rows the browse set
  * contains cannot form a URL. Both are the same defect to a crawler and both
- * want a human. See `app/venues/venuesMetadata.ts` for the history that made
- * this worth generalising rather than fixing at one call site.
+ * want a human.
  *
  * A MISSING `total` MEANS UNKNOWN, NOT ZERO. An endpoint that reports no total
  * is not claiming a larger set, so it must not be read as a shortfall of

@@ -5,10 +5,9 @@ import { VenueList } from '@/features/venues'
 import { venueEndpoints, venueQueryKeys } from '@/features/venues/api'
 import type { VenueCitiesResponse } from '@/features/venues/types'
 import { JsonLd } from '@/components/seo/JsonLd'
-import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
+import { generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { seedFirstScreen } from '@/lib/query-hydration'
 import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
-import { getVenuesForMetadata } from './venuesMetadata'
 import {
   buildVenuesMetadata,
   resolveVenuesPage,
@@ -111,31 +110,15 @@ async function HydratedVenueList() {
  *   GET /venues/cities      5,668 raw    7,560 base64   0.4% of the cap
  *
  * It is not exposed and does not grow with the catalogue: it is a facet
- * aggregate of one row per city. The other fetch, the unbounded one that does
- * grow, is measured beside itself in `venuesMetadata.ts`. `fetchListPayload`
- * weighs this one against the budget on the way through, so a breach fails a
- * build rather than going quiet.
+ * aggregate of one row per city. `fetchListPayload` weighs it against the
+ * budget on the way through, so a breach fails a build rather than going quiet.
  *
- * The ItemList itself is NOT measured here, and it is the part that grows with
- * the catalogue: see `contracts.VenueListingEntry`, which records what it weighs
- * in the rendered document and why that, rather than the cache budget, is the
- * constraint that binds first.
+ * The page publishes no `ItemList` of venues: the `venues` sitemap family is
+ * what announces every venue URL.
  */
-export default async function VenuesPage() {
-  const venues = await getVenuesForMetadata()
-
+export default function VenuesPage() {
   return (
     <>
-      {venues.length > 0 && (
-        <JsonLd data={generateItemListSchema({
-          name: 'Venues',
-          description: 'Music venues in Phoenix and beyond.',
-          listItems: venues.map(venue => ({
-            url: `https://psychichomily.com/venues/${venue.slug}`,
-            name: venue.name,
-          })),
-        })} />
-      )}
       <JsonLd data={generateBreadcrumbSchema([
         { name: 'Home', url: 'https://psychichomily.com' },
         { name: 'Venues', url: 'https://psychichomily.com/venues' },

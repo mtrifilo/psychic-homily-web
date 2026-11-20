@@ -172,8 +172,7 @@ export async function fetchListPayload<T>({
       // Every non-OK status is reported, not just 5xx: both ends are ours, so
       // a 4xx here is a defect in our own request rather than an outage. The
       // `/venues?limit=200` 422 that silently suppressed an `ItemList` in
-      // production for months is the cautionary case (see
-      // `app/venues/venuesMetadata.ts`).
+      // production for months is the cautionary case.
       reportServerFetchFailure({
         response: res,
         service,
