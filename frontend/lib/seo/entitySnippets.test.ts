@@ -626,7 +626,7 @@ describe('releaseSnippet', () => {
 
   it('has no em dash in any output', () => {
     const { title, description } = releaseSnippet(EYES_SHUT)
-    expect(title + description).not.toContain('—')
+    expect(title + description).not.toContain('\u2014')
   })
 })
 
