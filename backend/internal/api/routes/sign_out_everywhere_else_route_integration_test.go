@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -108,6 +109,42 @@ func feedStatus(t *testing.T, router *chi.Mux, token string) int {
 	return sendAuthed(t, router, http.MethodGet, strings.Replace(savedShowsFeedRoute, "{token}", token, 1), "", "203.0.113.198:1234", "").Code
 }
 
+// recordCalendarAppRead records a read of the feed token by a calendar app.
+// The feed route records its reads after the response, off the request, so
+// the read is recorded through the service for the test to rely on it.
+func recordCalendarAppRead(t *testing.T, sc *services.ServiceContainer, token string) {
+	t.Helper()
+	if err := sc.Calendar.RecordFeedRead(context.Background(), token, "iOS/17.5.1 (21F90) dataaccessd/1.0"); err != nil {
+		t.Fatalf("record calendar read: %v", err)
+	}
+}
+
+// requireLinkResetMarker fails unless userID's account holds a calendar
+// link-reset marker, so a call after it is judged with a stale marker present.
+func requireLinkResetMarker(t *testing.T, sc *services.ServiceContainer, userID uint) {
+	t.Helper()
+	status, err := sc.Calendar.GetTokenStatus(userID, "http://localhost:8080")
+	if err != nil {
+		t.Fatalf("read calendar token status: %v", err)
+	}
+	if status.LinkResetAt == nil {
+		t.Fatal("the account holds no link-reset marker; the earlier call should have left one")
+	}
+}
+
+// calendarLinkResetIn decodes a success body's calendar_link_reset, failing
+// when the body does not carry it.
+func calendarLinkResetIn(t *testing.T, w *httptest.ResponseRecorder) bool {
+	t.Helper()
+	var reply struct {
+		CalendarLinkReset *bool `json:"calendar_link_reset"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &reply); err != nil || reply.CalendarLinkReset == nil {
+		t.Fatalf("body %s carries no calendar_link_reset (err %v)", w.Body.String(), err)
+	}
+	return *reply.CalendarLinkReset
+}
+
 func TestSignOutEverywhereElseRouteThroughRouter(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -160,6 +197,7 @@ func TestSignOutEverywhereElseRouteThroughRouter(t *testing.T) {
 	if code := feedStatus(t, f.router, calendarToken.Token); code != http.StatusOK {
 		t.Fatalf("before the call, the calendar feed answered %d, want 200", code)
 	}
+	recordCalendarAppRead(t, f.sc, calendarToken.Token)
 
 	w := signOutEverywhereElse(t, f.router, "203.0.113.191:1234", thisDevice)
 	if w.Code != http.StatusOK {
@@ -170,6 +208,9 @@ func TestSignOutEverywhereElseRouteThroughRouter(t *testing.T) {
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &reply); err != nil || !reply.Success {
 		t.Fatalf("body %s, want success", w.Body.String())
+	}
+	if !calendarLinkResetIn(t, w) {
+		t.Errorf("body %s, want calendar_link_reset true: the call deleted a link a calendar app had read", w.Body.String())
 	}
 	renewed := renewedSession(t, w)
 
@@ -208,9 +249,15 @@ func TestSignOutEverywhereElseRouteThroughRouter(t *testing.T) {
 	})
 
 	t.Run("the renewed session can sign out the rest again", func(t *testing.T) {
+		requireLinkResetMarker(t, f.sc, f.user.ID)
 		w := signOutEverywhereElse(t, f.router, "203.0.113.193:1234", renewed)
 		if w.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+		}
+		// The first call's link-reset marker is still on the account, and this
+		// call deleted no link.
+		if calendarLinkResetIn(t, w) {
+			t.Errorf("body %s, want calendar_link_reset false: there was no link left to reset", w.Body.String())
 		}
 		again := renewedSession(t, w)
 		if code := profileStatus(t, f.router, renewed); code != http.StatusUnauthorized {

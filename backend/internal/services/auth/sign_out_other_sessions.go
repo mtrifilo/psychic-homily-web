@@ -9,13 +9,15 @@ import (
 
 	authm "psychic-homily-backend/internal/models/auth"
 	engagementm "psychic-homily-backend/internal/models/engagement"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
 )
 
 // SignOutOtherSessions revokes every session user's account holds and its
 // calendar-feed token (revokeSessionsAndFeedToken) and returns the session
 // the caller goes on with: a renewal for the account as the revocation left
-// it, carrying authAt through unchanged. user is the principal the caller's
+// it, carrying authAt through unchanged, with whether the revocation reset a
+// calendar link a calendar app had read. user is the principal the caller's
 // session validation loaded; its SessionsValidAfter is that session's
 // revocation stamp.
 //
@@ -28,7 +30,7 @@ import (
 // mint failure rolls the revocation back.
 //
 // API tokens are not sessions and are left in place.
-func (s *AuthService) SignOutOtherSessions(user *authm.User, authAt time.Time) (string, error) {
+func (s *AuthService) SignOutOtherSessions(user *authm.User, authAt time.Time) (*contracts.OtherSessionsSignOut, error) {
 	return signOutOtherSessions(s.db, user, authAt, time.Now(), s.jwtService.RenewSessionToken)
 }
 
@@ -38,8 +40,8 @@ type sessionMint func(account *authm.User, authAt time.Time) (string, error)
 
 // signOutOtherSessions is SignOutOtherSessions with the database, the clock
 // and the mint supplied.
-func signOutOtherSessions(db *gorm.DB, user *authm.User, authAt, now time.Time, mint sessionMint) (string, error) {
-	var token string
+func signOutOtherSessions(db *gorm.DB, user *authm.User, authAt, now time.Time, mint sessionMint) (*contracts.OtherSessionsSignOut, error) {
+	var signOut contracts.OtherSessionsSignOut
 	err := db.Transaction(func(tx *gorm.DB) error {
 		// FOR UPDATE rather than shared.LockSessionAccount's FOR SHARE: the
 		// revocation writes this row, and two calls that each held it FOR
@@ -53,7 +55,8 @@ func signOutOtherSessions(db *gorm.DB, user *authm.User, authAt, now time.Time, 
 		if err := shared.CheckSessionAccount(&account, user.SessionsValidAfter); err != nil {
 			return err
 		}
-		if err := revokeSessionsAndFeedToken(tx, &account, now, engagementm.CalendarLinkResetSignOutEverywhere); err != nil {
+		calendarLinkReset, err := revokeSessionsAndFeedToken(tx, &account, now, engagementm.CalendarLinkResetSignOutEverywhere)
+		if err != nil {
 			return err
 		}
 		// The revocation set account.SessionsValidAfter to the stamp it
@@ -62,8 +65,11 @@ func signOutOtherSessions(db *gorm.DB, user *authm.User, authAt, now time.Time, 
 		if err != nil {
 			return fmt.Errorf("failed to mint the replacement session: %w", err)
 		}
-		token = minted
+		signOut = contracts.OtherSessionsSignOut{Token: minted, CalendarLinkReset: calendarLinkReset}
 		return nil
 	})
-	return token, err
+	if err != nil {
+		return nil, err
+	}
+	return &signOut, nil
 }

@@ -9487,6 +9487,11 @@ export interface components {
         };
         CompletePasswordResetResponseBody: {
             /**
+             * @description This reset deleted a calendar feed link that a calendar app had read in the 30 days before, in a read the account had not forgotten (DELETE /calendar/token/reads), so that calendar stops updating until the link is added again. False otherwise, including on a refusal and when there was no link to delete
+             * @example false
+             */
+            calendar_link_reset: boolean;
+            /**
              * @description Error code for programmatic handling
              * @example INVALID_TOKEN
              */
@@ -15665,6 +15670,11 @@ export interface components {
             state: string;
         };
         SignOutEverywhereElseResponseBody: {
+            /**
+             * @description This call deleted a calendar feed link that a calendar app had read in the 30 days before, in a read the account had not forgotten (DELETE /calendar/token/reads), so that calendar stops updating until the link is added again. False otherwise, including when there was no link to delete
+             * @example false
+             */
+            calendar_link_reset: boolean;
             /**
              * @description Request ID for debugging
              * @example 550e8400-e29b-41d4-a716-446655440000

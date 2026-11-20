@@ -273,9 +273,21 @@ var ErrPasswordResetLinkSpent = errors.New("password reset link no longer valid"
 
 // PasswordResetCompletion is a password set by an emailed reset link: the
 // account as the reset left it and the session issued for this browser.
+// CalendarLinkReset is true only when this reset deleted a calendar-feed link
+// a calendar app had read, the case in which it records the link reset.
 type PasswordResetCompletion struct {
-	User  *authm.User
-	Token string
+	User              *authm.User
+	Token             string
+	CalendarLinkReset bool
+}
+
+// OtherSessionsSignOut is every other session of an account signed out: the
+// renewal of the caller's session that the caller goes on with.
+// CalendarLinkReset is true only when the sign-out deleted a calendar-feed
+// link a calendar app had read, the case in which it records the link reset.
+type OtherSessionsSignOut struct {
+	Token             string
+	CalendarLinkReset bool
 }
 
 // OAuthPendingSignup is a provider identity held for the "Create your
@@ -377,7 +389,9 @@ type AuthServiceInterface interface {
 	// account row, refuses as PasswordResetAccount does, writes the hash only
 	// over the hash the link was minted against, revokes every session the
 	// account holds, deletes its calendar-feed token and issues a new session
-	// for this browser. Passkeys, provider identities and API tokens stay.
+	// for this browser, reporting whether the deletion reset a link a
+	// calendar app had read. Passkeys, provider identities and API tokens
+	// stay.
 	// newPassword must already have passed the password validator; a password
 	// bcrypt cannot hash is refused with CodeValidationFailed.
 	CompletePasswordReset(claims *PasswordResetTokenClaims, newPassword string) (*PasswordResetCompletion, error)
@@ -402,12 +416,13 @@ type AuthServiceInterface interface {
 	// SignOutOtherSessions revokes every session user's account holds,
 	// deletes its calendar-feed token, and returns a renewal of the caller's
 	// session for the account as the revocation left it, carrying authAt
-	// through unchanged; the revocation commits only together with that
+	// through unchanged, with whether the deletion reset a link a calendar app
+	// had read; the revocation commits only together with that
 	// renewal. user is the principal the caller's session validation loaded.
 	// Refuses, revoking nothing, with shared.CheckSessionAccount's refusals
 	// when the account may no longer sign in or that session has been revoked
 	// since its validation. API tokens are not touched.
-	SignOutOtherSessions(user *authm.User, authAt time.Time) (string, error)
+	SignOutOtherSessions(user *authm.User, authAt time.Time) (*OtherSessionsSignOut, error)
 	Logout(w http.ResponseWriter, r *http.Request) error
 	SetOAuthCompleter(completer OAuthCompleter)
 }

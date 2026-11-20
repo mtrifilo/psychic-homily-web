@@ -37,11 +37,12 @@ let completeState: RequestState = { ...idle(), isPending: false }
 const mockCheck = vi.fn()
 const mockCheckRefetch = vi.fn()
 const mockComplete = vi.fn()
-// The calendar feed status State 4A reads; undefined while loading or failed.
-let feedStatus: unknown = undefined
+// The calendar feed status, holding an earlier password reset's marker: a
+// page that inferred the reset from it would add the sentence after a reset
+// that reports none.
 const mockFeedStatus = vi.fn()
 
-vi.mock('@/features/auth', async () => ({
+vi.mock('@/features/auth', () => ({
   useCheckPasswordReset: (token: string | null) => {
     mockCheck(token)
     return { ...checkState, refetch: mockCheckRefetch }
@@ -49,13 +50,10 @@ vi.mock('@/features/auth', async () => ({
   useCompletePasswordReset: () => ({ ...completeState, mutate: mockComplete }),
   useCalendarFeedStatus: () => {
     mockFeedStatus()
-    return { data: feedStatus }
+    return {
+      data: { has_token: false, link_reset_at: '2026-11-10T12:00:00Z', link_reset_reason: 'password_reset' },
+    }
   },
-  calendarLinkWasResetBy: (
-    await vi.importActual<typeof import('@/features/auth/hooks/useCalendarFeed')>(
-      '@/features/auth/hooks/useCalendarFeed'
-    )
-  ).calendarLinkWasResetBy,
 }))
 
 function refusal(code: string, message = 'refused') {
@@ -113,7 +111,6 @@ describe('Reset password page', () => {
     mockComplete.mockReset()
     mockSetUser.mockReset()
     mockFeedStatus.mockReset()
-    feedStatus = undefined
   })
 
   it('checks the link on open, waits for the answer and spends nothing', () => {
@@ -214,15 +211,13 @@ describe('Reset password page', () => {
     const SIGNED_IN_LINE =
       "You're signed in on this device. Every other device was signed out. Your passkeys still work."
     const RESET_LINE = `${SIGNED_IN_LINE} Your calendar link was reset too; add it again in Settings.`
-    const resetBy = (reason: string) => ({
-      has_token: false,
-      link_reset_at: '2026-11-10T12:00:00Z',
-      link_reset_reason: reason,
-    })
 
-    function renderDone() {
+    function renderDone(calendarLinkReset: boolean) {
       checkState = checked()
-      completeState = submitted({ isSuccess: true, data: { success: true } })
+      completeState = submitted({
+        isSuccess: true,
+        data: { success: true, calendar_link_reset: calendarLinkReset },
+      })
       renderWithProviders(<ResetPasswordPage />)
       return screen.getByRole('heading', { name: 'New password set.' })
     }
@@ -233,9 +228,8 @@ describe('Reset password page', () => {
       )
     }
 
-    it('appends the reset sentence when the reset left its marker, linking to the calendar card', () => {
-      feedStatus = resetBy('password_reset')
-      renderDone()
+    it('appends the reset sentence when the reset says it reset a link, linking to the calendar card', () => {
+      renderDone(true)
 
       expect(signedInParagraph().textContent).toBe(RESET_LINE)
       const settings = screen.getByRole('link', { name: 'Settings' })
@@ -243,41 +237,22 @@ describe('Reset password page', () => {
       expect(settings).toHaveClass('text-link', 'underline')
     })
 
-    it('reads the status only once the reset has succeeded', () => {
-      checkState = checked()
-      renderWithProviders(<ResetPasswordPage />)
-
-      expect(screen.getByRole('heading', { name: 'Reset your password' })).toBeInTheDocument()
-      expect(mockFeedStatus).not.toHaveBeenCalled()
-
-      renderDone()
-      expect(mockFeedStatus).toHaveBeenCalled()
-    })
-
-    it('leaves the line as shipped while the status is unknown', () => {
-      feedStatus = undefined
-      renderDone()
+    it('leaves the line as shipped when the reset says it reset no link', () => {
+      renderDone(false)
 
       expect(signedInParagraph().textContent).toBe(SIGNED_IN_LINE)
       expect(screen.queryByRole('link', { name: 'Settings' })).not.toBeInTheDocument()
     })
 
-    it('leaves the line as shipped when no link was reset', () => {
-      feedStatus = { has_token: false }
-      renderDone()
-
-      expect(signedInParagraph().textContent).toBe(SIGNED_IN_LINE)
-    })
-
-    it('ignores a marker another action left', () => {
-      feedStatus = resetBy('sign_out_everywhere')
-      renderDone()
-
-      expect(signedInParagraph().textContent).toBe(SIGNED_IN_LINE)
+    // The stored marker outlives its reset, and a feed status read can fail or
+    // still be loading, so the page answers from the reset's response alone.
+    it('does not read the calendar feed status, so a failed, pending or stale read cannot change the line', () => {
+      renderDone(true)
+      expect(signedInParagraph().textContent).toBe(RESET_LINE)
+      expect(mockFeedStatus).not.toHaveBeenCalled()
     })
 
     it('leaves the "When you set it" box silent about the calendar', () => {
-      feedStatus = resetBy('password_reset')
       checkState = checked()
       renderWithProviders(<ResetPasswordPage />)
 

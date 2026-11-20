@@ -104,8 +104,8 @@ describe('password reset hooks', () => {
     expect(refetch).toHaveBeenCalledWith({ queryKey: ['auth', 'profile'] })
   })
 
-  // The reset deletes the calendar link, and the success page reads the feed
-  // status to say so: a status cached before the reset must not answer.
+  // The reset deletes the calendar link, so no surface may go on saying there
+  // is one from a status cached before the reset.
   it('drops the calendar feed status cached before the reset', async () => {
     mockApiRequest.mockResolvedValueOnce({ success: true, message: 'Password reset' })
     const queryClient = createTestQueryClient()

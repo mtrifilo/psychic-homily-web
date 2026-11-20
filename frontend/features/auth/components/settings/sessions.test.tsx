@@ -251,9 +251,9 @@ describe('SessionsSettings', () => {
   })
 
   describe('after the action', () => {
-    it('says the link was reset when the status read after the action carries this action\'s marker', async () => {
+    it('says the link was reset when the response says this sign-out reset one', async () => {
       mockFeedStatusRequest.mockResolvedValueOnce(HAS_LINK).mockResolvedValue(RESET_BY_SIGN_OUT)
-      mockSignOutRequest.mockResolvedValueOnce({ success: true })
+      mockSignOutRequest.mockResolvedValueOnce({ success: true, calendar_link_reset: true })
       const user = userEvent.setup()
       renderWithProviders(<SessionsSettings />)
       expect(await screen.findByText(HELPER_LINE_WITH_LINK)).toBeInTheDocument()
@@ -266,7 +266,7 @@ describe('SessionsSettings', () => {
         CALENDAR_FEED_SETTINGS_HREF
       )
       // The link is gone, so the line under the button no longer mentions it.
-      expect(screen.getByText(HELPER_LINE)).toBeInTheDocument()
+      await waitFor(() => expect(screen.getByText(HELPER_LINE)).toBeInTheDocument())
       // The status was read again, after the sign-out request.
       expect(mockFeedStatusRequest).toHaveBeenCalledTimes(2)
       expect(mockFeedStatusRequest.mock.invocationCallOrder[1]).toBeGreaterThan(
@@ -274,132 +274,70 @@ describe('SessionsSettings', () => {
       )
     })
 
-    it('shows the shipped line when no link a calendar app was reading was reset', async () => {
-      mockFeedStatusRequest.mockResolvedValueOnce(HAS_LINK).mockResolvedValue(NO_LINK)
-      mockSignOutRequest.mockResolvedValueOnce({ success: true })
-      const user = userEvent.setup()
-      renderWithProviders(<SessionsSettings />)
-      await screen.findByText(HELPER_LINE_WITH_LINK)
-
-      await confirmSignOut(user)
-
-      await waitFor(() => expect(mockFeedStatusRequest).toHaveBeenCalledTimes(2))
-      await waitFor(() => expect(screen.getByText(HELPER_LINE)).toBeInTheDocument())
-      expect(screen.getByRole('status').textContent).toBe(SUCCESS_LINE)
-      expect(screen.queryByRole('link', { name: 'Calendar' })).not.toBeInTheDocument()
-    })
-
-    it('ignores a marker another action left', async () => {
-      mockFeedStatusRequest.mockResolvedValueOnce(HAS_LINK).mockResolvedValue({
-        ...RESET_BY_SIGN_OUT,
-        link_reset_reason: 'password_reset',
-      })
-      mockSignOutRequest.mockResolvedValueOnce({ success: true })
-      const user = userEvent.setup()
-      renderWithProviders(<SessionsSettings />)
-      await screen.findByText(HELPER_LINE_WITH_LINK)
-
-      await confirmSignOut(user)
-
-      await waitFor(() => expect(mockFeedStatusRequest).toHaveBeenCalledTimes(2))
-      expect(screen.getByRole('status').textContent).toBe(SUCCESS_LINE)
-    })
-
-    it('does not reuse the status read before the action while the new read is pending', async () => {
-      // A marker already on the account before the action, then a read that
-      // never answers.
-      mockFeedStatusRequest
-        .mockResolvedValueOnce(RESET_BY_SIGN_OUT)
-        .mockImplementation(() => new Promise(() => {}))
-      mockSignOutRequest.mockResolvedValueOnce({ success: true })
-      const user = userEvent.setup()
-      renderWithProviders(<SessionsSettings />)
-      await waitFor(() => expect(mockFeedStatusRequest).toHaveBeenCalledTimes(1))
-
-      await confirmSignOut(user)
-
-      expect(await screen.findByRole('status')).toHaveTextContent(SUCCESS_LINE)
-      await waitFor(() => expect(mockFeedStatusRequest).toHaveBeenCalledTimes(2))
-      expect(screen.getByRole('status').textContent).toBe(SUCCESS_LINE)
-    })
-
     // The backend keeps a marker until a link is added again, and an action on
-    // an account with no link leaves it in place: the read after this action
-    // returns the earlier action's marker unchanged.
-    it('ignores a marker an earlier sign-out left when there was no link to reset', async () => {
+    // an account with no link leaves it in place, so the status after this
+    // action can carry an earlier sign-out's marker.
+    it('shows the shipped line when the response says no link was reset, whatever marker the status holds', async () => {
       mockFeedStatusRequest.mockResolvedValue(RESET_BY_SIGN_OUT)
-      mockSignOutRequest.mockResolvedValueOnce({ success: true })
+      mockSignOutRequest.mockResolvedValueOnce({ success: true, calendar_link_reset: false })
       const user = userEvent.setup()
       renderWithProviders(<SessionsSettings />)
       await waitFor(() => expect(mockFeedStatusRequest).toHaveBeenCalledTimes(1))
-      expect(screen.getByText(HELPER_LINE)).toBeInTheDocument()
-
-      await confirmSignOut(user)
-
-      await waitFor(() => expect(mockFeedStatusRequest).toHaveBeenCalledTimes(2))
-      await waitFor(() => expect(screen.getByRole('status').textContent).toBe(SUCCESS_LINE))
-      expect(screen.queryByRole('link', { name: 'Calendar' })).not.toBeInTheDocument()
-    })
-
-    // This page's status can be stale: a link made in another tab or on another
-    // device since it was read. A marker that is new since the confirm is this
-    // action's.
-    it('says the link was reset when the marker is new, even if this page had not seen the link', async () => {
-      mockFeedStatusRequest.mockResolvedValueOnce(NO_LINK).mockResolvedValue(RESET_BY_SIGN_OUT)
-      mockSignOutRequest.mockResolvedValueOnce({ success: true })
-      const user = userEvent.setup()
-      renderWithProviders(<SessionsSettings />)
-      await waitFor(() => expect(mockFeedStatusRequest).toHaveBeenCalledTimes(1))
-      expect(screen.getByText(HELPER_LINE)).toBeInTheDocument()
-
-      await confirmSignOut(user)
-
-      await waitFor(() => expect(screen.getByRole('status').textContent).toBe(RESET_SUCCESS_LINE))
-    })
-
-    it('says the link was reset when a new marker replaces an earlier one', async () => {
-      mockFeedStatusRequest
-        .mockResolvedValueOnce(RESET_BY_SIGN_OUT)
-        .mockResolvedValue({ ...RESET_BY_SIGN_OUT, link_reset_at: '2026-11-11T09:00:00Z' })
-      mockSignOutRequest.mockResolvedValueOnce({ success: true })
-      const user = userEvent.setup()
-      renderWithProviders(<SessionsSettings />)
-      await waitFor(() => expect(mockFeedStatusRequest).toHaveBeenCalledTimes(1))
-
-      await confirmSignOut(user)
-
-      await waitFor(() => expect(screen.getByRole('status').textContent).toBe(RESET_SUCCESS_LINE))
-    })
-
-    it('makes no reset claim when the status was unknown as the action was confirmed', async () => {
-      // The first read never answers, so the card cannot know a link existed.
-      mockFeedStatusRequest
-        .mockImplementationOnce(() => new Promise(() => {}))
-        .mockResolvedValue(RESET_BY_SIGN_OUT)
-      mockSignOutRequest.mockResolvedValueOnce({ success: true })
-      const user = userEvent.setup()
-      renderWithProviders(<SessionsSettings />)
-
-      await confirmSignOut(user)
-
-      await waitFor(() => expect(mockFeedStatusRequest).toHaveBeenCalledTimes(2))
-      await waitFor(() => expect(screen.getByRole('status').textContent).toBe(SUCCESS_LINE))
-    })
-
-    it('shows the shipped line when the status cannot be read after the action', async () => {
-      mockFeedStatusRequest
-        .mockResolvedValueOnce(HAS_LINK)
-        .mockRejectedValue(new Error('HTTP 503'))
-      mockSignOutRequest.mockResolvedValueOnce({ success: true })
-      const user = userEvent.setup()
-      renderWithProviders(<SessionsSettings />)
-      await screen.findByText(HELPER_LINE_WITH_LINK)
 
       await confirmSignOut(user)
 
       await waitFor(() => expect(mockFeedStatusRequest).toHaveBeenCalledTimes(2))
       expect((await screen.findByRole('status')).textContent).toBe(SUCCESS_LINE)
-      expect(screen.getByText(HELPER_LINE)).toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: 'Calendar' })).not.toBeInTheDocument()
+    })
+
+    it('says the link was reset even when the status could never be read', async () => {
+      mockFeedStatusRequest.mockRejectedValue(new Error('HTTP 503'))
+      mockSignOutRequest.mockResolvedValueOnce({ success: true, calendar_link_reset: true })
+      const user = userEvent.setup()
+      renderWithProviders(<SessionsSettings />)
+      await waitFor(() => expect(mockFeedStatusRequest).toHaveBeenCalled())
+
+      await confirmSignOut(user)
+
+      await waitFor(() => expect(screen.getByRole('status').textContent).toBe(RESET_SUCCESS_LINE))
+    })
+
+    it('says the link was reset even while the status read is still pending', async () => {
+      mockFeedStatusRequest.mockImplementation(() => new Promise(() => {}))
+      mockSignOutRequest.mockResolvedValueOnce({ success: true, calendar_link_reset: true })
+      const user = userEvent.setup()
+      renderWithProviders(<SessionsSettings />)
+
+      await confirmSignOut(user)
+
+      await waitFor(() => expect(screen.getByRole('status').textContent).toBe(RESET_SUCCESS_LINE))
+    })
+
+    it('shows the shipped line when no link was reset and the status cannot be read', async () => {
+      mockFeedStatusRequest.mockRejectedValue(new Error('HTTP 503'))
+      mockSignOutRequest.mockResolvedValueOnce({ success: true, calendar_link_reset: false })
+      const user = userEvent.setup()
+      renderWithProviders(<SessionsSettings />)
+
+      await confirmSignOut(user)
+
+      expect((await screen.findByRole('status')).textContent).toBe(SUCCESS_LINE)
+    })
+
+    it('a second sign-out that reset no link drops the first one\'s calendar sentence', async () => {
+      mockSignOutRequest
+        .mockResolvedValueOnce({ success: true, calendar_link_reset: true })
+        .mockResolvedValueOnce({ success: true, calendar_link_reset: false })
+      const user = userEvent.setup()
+      renderWithProviders(<SessionsSettings />)
+
+      await confirmSignOut(user)
+      await waitFor(() => expect(screen.getByRole('status').textContent).toBe(RESET_SUCCESS_LINE))
+
+      await confirmSignOut(user)
+      await waitFor(() => expect(mockSignOutRequest).toHaveBeenCalledTimes(2))
+      await waitFor(() => expect(screen.getByRole('status').textContent).toBe(SUCCESS_LINE))
     })
 
     it('"Calendar" reveals this page\'s calendar card in place', async () => {
@@ -410,7 +348,7 @@ describe('SessionsSettings', () => {
         Element.prototype.scrollIntoView = originalScrollIntoView
       })
       mockFeedStatusRequest.mockResolvedValueOnce(HAS_LINK).mockResolvedValue(RESET_BY_SIGN_OUT)
-      mockSignOutRequest.mockResolvedValueOnce({ success: true })
+      mockSignOutRequest.mockResolvedValueOnce({ success: true, calendar_link_reset: true })
       const user = userEvent.setup()
       renderWithProviders(
         <div>

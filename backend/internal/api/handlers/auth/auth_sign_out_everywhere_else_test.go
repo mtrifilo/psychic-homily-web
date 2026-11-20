@@ -16,22 +16,27 @@ import (
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
 )
 
 // signOutRecorder records what the handler hands the service.
 type signOutRecorder struct {
-	calls  int
-	user   *authm.User
-	authAt time.Time
-	token  string
-	err    error
+	calls             int
+	user              *authm.User
+	authAt            time.Time
+	token             string
+	calendarLinkReset bool
+	err               error
 }
 
-func (r *signOutRecorder) fn(user *authm.User, authAt time.Time) (string, error) {
+func (r *signOutRecorder) fn(user *authm.User, authAt time.Time) (*contracts.OtherSessionsSignOut, error) {
 	r.calls++
 	r.user, r.authAt = user, authAt
-	return r.token, r.err
+	if r.err != nil {
+		return nil, r.err
+	}
+	return &contracts.OtherSessionsSignOut{Token: r.token, CalendarLinkReset: r.calendarLinkReset}, nil
 }
 
 func signOutHandler(rec *signOutRecorder) *AuthHandler {
@@ -71,6 +76,22 @@ func TestSignOutEverywhereElseHandler_RenewsTheCallersSession(t *testing.T) {
 	want := h.config.JWT.SessionLifetime()
 	if lifetime := time.Until(resp.SetCookie.Expires); lifetime < want-time.Minute || lifetime > want {
 		t.Errorf("cookie lifetime = %v, want the configured session lifetime %v", lifetime, want)
+	}
+}
+
+// The response says a calendar link was reset exactly when the service says
+// this sign-out reset one.
+func TestSignOutEverywhereElseHandler_ReportsTheCalendarLinkReset(t *testing.T) {
+	for _, reset := range []bool{true, false} {
+		h := signOutHandler(&signOutRecorder{token: "renewed-token", calendarLinkReset: reset})
+
+		resp, err := h.SignOutEverywhereElseHandler(testhelpers.CtxWithSession(signedInUser(), time.Now()), nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.Body.CalendarLinkReset != reset {
+			t.Errorf("calendar_link_reset = %v, want the service's %v", resp.Body.CalendarLinkReset, reset)
+		}
 	}
 }
 

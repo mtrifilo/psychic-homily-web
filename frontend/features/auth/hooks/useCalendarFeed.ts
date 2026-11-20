@@ -12,12 +12,10 @@ import { refetchAfterMutation } from '@/lib/refetchAfterMutation'
 import { isAuthError } from '@/lib/errors'
 import { retryWhileFailed } from '@/lib/retryFailedRead'
 import type { ApiError } from '@/lib/api'
-import { calendarResetReason } from '@/features/collections/lib/calendarFeedStatus'
 import type { CalendarFeedClient } from '@/features/shows/types'
 import type {
   CalendarFeedStatusResponse,
   ForgetCalendarFeedReadResponse,
-  CalendarLinkResetReason,
   CalendarTokenStatusResponse,
   CalendarTokenCreateResponse,
   CalendarTokenDeleteResponse,
@@ -140,36 +138,18 @@ export function emailCalendarStepsFailure(
 }
 
 /**
- * Whether `status` carries the marker `reason` left when it reset the calendar
- * link. The backend leaves one only when a calendar app had been reading the
- * link, so a link nobody used yields false. Unknown status (loading or failed)
- * is false too: the reader is never told about a reset that was not confirmed.
- *
- * The marker outlives the action that left it, until a link is added again
- * or the feed is turned off, and a later action on an account with no link
- * leaves it as it is. So it says that SOME action of this kind reset a link;
- * a caller that can see the status from before its action should also require
- * the marker to differ from the one it held then.
- */
-export function calendarLinkWasResetBy(
-  status: CalendarFeedStatusResponse | undefined,
-  reason: CalendarLinkResetReason
-): boolean {
-  return calendarResetReason(status) === reason
-}
-
-/**
  * Calendar caches after a security action (signing out everywhere else, or a
  * password reset), which deletes the account's feed link and can leave a
  * link-reset marker.
  *
  * The feed status is RESET rather than refetched, so its pre-action value is
- * gone the moment the action succeeds: a surface reporting what the action did
- * to the link can only ever read a status fetched after it. Resetting cancels
- * any fetch in flight, and an active query refetches at once. The token status
- * refetches in place instead, so the Settings calendar card keeps its content
- * on screen until the new answer lands. The feed cards hold a link they just
- * minted outside the cache, so they are told the link is gone as well.
+ * gone the moment the action succeeds: no surface goes on saying there is a
+ * link, the one the action deleted, while the new read is in flight.
+ * Resetting cancels any fetch in flight, and an active query refetches at
+ * once. The token status refetches in place instead, so the Settings calendar
+ * card keeps its content on screen until the new answer lands. The feed cards
+ * hold a link they just minted outside the cache, so they are told the link is
+ * gone as well.
  *
  * Never rejects.
  */
