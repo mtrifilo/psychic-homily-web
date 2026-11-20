@@ -3,6 +3,7 @@ package errors
 
 import (
 	"fmt"
+	"time"
 )
 
 // Show error codes
@@ -29,6 +30,9 @@ const (
 	CodeArtistRequired = "ARTIST_REQUIRED"
 	// CodeInvalidEventDate indicates an invalid event date
 	CodeInvalidEventDate = "INVALID_EVENT_DATE"
+	// CodeShowEventDateBeyondBound indicates a create dated past the far-future
+	// bound without the override
+	CodeShowEventDateBeyondBound = "SHOW_EVENT_DATE_BEYOND_BOUND"
 	// CodeShowUnpublishUnauthorized indicates user is not authorized to unpublish the show
 	CodeShowUnpublishUnauthorized = "SHOW_UNPUBLISH_UNAUTHORIZED"
 	// CodeShowMakePrivateUnauthorized indicates user is not authorized to make the show private
@@ -161,6 +165,16 @@ func ErrArtistRequired() *ShowError {
 // ErrInvalidEventDate creates an invalid event date error.
 func ErrInvalidEventDate(message string) *ShowError {
 	return NewShowError(CodeInvalidEventDate, message, nil)
+}
+
+// ErrShowEventDateBeyondBound creates the refusal for a show dated more than
+// boundMonths after now. The message is user-facing: it names the bound and the
+// override, because the caller can act on both.
+func ErrShowEventDateBeyondBound(eventDate, bound time.Time, boundMonths int) *ShowError {
+	return NewShowError(CodeShowEventDateBeyondBound, fmt.Sprintf(
+		"event_date %s is more than %d months ahead (the latest date accepted today is %s). "+
+			"An admin can create it anyway by sending allow_far_future_date: true (ph: --allow-far-future)",
+		eventDate.UTC().Format(time.RFC3339), boundMonths, bound.UTC().Format(time.RFC3339)), nil)
 }
 
 // ErrShowUnpublishUnauthorized creates a show unpublish unauthorized error.
