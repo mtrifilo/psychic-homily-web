@@ -427,7 +427,6 @@ func TestRateLimitPathFamily(t *testing.T) {
 		{"/shows/upcoming", PathFamilyOther},
 		{"/shows/calendar/range", PathFamilyOther},
 		{"/shows/saves/batch", PathFamilyOther},
-		{"/venues/listing", PathFamilyOther},
 		{"/artists//shows", PathFamilyOther},
 		{"/labels/sub-pop", PathFamilyOther},
 		{"/search/radiohead", PathFamilyOther},

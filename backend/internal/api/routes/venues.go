@@ -14,12 +14,10 @@ func setupVenueRoutes(rc RouteContext) {
 	//
 	// The static segments are grouped above `/venues/{venue_id}` for reading
 	// order, NOT for precedence: chi walks static children before parameterised
-	// ones, so `/venues/listing` beats the parameter regardless of registration
-	// order. venue_listing_routing_test.go asserts the resolution rather than
-	// the ordering, which is the part that would actually break.
+	// ones, so `/venues/cities` beats the parameter regardless of registration
+	// order.
 	huma.Get(rc.API, "/venues", venueHandler.ListVenuesHandler)
 	huma.Get(rc.API, "/venues/cities", venueHandler.GetVenueCitiesHandler)
-	huma.Get(rc.API, "/venues/listing", venueHandler.ListVenueListingHandler)
 	huma.Get(rc.API, "/venues/search", venueHandler.SearchVenuesHandler)
 	huma.Get(rc.API, "/venues/{venue_id}", venueHandler.GetVenueHandler)
 	huma.Get(rc.API, "/venues/{venue_id}/shows", venueHandler.GetVenueShowsHandler)

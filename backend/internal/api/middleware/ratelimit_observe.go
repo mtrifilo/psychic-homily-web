@@ -293,7 +293,7 @@ var entityCollections = map[string]entityCollection{
 		"ai-process": true, "calendar": true, "cities": true, "months": true,
 		"my-submissions": true, "saves": true, "search": true, "upcoming": true,
 	}},
-	"venues": {pathFamilyVenue, map[string]bool{"cities": true, "listing": true, "search": true}},
+	"venues": {pathFamilyVenue, map[string]bool{"cities": true, "search": true}},
 	"scenes": {pathFamilyScene, nil},
 }
 

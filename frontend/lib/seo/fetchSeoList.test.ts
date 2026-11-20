@@ -29,7 +29,7 @@ const call = (fetchImpl: typeof fetch, timeoutMs?: number) =>
   fetchSeoList<{ slug: string }>({
     url: 'https://api.example.test/venues?limit=100',
     collection: 'venues',
-    service: 'venues-listing',
+    service: 'seo-list-fixture',
     fetchImpl,
     ...(timeoutMs === undefined ? {} : { timeoutMs }),
   })
@@ -59,18 +59,17 @@ describe('fetchSeoList', () => {
     expect(captureException).not.toHaveBeenCalled()
   })
 
-  // The regression this helper exists for: `/venues?limit=200` 422'd on every
-  // render because the endpoint caps `limit` at 100, and the old per-page
-  // fail-open only reported 5xx — so the missing ItemList was invisible.
+  // A 4xx is a defect in our own request, so it is reported like a 5xx; the
+  // page still renders, without the block.
   it('reports a 4xx, not just a 5xx, and still fails open', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 422 }))
 
     await expect(call(fetchImpl)).resolves.toEqual([])
     expect(captureMessage).toHaveBeenCalledWith(
-      'venues-listing: API returned 422',
+      'seo-list-fixture: API returned 422',
       expect.objectContaining({
         level: 'error',
-        tags: expect.objectContaining({ service: 'venues-listing' }),
+        tags: expect.objectContaining({ service: 'seo-list-fixture' }),
       })
     )
   })
@@ -80,8 +79,8 @@ describe('fetchSeoList', () => {
 
     await expect(call(fetchImpl)).resolves.toEqual([])
     expect(captureMessage).toHaveBeenCalledWith(
-      'venues-listing: API returned 503',
-      expect.objectContaining({ tags: expect.objectContaining({ service: 'venues-listing' }) })
+      'seo-list-fixture: API returned 503',
+      expect.objectContaining({ tags: expect.objectContaining({ service: 'seo-list-fixture' }) })
     )
   })
 
@@ -101,8 +100,8 @@ describe('fetchSeoList', () => {
 
     await expect(call(fetchImpl)).resolves.toEqual([])
     expect(captureMessage).toHaveBeenCalledWith(
-      'venues-listing: response has no "venues" array',
-      expect.objectContaining({ tags: { service: 'venues-listing' } })
+      'seo-list-fixture: response has no "venues" array',
+      expect.objectContaining({ tags: { service: 'seo-list-fixture' } })
     )
   })
 
@@ -113,7 +112,7 @@ describe('fetchSeoList', () => {
     await expect(call(fetchImpl)).resolves.toEqual([])
     expect(captureException).toHaveBeenCalledWith(
       error,
-      expect.objectContaining({ tags: { service: 'venues-listing' } })
+      expect.objectContaining({ tags: { service: 'seo-list-fixture' } })
     )
   })
 
@@ -150,7 +149,7 @@ describe('fetchSeoList', () => {
     await expect(result).resolves.toEqual([])
     expect(captureException).toHaveBeenCalledWith(
       timeoutError,
-      expect.objectContaining({ tags: { service: 'venues-listing' } })
+      expect.objectContaining({ tags: { service: 'seo-list-fixture' } })
     )
   })
 })
@@ -175,14 +174,14 @@ describe('fetchSeoList and a short list', () => {
     // failed fetch still renders the page. The event is what changes.
     await expect(call(fetchImpl)).resolves.toEqual([{ slug: 'a' }])
     expect(captureMessage).toHaveBeenCalledWith(
-      expect.stringContaining('venues-listing: list is short of the total'),
+      expect.stringContaining('seo-list-fixture: list is short of the total'),
       expect.objectContaining({
         // WARNING, not error: on a limitless endpoint the reachable cause is a
         // venue with no slug, which no deploy fixes and which would otherwise
         // re-page someone hourly forever — and would do it in the same Sentry
         // issue a real truncation lands in.
         level: 'warning',
-        tags: { service: 'venues-listing' },
+        tags: { service: 'seo-list-fixture' },
         extra: expect.objectContaining({ received: 1, total: 8, missing: 7 }),
       })
     )

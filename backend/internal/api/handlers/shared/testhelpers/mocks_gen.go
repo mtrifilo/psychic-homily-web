@@ -4713,7 +4713,6 @@ type MockVenueService struct {
 	FindOrCreateVenueFn       func(string, string, string, *string, *string, *gorm.DB, bool) (*catalogm.Venue, bool, error)
 	VerifyVenueFn             func(uint) (*contracts.VenueDetailResponse, error)
 	GetVenuesWithShowCountsFn func(contracts.VenueListFilters, int, int) ([]*contracts.VenueWithShowCountResponse, contracts.VenueListTotals, error)
-	GetVenueListingFn         func() ([]contracts.VenueListingEntry, int64, error)
 	GetShowsForVenueFn        func(uint, string, contracts.VenueShowsQuery) ([]*contracts.VenueShowResponse, int64, error)
 	GetVenueShowYearsFn       func(uint, string) ([]contracts.VenueShowYearCount, error)
 	GetVenueShowMonthsFn      func(uint, string) ([]contracts.VenueShowMonthCount, error)
@@ -4790,12 +4789,6 @@ func (m *MockVenueService) GetVenuesWithShowCounts(filters contracts.VenueListFi
 		return m.GetVenuesWithShowCountsFn(filters, limit, offset)
 	}
 	return nil, contracts.VenueListTotals{}, nil
-}
-func (m *MockVenueService) GetVenueListing() ([]contracts.VenueListingEntry, int64, error) {
-	if m.GetVenueListingFn != nil {
-		return m.GetVenueListingFn()
-	}
-	return nil, 0, nil
 }
 func (m *MockVenueService) GetShowsForVenue(venueID uint, timezone string, query contracts.VenueShowsQuery) ([]*contracts.VenueShowResponse, int64, error) {
 	if m.GetShowsForVenueFn != nil {

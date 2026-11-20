@@ -101,9 +101,8 @@ interface SeoListOptions {
  * throws instead. Load-bearing fetches must not use this helper.
  *
  * Every non-OK status is reported, not just 5xx: a 4xx here is a defect in our
- * own request rather than a backend outage, both ends being ours. Treating one
- * as unremarkable is how `/venues?limit=200` rendered without its `ItemList` in
- * production for months.
+ * own request rather than a backend outage, both ends being ours. A 4xx treated
+ * as unremarkable renders the page without its `ItemList` and says nothing.
  *
  * A SHORT LIST IS REPORTED TOO, which is the other half of the same lesson: a
  * 200 carrying part of the set looks exactly like a 200 carrying all of it from
@@ -176,26 +175,22 @@ export async function fetchSeoList<T>({
  *
  * One event, two causes, and the message names neither: whatever the reason, an
  * `ItemList` is enumerating less than the set the API says exists. A paginated
- * endpoint reporting a larger `total` means rows were left on the next page; a
- * listing projection reporting one (`/venues/listing`) means rows the browse set
- * contains cannot form a URL. Both are the same defect to a crawler and both
- * want a human.
+ * endpoint reporting a larger `total` means rows were left on the next page; an
+ * unpaginated projection reporting one means rows the set contains cannot form
+ * a URL. Both are the same defect to a crawler and both want a human.
  *
  * A MISSING `total` MEANS UNKNOWN, NOT ZERO. An endpoint that reports no total
  * is not claiming a larger set, so it must not be read as a shortfall of
- * everything returned. THIS LEAVES `/artists` UNCOVERED: `GET /artists/listing`
- * drops slugless artists exactly as the venue endpoint does but reports no
- * total, so this returns early for it and that ItemList still shortens in
- * silence. Giving it a total is a ~6-line mirror of the venue change and is
- * deliberately not done here — it is a second endpoint's contract, and `/venues`
- * is the one PSY-1764 scoped. Do not read this helper's generality as coverage.
+ * everything returned. `GET /artists/listing` drops slugless artists and
+ * reports no total, so this returns early for it and that ItemList can shorten
+ * in silence. Do not read this helper's generality as coverage.
  *
  * It does NOT fail the render, for the reason the whole helper fails open: a
  * partial `ItemList` is worth more to a crawler than none, and a page humans can
  * read is worth more than either. The event is the point.
  *
  * WARNING, NOT ERROR, because of what can actually trigger it. On an endpoint
- * with no limit the reachable cause is a venue whose slug cannot be generated —
+ * with no limit the reachable cause is a row whose slug cannot be generated,
  * a data condition that no deploy clears, on a page that regenerates hourly. At
  * error level that is an unclearable page, and the issue it opens is the same
  * issue a real truncation would land in, so raising the severity would end up
