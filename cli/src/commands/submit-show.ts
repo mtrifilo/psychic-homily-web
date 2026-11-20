@@ -565,8 +565,8 @@ export function applyEventDateBound(plans: ShowPlan[], options: SubmitShowsOptio
     const remedy = options.allowFarFuture
       ? `--allow-far-future is set, but this show does not carry "allow_far_future_date": true, which marks a show whose date is confirmed`
       : marked
-        ? `the show carries "allow_far_future_date": true; re-run with --allow-far-future to send it`
-        : `if the date is real, add "allow_far_future_date": true to this show and re-run with --allow-far-future`;
+        ? `The show carries "allow_far_future_date": true; re-run with --allow-far-future to send it`
+        : `If the date is real, add "allow_far_future_date": true to this show and re-run with --allow-far-future`;
     plan.valid = false;
     plan.errors = [
       `event_date: ${quoteSourceValue(instant)} is more than ${SHOW_EVENT_DATE_BOUND_MONTHS} months ahead (the latest date accepted today is ${bound}); the API refuses it. ${remedy}.`,
