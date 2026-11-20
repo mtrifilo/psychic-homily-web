@@ -1,14 +1,15 @@
 'use client'
 
-import { useMemo, type TransitionStartFunction } from 'react'
+import { useMemo, useState, type TransitionStartFunction } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useQueryState } from 'nuqs'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useProfile } from '@/features/auth'
+import { toAuthUser } from '@/features/auth/authUser'
 import type { CityState, CityWithCount } from '@/components/filters/CityFilters'
 import { citiesParser, ALL_CITIES } from '@/components/filters/cityParams'
 import { useGeoDefaultCity } from '@/components/filters/useGeoDefaultCity'
-import type { GeoLocation } from '@/lib/geo-default'
+import { readCachedGeoAnswer } from '@/lib/geo-client'
 import type { ShowCitiesResponse } from '../types'
 import type { ShowListFilterOptions } from './useShows'
 
@@ -21,29 +22,61 @@ interface UseShowListCitySelectionParams {
    */
   startTransition?: TransitionStartFunction
   /**
-   * A location answer the caller already holds (`null` for "no city"). When
-   * given, the geo default is derived from it on the first render and no
-   * `/api/geo` request is made. Omitted, the hook requests it.
+   * Where the location answer behind the geo default comes from.
+   *
+   * `'request'` (the list): `useGeoDefaultCity` reads the session cache after
+   * mount and requests `/api/geo` when nothing is cached, so the default
+   * arrives after the first render.
+   *
+   * `'cache'`: the session cache only, read on the first render, and never a
+   * request. When the answer the selection needs is not cached,
+   * `locationAnswerMissing` is true and the selection reads as all cities.
+   * Browser only: read it after hydration.
    */
-  knownGeo?: GeoLocation | null
+  geoSource?: 'request' | 'cache'
 }
+
+/**
+ * Whether this list's geo default applies to a signed-in viewer with no
+ * favourites. Passed to `useGeoDefaultCity` and used by the cache-only
+ * eligibility below, so the two cannot disagree.
+ */
+const GEO_DEFAULT_FOR_SIGNED_IN = false
 
 /**
  * The `/shows` list's city state: which cities it lists, and the inputs that
  * selection is derived from.
  *
  * One hook for the list and for anything that must name the rows the list is
- * about to request, so the two derive the selection from the same inputs on
- * the same schedule, the geo default included.
+ * about to request, so both derive the selection from the same inputs by the
+ * same rules. They differ in timing only through `geoSource`: with `'cache'`
+ * the geo default is known on the first render, while the list's arrives after
+ * it mounts, so the list's first render reads all cities. A caller that draws
+ * the list's rows from this selection must therefore never draw one that came
+ * from the geo default.
  */
 export function useShowListCitySelection({
   citiesData,
   startTransition,
-  knownGeo,
+  geoSource = 'request',
 }: UseShowListCitySelectionParams) {
   const searchParams = useSearchParams()
-  const { authStatus } = useAuthContext()
+  const { authStatus, user } = useAuthContext()
   const { data: profileData } = useProfile()
+
+  // The favourites are known once the profile read has answered for THIS
+  // viewer. A sign-in can set the user before its profile refetch lands, and
+  // until then the favourites read as none.
+  const favoritesKnown =
+    authStatus !== 'authenticated' ||
+    (profileData?.success === true &&
+      profileData.user != null &&
+      toAuthUser(profileData.user).id === user?.id)
+
+  // Read once, at mount, and only in cache-only mode.
+  const [cachedGeo] = useState(() =>
+    geoSource === 'cache' ? readCachedGeoAnswer() : undefined
+  )
 
   // Read favorites from profile: the per-user default city.
   const favoriteCities: CityState[] = useMemo(() => {
@@ -98,9 +131,25 @@ export function useShowListCitySelection({
       authStatus,
       favoriteCities,
       hasExistingSelection,
-      geoFromServer: knownGeo,
-      enableClientFetch: knownGeo === undefined,
+      allowAuthenticated: GEO_DEFAULT_FOR_SIGNED_IN,
+      favoritesSettled: favoritesKnown,
+      ...(geoSource === 'cache'
+        ? { geoFromServer: cachedGeo ?? null, enableClientFetch: false }
+        : { enableClientFetch: true }),
     })
+
+  // `useGeoDefaultCity`'s eligibility for the options passed above, on a mount
+  // with no filter interaction yet. Cache-only mode needs it to tell "no city"
+  // from "not cached".
+  const geoEligible =
+    (authStatus === 'anonymous' ||
+      (GEO_DEFAULT_FOR_SIGNED_IN &&
+        authStatus === 'authenticated' &&
+        favoritesKnown)) &&
+    favoriteCities.length === 0 &&
+    !hasExistingSelection
+  const locationAnswerMissing =
+    geoSource === 'cache' && geoEligible && cachedGeo === undefined
 
   // The effective city filter, DERIVED during render, never seeded into the
   // URL by an effect. A bare /shows resolves to the user's favorite (or, for
@@ -123,13 +172,12 @@ export function useShowListCitySelection({
     favoriteCities,
     /** The geo city in `selectedCities`, or null when it did not come from geo. */
     appliedGeoDefault,
-    /**
-     * True when neither the URL nor favourites choose the cities, so the
-     * selection is the geo default's when there is one, else all cities.
-     */
-    fallsBackToDefault: !hasExistingSelection && favoriteCities.length === 0,
     /** True while the selection may still change without input: see `useGeoDefaultCity`. */
     isResolving,
+    /** False while a signed-in viewer's own profile, and so their favourites, has not answered. */
+    favoritesKnown,
+    /** Cache-only mode: the location answer this selection depends on is not cached. */
+    locationAnswerMissing,
     notifyUserInteracted,
     setCities,
   }

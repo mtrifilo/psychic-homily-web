@@ -39,6 +39,9 @@ type Viewer = import('@/test/saveControlHydration').ViewerState
 const viewer = vi.hoisted(() => ({
   current: { authStatus: 'anonymous', user: null } as Viewer,
   favoriteCities: [] as Array<{ city: string; state: string }>,
+  // Whose profile the profile read has answered with: the viewer's own, none
+  // yet, or a payload retained from another account.
+  profile: 'own' as 'own' | 'unanswered' | 'other',
 }))
 vi.mock('@/lib/context/AuthContext', async () => {
   const { deriveMockAuthSignals } = await import('@/test/authFixture')
@@ -48,12 +51,19 @@ vi.mock('@/lib/context/AuthContext', async () => {
   }
 })
 vi.mock('@/features/auth', () => ({
-  useProfile: () => ({
-    data:
-      viewer.current.authStatus === 'authenticated'
-        ? { user: { preferences: { favorite_cities: viewer.favoriteCities } } }
-        : null,
-  }),
+  useProfile: () => {
+    const { user } = viewer.current
+    if (!user || viewer.profile === 'unanswered') return { data: undefined }
+    return {
+      data: {
+        success: true,
+        user: {
+          id: viewer.profile === 'own' ? Number(user.id) : Number(user.id) + 1,
+          preferences: { favorite_cities: viewer.favoriteCities },
+        },
+      },
+    }
+  },
   useSetFavoriteCities: () => ({ mutate: vi.fn() }),
 }))
 
@@ -96,6 +106,8 @@ import {
   ANONYMOUS_VIEWER,
   hydrateCollectingErrors,
 } from '@/test/saveControlHydration'
+import { showsFirstScreenSeeds } from '../firstScreen'
+import type { ShowsCalendarResponse } from '../types'
 import { showsCalendarQueryKey } from '../hooks/useShows'
 import { ShowList } from './ShowList'
 import { ShowListFallback, showListFirstPaintKeys } from './ShowListFallback'
@@ -124,6 +136,7 @@ function calendar(id: number, title: string) {
     year: 0,
     month: 0,
     day: 0,
+    days: 0,
   }
 }
 const months = { months: [{ year: 2026, month: 11, count: 1 }], total: 1 }
@@ -167,6 +180,7 @@ const entryFor = (client: QueryClient, key: QueryKey) => entriesFor(client, [key
 function setViewer(next: Viewer, favoriteCities: typeof viewer.favoriteCities = []) {
   viewer.current = next
   viewer.favoriteCities = favoriteCities
+  viewer.profile = 'own'
 }
 
 const SIGNED_IN: Viewer = { authStatus: 'authenticated', user: { id: '7' } }
@@ -271,6 +285,28 @@ describe('ShowListFallback on a client-side navigation, warm for the viewer', ()
     expectDrawn(container, 'Tucson row')
     expect(geoRequests(fetchSpy)).toHaveLength(0)
   })
+
+  it('draws the city the legacy ?city=&state= names', () => {
+    nav.params = new URLSearchParams('city=Tucson&state=AZ')
+    const client = warmClient(entriesForSelection([TUCSON], TUCSON_ROWS))
+
+    const { container } = navigate(client)
+
+    expectDrawn(container, 'Tucson row')
+    expect(geoRequests(fetchSpy)).toHaveLength(0)
+  })
+
+  // This list's geo default is for anonymous viewers only, so a signed-in
+  // viewer with no favourites lists all cities whatever the session cache holds.
+  it('draws all cities for a signed-in viewer with no favourites and no cached location answer', () => {
+    setViewer(SIGNED_IN, [])
+    const client = warmClient(ALL_CITIES_ENTRIES)
+
+    const { container } = navigate(client)
+
+    expectDrawn(container, 'All cities row')
+    expect(geoRequests(fetchSpy)).toHaveLength(0)
+  })
 })
 
 describe('ShowListFallback on a client-side navigation, skeleton', () => {
@@ -300,6 +336,33 @@ describe('ShowListFallback on a client-side navigation, skeleton', () => {
 
     expectSkeleton(container)
     expect(geoRequests(fetchSpy)).toHaveLength(0)
+  })
+
+  it("is the skeleton while a signed-in viewer's own profile has not answered", () => {
+    setViewer(SIGNED_IN, [TUCSON])
+    viewer.profile = 'unanswered'
+    const client = warmClient([
+      ...ALL_CITIES_ENTRIES,
+      ...entriesForSelection([TUCSON], TUCSON_ROWS),
+    ])
+
+    const { container } = navigate(client)
+
+    expectSkeleton(container)
+    expect(geoRequests(fetchSpy)).toHaveLength(0)
+  })
+
+  it("is the skeleton while the cached profile is another account's", () => {
+    setViewer(SIGNED_IN, [TUCSON])
+    viewer.profile = 'other'
+    const client = warmClient([
+      ...ALL_CITIES_ENTRIES,
+      ...entriesForSelection([TUCSON], TUCSON_ROWS),
+    ])
+
+    const { container } = navigate(client)
+
+    expectSkeleton(container)
   })
 
   it('is the skeleton, and requests nothing, for an anonymous viewer with no cached location answer', () => {
@@ -338,6 +401,22 @@ describe('ShowListFallback on a client-side navigation, skeleton', () => {
     expect(entryFor(client, SHOWS_CALENDAR_FIRST_SCREEN_KEY)).toBeUndefined()
   })
 
+  // The cache the home page's idle prefetch leaves: the rows and the facet,
+  // not the month histogram. Drawing the list there would create the seeded
+  // histogram entry before the seed lands.
+  it('is the skeleton, and creates no histogram entry, when the month histogram is not cached', () => {
+    cacheGeoAnswer(null)
+    const client = warmClient([
+      [SHOW_CITIES_FIRST_SCREEN_KEY, facet],
+      [SHOWS_CALENDAR_FIRST_SCREEN_KEY, ALL_ROWS],
+    ])
+
+    const { container } = navigate(client)
+
+    expectSkeleton(container)
+    expect(entryFor(client, SHOWS_MONTHS_FIRST_SCREEN_KEY)).toBeUndefined()
+  })
+
   it('is the skeleton and creates nothing on a cold cache', () => {
     cacheGeoAnswer(null)
     const client = new QueryClient()
@@ -348,8 +427,8 @@ describe('ShowListFallback on a client-side navigation, skeleton', () => {
     expect(client.getQueryCache().getAll()).toHaveLength(0)
   })
 
-  it.each(['tags=noise', 'tag_match=any', 'page=2'])(
-    'is the skeleton on a URL with %s, whose rows key by more than the city',
+  it.each(['tags=noise', 'tag_match=any', 'page=2', 'tags=', 'utm_source=mail', 'cities=Tucson%2CAZ&page=2'])(
+    'is the skeleton on a URL with %s, which carries a param other than the city selection',
     search => {
       cacheGeoAnswer(null)
       nav.params = new URLSearchParams(search)
@@ -373,6 +452,13 @@ describe('showListFirstPaintKeys', () => {
       },
       [TUCSON],
     ],
+    [
+      'the legacy ?city=&state=',
+      () => {
+        nav.params = new URLSearchParams('city=Tucson&state=AZ')
+      },
+      [TUCSON],
+    ],
   ]
 
   it.each(states)('names the entries the list reads for %s', (_name, arrange, selection) => {
@@ -384,13 +470,20 @@ describe('showListFirstPaintKeys', () => {
     }
   })
 
-  it('names the seeded entries for the all-cities selection', () => {
-    expect(showListFirstPaintKeys([]).map(hashKey)).toEqual(
-      [
-        SHOW_CITIES_FIRST_SCREEN_KEY,
-        SHOWS_CALENDAR_FIRST_SCREEN_KEY,
-        SHOWS_MONTHS_FIRST_SCREEN_KEY,
-      ].map(hashKey)
+  // Every key the page seeds is required before the all-cities list is drawn,
+  // so drawing it can create none of them.
+  it("covers every key the page's seed writes, for the all-cities selection", () => {
+    const seeds = showsFirstScreenSeeds({
+      // The fixture carries only the fields the list reads.
+      shows: ALL_ROWS as unknown as ShowsCalendarResponse,
+      cities: facet,
+      months,
+      calendarKey: SHOWS_CALENDAR_FIRST_SCREEN_KEY,
+      citiesKey: SHOW_CITIES_FIRST_SCREEN_KEY,
+    })
+
+    expect(new Set(showListFirstPaintKeys([]).map(hashKey))).toEqual(
+      new Set(seeds?.map(seed => hashKey(seed.queryKey)))
     )
   })
 })

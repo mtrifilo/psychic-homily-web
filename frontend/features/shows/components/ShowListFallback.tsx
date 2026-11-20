@@ -1,6 +1,5 @@
 'use client'
 
-import { useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useQueryClient, type QueryKey } from '@tanstack/react-query'
 import type { CityState } from '@/components/filters/CityFilters'
@@ -8,13 +7,7 @@ import {
   CacheDrawnList,
   everyKeyCached,
 } from '@/components/shared/CachedListFallback'
-import { useAuthContext } from '@/lib/context/AuthContext'
-import { readCachedGeoAnswer } from '@/lib/geo-client'
 import { useHydrated } from '@/lib/hooks/common/useHydrated'
-import {
-  isFirstScreenRequest,
-  routeSearchParamsOf,
-} from '@/lib/ssr/firstScreenParams'
 import { SHOW_CITIES_FIRST_SCREEN_KEY } from '../api'
 import { showMonthsQueryKey, showsCalendarQueryKey } from '../hooks/useShows'
 import {
@@ -27,19 +20,17 @@ import { ShowList } from './ShowList'
 import { ShowListSkeleton } from './ShowListSkeleton'
 
 /**
- * The params that key the list's rows by more than the city selection. On a
- * URL carrying any of them the fallback is always the skeleton.
+ * The only params a URL may carry for the fallback to draw: the city
+ * selection's. Any other param (a tag filter, a page, or one the list adds
+ * later) leaves the fallback on the skeleton, so the rows it names are always
+ * the rows the list reads.
  */
-const SHOW_LIST_SKELETON_ONLY_PARAMS: readonly string[] = [
-  'tags',
-  'tag_match',
-  'page',
-]
+const DRAWABLE_PARAMS: ReadonlySet<string> = new Set(['cities', 'city', 'state'])
 
 /**
  * The `Suspense` fallback above the seeded, unwindowed `/shows` list: the list
- * itself, drawn from the browser's query cache, when every entry it reads
- * before its first paint is already cached for this viewer, and the skeleton
+ * itself, drawn from the browser's query cache, when the entries that decide
+ * which rows it paints are already cached for this viewer, and the skeleton
  * everywhere else.
  *
  * The server render and the hydration render are always the skeleton
@@ -47,17 +38,14 @@ const SHOW_LIST_SKELETON_ONLY_PARAMS: readonly string[] = [
  * browser's cache holds.
  *
  * On a client navigation the entries are named from the viewer's own city
- * selection (`?cities=`, else favourites, else all cities), resolved by the
- * hook the list itself uses. The fallback is the skeleton while that selection
- * is resolving, whenever it comes from the geo default, and whenever the
- * cached location answer it would need is missing, so it never draws one
- * city's rows and then another's. It reads the location answer from the
- * session cache only and never requests it.
+ * selection (`?cities=`, else favourites, else all cities), derived by the
+ * hook the list itself uses, reading the location answer from the session
+ * cache only and never requesting it.
  *
  * The page's seed writes the all-cities entries only, and never replaces an
- * entry the cache already holds (see `seedFirstScreen`). Every entry the list
- * reads before its first paint is required to exist here, so drawing it
- * creates none of the seeded ones.
+ * entry the cache already holds (see `seedFirstScreen`). Those entries are
+ * required to exist before the all-cities list is drawn, so drawing it creates
+ * none of them.
  */
 export function ShowListFallback() {
   const hydrated = useHydrated()
@@ -73,12 +61,11 @@ function CachedFacetGate() {
   const queryClient = useQueryClient()
   const searchParams = useSearchParams()
 
-  const onCityKeyedUrl = isFirstScreenRequest(
-    routeSearchParamsOf(searchParams, SHOW_LIST_SKELETON_ONLY_PARAMS),
-    SHOW_LIST_SKELETON_ONLY_PARAMS
+  const onDrawableUrl = Array.from(searchParams.keys()).every(name =>
+    DRAWABLE_PARAMS.has(name)
   )
   // `getQueryData` reads an entry without creating one.
-  const citiesData = onCityKeyedUrl
+  const citiesData = onDrawableUrl
     ? queryClient.getQueryData<ShowCitiesResponse>(SHOW_CITIES_FIRST_SCREEN_KEY)
     : undefined
 
@@ -88,25 +75,23 @@ function CachedFacetGate() {
 
 function CachedSelectionGate({ citiesData }: { citiesData: ShowCitiesResponse }) {
   const queryClient = useQueryClient()
-  const { authStatus } = useAuthContext()
-  // Read once, at mount. This component renders only after hydration, so the
-  // read cannot disagree with server HTML, and it makes no request.
-  const [cachedGeo] = useState(readCachedGeoAnswer)
-  const { selectedCities, appliedGeoDefault, isResolving, fallsBackToDefault } =
-    useShowListCitySelection({ citiesData, knownGeo: cachedGeo ?? null })
+  const {
+    selectedCities,
+    appliedGeoDefault,
+    isResolving,
+    favoritesKnown,
+    locationAnswerMissing,
+  } = useShowListCitySelection({ citiesData, geoSource: 'cache' })
 
-  // The geo default applies to anonymous viewers only (`useGeoDefaultCity`),
-  // so with no cached answer an anonymous viewer's selection is unknown.
-  const locationAnswerUnknown =
-    fallsBackToDefault && authStatus === 'anonymous' && cachedGeo === undefined
-
-  // A selection from the geo default is never drawn here: the list derives
-  // that default after it mounts, so a drawn copy would paint the all-cities
-  // rows first.
+  // Drawn only for a selection that is settled and is the one the list's
+  // first render reads. A geo-default selection fails the second test: the
+  // list derives that default after it mounts, so its first render would paint
+  // the all-cities rows.
+  const selectionSettled =
+    !isResolving && favoritesKnown && !locationAnswerMissing
   if (
-    isResolving ||
+    !selectionSettled ||
     appliedGeoDefault !== null ||
-    locationAnswerUnknown ||
     !everyKeyCached(queryClient, showListFirstPaintKeys(selectedCities))
   ) {
     return <ShowListSkeleton />
@@ -119,8 +104,9 @@ function CachedSelectionGate({ citiesData }: { citiesData: ShowCitiesResponse })
 }
 
 /**
- * Every entry the unwindowed, untagged first page of the list reads before
- * its first paint, for a selection that did not come from the geo default.
+ * The entries that decide which rows the unwindowed, untagged first page of
+ * the list paints for a selection: the city facet, the rows and the month
+ * histogram.
  */
 export function showListFirstPaintKeys(selectedCities: CityState[]): QueryKey[] {
   const filters = showListFilters(selectedCities, [], 'all')
