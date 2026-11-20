@@ -28,9 +28,10 @@ import (
 // left alone, for a human to decide. In particular a group is acted on only
 // when its copies carry one origin (source and submitter), one ticket URL, at
 // least one copy past the far-future bound, and copies to delete that were
-// written within replicaCreatedWindow of each other: the signature of one
-// write that fanned a date out across years, as opposed to a show that really
-// recurs or a show someone else submitted.
+// written within replicaCreatedWindow of each other (or, when only one copy is
+// to be deleted, within replicaCreatedWindow of the copy kept): the signature
+// of one write that fanned a date out across years, as opposed to a show that
+// really recurs or a show someone else submitted.
 
 // replicaCreatedWindow is how close together the copies a group deletes must
 // have been created.
@@ -141,8 +142,13 @@ const (
 	replicaSkipPastYear         = "a copy is dated in a venue-local year before the current one, so the earliest copy may be the original; decide by hand"
 	replicaSkipNoNearCopy       = "no copy is in the current or the next venue-local year"
 	replicaSkipNoFarCopy        = "no copy is dated past the far-future bound"
-	replicaSkipCreatedApart     = "the copies to delete were not created within 10 minutes of each other"
-	replicaSkipPairCreatedApart = "only one copy to delete, and it was not created within 10 minutes of the copy kept"
+)
+
+// The two window reasons state replicaCreatedWindow itself, so the printed
+// threshold cannot drift from the one applied.
+var (
+	replicaSkipCreatedApart     = fmt.Sprintf("the copies to delete were not created within %s of each other", replicaCreatedWindow)
+	replicaSkipPairCreatedApart = fmt.Sprintf("only one copy to delete, and it was not created within %s of the copy kept", replicaCreatedWindow)
 )
 
 // ticketURLTrimSQL is the ASCII whitespace set stripped from a stored
@@ -440,9 +446,12 @@ func PlanReplicatedShowPurge(db *gorm.DB, now time.Time, beyondMonths int) (*Rep
 	return plan, nil
 }
 
-// showFKRefs are the tables with a foreign key to shows.id that a show delete
-// cascades (or, for duplicate_of_show_id, nulls), outside the polymorphic
-// inventory. Each entry is (label, table, column, dropped).
+// showFKRefs are the foreign keys to shows.id that a show delete cascades (or,
+// for duplicate_of_show_id, nulls), other than show_artists and show_venues
+// (snapshotted directly) and show_dedup_keys (derived by trigger from those
+// two). TestShowFKRefsCoverTheSchema fails when a migration adds a foreign key
+// to shows that is in neither this list nor that exempt set. Each entry is
+// (label, table, column, dropped).
 var showFKRefs = []struct {
 	label, table, column string
 	dropped              bool
@@ -526,8 +535,12 @@ func attachReplicaRefCounts(db *gorm.DB, plan *ReplicatedShowPlan) error {
 // foreign-key cascades in showFKRefs, the ids of shows whose
 // duplicate_of_show_id it nulls, the polymorphic rows dispositioned
 // dropRefRows and its alert rows), so a deletion can be restored by hand. The
-// documents carry user ids (bookmarks, reports, notification rows). Read inside the purge's transaction,
-// after the lock, so it is exactly what the delete is about to remove.
+// documents carry user ids (bookmarks, reports, notification rows).
+//
+// Read inside the purge's transaction, after the lock. The lock on shows holds
+// back new rows in the foreign-key tables, but not in the polymorphic tables,
+// which have no foreign key: a polymorphic row committed after this read and
+// before the delete's sweep is deleted without a copy.
 func snapshotReplicaShows(tx *gorm.DB, ids []uint) ([]json.RawMessage, error) {
 	parts := []string{
 		"'show', to_jsonb(s)",

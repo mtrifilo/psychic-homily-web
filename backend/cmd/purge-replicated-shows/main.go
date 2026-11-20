@@ -17,7 +17,9 @@
 // year (a copy in an earlier year leaves the group untouched, which also means
 // that after New Year a group whose original is in the year just ended is left
 // for a human); at least one copy is past the far-future bound; and the copies
-// to delete were created within 10 minutes of each other.
+// to delete were created within 10 minutes of each other (or, when only one
+// copy is to be deleted, within 10 minutes of the copy kept). The window is
+// catalog's replicaCreatedWindow; the dry run prints it in each skip reason.
 //
 // --confirm deletes only when the freshly computed plan, against the same
 // target database, has the digest the reviewed dry run printed (--expect-plan),
@@ -46,6 +48,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -194,18 +197,31 @@ func run(database *gorm.DB, opts options, w io.Writer) int {
 			backupErr = writeBackup(backup, g, snapshot)
 			return backupErr
 		})
-		if outcomeErr := writeOutcome(backup, g, err); outcomeErr != nil && backupErr == nil {
-			backupErr = outcomeErr
+		var stillPresent []uint
+		if err != nil {
+			stillPresent, err = confirmRolledBack(database, g, err)
+		}
+		if outcomeErr := writeOutcome(backup, g, err, stillPresent); outcomeErr != nil {
+			failedGroups++
+			say(w, "  [ERROR] backup outcome line not written: %v\n", outcomeErr)
+			if backupErr == nil {
+				backupErr = outcomeErr
+			}
+		}
+		if backupErr != nil {
+			say(w, "  [ERROR] backup file failed: %v; no further group will be deleted\n", backupErr)
 		}
 		backupBroken = backupErr != nil
 		if err != nil {
 			failedGroups++
-			say(w, "  [ERROR] nothing deleted in this group: %v\n\n", err)
+			say(w, "  [ERROR] %v\n\n", err)
 			continue
 		}
 		deleted += len(g.DeleteIDs)
-		for _, c := range g.Copies[1:] {
-			deletedSlugs = append(deletedSlugs, c.Slug)
+		for _, c := range g.Copies {
+			if slices.Contains(g.DeleteIDs, c.ShowID) {
+				deletedSlugs = append(deletedSlugs, c.Slug)
+			}
 		}
 		say(w, "  [DELETED] %d copies; kept show %d\n\n", len(g.DeleteIDs), g.KeepID)
 	}
@@ -262,19 +278,54 @@ func writeBackup(f *os.File, g catalog.ReplicatedShowGroup, snapshot []json.RawM
 	return f.Sync()
 }
 
-// writeOutcome appends the line that says whether a group's deletion
-// committed, so a restore can tell snapshots of deleted shows from snapshots
-// of a group that rolled back.
-func writeOutcome(f *os.File, g catalog.ReplicatedShowGroup, purgeErr error) error {
+// errOutcomeUnknown marks a failed group whose copies could not be re-read, so
+// whether its deletion committed is not known.
+var errOutcomeUnknown = errors.New("could not re-read the group after the failure")
+
+// confirmRolledBack re-reads a failed group's copies on a fresh connection,
+// because a transaction can report an error after the server committed it (a
+// connection lost during COMMIT). It returns the copies still present and an
+// error describing the outcome: all present means rolled back, none present
+// means the deletion committed despite the error.
+func confirmRolledBack(database *gorm.DB, g catalog.ReplicatedShowGroup, purgeErr error) ([]uint, error) {
+	var present []uint
+	if err := database.Raw(`SELECT id FROM shows WHERE id IN ? ORDER BY id`, g.DeleteIDs).Scan(&present).Error; err != nil {
+		return nil, fmt.Errorf("%w; %w: %w", purgeErr, errOutcomeUnknown, err)
+	}
+	switch len(present) {
+	case len(g.DeleteIDs):
+		return present, fmt.Errorf("nothing deleted in this group: %w", purgeErr)
+	case 0:
+		return present, fmt.Errorf("the transaction reported %w, but every copy is gone, so the deletion committed", purgeErr)
+	default:
+		return present, fmt.Errorf("%w; %d of %d copies are still present", purgeErr, len(present), len(g.DeleteIDs))
+	}
+}
+
+// writeOutcome appends the line that says what happened to a group's
+// deletion, so a restore can tell snapshots of deleted shows from snapshots of
+// a group that rolled back. still_present_ids is the re-read after a failure;
+// "committed" is "unknown" when that re-read failed.
+func writeOutcome(f *os.File, g catalog.ReplicatedShowGroup, purgeErr error, stillPresent []uint) error {
 	if f == nil {
 		return errors.New("no backup file open")
+	}
+	committed := "true"
+	switch {
+	case errors.Is(purgeErr, errOutcomeUnknown):
+		committed = "unknown"
+	case purgeErr != nil && len(stillPresent) == len(g.DeleteIDs):
+		committed = "false"
+	case purgeErr != nil && len(stillPresent) > 0:
+		committed = "partial"
 	}
 	outcome := struct {
 		KeptShowID     uint   `json:"group_kept_show_id"`
 		DeletedShowIDs []uint `json:"group_deleted_show_ids"`
-		Committed      bool   `json:"committed"`
+		Committed      string `json:"committed"`
+		StillPresent   []uint `json:"still_present_ids,omitempty"`
 		Error          string `json:"error,omitempty"`
-	}{KeptShowID: g.KeepID, DeletedShowIDs: g.DeleteIDs, Committed: purgeErr == nil}
+	}{KeptShowID: g.KeepID, DeletedShowIDs: g.DeleteIDs, Committed: committed, StillPresent: stillPresent}
 	if purgeErr != nil {
 		outcome.Error = purgeErr.Error()
 	}

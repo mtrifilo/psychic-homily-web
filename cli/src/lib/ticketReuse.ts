@@ -46,7 +46,10 @@ export type TicketURLLookupCache = Map<string, Promise<TicketURLLookup>>;
 
 async function fetchShowsByTicketURL(client: APIClient, url: string): Promise<TicketURLLookup> {
   const shows: ShowWithTicket[] = [];
-  for (let offset = 0; offset < TICKET_REUSE_SCAN_CAP; offset += TICKET_REUSE_PAGE) {
+  // The offset advances by the rows actually returned, so a server that pages
+  // below TICKET_REUSE_PAGE is still read to its total rather than stopped
+  // after one short page.
+  for (let offset = 0; offset < TICKET_REUSE_SCAN_CAP; offset = shows.length) {
     const page = await client.get<ShowWithTicket[] | { shows?: ShowWithTicket[]; total?: number }>("/shows", {
       ticket_url: url,
       limit: String(TICKET_REUSE_PAGE),
@@ -62,7 +65,12 @@ async function fetchShowsByTicketURL(client: APIClient, url: string): Promise<Ti
     }
     shows.push(...rows);
     const total = Array.isArray(page) ? undefined : page?.total;
-    if (rows.length < TICKET_REUSE_PAGE || (total !== undefined && shows.length >= total)) {
+    // With a total the server says when the list ends; without one, a short
+    // page is the only end marker available.
+    const done =
+      rows.length === 0 ||
+      (total !== undefined ? shows.length >= total : rows.length < TICKET_REUSE_PAGE);
+    if (done) {
       return { shows, truncated: false, unsupported: false };
     }
   }
