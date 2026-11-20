@@ -54,15 +54,16 @@ function getVenueUpcomingShows(venue: Venue): Promise<VenueShowsResponse | null>
 export async function generateMetadata({ params }: VenuePageProps): Promise<Metadata> {
   const { slug } = await params
   // The past-years read is the page body's own (`getArchiveYears` is
-  // request-cached), so it adds no backend request.
-  const [venueRead, pastYearsRead] = await Promise.all([
-    getVenue(slug),
-    getArchiveYears(slug),
-  ])
-  const venue = archiveData(venueRead)
+  // request-cached), so it adds no backend request. Started first so neither
+  // the venue read nor the upcoming read that follows it waits on it.
+  const pastYearsPromise = getArchiveYears(slug)
+  const venue = archiveData(await getVenue(slug))
 
   if (venue) {
-    const upcomingRead = await getVenueUpcomingShows(venue)
+    const [upcomingRead, pastYearsRead] = await Promise.all([
+      getVenueUpcomingShows(venue),
+      pastYearsPromise,
+    ])
     const upcoming = upcomingRead ? withoutPassedShows(upcomingRead) : null
     const pastYears = archiveData(pastYearsRead)
     const { title, description } = venueSnippet({

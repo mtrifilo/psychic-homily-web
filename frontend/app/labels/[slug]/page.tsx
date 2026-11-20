@@ -65,6 +65,7 @@ export async function generateMetadata({
   if (label) {
     const locationSuffix =
       label.city && label.state ? ` - ${label.city}, ${label.state}` : ''
+    const title = `${label.name}${locationSuffix}`
     const description = labelDescription({
       name: label.name,
       city: label.city,
@@ -75,13 +76,13 @@ export async function generateMetadata({
       releaseCount: label.release_count,
     })
     return {
-      title: `${label.name}${locationSuffix}`,
+      title,
       description,
       alternates: {
         canonical: `https://psychichomily.com/labels/${slug}`,
       },
       openGraph: {
-        title: `${label.name}${locationSuffix}`,
+        title,
         description,
         type: 'website',
         url: `/labels/${slug}`,

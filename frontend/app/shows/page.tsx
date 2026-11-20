@@ -39,13 +39,13 @@ import { showsFirstScreenSeeds } from '@/features/shows/firstScreen'
 import { seedFirstScreen } from '@/lib/query-hydration'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
+import { QUICK_WINDOW_LABEL } from '@/features/shows/quickWindows'
 
-/**
- * Names the page's own quick windows (Tonight, This weekend, This month, from
- * `QUICK_WINDOW_LABEL`); rename a window and this sentence must follow.
- */
-const SHOWS_INDEX_DESCRIPTION =
-  'Live music coming up, night by night: who is playing, where, and when. Jump to tonight, this weekend or this month.'
+/** Names three of the page's own quick windows, in the chips' words. */
+const SHOWS_INDEX_DESCRIPTION = `Live music coming up, night by night: who is playing, where, and when. Jump to ${[
+  QUICK_WINDOW_LABEL.tonight,
+  QUICK_WINDOW_LABEL['this-weekend'],
+].join(', ').toLowerCase()} or ${QUICK_WINDOW_LABEL['this-month'].toLowerCase()}.`
 
 export const metadata = {
   title: 'Upcoming Shows',

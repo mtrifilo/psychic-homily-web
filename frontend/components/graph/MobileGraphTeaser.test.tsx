@@ -29,12 +29,13 @@ describe('MobileGraphTeaser', () => {
   // Google may read the attribute before or after rendering, so it must be on
   // the element the moment the teaser is added to the page, on a span.
   it('keeps the whole sentence out of search snippets from its first render', () => {
-    const markup = renderToStaticMarkup(
+    const first = document.createElement('div')
+    first.innerHTML = renderToStaticMarkup(
       <MobileGraphTeaser href="/graph">Sentence</MobileGraphTeaser>,
     )
-    expect(markup).toMatch(/^<p[^>]*><span data-nosnippet="">\s*<a [^>]*>Sentence /)
-    render(<MobileGraphTeaser href="/graph">Sentence</MobileGraphTeaser>)
-    expect(screen.getByRole('link').closest('span[data-nosnippet]')).not.toBeNull()
+    const span = first.querySelector('a')?.closest('[data-nosnippet]')
+    expect(span?.tagName).toBe('SPAN')
+    expect(span?.textContent).toBe('Sentence →')
   })
 
   // A line, not a module: a border or a reserved height would make this a card.

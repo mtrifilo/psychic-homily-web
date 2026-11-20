@@ -58,6 +58,7 @@ export async function generateMetadata({
   if (festival) {
     const locationSuffix =
       festival.city && festival.state ? ` - ${festival.city}, ${festival.state}` : ''
+    const title = `${festival.name}${locationSuffix}`
     const description = festivalDescription({
       name: festival.name,
       startDate: festival.start_date,
@@ -70,13 +71,13 @@ export async function generateMetadata({
       venueCount: festival.venue_count,
     })
     return {
-      title: `${festival.name}${locationSuffix}`,
+      title,
       description,
       alternates: {
         canonical: `https://psychichomily.com/festivals/${slug}`,
       },
       openGraph: {
-        title: `${festival.name}${locationSuffix}`,
+        title,
         description,
         type: 'website',
         url: `/festivals/${slug}`,

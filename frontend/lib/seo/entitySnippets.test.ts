@@ -810,36 +810,36 @@ describe('artistSnippet', () => {
   })
 
   describe('drops sentences from the end to fit the budget', () => {
-    // Everything after the lead is 92 code points, so a name of n code points
-    // gives n + 1 + 92: Similar artists (20 + space) goes first, then Releases
-    // (12 + space), then Upcoming shows (18 + space), then Next show.
-    const fixed = charLength(artistSnippet({ ...POKEY, name: '', city: null, state: null }).description) - 1
     const render = (n: number) =>
       artistSnippet({ ...POKEY, name: nameOf(n), city: null, state: null }).description
+    // Everything but the name when every sentence is kept.
+    const fixed = charLength(render(1)) - 1
+    const similar = charLength(' Similar artists: 14.')
+    const releases = charLength(' Releases: 9.')
+    const upcoming = charLength(' Upcoming shows: 2.')
+    const fits = DESCRIPTION_BUDGET - fixed
 
     it('keeps every sentence at exactly the budget', () => {
-      const n = DESCRIPTION_BUDGET - fixed - 1
-      expect(charLength(render(n))).toBe(DESCRIPTION_BUDGET)
-      expect(render(n).endsWith('Similar artists: 14.')).toBe(true)
+      expect(charLength(render(fits))).toBe(DESCRIPTION_BUDGET)
+      expect(render(fits).endsWith('Similar artists: 14.')).toBe(true)
     })
 
     it('drops Similar artists first', () => {
-      const text = render(DESCRIPTION_BUDGET - fixed)
-      expect(text.endsWith('Releases: 9.')).toBe(true)
+      expect(render(fits + 1).endsWith('Releases: 9.')).toBe(true)
     })
 
     it('then Releases', () => {
-      const text = render(DESCRIPTION_BUDGET - fixed + 21)
-      expect(text.endsWith('Upcoming shows: 2.')).toBe(true)
+      expect(render(fits + similar + 1).endsWith('Upcoming shows: 2.')).toBe(true)
     })
 
     it('then Upcoming shows', () => {
-      const text = render(DESCRIPTION_BUDGET - fixed + 21 + 13)
-      expect(text.endsWith('Next show: Lincoln Hall, Chicago, Dec 2.')).toBe(true)
+      expect(
+        render(fits + similar + releases + 1).endsWith('Next show: Lincoln Hall, Chicago, Dec 2.')
+      ).toBe(true)
     })
 
     it('then Next show, leaving the lead', () => {
-      const n = DESCRIPTION_BUDGET - fixed + 21 + 13 + 19
+      const n = fits + similar + releases + upcoming + 1
       expect(render(n)).toBe(`${nameOf(n)}.`)
     })
 
@@ -971,15 +971,17 @@ describe('venueSnippet', () => {
         expect(full(DESCRIPTION_BUDGET - fixed + 1).endsWith('on record since 2025.')).toBe(true)
       })
 
+      const address = charLength(' Address: 1807 S Allport St.')
+      const past = charLength(' 56 past shows on record since 2025.')
+
       it('then the past shows', () => {
-        // ' Address: 1807 S Allport St.' is 28, ' 56 past shows on record since 2025.' is 36.
         expect(
-          full(DESCRIPTION_BUDGET - fixed + 28 + 1).endsWith('Next: Squirrel Flower, Nov 20.')
+          full(DESCRIPTION_BUDGET - fixed + address + 1).endsWith('Next: Squirrel Flower, Nov 20.')
         ).toBe(true)
       })
 
       it('then Next, leaving the lead', () => {
-        const n = DESCRIPTION_BUDGET - fixed + 28 + 36 + 1
+        const n = DESCRIPTION_BUDGET - fixed + address + past + 1
         expect(full(n)).toBe(`7 upcoming shows at ${nameOf(n, 'v')} in Chicago, IL.`)
       })
     })
