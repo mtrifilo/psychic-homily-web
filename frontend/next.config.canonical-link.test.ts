@@ -186,26 +186,37 @@ afterEach(() => {
 const params = <T,>(value: T) => ({ params: Promise.resolve(value) })
 
 /**
- * Every scene read (the scene, a week, a day) answers with one payload naming
- * `slug`. A scene page renders only at its canonical spelling, because the
- * proxy redirects every other spelling, so the scene it loads is named by the
- * requested slug and key; the redirect tests below hold the proxy to that.
+ * A sample request for a scene page, under the Phoenix scene, whose backend
+ * reads (the scene, a week, a day) all answer with one payload naming the
+ * requested slug and keys. A scene page renders only at its canonical spelling,
+ * because the proxy redirects every other spelling, so the scene it loads is
+ * named the way it was requested; the redirect tests below hold the proxy to
+ * that.
  */
-function sceneAnswers(slug: string) {
-  backendAnswers({
-    slug,
-    city: 'Phoenix',
-    state: 'AZ',
-    scene_name: 'Phoenix, AZ',
-    timezone: 'America/Phoenix',
-    start_date: '2026-11-16',
-    end_date: '2026-11-22',
-    iso_week: '2026-W47',
-    date: '2026-11-20',
-    prev_date: '2026-11-19',
-    next_date: '2026-11-21',
-    days: [],
-  })
+function sceneCase(
+  rest: string,
+  pageMetadata: (props: { params: Promise<{ slug: string; period: string }> }) => Promise<Metadata>,
+): CoveredCase {
+  return [
+    `/scenes/phoenix-az${rest}`,
+    () => {
+      backendAnswers({
+        slug: 'phoenix-az',
+        city: 'Phoenix',
+        state: 'AZ',
+        scene_name: 'Phoenix, AZ',
+        timezone: 'America/Phoenix',
+        start_date: '2026-11-16',
+        end_date: '2026-11-22',
+        iso_week: '2026-W47',
+        date: '2026-11-20',
+        prev_date: '2026-11-19',
+        next_date: '2026-11-21',
+        days: [],
+      })
+      return pageMetadata(params({ slug: 'phoenix-az', period: rest.slice(1) }))
+    },
+  ]
 }
 
 const noSearch = { searchParams: Promise.resolve({}) }
@@ -332,87 +343,29 @@ const COVERED: Record<string, { route: string; cases: CoveredCase[]; calendar?: 
       ['/collections/essential-shoegaze', () => collectionMetadata(params({ slug: 'essential-shoegaze' }))],
     ],
   },
-  'scenes/[slug]': {
-    route: '/scenes/:slug',
-    cases: [
-      [
-        '/scenes/phoenix-az',
-        () => {
-          sceneAnswers('phoenix-az')
-          return sceneMetadata(params({ slug: 'phoenix-az' }))
-        },
-      ],
-    ],
-  },
+  'scenes/[slug]': { route: '/scenes/:slug', cases: [sceneCase('', sceneMetadata)] },
   'scenes/[slug]/tonight': {
     route: '/scenes/:slug/tonight',
-    cases: [
-      [
-        '/scenes/phoenix-az/tonight',
-        () => {
-          sceneAnswers('phoenix-az')
-          return sceneTonightMetadata(params({ slug: 'phoenix-az' }))
-        },
-      ],
-    ],
+    cases: [sceneCase('/tonight', sceneTonightMetadata)],
   },
   'scenes/[slug]/this-weekend': {
     route: '/scenes/:slug/this-weekend',
-    cases: [
-      [
-        '/scenes/phoenix-az/this-weekend',
-        () => {
-          sceneAnswers('phoenix-az')
-          return sceneThisWeekendMetadata(params({ slug: 'phoenix-az' }))
-        },
-      ],
-    ],
+    cases: [sceneCase('/this-weekend', sceneThisWeekendMetadata)],
   },
   'scenes/[slug]/week': {
     route: '/scenes/:slug/week',
-    cases: [
-      [
-        '/scenes/phoenix-az/week',
-        () => {
-          sceneAnswers('phoenix-az')
-          return sceneWeekMetadata(params({ slug: 'phoenix-az' }))
-        },
-      ],
-    ],
+    cases: [sceneCase('/week', sceneWeekMetadata)],
   },
   'scenes/[slug]/next-4-weeks': {
     route: '/scenes/:slug/next-4-weeks',
-    cases: [
-      [
-        '/scenes/phoenix-az/next-4-weeks',
-        () => {
-          sceneAnswers('phoenix-az')
-          return sceneNext4WeeksMetadata(params({ slug: 'phoenix-az' }))
-        },
-      ],
-    ],
+    cases: [sceneCase('/next-4-weeks', sceneNext4WeeksMetadata)],
   },
   // The week page names the week key the backend returns and the day page the
   // date; both are the requested key, the week key in the upper case the proxy
   // redirects a lower-case one to.
   'scenes/[slug]/[period]': {
     route: '/scenes/:slug/:period',
-    cases: [
-      [
-        '/scenes/phoenix-az/2026-W47',
-        () => {
-          sceneAnswers('phoenix-az')
-          return scenePeriodMetadata(params({ slug: 'phoenix-az', period: '2026-W47' }))
-        },
-      ],
-      [
-        '/scenes/phoenix-az/2026-11-20',
-        () => {
-          sceneAnswers('phoenix-az')
-          return scenePeriodMetadata(params({ slug: 'phoenix-az', period: '2026-11-20' }))
-        },
-      ],
-    ],
+    cases: [sceneCase('/2026-W47', scenePeriodMetadata), sceneCase('/2026-11-20', scenePeriodMetadata)],
   },
 }
 

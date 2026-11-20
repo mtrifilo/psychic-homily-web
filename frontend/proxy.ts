@@ -416,7 +416,8 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   // `/scenes/<slug>/2026-W31` and `/scenes/<slug>/2026-07-31` (permalinks). The
   // generic check below only handles the 3-segment detail shape, so without
   // this these stream a 200 shell before `notFound()` resolves and every bad
-  // key becomes a soft-404 (PSY-897 arc).
+  // key becomes a soft-404 (PSY-897 arc). The 3-segment scene root is handled
+  // here too, so that every scene shape goes through `sceneCheck`.
   //
   // The backend is the authority on whether a period EXISTS: `2025-W53` is
   // well-formed but unreal (2025 has 52 weeks) and `2026-02-30` is well-formed
@@ -837,17 +838,6 @@ const CANONICAL_SLUG_HEADER = 'canonical-slug'
 const CANONICAL_SCENE_SLUG = /^[a-z0-9][a-z0-9.'-]{0,199}$/
 
 /**
- * How long a browser may reuse a redirect to a canonical path before asking
- * again.
- *
- * Bounded because the canonical spelling a probe names follows the data: a
- * scene member city whose rooms come to form a scene of their own is served at
- * its own slug from then on, and a 308 without a lifetime would keep sending a
- * browser that saw the old answer to the metro.
- */
-const CANONICAL_REDIRECT_CACHE_CONTROL = 'private, max-age=3600'
-
-/**
  * A scene URL's probe, which also redirects any spelling of the URL other than
  * the canonical one.
  *
@@ -888,23 +878,32 @@ function sceneCheck(
  * would otherwise send the redirect out naming the URL it redirects away from.
  */
 function canonicalRedirect(request: NextRequest, pathname: string): NextResponse {
-  const url = new URL(pathname, request.url)
-  url.search = request.nextUrl.search
-  const redirect = NextResponse.redirect(url, 308)
-  redirect.headers.set('Cache-Control', CANONICAL_REDIRECT_CACHE_CONTROL)
+  const redirect = permanentRedirect(request, pathname)
   redirect.headers.set('Link', `<${SITE_URL}${pathname}>; rel="canonical"`)
   return redirect
 }
 
 /**
- * How long a browser may reuse a numeric-id redirect before asking again.
+ * How long a browser may reuse a permanent redirect this file sends before
+ * asking again.
  *
- * Bounded because a show's slug is not permanent: the backend can rewrite one
- * in place, and a 308 sent without a lifetime is cached by browsers
- * indefinitely, which would pin the id to a slug that no longer resolves. The
- * status stays permanent, which is what tells a crawler the slug is canonical.
+ * Bounded because every target here follows the data: the backend can rewrite
+ * a show's slug in place, and a scene member city whose rooms come to form a
+ * scene of their own is served at its own slug from then on. A 308 sent
+ * without a lifetime is cached by browsers indefinitely, which would pin the
+ * old address to a target that no longer answers for it. The status stays
+ * permanent, which is what tells a crawler the target is canonical.
  */
-const NUMERIC_SHOW_REDIRECT_CACHE_CONTROL = 'private, max-age=3600'
+const PERMANENT_REDIRECT_CACHE_CONTROL = 'private, max-age=3600'
+
+/** A 308 to `pathname` on this host, keeping the query string. */
+function permanentRedirect(request: NextRequest, pathname: string): NextResponse {
+  const url = new URL(pathname, request.url)
+  url.search = request.nextUrl.search
+  const redirect = NextResponse.redirect(url, 308)
+  redirect.headers.set('Cache-Control', PERMANENT_REDIRECT_CACHE_CONTROL)
+  return redirect
+}
 
 /**
  * A show addressed by its numeric id, permanently redirected to its slug URL,
@@ -957,11 +956,7 @@ async function numericShowRedirect(
     if (!target) {
       return NextResponse.next()
     }
-    const url = new URL(target, request.url)
-    url.search = request.nextUrl.search
-    const redirect = NextResponse.redirect(url, 308)
-    redirect.headers.set('Cache-Control', NUMERIC_SHOW_REDIRECT_CACHE_CONTROL)
-    return redirect
+    return permanentRedirect(request, target)
   } catch {
     return NextResponse.next()
   }

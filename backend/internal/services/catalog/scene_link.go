@@ -19,7 +19,8 @@ import (
 // sceneServingScope is the one existence rule for a scene addressed by its
 // display identity: the scope its rooms form, their verified-venue count, and
 // whether that count clears the floor. GetSceneDetail, the /scenes soft-404
-// gate (sceneExists) and the detail-page scene links all decide through it.
+// gate (SceneCanonicalSlug) and the detail-page scene links all decide through
+// it.
 func (s *SceneService) sceneServingScope(city, state string) (sceneScope, int64, bool, error) {
 	scope, err := s.scopeFor(city, state)
 	if err != nil {
@@ -49,18 +50,27 @@ func (s *SceneService) sceneServesPage(city, state string) (bool, error) {
 // (a metro member city, a case variant) costs one more resolution, of the
 // canonical slug.
 func (s *SceneService) CanonicalSceneSlug(requested, city, state string) (string, error) {
+	canonical, _, _, err := s.canonicalSceneIdentity(requested, city, state)
+	return canonical, err
+}
+
+// canonicalSceneIdentity is CanonicalSceneSlug with the display identity the
+// canonical slug's own page resolves to, which is (city, state) again for a
+// request already spelled canonically. All four are "" when no canonical slug
+// can be named.
+func (s *SceneService) canonicalSceneIdentity(requested, city, state string) (slug, pageCity, pageState string, err error) {
 	canonical := buildSceneSlug(city, state)
 	if canonical == requested {
-		return canonical, nil
+		return canonical, city, state, nil
 	}
-	pageCity, pageState, err := s.ParseSceneSlug(canonical)
+	pageCity, pageState, err = s.ParseSceneSlug(canonical)
 	if err != nil {
-		return "", ignoreSceneNotFound(err)
+		return "", "", "", ignoreSceneNotFound(err)
 	}
 	if buildSceneSlug(pageCity, pageState) != canonical {
-		return "", nil
+		return "", "", "", nil
 	}
-	return canonical, nil
+	return canonical, pageCity, pageState, nil
 }
 
 // newUncachedSceneService is a SceneService with no slug-miss cache, for a
@@ -132,16 +142,9 @@ func servedSceneLink(database *gorm.DB, g geo.Geocoder, place sceneLinkPlace) (*
 	if err != nil {
 		return nil, ignoreSceneNotFound(err)
 	}
-	slug := buildSceneSlug(city, state)
-	if slug != placeSlug {
-		pageCity, pageState, err := sc.ParseSceneSlug(slug)
-		if err != nil {
-			return nil, ignoreSceneNotFound(err)
-		}
-		if buildSceneSlug(pageCity, pageState) != slug {
-			return nil, nil
-		}
-		city, state = pageCity, pageState
+	slug, city, state, err := sc.canonicalSceneIdentity(placeSlug, city, state)
+	if err != nil || slug == "" {
+		return nil, err
 	}
 
 	serves, err := sc.sceneServesPage(city, state)

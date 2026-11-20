@@ -218,7 +218,7 @@ func (suite *EntityExistenceServiceIntegrationTestSuite) TestSceneCanonicalSlug(
 		suite.Equal(tc.wantExists, exists, tc.requested)
 		suite.Equal(tc.wantCanonical, canonical, tc.requested)
 
-		// The verdict is sceneExists' verdict.
+		// The generic probe's verdict is the same one.
 		exists, err = suite.svc.Exists("scenes", tc.requested)
 		suite.Require().NoError(err, tc.requested)
 		suite.Equal(tc.wantExists, exists, tc.requested)

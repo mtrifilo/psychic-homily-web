@@ -317,40 +317,11 @@ describe('proxy — scene canonical redirects', () => {
     expect((await proxy(requestFor('/scenes/no-such-city-zz/tonight'))).status).toBe(404)
   })
 
-  it('fails open without redirecting when the backend is unreachable', async () => {
-    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('fetch failed'))
-
-    const response = await proxy(requestFor('/scenes/tempe-az/tonight'))
-
-    expect(response.status).toBe(200)
-    expect(response.headers.get('location')).toBeNull()
-  })
-
-  it('fails open without redirecting on a backend 5xx', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(null, { status: 503, headers: { 'canonical-slug': 'phoenix-az' } })
-    )
-
-    const response = await proxy(requestFor('/scenes/tempe-az'))
-
-    expect(response.status).toBe(200)
-    expect(response.headers.get('location')).toBeNull()
-  })
-
-  // An API that predates the header answers the status alone; the request
-  // renders as it did before the probe named slugs.
-  it('redirects nothing when the probe names no slug', async () => {
-    mockSceneNamed(null)
-
-    const response = await proxy(requestFor('/scenes/tempe-az'))
-
-    expect(response.status).toBe(200)
-    expect(response.headers.get('location')).toBeNull()
-  })
-
-  // A header value is untrusted wire data: anything that is not a plain
+  // Each of these renders the request as it was spelled. An unanswered probe
+  // fails open, an API that predates the header answers the status alone, and
+  // a header value is untrusted wire data: anything that is not a plain
   // lowercase slug could put another path, a query or a host into Location.
-  it.each([
+  const invalidSlugs = [
     '',
     'PHOENIX-AZ',
     '../artists',
@@ -358,13 +329,27 @@ describe('proxy — scene canonical redirects', () => {
     'phoenix-az?x=1',
     '//evil.example',
     'phoenix az',
-    'española-nm',
+    'espa\u00f1ola-nm',
     '-phoenix-az',
     'a'.repeat(201),
-  ])('redirects nothing when the probe names %j', async slug => {
-    mockSceneNamed(slug)
+  ]
+  it.each<[string, () => unknown]>([
+    ['the backend is unreachable', () => vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('fetch failed'))],
+    [
+      'the backend answers 5xx',
+      () =>
+        vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+          new Response(null, { status: 503, headers: { 'canonical-slug': 'phoenix-az' } })
+        ),
+    ],
+    ['the probe names no slug', () => mockSceneNamed(null)],
+    ...invalidSlugs.map(
+      (slug): [string, () => unknown] => [`the probe names ${JSON.stringify(slug)}`, () => mockSceneNamed(slug)]
+    ),
+  ])('redirects nothing when %s', async (_case, mockProbe) => {
+    mockProbe()
 
-    const response = await proxy(requestFor('/scenes/tempe-az'))
+    const response = await proxy(requestFor('/scenes/tempe-az/tonight'))
 
     expect(response.status).toBe(200)
     expect(response.headers.get('location')).toBeNull()
