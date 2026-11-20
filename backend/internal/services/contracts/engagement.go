@@ -449,4 +449,24 @@ type CalendarServiceInterface interface {
 	// GenerateFollowsActivityFeed builds an Atom 1.0 feed of recent shows +
 	// releases involving artists the user follows (PSY-1505).
 	GenerateFollowsActivityFeed(userID uint, frontendURL string) ([]byte, error)
+	// RetiredSavedShowsNotice renders the calendar a retired feed address
+	// answers with in place of the saved-shows feed: valid, carrying the
+	// feed's name, and holding one all-day note on the current day that says
+	// why the link stopped, for 30 days after it was retired, then nothing.
+	// It returns nil, and no error, when plainToken is not a link retired
+	// within the last year. It never reads or writes calendar_tokens.
+	RetiredSavedShowsNotice(plainToken string) (*RetiredFeedNotice, error)
+	// RetiredFollowsNotice renders the Atom feed a retired feed address
+	// answers with in place of the follows feed: one entry, dated when the
+	// link was retired, that says why it stopped. It returns nil, and no
+	// error, when plainToken is not a link retired within the last year.
+	RetiredFollowsNotice(plainToken string) (*RetiredFeedNotice, error)
+}
+
+// RetiredFeedNotice is the payload a retired feed address answers with, and
+// a validator of it for the 304 path. It holds nothing that names the account
+// the link belonged to.
+type RetiredFeedNotice struct {
+	Body []byte
+	ETag string
 }

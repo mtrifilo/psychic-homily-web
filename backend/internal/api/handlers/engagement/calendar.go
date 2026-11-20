@@ -10,6 +10,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-chi/chi/v5"
 
+	handlershared "psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/logger"
@@ -76,6 +77,10 @@ func (h *CalendarHandler) GetCalendarFeedHandler(w http.ResponseWriter, r *http.
 
 	user, err := h.calendarService.ValidateCalendarToken(token)
 	if err != nil {
+		if h.answerRetiredLink(w, r, token, h.calendarService.RetiredSavedShowsNotice,
+			"text/calendar; charset=utf-8", savedShowsFeedFilename) {
+			return
+		}
 		logger.FromContext(r.Context()).Warn("calendar_feed_invalid_token",
 			"error", err.Error(),
 		)
@@ -99,7 +104,7 @@ func (h *CalendarHandler) GetCalendarFeedHandler(w http.ResponseWriter, r *http.
 	}
 
 	w.Header().Set("Content-Type", "text/calendar; charset=utf-8")
-	w.Header().Set("Content-Disposition", "inline; filename=\"psychic-homily-saved-shows.ics\"")
+	w.Header().Set("Content-Disposition", "inline; filename=\""+savedShowsFeedFilename+"\"")
 	// Short private cache: calendar clients poll coarsely; regenerate clears
 	// the server-side cache immediately, and private avoids shared-proxy reuse.
 	w.Header().Set("Cache-Control", "private, max-age=120")
@@ -123,6 +128,10 @@ func (h *CalendarHandler) GetFollowsActivityFeedHandler(w http.ResponseWriter, r
 
 	user, err := h.calendarService.ValidateCalendarToken(token)
 	if err != nil {
+		if h.answerRetiredLink(w, r, token, h.calendarService.RetiredFollowsNotice,
+			"application/atom+xml; charset=utf-8", followsFeedFilename) {
+			return
+		}
 		logger.FromContext(r.Context()).Warn("follows_activity_feed_invalid_token",
 			"error", err.Error(),
 		)
@@ -146,10 +155,61 @@ func (h *CalendarHandler) GetFollowsActivityFeedHandler(w http.ResponseWriter, r
 	}
 
 	w.Header().Set("Content-Type", "application/atom+xml; charset=utf-8")
-	w.Header().Set("Content-Disposition", "inline; filename=\"psychic-homily-follows.atom\"")
+	w.Header().Set("Content-Disposition", "inline; filename=\""+followsFeedFilename+"\"")
 	w.Header().Set("Cache-Control", "private, max-age=120")
 	w.WriteHeader(http.StatusOK)
 	respond.SafeWrite(r.Context(), w, atomData)
+}
+
+// The filenames the personal feeds are served under, live or retired.
+const (
+	savedShowsFeedFilename = "psychic-homily-saved-shows.ics"
+	followsFeedFilename    = "psychic-homily-follows.atom"
+)
+
+// retiredLinkCacheControl lets a client keep a retired address's notice for
+// an hour; the notice's ETag lets it revalidate without the body after that.
+const retiredLinkCacheControl = "private, max-age=3600"
+
+// answerRetiredLink answers a feed request whose token ValidateCalendarToken
+// refused with the notice lookup renders for it, when the retired-link notice
+// is switched on and the token is a remembered retired link, and reports
+// whether it answered. Otherwise it writes nothing and the caller answers as
+// for any unknown token. With the switch off it calls nothing.
+//
+// A notice is answered without a log line and without a recorded feed read:
+// a calendar app may poll a retired address for as long as it stays
+// subscribed. A failed lookup is logged as an error and left to the caller's
+// answer, so a degraded database answers a retired address as it would with
+// the switch off.
+func (h *CalendarHandler) answerRetiredLink(w http.ResponseWriter, r *http.Request, token string,
+	lookup func(plainToken string) (*contracts.RetiredFeedNotice, error), contentType, filename string,
+) bool {
+	if !h.config.Calendar.RetiredLinkNoticeEnabled {
+		return false
+	}
+	notice, err := lookup(token)
+	if err != nil {
+		logger.FromContext(r.Context()).Error("calendar_feed_retired_link_lookup_failed",
+			"error", err.Error(),
+		)
+		return false
+	}
+	if notice == nil {
+		return false
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", "inline; filename=\""+filename+"\"")
+	w.Header().Set("Cache-Control", retiredLinkCacheControl)
+	w.Header().Set("ETag", notice.ETag)
+	if handlershared.IfNoneMatchCovers(r.Header.Get("If-None-Match"), notice.ETag) {
+		w.WriteHeader(http.StatusNotModified)
+		return true
+	}
+	w.WriteHeader(http.StatusOK)
+	respond.SafeWrite(r.Context(), w, notice.Body)
+	return true
 }
 
 // --- Token CRUD endpoints (Huma, protected) ---

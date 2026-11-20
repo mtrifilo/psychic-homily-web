@@ -218,11 +218,12 @@ func (s *CalendarService) linkResetMarker(userID uint) (*time.Time, *engagementm
 }
 
 // RevokeCalendarLinkTx deletes userID's feed token through tx, which the
-// caller commits, for a security revocation, and records the link reset at
-// the instant at for reason when the deleted token had a read still
-// remembered at at (feedReadForgetAfter). A link with none leaves no marker:
-// no calendar app its owner is still told about could stop updating. An
-// account with no token is left as it is, its marker included.
+// caller commits, for a security revocation, remembering its address as reset
+// whatever reason the revocation had (RetireCalendarTokensTx). It records the
+// link reset at the instant at for reason when the deleted token had a read
+// still remembered at at (feedReadForgetAfter). A link with none leaves no
+// marker: no calendar app its owner is still told about could stop updating.
+// An account with no token is left as it is, its marker included.
 //
 // It reports whether it recorded a link reset: true only when this call
 // deleted a token a calendar app had read, never for a marker an earlier
@@ -252,7 +253,7 @@ func RevokeCalendarLinkTx(tx *gorm.DB, userID uint, at time.Time, reason engagem
 		return false, fmt.Errorf("failed to check calendar feed reads: %w", err)
 	}
 
-	if _, err := DeleteCalendarTokensTx(tx, userID); err != nil {
+	if _, err := RetireCalendarTokensTx(tx, userID, engagementm.CalendarLinkRetiredReset, at); err != nil {
 		return false, err
 	}
 	if !read {

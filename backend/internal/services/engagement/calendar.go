@@ -281,14 +281,16 @@ func (s *CalendarService) CreateToken(userID uint, sessionsValidAfter *time.Time
 			return err
 		}
 
-		if err := tx.Where("user_id = ?", userID).Delete(&engagementm.CalendarToken{}).Error; err != nil {
-			return fmt.Errorf("failed to delete existing token: %w", err)
-		}
-
 		// timestamptz keeps microseconds, so a microsecond instant is stored
 		// exactly and the CreatedAt returned equals the one GetTokenStatus
 		// later reads.
 		token.CreatedAt = tx.NowFunc().Truncate(time.Microsecond)
+
+		// The link this one replaces is remembered as replaced.
+		if _, err := RetireCalendarTokensTx(tx, userID, engagementm.CalendarLinkRetiredReplaced, token.CreatedAt); err != nil {
+			return fmt.Errorf("failed to delete existing token: %w", err)
+		}
+
 		if err := tx.Create(token).Error; err != nil {
 			return fmt.Errorf("failed to create token: %w", err)
 		}
@@ -368,18 +370,19 @@ func (s *CalendarService) tokenStatusAt(userID uint, apiBaseURL string, now time
 var errNoCalendarToken = errors.New("no calendar token found")
 
 // DeleteToken turns userID's feed off (contracts.CalendarServiceInterface):
-// it deletes their token and clears any link-reset marker in one transaction,
-// because turning the feed off is the person's own act and leaves nothing to
-// explain. A user whose link was reset holds a marker and no token, and
-// turning the feed off then clears the marker and succeeds. Only a user with
-// neither gets errNoCalendarToken, and nothing changes.
+// it deletes their token, remembering its address as turned off, and clears
+// any link-reset marker in one transaction, because turning the feed off is
+// the person's own act and leaves nothing to explain to them. A user whose
+// link was reset holds a marker and no token, and turning the feed off then
+// clears the marker and succeeds. Only a user with neither gets
+// errNoCalendarToken, and nothing changes.
 func (s *CalendarService) DeleteToken(userID uint) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
 
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		deleted, err := DeleteCalendarTokensTx(tx, userID)
+		deleted, err := RetireCalendarTokensTx(tx, userID, engagementm.CalendarLinkRetiredTurnedOff, time.Now())
 		if err != nil {
 			return err
 		}
@@ -397,22 +400,6 @@ func (s *CalendarService) DeleteToken(userID uint) error {
 	}
 	s.invalidateFeedCache(userID)
 	return nil
-}
-
-// DeleteCalendarTokensTx revokes userID's calendar-feed token through tx,
-// which the caller commits, and reports how many it deleted. A revoked token
-// is refused by ValidateCalendarToken before any feed is served, so a feed
-// cached in some process's CalendarService cannot reach its holder; the next
-// token CreateToken mints clears that cache. The token's recorded feed reads
-// are deleted with it (calendar_feed_reads cascades from calendar_tokens).
-// It writes no link-reset marker; a security revocation deletes through
-// RevokeCalendarLinkTx, which does.
-func DeleteCalendarTokensTx(tx *gorm.DB, userID uint) (int64, error) {
-	result := tx.Where("user_id = ?", userID).Delete(&engagementm.CalendarToken{})
-	if result.Error != nil {
-		return 0, fmt.Errorf("failed to delete token: %w", result.Error)
-	}
-	return result.RowsAffected, nil
 }
 
 // ValidateCalendarToken validates a plaintext calendar token and returns the associated user.
@@ -512,6 +499,10 @@ func (s *CalendarService) upcomingSavedShows(userID uint) ([]*contracts.SavedSho
 // keep the name it read when it subscribed.
 const savedShowsFeedName = "Psychic Homily saved shows"
 
+// savedShowsFeedProductID is the PRODID of every calendar served at a
+// saved-shows address, the live feed and a retired link's notice alike.
+const savedShowsFeedProductID = "-//Psychic Homily//Calendar Feed//EN"
+
 // buildSavedShowsCalendar renders shows as the wire bytes of a saved-shows
 // calendar. It reads no cache and writes none.
 //
@@ -526,7 +517,7 @@ const savedShowsFeedName = "Psychic Homily saved shows"
 func buildSavedShowsCalendar(shows []*contracts.SavedShowResponse, frontendURL string) []byte {
 	cal := ics.NewCalendar()
 	cal.SetMethod(ics.MethodPublish)
-	cal.SetProductId("-//Psychic Homily//Calendar Feed//EN")
+	cal.SetProductId(savedShowsFeedProductID)
 	cal.SetName(savedShowsFeedName)
 	cal.SetDescription("Your saved shows from Psychic Homily")
 	cal.SetXWRCalName(savedShowsFeedName)
