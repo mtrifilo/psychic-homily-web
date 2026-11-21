@@ -276,8 +276,9 @@ func artistReferenceColumns(db *gorm.DB) ([]artistReference, error) {
 			from: "artist_relationship_votes", where: "t.source_artist_id = @id"}},
 		{"artist_relationship_votes", "target_artist_id", artistReference{key: "artist_relationship_votes.target_artist_id",
 			from: "artist_relationship_votes", where: "t.target_artist_id = @id"}},
-		// The alert types whose subject_entity_id is an artist id; the artist
-		// merge reads the same list (artistSubjectAlertTypes).
+		// The alert types whose subject_entity_id is an artist id: a copy of
+		// the artist merge's artistSubjectAlertTypes, which is not exported. A
+		// type added there must be added here too.
 		{"notification_log", "subject_entity_id", artistReference{key: "notification_log.subject_entity_id",
 			from: "notification_log", where: "t.subject_entity_id = @id AND t.entity_type = '" +
 				notificationm.NotificationEntityArtistShowAlert + "'"}},

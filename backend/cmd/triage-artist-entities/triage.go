@@ -333,6 +333,7 @@ func refuseEntangledRows(plans []*rowPlan) {
 	mergesInto := map[uint][]*rowPlan{}
 	doneInto := map[uint]*rowPlan{}
 	nameRows := map[string][]*rowPlan{}
+	linkRows := map[uint][]*rowPlan{}
 	billRows := map[showRef][]*rowPlan{}
 	for _, p := range plans {
 		switch p.Status {
@@ -344,6 +345,9 @@ func refuseEntangledRows(plans []*rowPlan) {
 			}
 			for _, name := range p.NewNames {
 				nameRows[name] = append(nameRows[name], p)
+			}
+			for _, id := range p.FoundActIDs {
+				linkRows[id] = append(linkRows[id], p)
 			}
 			for _, s := range p.BillShows {
 				billRows[s] = append(billRows[s], p)
@@ -395,6 +399,13 @@ func refuseEntangledRows(plans []*rowPlan) {
 		if len(group) > 1 {
 			for _, p := range group {
 				add(p, "lines %s would each give an artist the name %q; apply one of them per run", joinInts(linesOf(group)), name)
+			}
+		}
+	}
+	for _, group := range linkRows {
+		if len(group) > 1 {
+			for _, p := range group {
+				add(p, "lines %s each put the same existing act on a bill; apply one of them per run", joinInts(linesOf(group)))
 			}
 		}
 	}

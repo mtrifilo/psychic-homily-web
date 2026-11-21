@@ -241,6 +241,12 @@ func (t *triage) runRow(p *rowPlan, beforeCommit func(tx *gorm.DB) error) ([]str
 		if err != nil {
 			return err
 		}
+		// A service that swallowed a failed statement (the audit writers log
+		// and return nothing) has left the transaction aborted; surface that
+		// here, in the dry run and the confirmed run alike.
+		if err := tx.Exec("SELECT 1").Error; err != nil {
+			return fmt.Errorf("the row's transaction was aborted by a failed statement: %w", err)
+		}
 		return beforeCommit(tx)
 	})
 	return detail, err
@@ -402,13 +408,39 @@ func (t *triage) merge(tx *gorm.DB, p *rowPlan, subject *catalogm.Artist) ([]str
 	if err != nil {
 		return detail, err
 	}
-	for _, sh := range shows {
+	billsBefore := make([][]billEntry, len(shows))
+	for i, sh := range shows {
 		p.BillShows = append(p.BillShows, showRef{ID: sh.ID, Slug: slugText(sh.Slug)})
+		if billsBefore[i], err = billOf(tx, sh.ID); err != nil {
+			return detail, err
+		}
 	}
 
 	result, err := catalog.NewArtistService(tx).MergeArtists(into.ID, subject.ID)
 	if err != nil {
 		return detail, err
+	}
+
+	// MergeArtists drops, rather than moves, a billing that would collide with
+	// the target's (the same show, or another show at the same room and time),
+	// so a bill can come out of the merge with no acts or no headliner.
+	for i, sh := range shows {
+		after, err := billOf(tx, sh.ID)
+		if err != nil {
+			return detail, err
+		}
+		slug := slugText(sh.Slug)
+		if len(after) == 0 {
+			return detail, fmt.Errorf("the merge would leave show %s with no acts (its billing collides with %s's at the "+
+				"same room and time and is dropped, not moved), so decide that show first", slug, slugOf(into))
+		}
+		p.Record.Shows = append(p.Record.Shows, recordShow{ShowID: sh.ID, ShowSlug: slug,
+			BillBefore: recordBill(billsBefore[i]), BillAfter: recordBill(after)})
+		detail = append(detail, fmt.Sprintf("show %s (%s): bill %s -> %s", slug, sh.Status,
+			describeBill(billsBefore[i]), describeBill(after)))
+		if headlineSlot(billsBefore[i])[subject.ID] && !headlineSlot(after)[into.ID] {
+			detail = append(detail, "  WARNING: "+headlineSlotWarning(after))
+		}
 	}
 
 	admin.NewAuditLogService(tx).LogAction(t.actor, auditActionMergeArtists, "artist", into.ID, map[string]interface{}{
@@ -644,7 +676,7 @@ func derivedEdgesOf(tx *gorm.DB, id uint) ([]derivedEdge, error) {
 // refused an artist with a hand-made edge or a vote. It returns lines saying
 // what the delete takes with it.
 func deleteArtist(tx *gorm.DB, p *rowPlan, actor uint, subject *catalogm.Artist) ([]string, error) {
-	collateral, err := deleteCollateral(tx, subject.ID)
+	collateral, warnings, err := deleteCollateral(tx, subject.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -662,10 +694,9 @@ func deleteArtist(tx *gorm.DB, p *rowPlan, actor uint, subject *catalogm.Artist)
 	if err := catalog.NewArtistService(tx).DeleteArtist(subject.ID, contracts.EntityDeleteActor{UserID: actor, IsAdmin: true}); err != nil {
 		return nil, fmt.Errorf("delete artist: %w", err)
 	}
-	return []string{
-		fmt.Sprintf("delete: %s; %d derived graph edge(s) deleted", collateral, len(edges)),
-		fmt.Sprintf("after the delete /artists/%s answers 404", slugOf(subject)),
-	}, nil
+	lines := []string{fmt.Sprintf("delete: %s; %d derived graph edge(s) deleted", collateral, len(edges))}
+	lines = append(lines, warnings...)
+	return append(lines, fmt.Sprintf("after the delete /artists/%s answers 404", slugOf(subject))), nil
 }
 
 // rewrittenShow is a show as a bill rewrite left it.
@@ -869,8 +900,9 @@ func linksTheTargetLacks(from, into *catalogm.Artist) []string {
 
 // refuseRealAct refuses to delete an artist that carries what a real act has:
 // a release credit, a link, a label, a festival lineup, a matched radio play,
-// a hand-made relationship, or a vote on a relationship. Deleting it would drop
-// those rows or, for radio plays, strand them without an artist.
+// a hand-made relationship, a vote on a relationship, a MusicBrainz id, or a
+// band-membership edge imported from MusicBrainz. Deleting it would drop those
+// rows or, for radio plays, strand them without an artist.
 func refuseRealAct(tx *gorm.DB, a *catalogm.Artist) error {
 	var found []string
 	if links := setLinks(a); len(links) > 0 {
@@ -910,6 +942,11 @@ var realActCounts = []labeledCount{
 	{"matched radio play(s)", "SELECT COUNT(*) FROM radio_plays WHERE artist_id = @id"},
 	handMadeRelationships,
 	{"relationship vote(s)", "SELECT COUNT(*) FROM artist_relationship_votes WHERE source_artist_id = @id OR target_artist_id = @id"},
+	{"MusicBrainz id", "SELECT COUNT(*) FROM artists WHERE id = @id AND COALESCE(btrim(musicbrainz_artist_id), '') <> ''"},
+	// Imported from MusicBrainz and stored auto_derived, so the hand-made count
+	// does not see them.
+	{"band-membership edge(s)", "SELECT COUNT(*) FROM artist_relationships WHERE (source_artist_id = @id OR target_artist_id = @id) " +
+		"AND relationship_type IN ('" + catalogm.RelationshipTypeMemberOf + "', '" + catalogm.RelationshipTypeSideProject + "')"},
 }
 
 // collateralCounts are the rows deleteCollateral reports.
@@ -949,20 +986,41 @@ func countAll(db *gorm.DB, id uint, counts []labeledCount) ([]int64, error) {
 	return out, nil
 }
 
+// leftBehindCounts are references a delete leaves wrong rather than drops: an
+// alert filter still listing the deleted id (DeleteArtist leaves the array
+// alone, so the alert matches nothing) and a community whose label is the
+// artist (deleted with it, so its members show unlabelled until the next
+// community run).
+var leftBehindCounts = []labeledCount{
+	{"alert filter(s) list it and will match nothing", "SELECT COUNT(*) FROM notification_filters WHERE @id = ANY(artist_ids)"},
+	{"community label(s) are deleted with it", "SELECT COUNT(*) FROM artist_communities WHERE label_artist_id = @id"},
+}
+
 // deleteCollateral describes rows DeleteArtist drops with the artist: follows
 // and saves, tags, crate items and aliases among them (its sweep also clears
 // comment subscriptions, tag votes and queued work). Comments, revisions and
-// audit rows stay as history.
-func deleteCollateral(tx *gorm.DB, id uint) (string, error) {
+// audit rows stay as history. The warnings are the leftBehindCounts found.
+func deleteCollateral(tx *gorm.DB, id uint) (string, []string, error) {
 	counts, err := countAll(tx, id, collateralCounts)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	parts := make([]string, len(counts))
 	for i, n := range counts {
 		parts[i] = fmt.Sprintf("%d %s", n, collateralCounts[i].what)
 	}
-	return "drops, among others, " + strings.Join(parts, ", ") + "; comments and revisions stay as history", nil
+	line := "drops, among others, " + strings.Join(parts, ", ") + "; comments and revisions stay as history"
+	left, err := countAll(tx, id, leftBehindCounts)
+	if err != nil {
+		return "", nil, err
+	}
+	var warnings []string
+	for i, n := range left {
+		if n > 0 {
+			warnings = append(warnings, fmt.Sprintf("  WARNING: %d %s", n, leftBehindCounts[i].what))
+		}
+	}
+	return line, warnings, nil
 }
 
 // billedShow is one show an artist is billed on.
