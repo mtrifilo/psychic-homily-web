@@ -1,7 +1,14 @@
 'use client'
 
-import { ManageInSettingsLink, PanelError, PanelNote } from './CalendarPanelParts'
+import { useContext } from 'react'
+import {
+  CalendarAddressShownContext,
+  ManageInSettingsLink,
+  PanelError,
+  PanelNote,
+} from './CalendarPanelParts'
 import { PANEL_COPY } from './savedShowsCalendarCopy'
+import { SETTINGS_CALENDAR_COPY } from './settingsCalendarCopy'
 import type { CalendarRowNote } from './useSavedShowsCalendarActions'
 
 /**
@@ -31,6 +38,7 @@ function NoteContent({
   note: CalendarRowNote
   onNavigate?: () => void
 }) {
+  const addressShown = useContext(CalendarAddressShownContext)
   switch (note) {
     case 'google_pending':
       return (
@@ -47,6 +55,9 @@ function NoteContent({
     case 'copied':
       return <PanelNote>{PANEL_COPY.copied}</PanelNote>
     case 'copy_failed':
+      if (addressShown) {
+        return <PanelError>{SETTINGS_CALENDAR_COPY.copyFailed}</PanelError>
+      }
       return (
         <>
           <PanelError>{PANEL_COPY.copyFailed}</PanelError>

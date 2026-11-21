@@ -34,8 +34,6 @@ vi.mock('@/lib/queryClient', () => ({
   }),
 }))
 
-import { PERSONAL_FEED_TOKEN_REVOKED_EVENT } from '@/features/collections/components/personalFeedTokenEvents'
-
 // Import hooks after mocks are set up
 import { AuthError } from '@/lib/errors'
 import {
@@ -100,17 +98,6 @@ describe('forgetRevokedCalendarLink', () => {
     expect(queryClient.getQueryData(['calendar', 'feedStatus'])).toBeUndefined()
     expect(queryClient.getQueryData(['calendar', 'tokenStatus'])).toEqual({ has_token: true })
     expect(queryClient.getQueryState(['calendar', 'tokenStatus'])?.isInvalidated).toBe(true)
-  })
-
-  it('tells the feed cards the link they may still show is gone', async () => {
-    const onRevoked = vi.fn()
-    window.addEventListener(PERSONAL_FEED_TOKEN_REVOKED_EVENT, onRevoked)
-    try {
-      await forgetRevokedCalendarLink(createTestQueryClient())
-      expect(onRevoked).toHaveBeenCalledTimes(1)
-    } finally {
-      window.removeEventListener(PERSONAL_FEED_TOKEN_REVOKED_EVENT, onRevoked)
-    }
   })
 
   it('discards a feed-status read that was in flight when the action succeeded', async () => {
@@ -337,11 +324,11 @@ describe('useCreateCalendarToken', () => {
     await waitFor(() => expect(result.current.data).toEqual(mockResponse))
   })
 
-  it('surfaces errors to the caller and does NOT silently invalidate', async () => {
-    // Core PSY-700 risk for this hook: if the mutation swallowed the
-    // rejection, the calendar UI would show "success" while no token
-    // exists server-side. The mutation MUST reject mutateAsync AND skip
-    // invalidation so the cache doesn't refetch the (still-missing) status.
+  it('surfaces errors to the caller and still re-reads the calendar', async () => {
+    // If the mutation swallowed the rejection, the calendar UI would show
+    // "success" while no token exists server-side, so mutateAsync MUST
+    // reject. The calendar reads are still refetched: a create whose answer
+    // was lost may have committed, and only the server can say.
     const error = new Error('Server error')
     Object.assign(error, { status: 500 })
     mockApiRequest.mockRejectedValueOnce(error)
@@ -366,7 +353,7 @@ describe('useCreateCalendarToken', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect(result.current.error).toBeTruthy()
     expect((result.current.error as { status?: number }).status).toBe(500)
-    expect(mockInvalidateCalendar).not.toHaveBeenCalled()
+    expect(mockInvalidateCalendar).toHaveBeenCalled()
   })
 
   it('surfaces 401 auth errors with the original error preserved', async () => {
@@ -390,7 +377,7 @@ describe('useCreateCalendarToken', () => {
 
     expect(result.current.error).toBe(authError)
     expect((result.current.error as { status?: number }).status).toBe(401)
-    expect(mockInvalidateCalendar).not.toHaveBeenCalled()
+    expect(mockInvalidateCalendar).toHaveBeenCalled()
   })
 
   it('isPending toggles during in-flight mutation', async () => {
@@ -455,9 +442,10 @@ describe('useDeleteCalendarToken', () => {
     expect(mockInvalidateCalendar).toHaveBeenCalled()
   })
 
-  it('surfaces errors to the caller and skips invalidation on failure', async () => {
+  it('surfaces errors to the caller and still re-reads the calendar on failure', async () => {
     // Same risk class as Create: silent swallow here would leave the UI
-    // claiming the feed is disabled while the backend record persists.
+    // claiming the feed is disabled while the backend record persists. The
+    // re-read settles the card on what the server holds.
     const error = new Error('Not found')
     Object.assign(error, { status: 404 })
     mockApiRequest.mockRejectedValueOnce(error)
@@ -480,10 +468,10 @@ describe('useDeleteCalendarToken', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect(result.current.error).toBeTruthy()
     expect((result.current.error as { status?: number }).status).toBe(404)
-    expect(mockInvalidateCalendar).not.toHaveBeenCalled()
+    expect(mockInvalidateCalendar).toHaveBeenCalled()
   })
 
-  it('does not invalidate on 500 server errors', async () => {
+  it('re-reads the calendar on 500 server errors, since the write may have committed', async () => {
     const error = new Error('Internal Server Error')
     Object.assign(error, { status: 500 })
     mockApiRequest.mockRejectedValueOnce(error)
@@ -497,7 +485,7 @@ describe('useDeleteCalendarToken', () => {
     })
 
     await waitFor(() => expect(result.current.isError).toBe(true))
-    expect(mockInvalidateCalendar).not.toHaveBeenCalled()
+    expect(mockInvalidateCalendar).toHaveBeenCalled()
   })
 })
 

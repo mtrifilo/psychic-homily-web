@@ -200,7 +200,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     rows: [
       {
         kind: 'link',
-        covers: ['Calendar feed', 'Follows activity feed'],
+        covers: ['Calendar', 'Follows feed'],
         ...PROFILE_SETTINGS,
       },
     ],

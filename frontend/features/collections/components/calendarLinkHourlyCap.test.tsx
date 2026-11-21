@@ -1,16 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { useRef, useState } from 'react'
 import { server as msw } from '@/test/mocks/server'
 import { createTestQueryClient, createWrapperWithClient } from '@/test/utils'
-import { CalendarFeedSection } from './CalendarFeedSection'
-import { FollowsActivityFeedSection } from './FollowsActivityFeedSection'
 import { SavedShowsCalendarPanel } from './saved-shows-calendar/SavedShowsCalendarPanel'
 import { CalendarStepsPage } from './saved-shows-calendar/CalendarStepsPage'
+import { SettingsCalendarCard } from './saved-shows-calendar/SettingsCalendarCard'
+import { CONFIRM_ARMING_DELAY_MS } from './saved-shows-calendar/SettingsCalendarLinks'
 import { STEPS_PAGE_COPY } from './saved-shows-calendar/calendarStepsPageCopy'
 import { PANEL_COPY } from './saved-shows-calendar/savedShowsCalendarCopy'
+import { SETTINGS_CALENDAR_COPY } from './saved-shows-calendar/settingsCalendarCopy'
 
 // Making a link past the account's hourly cap answers 429
 // CALENDAR_LINK_RATE_LIMITED_HOURLY. The cap has no wording of its own: each
@@ -67,8 +68,15 @@ function method(options: unknown): string {
 
 const mintErrors: unknown[] = []
 
+const FEED_URL = 'https://api.example.test/feeds/secret-token-abc/saved-shows.ics'
+const FOLLOWS_URL = 'https://api.example.test/feeds/secret-token-abc/follows.atom'
+
+/** What the account's link reads answer; no link unless a case gives it one. */
+let linkStatus: object = { has_token: false }
+
 beforeEach(() => {
   mintErrors.length = 0
+  linkStatus = { has_token: false }
   answerTheCap()
   apiRequest.mockImplementation(async (endpoint: string, options: unknown) => {
     const url = String(endpoint)
@@ -81,8 +89,8 @@ beforeEach(() => {
         throw error
       }
     }
-    if (url.endsWith('/calendar/token/feed-status')) return { has_token: false }
-    if (url.endsWith('/calendar/token') && verb === 'GET') return { has_token: false }
+    if (url.endsWith('/calendar/token/feed-status')) return linkStatus
+    if (url.endsWith('/calendar/token') && verb === 'GET') return linkStatus
     if (url.includes('/saved-shows?')) return { shows: [], total: 0, limit: 1, offset: 0 }
     throw new Error(`unexpected request ${verb} ${url}`)
   })
@@ -130,21 +138,55 @@ describe('the hourly cap on making a calendar link', () => {
     expectEveryMintRefusedByTheCap()
   })
 
-  it.each([
-    ['saved shows calendar', () => <CalendarFeedSection variant="settings" />],
-    ['followed artists activity', () => <FollowsActivityFeedSection />],
-  ])('the Settings %s feed card shows its existing mint-failure line', async (_name, card) => {
+  it('the Settings card shows its create-failure line under Add to calendar', async () => {
     const user = userEvent.setup()
-    render(card(), { wrapper: createWrapperWithClient(createTestQueryClient()) })
+    render(<SettingsCalendarCard id="calendar" />, {
+      wrapper: createWrapperWithClient(createTestQueryClient()),
+    })
 
-    await user.click(await screen.findByRole('button', { name: 'Enable' }))
-
-    await waitFor(() =>
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        'Could not update the feed. Please try again.'
-      )
+    await user.click(
+      await screen.findByRole('button', { name: SETTINGS_CALENDAR_COPY.addToCalendar })
     )
-    expect(screen.queryByRole('link', { name: 'Sign in again' })).toBeNull()
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(PANEL_COPY.createFailed)
+    expect(screen.queryAllByTestId('calendar-link-field')).toHaveLength(0)
+    expectEveryMintRefusedByTheCap()
+  })
+
+  it('the Settings card keeps the link it has when New link is refused', async () => {
+    linkStatus = {
+      has_token: true,
+      url_recoverable: true,
+      feed_url: FEED_URL,
+      follows_feed_url: FOLLOWS_URL,
+      reads: [],
+    }
+    const user = userEvent.setup()
+    render(<SettingsCalendarCard id="calendar" />, {
+      wrapper: createWrapperWithClient(createTestQueryClient()),
+    })
+
+    await user.click(
+      await screen.findByRole('button', { name: SETTINGS_CALENDAR_COPY.newLink })
+    )
+    // The confirming button ignores activation until its arming delay passes.
+    await act(
+      () => new Promise(resolve => setTimeout(resolve, CONFIRM_ARMING_DELAY_MS))
+    )
+    await user.click(
+      screen.getByRole('button', { name: SETTINGS_CALENDAR_COPY.confirmNewLinkAction })
+    )
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(PANEL_COPY.createFailed)
+    await waitFor(() =>
+      expect(
+        screen
+          .getAllByTestId('calendar-link-field')
+          .map(field => (field as HTMLInputElement).value)
+      ).toEqual([FEED_URL, FOLLOWS_URL])
+    )
     expectEveryMintRefusedByTheCap()
   })
 })

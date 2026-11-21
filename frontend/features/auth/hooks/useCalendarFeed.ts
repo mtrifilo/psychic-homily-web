@@ -21,10 +21,11 @@ import type {
   CalendarTokenCreateResponse,
   CalendarTokenDeleteResponse,
 } from '@/features/shows'
-import { PERSONAL_FEED_TOKEN_REVOKED_EVENT } from '@/features/collections/components/personalFeedTokenEvents'
 
 /**
- * Hook to check if the user has a calendar feed token
+ * The calendar feed's full status for a session: whether a link exists, its
+ * two addresses when they can be shown, the calendar apps seen reading it, and
+ * the reset marker. Reading it never creates a link.
  */
 export const useCalendarTokenStatus = (
   enabled: boolean = true,
@@ -190,16 +191,13 @@ export function emailCalendarStepsFailure(
  * link, the one the action deleted, while the new read is in flight.
  * Resetting cancels any fetch in flight, and an active query refetches at
  * once. The token status refetches in place instead, so the Settings calendar
- * card keeps its content on screen until the new answer lands. The feed cards
- * hold a link they just minted outside the cache, so they are told the link is
- * gone as well.
+ * card keeps its content on screen until the new answer lands.
  *
  * Never rejects.
  */
 export function forgetRevokedCalendarLink(
   queryClient: QueryClient
 ): Promise<unknown> {
-  window.dispatchEvent(new CustomEvent(PERSONAL_FEED_TOKEN_REVOKED_EVENT))
   return Promise.all([
     queryClient.resetQueries({ queryKey: queryKeys.calendar.feedStatus }),
     refetchAfterMutation(queryClient, queryKeys.calendar.tokenStatus),
@@ -207,7 +205,9 @@ export function forgetRevokedCalendarLink(
 }
 
 /**
- * Hook to create (or regenerate) a calendar feed token
+ * Creates the calendar feed link, replacing any the account holds. Every
+ * calendar read is refetched afterwards, on failure too: a write whose
+ * response was lost may still have committed.
  */
 export const useCreateCalendarToken = () => {
   const queryClient = useQueryClient()
@@ -220,14 +220,16 @@ export const useCreateCalendarToken = () => {
         { method: 'POST' }
       )
     },
-    onSuccess: () => {
+    onSettled: () => {
       invalidateQueries.calendar()
     },
   })
 }
 
 /**
- * Hook to delete (disable) a calendar feed token
+ * Turns the calendar feed link off. Every calendar read is refetched
+ * afterwards, on failure too: a turn-off whose response was lost, or one
+ * refused because the link was already off, leaves the link gone.
  */
 export const useDeleteCalendarToken = () => {
   const queryClient = useQueryClient()
@@ -240,7 +242,7 @@ export const useDeleteCalendarToken = () => {
         { method: 'DELETE' }
       )
     },
-    onSuccess: () => {
+    onSettled: () => {
       invalidateQueries.calendar()
     },
   })

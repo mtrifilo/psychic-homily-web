@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type ComponentType } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import type React from 'react'
@@ -25,6 +25,7 @@ import {
   PanelNote,
   PanelRowButton,
   holdFocusInSurface,
+  tapTargetClass,
   useCalendarPanelLayout,
 } from './CalendarPanelParts'
 import { PANEL_COPY, emailSentLine } from './savedShowsCalendarCopy'
@@ -37,8 +38,15 @@ import { PANEL_COPY, emailSentLine } from './savedShowsCalendarCopy'
  * a later failure takes the confirmation down and names the failure, so the
  * panel never claims an email that a later attempt did not send. An address
  * that is not verified gets the house verification resend in place.
+ *
+ * `sendControl` draws the send controls; the panel's text-link row unless a
+ * surface draws its own (the Settings card's outline buttons).
  */
-export function CalendarEmailStepsAction() {
+export function CalendarEmailStepsAction({
+  sendControl: SendControl = PanelRowButton,
+}: {
+  sendControl?: ComponentType<CalendarSendControlProps>
+} = {}) {
   const { user } = useAuthContext()
   const send = useEmailCalendarSteps()
   // The last settled outcome, kept through a send in flight so neither the
@@ -66,18 +74,18 @@ export function CalendarEmailStepsAction() {
           <PanelNote className="mt-0.5">
             {emailSentLine(user?.email ?? '')}
           </PanelNote>
-          <PanelRowButton onClick={sendFromControl} disabled={send.isPending}>
+          <SendControl onClick={sendFromControl} disabled={send.isPending}>
             {PANEL_COPY.sendAgain}
-          </PanelRowButton>
+          </SendControl>
         </>
       ) : (
-        <PanelRowButton
+        <SendControl
           onClick={sendFromControl}
           disabled={send.isPending}
           testId="calendar-email-steps"
         >
           {PANEL_COPY.emailSteps}
-        </PanelRowButton>
+        </SendControl>
       )}
       {outcome === 'unverified' ? <VerifyEmailInPlace /> : null}
       {outcome === 'rate_limited' ? (
@@ -90,6 +98,14 @@ export function CalendarEmailStepsAction() {
       ) : null}
     </div>
   )
+}
+
+/** What a send control is given: "Email me the steps" or "Send again". */
+export interface CalendarSendControlProps {
+  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void
+  disabled?: boolean
+  testId?: string
+  children: string
 }
 
 /**
@@ -108,7 +124,7 @@ function VerifyEmailInPlace() {
           variant="link"
           className={cn(
             'h-auto self-start p-0 text-sm font-medium',
-            layout === 'sheet' && 'min-h-11'
+            tapTargetClass(layout)
           )}
         >
           {PANEL_COPY.verifyEmail}

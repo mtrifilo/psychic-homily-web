@@ -1,12 +1,3 @@
-// CalendarFeedSection is barrel-safe despite the PSY-951/PSY-944 caveat below:
-// its dependency graph is trivially light (lucide icons, ui/button, ui/input,
-// and three react-query hooks via the `@/features/auth` barrel — all already
-// multi-route-reachable), unlike CollectionDetail's `@dnd-kit`/`marked`/
-// `dompurify` dynamic-import boundaries. If it ever grows heavy deps, evict it
-// to a direct file import like CollectionDetail (sole consumer: the Settings
-// panel).
-export { CalendarFeedSection } from './CalendarFeedSection'
-export { FollowsActivityFeedSection } from './FollowsActivityFeedSection'
 export { CollectionCard } from './CollectionCard'
 // CollectionDetail is intentionally NOT re-exported here (PSY-951 / PSY-944).
 // A `'use client'` barrel is not reliably tree-shaken per-export under

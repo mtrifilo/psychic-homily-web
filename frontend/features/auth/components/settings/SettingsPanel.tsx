@@ -36,8 +36,7 @@ import { HomeLayoutSettings } from './home-layout'
 import { AlertSettings } from './alert-settings'
 import { NotificationSettings } from './notification-settings'
 import { ReplyPermissionSettings } from './reply-permission-settings'
-import { CalendarFeedSection, FollowsActivityFeedSection } from '@/features/collections'
-import { cn } from '@/lib/utils'
+import { SettingsCalendarCard } from '@/features/collections/components/saved-shows-calendar/SettingsCalendarCard'
 import { CALENDAR_FEED_SETTINGS_ANCHOR } from './calendar-feed-anchor'
 import { SETTINGS_ANCHOR_SCROLL_MT, useAnchorScroll } from './useAnchorScroll'
 import { useAutoDismissBanner } from '@/lib/hooks/common'
@@ -71,10 +70,10 @@ function formatTokenLifetime(seconds: number): string {
  * Settings tab, board J card order (PSY-1414 / PSY-1508), with Alerts +
  * Your area inserted by PSY-1905 and Home page by PSY-2104:
  * Account → Favorite cities → Home page → Alerts → Your area → Account emails
- * → Calendar feed (PSY-1430) → Follows activity feed (PSY-1505) → Default
- * reply permission → Connected accounts → Passkeys → Password (Set a password
- * or Change password) → Sessions → API tokens → CLI authentication → Export →
- * Danger zone.
+ * → Calendar (the saved shows calendar and the follows feed, one key) →
+ * Default reply permission → Connected accounts → Passkeys → Password (Set a
+ * password or Change password) → Sessions → API tokens → CLI authentication →
+ * Export → Danger zone.
  */
 export function SettingsPanel() {
   const { user } = useAuthContext()
@@ -200,38 +199,13 @@ export function SettingsPanel() {
 
       <NotificationSettings />
 
-      {/* Saved-shows iCal feed. The anchor is on this shell, not inside
-          CalendarFeedSection, which renders nothing while it loads, so the
-          fragment always resolves. */}
-      <Card
-        ref={calendarFeedAnchorRef}
+      {/* The card's shell renders while its status loads, so the fragment
+          always resolves. */}
+      <SettingsCalendarCard
+        anchorRef={calendarFeedAnchorRef}
         id={CALENDAR_FEED_SETTINGS_ANCHOR}
-        tabIndex={-1}
-        className={cn(SETTINGS_ANCHOR_SCROLL_MT, 'focus:outline-none')}
-      >
-        <CardHeader>
-          <CardTitle className="text-base">Calendar feed</CardTitle>
-          <CardDescription>
-            Subscribe your saved shows in Google Calendar or Apple Calendar
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <CalendarFeedSection variant="settings" />
-        </CardContent>
-      </Card>
-
-      {/* Followed-artist Atom activity feed (PSY-1505) — same personal feed token */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Follows activity feed</CardTitle>
-          <CardDescription>
-            Atom feed of new shows and releases for artists you follow
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <FollowsActivityFeedSection />
-        </CardContent>
-      </Card>
+        className={SETTINGS_ANCHOR_SCROLL_MT}
+      />
 
       <ReplyPermissionSettings />
 
