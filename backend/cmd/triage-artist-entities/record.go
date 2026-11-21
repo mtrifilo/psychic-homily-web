@@ -5,33 +5,66 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"syscall"
 	"time"
 
 	"gorm.io/gorm"
+
+	notificationm "psychic-homily-backend/internal/models/notification"
 )
 
-// recordLine is one line of the --record file.
+// recordLine is one line of the --record file, a JSON object on its own line.
 //
-// A confirmed row writes a "pending" line, synced, before its transaction
-// commits, and a "committed" line after the commit returns. A pending line with
-// no committed line after it means the commit's outcome was not seen (the
-// process died, or the commit errored and the database could not be checked):
-// read the database. A "not_applied" line says the commit failed and nothing
-// of the row is in the database.
+// Lines of one row share run_id and line: run_id names the run (every line of
+// a run carries it), and line is the worklist's line number, the header being
+// line 1. Line numbers repeat across runs, so join on both.
 //
-// The pending line names the row's write by id and slug and carries Before: a
-// copy, taken inside the transaction before the write, of the artist's own row
-// and of every row that references it (see snapshotArtistReferences). The
-// admin paths this tool drives record nothing for a bill change or an artist
-// delete, and a merge's audit row keeps only counts, so these lines are the
-// durable account a wrong merge, remove or split would be repaired from.
+// outcome is one of:
+//
+//   - "pending": written and synced inside the row's transaction, after its
+//     write and before its commit. It carries the full account of the row:
+//     shows, acts, the kept artist of a merge, and before.
+//   - "committed": the commit returned, or it returned an error but the
+//     database reports the transaction committed (reason then says so).
+//   - "not_applied": the commit errored and the database reports the
+//     transaction aborted, or the pending line could not be synced and the row
+//     was rolled back; nothing of the row is in the database.
+//   - "unknown": the commit errored and the database could not say how the
+//     transaction ended; read the database before acting on the row.
+//
+// Follow-up lines (every outcome but pending) carry only the row's identity and
+// a reason. A pending line with no line after it for the same run_id and line
+// means the process stopped between the sync and the commit's answer: look up
+// the pending line's xid with txid_status() to learn how it ended.
+//
+// before maps a column to the rows that named the artist in it, copied inside
+// the transaction before the write, for merge, remove and split:
+//
+//   - "artists.id" is the artist's own row;
+//   - "table.column" is a foreign key column to artists(id), or a bare id
+//     column (artist_relationship_votes' pair, notification_log's
+//     subject_entity_id for artist show alerts);
+//   - "table.entity_id" is a polymorphic table, holding only its rows whose
+//     entity_type is 'artist';
+//   - "notification_filters.artist_ids" holds the whole filter rows whose
+//     artist_ids list the artist.
+//
+// A row can appear under two keys (an artist_relationships row under source
+// and target). A merge's bill moves are in before["show_artists.artist_id"];
+// shows lists the bills a remove or split rewrote.
+//
+// The admin paths this tool drives record nothing for a bill change or an
+// artist delete, and a merge's audit row keeps only counts, so these lines are
+// the durable account a wrong merge, remove or split would be repaired from.
 type recordLine struct {
 	At      string `json:"at"`
 	RunID   string `json:"run_id"`
 	Line    int    `json:"line"`
 	Action  string `json:"action"`
 	Outcome string `json:"outcome"`
+	// Xid is the row's transaction id, set on the pending line.
+	Xid string `json:"xid,omitempty"`
 
 	// Who and where: the actor the writes are attributed to and the database
 	// they went to (host/dbname, no credentials).
@@ -53,8 +86,6 @@ type recordLine struct {
 	ActsLinked  []recordArtist `json:"acts_linked,omitempty"`
 	ActsCreated []recordArtist `json:"acts_created,omitempty"`
 
-	// Before maps "table.column" to the rows, as JSON objects, that named the
-	// artist in that column before the write.
 	Before map[string]json.RawMessage `json:"before,omitempty"`
 
 	Reason string `json:"reason,omitempty"`
@@ -82,7 +113,7 @@ type recordArtist struct {
 	Name string `json:"name"`
 }
 
-// Outcomes written to the record file.
+// Outcomes written to the record file; see recordLine.
 const (
 	recordPending    = "pending"
 	recordCommitted  = "committed"
@@ -90,12 +121,22 @@ const (
 	recordUnknown    = "unknown"
 )
 
+// recordFile is the file a recorder appends to: a writer whose size can be
+// read and cut back, so a line that fails partway is removed.
+type recordFile interface {
+	io.Writer
+	Sync() error
+	Stat() (os.FileInfo, error)
+	Truncate(size int64) error
+}
+
 // recorder appends record lines and syncs each to disk before returning. It
-// stamps every line with the run's id, actor and database.
+// stamps every line with the run's id, actor and database. A line that cannot
+// be written whole is cut back off the file, so a failed write never leaves
+// half a line for the next line to be appended to.
 type recorder struct {
-	w    io.Writer
-	sync func() error
-	now  func() time.Time
+	f   recordFile
+	now func() time.Time
 
 	runID       string
 	actorID     uint
@@ -110,10 +151,17 @@ func (r *recorder) write(l recordLine) error {
 	if err != nil {
 		return err
 	}
-	if _, err := r.w.Write(append(b, '\n')); err != nil {
+	info, err := r.f.Stat()
+	if err != nil {
 		return err
 	}
-	return r.sync()
+	if _, err := r.f.Write(append(b, '\n')); err != nil {
+		if terr := r.f.Truncate(info.Size()); terr != nil {
+			return fmt.Errorf("%w; cutting the partial line back off also failed: %w", err, terr)
+		}
+		return err
+	}
+	return r.f.Sync()
 }
 
 // outcomeLine is the short line that follows a row's pending line.
@@ -123,22 +171,22 @@ func outcomeLine(p *rowPlan, outcome, reason string) recordLine {
 }
 
 // openRecord opens the record file for append, creating it with mode 0600 if
-// absent. An existing file is never truncated. A symlink, anything other than
-// a regular file, a file another user owns, and a file group or others can
-// read or write are refused: the lines name user ids.
+// absent. An existing file is never truncated; if it does not end in a
+// newline, one is appended so the next line starts on its own. A symlink,
+// anything other than a regular file, a file another user owns, and a file
+// group or others can read or write are refused: the lines name user ids.
 func openRecord(path string) (*os.File, error) {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE|syscall.O_NOFOLLOW, 0o600)
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND|os.O_CREATE|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("--record %s cannot be opened for append: %w", path, err)
-	}
-	info, err := f.Stat()
-	if err != nil {
-		_ = f.Close()
-		return nil, fmt.Errorf("--record %s: %w", path, err)
 	}
 	refuse := func(why string) (*os.File, error) {
 		_ = f.Close()
 		return nil, fmt.Errorf("--record %s %s", path, why)
+	}
+	info, err := f.Stat()
+	if err != nil {
+		return refuse(err.Error())
 	}
 	if !info.Mode().IsRegular() {
 		return refuse("is not a regular file")
@@ -148,6 +196,17 @@ func openRecord(path string) (*os.File, error) {
 	}
 	if st, ok := info.Sys().(*syscall.Stat_t); ok && int(st.Uid) != os.Getuid() {
 		return refuse("belongs to another user")
+	}
+	if info.Size() > 0 {
+		last := make([]byte, 1)
+		if _, err := f.ReadAt(last, info.Size()-1); err != nil {
+			return refuse(err.Error())
+		}
+		if last[0] != '\n' {
+			if _, err := f.Write([]byte("\n")); err != nil {
+				return refuse(err.Error())
+			}
+		}
 	}
 	return f, nil
 }
@@ -160,38 +219,34 @@ func recordBill(bill []billEntry) []recordAct {
 	return acts
 }
 
-// artistReference is one column that holds an artist id.
+// artistReference is one column that holds an artist id, and the condition
+// that selects the rows naming the artist in it (@id is the artist's id).
 type artistReference struct {
-	table, column string
-	// polymorphic is set for an entity_id column read with entity_type = 'artist'.
-	polymorphic bool
-	// array is set for a bigint[] column that lists artist ids.
-	array bool
+	key   string
+	from  string
+	where string
 }
 
 // artistReferenceColumns lists, from the live schema, every column that holds
-// an artist id: each foreign key to artists(id), each entity_id column of a
-// table that also has an entity_type column, and the bare id columns no
-// constraint marks (artist_relationship_votes' pair, notification_log's
-// subject_entity_id, notification_filters.artist_ids). Reading the schema
-// rather than a list keeps the record complete when a migration adds a
-// reference.
-func artistReferenceColumns(tx *gorm.DB) ([]artistReference, error) {
+// an artist id: each single-column foreign key to artists(id), each entity_id
+// column of a table that also has an entity_type column, and the bare id
+// columns no constraint marks. Reading the schema rather than a list keeps the
+// record complete when a migration adds a reference.
+func artistReferenceColumns(db *gorm.DB) ([]artistReference, error) {
 	var fks []struct{ Table, Column string }
-	if err := tx.Raw(`
+	if err := db.Raw(`
 		SELECT cl.relname AS "table", att.attname AS "column"
 		FROM pg_constraint con
 		JOIN pg_class cl ON cl.oid = con.conrelid
 		JOIN pg_namespace ns ON ns.oid = cl.relnamespace
-		JOIN LATERAL unnest(con.conkey) AS k(attnum) ON true
-		JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = k.attnum
+		JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = con.conkey[1]
 		WHERE con.contype = 'f' AND con.confrelid = 'artists'::regclass AND ns.nspname = current_schema()
 		  AND array_length(con.conkey, 1) = 1
 		ORDER BY 1, 2`).Scan(&fks).Error; err != nil {
 		return nil, fmt.Errorf("list the foreign keys to artists: %w", err)
 	}
 	var poly []struct{ Table string }
-	if err := tx.Raw(`
+	if err := db.Raw(`
 		SELECT c.table_name AS "table"
 		FROM information_schema.columns c
 		JOIN information_schema.tables t ON t.table_schema = c.table_schema AND t.table_name = c.table_name
@@ -201,57 +256,68 @@ func artistReferenceColumns(tx *gorm.DB) ([]artistReference, error) {
 		ORDER BY 1`).Scan(&poly).Error; err != nil {
 		return nil, fmt.Errorf("list the entity reference tables: %w", err)
 	}
-	refs := make([]artistReference, 0, len(fks)+len(poly)+4)
+
+	refs := []artistReference{{key: "artists.id", from: "artists", where: "t.id = @id"}}
 	for _, fk := range fks {
-		refs = append(refs, artistReference{table: fk.Table, column: fk.Column})
+		refs = append(refs, artistReference{key: fk.Table + "." + fk.Column, from: quoteIdent(fk.Table),
+			where: "t." + quoteIdent(fk.Column) + " = @id"})
 	}
 	for _, p := range poly {
-		refs = append(refs, artistReference{table: p.Table, column: "entity_id", polymorphic: true})
+		refs = append(refs, artistReference{key: p.Table + ".entity_id", from: quoteIdent(p.Table),
+			where: "t.entity_id = @id AND t.entity_type = 'artist'"})
 	}
-	return append(refs,
-		artistReference{table: "artist_relationship_votes", column: "source_artist_id"},
-		artistReference{table: "artist_relationship_votes", column: "target_artist_id"},
-		artistReference{table: "notification_log", column: "subject_entity_id"},
-		artistReference{table: "notification_filters", column: "artist_ids", array: true},
-	), nil
+	// Bare id columns. Each is read only when the column exists, so a
+	// migration that drops one does not break the copy.
+	bare := []struct {
+		table, column string
+		ref           artistReference
+	}{
+		{"artist_relationship_votes", "source_artist_id", artistReference{key: "artist_relationship_votes.source_artist_id",
+			from: "artist_relationship_votes", where: "t.source_artist_id = @id"}},
+		{"artist_relationship_votes", "target_artist_id", artistReference{key: "artist_relationship_votes.target_artist_id",
+			from: "artist_relationship_votes", where: "t.target_artist_id = @id"}},
+		// The alert types whose subject_entity_id is an artist id; the artist
+		// merge reads the same list (artistSubjectAlertTypes).
+		{"notification_log", "subject_entity_id", artistReference{key: "notification_log.subject_entity_id",
+			from: "notification_log", where: "t.subject_entity_id = @id AND t.entity_type = '" +
+				notificationm.NotificationEntityArtistShowAlert + "'"}},
+		{"notification_filters", "artist_ids", artistReference{key: "notification_filters.artist_ids",
+			from: "notification_filters", where: "@id = ANY(t.artist_ids)"}},
+	}
+	for _, b := range bare {
+		var present int64
+		if err := db.Raw(`SELECT COUNT(*) FROM information_schema.columns
+			WHERE table_schema = current_schema() AND table_name = ? AND column_name = ?`, b.table, b.column).
+			Scan(&present).Error; err != nil {
+			return nil, fmt.Errorf("check %s.%s: %w", b.table, b.column, err)
+		}
+		if present > 0 {
+			refs = append(refs, b.ref)
+		}
+	}
+	return refs, nil
 }
 
 // snapshotArtistReferences copies, as JSON, the artist's own row and every row
-// that references it, keyed "table.column" ("artists.id" for the artist
-// itself). Columns with no rows are left out.
-func snapshotArtistReferences(tx *gorm.DB, artistID uint) (map[string]json.RawMessage, error) {
-	refs, err := artistReferenceColumns(tx)
-	if err != nil {
-		return nil, err
+// that references it, keyed as recordLine describes, in one query. Columns
+// with no rows are left out.
+func snapshotArtistReferences(tx *gorm.DB, refs []artistReference, artistID uint) (map[string]json.RawMessage, error) {
+	cols := make([]string, len(refs))
+	for i, r := range refs {
+		cols[i] = fmt.Sprintf("(SELECT json_agg(to_jsonb(t)) FROM %s t WHERE %s)::text AS c%d", r.from, r.where, i)
 	}
-	refs = append([]artistReference{{table: "artists", column: "id"}}, refs...)
+	row := map[string]interface{}{}
+	if err := tx.Raw("SELECT "+strings.Join(cols, ", "), map[string]interface{}{"id": artistID}).Scan(&row).Error; err != nil {
+		return nil, fmt.Errorf("copy the rows that reference artist %d for the record: %w", artistID, err)
+	}
 	out := map[string]json.RawMessage{}
-	for _, ref := range refs {
-		var present int64
-		if err := tx.Raw(`SELECT COUNT(*) FROM information_schema.columns
-			WHERE table_schema = current_schema() AND table_name = ? AND column_name = ?`, ref.table, ref.column).
-			Scan(&present).Error; err != nil {
-			return nil, fmt.Errorf("check %s.%s: %w", ref.table, ref.column, err)
-		}
-		if present == 0 {
-			continue
-		}
-		table := quoteIdent(ref.table)
-		column := quoteIdent(ref.column)
-		where := fmt.Sprintf("t.%s = @id", column)
-		switch {
-		case ref.polymorphic:
-			where += " AND t.entity_type = 'artist'"
-		case ref.array:
-			where = fmt.Sprintf("@id = ANY(t.%s)", column)
-		}
-		var rows *string
-		query := fmt.Sprintf("SELECT json_agg(to_jsonb(t)) FROM %s t WHERE %s", table, where)
-		if err := tx.Raw(query, map[string]interface{}{"id": artistID}).Scan(&rows).Error; err != nil {
-			return nil, fmt.Errorf("copy %s.%s for the record: %w", ref.table, ref.column, err)
-		}
-		if rows != nil {
-			out[ref.table+"."+ref.column] = json.RawMessage(*rows)
+	for i, r := range refs {
+		switch v := row[fmt.Sprintf("c%d", i)].(type) {
+		case nil:
+		case string:
+			out[r.key] = json.RawMessage(v)
+		default:
+			return nil, fmt.Errorf("copy %s for the record: got %T", r.key, v)
 		}
 	}
 	return out, nil
@@ -259,12 +325,5 @@ func snapshotArtistReferences(tx *gorm.DB, artistID uint) (map[string]json.RawMe
 
 // quoteIdent quotes a Postgres identifier read from the catalog.
 func quoteIdent(s string) string {
-	q := []byte{'"'}
-	for i := 0; i < len(s); i++ {
-		if s[i] == '"' {
-			q = append(q, '"')
-		}
-		q = append(q, s[i])
-	}
-	return string(append(q, '"'))
+	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }

@@ -94,6 +94,8 @@ func TestMalformedRowsAreRefused(t *testing.T) {
 		{Line: 11, ArtistSlug: "i", Action: "keep", Target: "x"},
 		{Line: 12, ArtistSlug: "j", Action: "demolish"},
 		{Line: 13, ArtistSlug: "k", Action: "rename", Target: "K", ShowSlug: "a-show"},
+		{Line: 14, ArtistSlug: "l", Action: "rename", Target: "Lone\u00a0Stranger"},
+		{Line: 15, ArtistSlug: "m", Action: "keep", ArtistIDText: "abc"},
 	}
 	plans := make([]*rowPlan, len(rows))
 	for i, r := range rows {
@@ -115,6 +117,8 @@ func TestMalformedRowsAreRefused(t *testing.T) {
 		"keep takes no target",
 		`unknown action "demolish"`,
 		"show_slug applies to remove and split only",
+		"space character U+00A0",
+		`artist_id "abc" is not an artist id`,
 	}
 	for i, p := range plans {
 		assert.Equal(t, statusRefused, p.Status, "line %d", p.Row.Line)

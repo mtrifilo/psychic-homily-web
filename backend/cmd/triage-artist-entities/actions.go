@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -37,6 +38,8 @@ var errDryRunRollback = errors.New("dry run rollback")
 type triage struct {
 	db    *gorm.DB
 	actor uint
+	// refs caches the columns that reference artists; see references.
+	refs []artistReference
 }
 
 // plan reaches a row's verdict without writing: a row with work to do runs its
@@ -66,7 +69,7 @@ func (t *triage) plan(p *rowPlan) {
 		}
 	}
 
-	detail, err := t.runRow(p, false, func(*gorm.DB) error { return errDryRunRollback })
+	detail, err := t.runRow(p, func(*gorm.DB) error { return errDryRunRollback })
 	p.Detail = detail
 	if !errors.Is(err, errDryRunRollback) {
 		p.refuse("%v", err)
@@ -114,15 +117,22 @@ func (t *triage) planMissingSubject(p *rowPlan) {
 }
 
 // apply writes one accepted row in its own transaction. A pending record line,
-// carrying the copy of what the row changes, is written and synced before the
-// commit; if it cannot be, the row is rolled back. A committed line follows a
-// commit that returned, and a not_applied or unknown line follows one that
-// errored. A non-nil error stops the run: the row failed and was rolled back,
-// a record line could not be written, or the row's outcome is unknown.
+// carrying the row's transaction id and the copy of what it changes, is written
+// and synced before the commit; if it cannot be, the row is rolled back. A
+// committed line follows a commit that returned; a commit that errored is
+// resolved by asking the database how the transaction ended (see
+// resolveCommitError). A non-nil error stops the run: the row failed and was
+// rolled back, a record line could not be written, or the row's outcome is
+// unknown.
 func (t *triage) apply(p *rowPlan, rec *recorder) error {
 	var recordErr error
 	recorded := false
-	detail, err := t.runRow(p, true, func(*gorm.DB) error {
+	detail, err := t.runRow(p, func(tx *gorm.DB) error {
+		var xid string
+		if err := tx.Raw("SELECT txid_current()::text").Scan(&xid).Error; err != nil {
+			return fmt.Errorf("read the row's transaction id: %w", err)
+		}
+		p.Record.Xid = xid
 		p.Record.Outcome = recordPending
 		if err := rec.write(p.Record); err != nil {
 			recordErr = err
@@ -141,6 +151,9 @@ func (t *triage) apply(p *rowPlan, rec *recorder) error {
 		return nil
 	case recordErr != nil:
 		p.refuse("the record line could not be written, so the row was rolled back: %v", recordErr)
+		// A pending line that was written but not synced may be in the file; say
+		// the row was rolled back, if the file still takes a line.
+		_ = rec.write(outcomeLine(p, recordNotApplied, "the pending line could not be written and synced, so the row was rolled back"))
 		return fmt.Errorf("the record file could not be written: %w", recordErr)
 	case !recorded:
 		// The error came before the commit was attempted, so the transaction
@@ -148,21 +161,38 @@ func (t *triage) apply(p *rowPlan, rec *recorder) error {
 		p.refuse("%s failed and was rolled back: %v", p.Row.Action, err)
 		return fmt.Errorf("line %d failed and was rolled back: %w", p.Row.Line, err)
 	}
+	return t.resolveCommitError(p, rec, detail, err)
+}
 
-	// The commit itself errored, which does not prove it failed. What the row
-	// leaves behind decides.
-	done, checkErr := t.rowTookEffect(p)
-	outcome, reason := recordNotApplied, "the commit failed: "+err.Error()
+// commitStatusWait bounds how long resolveCommitError waits for the database
+// to settle a transaction whose commit errored.
+var commitStatusWait = 10 * time.Second
+
+// resolveCommitError decides a row whose commit returned an error, which does
+// not prove the commit failed. It asks the database how the row's transaction
+// ended (txid_status of the xid on the pending line) until it answers
+// committed or aborted, for at most commitStatusWait. Committed counts as
+// applied; aborted as rolled back; anything else, or no answer, as unknown.
+// The answer is written to the record after the pending line.
+func (t *triage) resolveCommitError(p *rowPlan, rec *recorder, detail []string, commitErr error) error {
+	status, checkErr := t.transactionStatus(p.Record.Xid)
+	var outcome, reason string
 	switch {
 	case checkErr != nil:
-		outcome, reason = recordUnknown, fmt.Sprintf("the commit errored (%v) and the database could not be checked (%v)", err, checkErr)
-		p.refuse("%s outcome unknown: %s", p.Row.Action, reason)
-	case done:
-		outcome, reason = recordCommitted, "the commit reported an error but the change is in the database: "+err.Error()
+		outcome = recordUnknown
+		reason = fmt.Sprintf("the commit errored (%v) and the database could not say how the transaction ended (%v)", commitErr, checkErr)
+		p.unknown(reason)
+	case status == "committed":
+		outcome, reason = recordCommitted, "the commit reported an error but the database reports the transaction committed: "+commitErr.Error()
 		p.Detail = append(detail, reason)
 		p.Status = statusApplied
+	case status == "aborted":
+		outcome, reason = recordNotApplied, "the commit failed and the transaction aborted: "+commitErr.Error()
+		p.refuse("%s failed and was rolled back: %v", p.Row.Action, commitErr)
 	default:
-		p.refuse("%s failed and was rolled back: %v", p.Row.Action, err)
+		outcome = recordUnknown
+		reason = fmt.Sprintf("the commit errored (%v) and the transaction is still %q after %v", commitErr, status, commitStatusWait)
+		p.unknown(reason)
 	}
 	if werr := rec.write(outcomeLine(p, outcome, reason)); werr != nil {
 		return fmt.Errorf("line %d: %s, and the record could not say so (%w); the record's last line for this row is pending",
@@ -174,40 +204,39 @@ func (t *triage) apply(p *rowPlan, rec *recorder) error {
 	return fmt.Errorf("line %d: %s", p.Row.Line, reason)
 }
 
-// rowTookEffect reports whether a row whose commit errored is in the database
-// anyway: a rename's new name is on the artist; a merge's artist is gone and
-// the merge's audit row names this target; a remove's or split's artist is
-// gone.
-func (t *triage) rowTookEffect(p *rowPlan) (bool, error) {
-	var a catalogm.Artist
-	err := t.db.First(&a, p.SubjectID).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		switch p.Row.Action {
-		case actionRename:
-			return false, nil
-		case actionMerge:
-			return mergeRecorded(t.db, p.Record.ArtistSlug, p.TargetID)
+// transactionStatus polls txid_status for xid until it reads committed or
+// aborted, or commitStatusWait passes, and returns the last answer.
+func (t *triage) transactionStatus(xid string) (string, error) {
+	if xid == "" {
+		return "", errors.New("the pending line carries no transaction id")
+	}
+	deadline := time.Now().Add(commitStatusWait)
+	for {
+		var status *string
+		if err := t.db.Raw("SELECT txid_status(?::bigint)", xid).Scan(&status).Error; err != nil {
+			return "", err
 		}
-		return true, nil
+		got := "no status"
+		if status != nil {
+			got = *status
+		}
+		if got == "committed" || got == "aborted" || time.Now().After(deadline) {
+			return got, nil
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
-	if err != nil {
-		return false, err
-	}
-	return p.Row.Action == actionRename && a.Name == p.Row.Target, nil
 }
 
 // runRow runs a row's write in its own transaction and returns the lines that
-// describe it. recording makes the write copy, before it changes anything, the
-// rows it touches into the row's record. beforeCommit runs once the write has
-// succeeded, inside the transaction; an error from it rolls the transaction
-// back and is returned.
-func (t *triage) runRow(p *rowPlan, recording bool, beforeCommit func(tx *gorm.DB) error) ([]string, error) {
+// describe it. beforeCommit runs once the write has succeeded, inside the
+// transaction; an error from it rolls the transaction back and is returned.
+func (t *triage) runRow(p *rowPlan, beforeCommit func(tx *gorm.DB) error) ([]string, error) {
 	var detail []string
 	err := t.db.Transaction(func(tx *gorm.DB) error {
 		if err := setRowTimeouts(tx); err != nil {
 			return err
 		}
-		d, err := t.execute(tx, p, recording)
+		d, err := t.execute(tx, p)
 		detail = d
 		if err != nil {
 			return err
@@ -231,13 +260,17 @@ func setRowTimeouts(tx *gorm.DB) error {
 
 // execute performs a row's write inside tx and returns the lines that
 // describe it. The plan and the confirmed run both call it, so the preview and
-// the write are one code path. It fills the row's footprint and record as it
-// goes; with recording set, a merge, remove or split first copies the artist's
-// row and every row referencing it into the record.
-func (t *triage) execute(tx *gorm.DB, p *rowPlan, recording bool) ([]string, error) {
+// the write are one code path, the record copy included: a merge, remove or
+// split first copies the artist's row and every row referencing it into the
+// row's record. It fills the row's footprint and record as it goes.
+func (t *triage) execute(tx *gorm.DB, p *rowPlan) ([]string, error) {
 	subject, err := lockArtist(tx, p.SubjectID)
 	if err != nil {
 		return nil, err
+	}
+	if p.Row.ArtistID != 0 && subject.ID != p.Row.ArtistID {
+		return nil, fmt.Errorf("slug %s now names artist %d, not %d as reviewed; review the row again",
+			slugOf(subject), subject.ID, p.Row.ArtistID)
 	}
 	if p.Row.ArtistName != "" && subject.Name != p.Row.ArtistName {
 		return nil, fmt.Errorf("the artist with slug %s is now named %q, not %q as reviewed; review the row again",
@@ -245,8 +278,12 @@ func (t *triage) execute(tx *gorm.DB, p *rowPlan, recording bool) ([]string, err
 	}
 	p.Record = recordLine{Line: p.Row.Line, Action: p.Row.Action,
 		ArtistID: subject.ID, ArtistSlug: slugOf(subject), ArtistName: subject.Name}
-	if recording && p.Row.Action != actionRename {
-		if p.Record.Before, err = snapshotArtistReferences(tx, subject.ID); err != nil {
+	if p.Row.Action != actionRename {
+		refs, err := t.references()
+		if err != nil {
+			return nil, err
+		}
+		if p.Record.Before, err = snapshotArtistReferences(tx, refs, subject.ID); err != nil {
 			return nil, err
 		}
 	}
@@ -261,6 +298,19 @@ func (t *triage) execute(tx *gorm.DB, p *rowPlan, recording bool) ([]string, err
 		return t.split(tx, p, subject)
 	}
 	return nil, fmt.Errorf("action %q has no write", p.Row.Action)
+}
+
+// references returns the columns that reference artists, read from the schema
+// once per run.
+func (t *triage) references() ([]artistReference, error) {
+	if t.refs == nil {
+		refs, err := artistReferenceColumns(t.db)
+		if err != nil {
+			return nil, err
+		}
+		t.refs = refs
+	}
+	return t.refs, nil
 }
 
 // rename changes the artist's name through ArtistService.UpdateArtist, the

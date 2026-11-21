@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"sync/atomic"
@@ -29,7 +30,7 @@ type TriageSuite struct {
 	actor  uint
 	venue  uint
 	seq    atomic.Int64
-	record bytes.Buffer
+	record *memRecord
 }
 
 func TestTriageSuite(t *testing.T) {
@@ -71,7 +72,7 @@ func (s *TriageSuite) SetupTest() {
 	} {
 		s.Require().NoError(s.db.Exec(stmt).Error, stmt)
 	}
-	s.record.Reset()
+	s.record = &memRecord{}
 	s.actor = s.user()
 	s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", s.actor).Update("is_admin", true).Error)
 	slug := "launchpad-albuquerque-nm"
@@ -167,16 +168,16 @@ func (s *TriageSuite) runOutcome(csv string, confirm bool) (string, runOutcome) 
 	return out.String(), outcome
 }
 
-// recorder appends to s.record, synced trivially.
+// recorder appends to s.record.
 func (s *TriageSuite) recorder() *recorder {
-	return &recorder{w: &s.record, sync: func() error { return nil }, now: time.Now,
+	return &recorder{f: s.record, now: time.Now,
 		runID: "run-1", actorID: s.actor, environment: "test", database: "test-db"}
 }
 
 // recordLines parses the record lines written so far.
 func (s *TriageSuite) recordLines() []recordLine {
 	var lines []recordLine
-	for _, raw := range strings.Split(strings.TrimSpace(s.record.String()), "\n") {
+	for _, raw := range strings.Split(strings.TrimSpace(s.record.buf.String()), "\n") {
 		if raw == "" {
 			continue
 		}
@@ -217,6 +218,48 @@ func (s *TriageSuite) bill(showID uint) []string {
 	}
 	return out
 }
+
+// memRecord is an in-memory record file. With failWrite set, a write puts the
+// first partial bytes in and fails; with failSync set, Sync fails.
+type memRecord struct {
+	buf       bytes.Buffer
+	failWrite bool
+	partial   int
+	failSync  bool
+}
+
+func (m *memRecord) Write(p []byte) (int, error) {
+	if m.failWrite {
+		n := min(m.partial, len(p))
+		m.buf.Write(p[:n])
+		return n, errors.New("disk full")
+	}
+	return m.buf.Write(p)
+}
+
+func (m *memRecord) Sync() error {
+	if m.failSync {
+		return errors.New("fsync failed")
+	}
+	return nil
+}
+
+func (m *memRecord) Stat() (os.FileInfo, error) { return memInfo(m.buf.Len()), nil }
+
+func (m *memRecord) Truncate(n int64) error {
+	m.buf.Truncate(int(n))
+	return nil
+}
+
+// memInfo is the size a memRecord reports; nothing else of it is read.
+type memInfo int
+
+func (i memInfo) Name() string       { return "record" }
+func (i memInfo) Size() int64        { return int64(i) }
+func (i memInfo) Mode() os.FileMode  { return 0o600 }
+func (i memInfo) ModTime() time.Time { return time.Time{} }
+func (i memInfo) IsDir() bool        { return false }
+func (i memInfo) Sys() any           { return nil }
 
 // csvOf builds a worklist from rows of up to five fields, padding the rest.
 func csvOf(rows ...string) string {

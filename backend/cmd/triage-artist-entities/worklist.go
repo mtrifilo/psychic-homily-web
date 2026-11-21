@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -32,6 +33,10 @@ const (
 	// colName is the artist's name as reviewed. When given, a row whose artist now
 	// has another name is refused: the decision was made about that name.
 	colName = "name"
+	// colArtistID is the artist's id as reviewed. When given, a row whose slug
+	// now names another artist (a slug freed by a delete and taken again) is
+	// refused.
+	colArtistID = "artist_id"
 )
 
 // suggestionColumnPrefix marks a column that carries an unreviewed suggestion.
@@ -49,7 +54,7 @@ var evidenceColumns = []string{
 
 func knownColumn(name string) bool {
 	switch name {
-	case colArtistSlug, colAction, colTarget, colShowSlug, colNote, colName:
+	case colArtistSlug, colAction, colTarget, colShowSlug, colNote, colName, colArtistID:
 		return true
 	}
 	for _, c := range evidenceColumns {
@@ -80,10 +85,14 @@ type worklistRow struct {
 	ShowSlug   string
 	Note       string
 	ArtistName string
+	// ArtistID is the reviewed id, 0 when the file gives none; ArtistIDText is
+	// the cell as written, kept so a malformed id can be refused.
+	ArtistID     uint
+	ArtistIDText string
 }
 
 // parseWorklist reads a reviewed CSV. The header must name artist_slug, action
-// and target; show_slug, note and the evidence columns are optional, and any
+// and target; show_slug, note, name, artist_id and the evidence columns are optional, and any
 // other column refuses the whole file, as does a column whose name starts with
 // "suggested_". Values are trimmed and the action is
 // lowercased. A malformed file is an error for the whole file; a malformed row
@@ -116,7 +125,7 @@ func parseWorklist(r io.Reader) ([]worklistRow, error) {
 		}
 		if !knownColumn(name) {
 			return nil, fmt.Errorf("header has an unknown column %q; the columns are %s, %s, %s, %s, %s and the evidence columns %s",
-				name, colArtistSlug, colAction, colTarget, colShowSlug, colNote+", "+colName, strings.Join(evidenceColumns, ", "))
+				name, colArtistSlug, colAction, colTarget, colShowSlug, colNote+", "+colName+", "+colArtistID, strings.Join(evidenceColumns, ", "))
 		}
 		index[name] = i
 	}
@@ -145,16 +154,20 @@ func parseWorklist(r io.Reader) ([]worklistRow, error) {
 		}
 		line, _ := reader.FieldPos(0)
 		row := worklistRow{
-			Line:       line,
-			ArtistSlug: field(record, colArtistSlug),
-			Action:     strings.ToLower(field(record, colAction)),
-			Target:     field(record, colTarget),
-			ShowSlug:   field(record, colShowSlug),
-			Note:       field(record, colNote),
-			ArtistName: field(record, colName),
+			Line:         line,
+			ArtistSlug:   field(record, colArtistSlug),
+			Action:       strings.ToLower(field(record, colAction)),
+			Target:       field(record, colTarget),
+			ShowSlug:     field(record, colShowSlug),
+			Note:         field(record, colNote),
+			ArtistName:   field(record, colName),
+			ArtistIDText: field(record, colArtistID),
 		}
 		if row == (worklistRow{Line: line}) {
 			continue
+		}
+		if id, err := strconv.ParseUint(row.ArtistIDText, 10, 32); err == nil && id > 0 {
+			row.ArtistID = uint(id)
 		}
 		rows = append(rows, row)
 	}

@@ -21,22 +21,20 @@
 // --confirm requires --record: a file opened for append (never truncated, a
 // regular file readable by its owner only) that gets JSON lines stamped with
 // the run, the actor and the database. Each applied row writes a "pending" line
-// before its commit and a "committed" line after it (see recordLine). The
-// pending line names, by id and slug, what the row changes: the artist, the
-// kept artist of a merge, each show whose bill was rewritten with its bill
-// before and after and any title written, the acts a split linked or created,
-// and, for a merge, remove or split, a copy of the artist's row and of every
-// row that referenced it, taken before the write. The pending line is synced
-// to disk before the commit; if it cannot be, the row is rolled back and the
-// run stops.
+// before its commit and a "committed" line after it; recordLine documents every
+// outcome, how lines pair up, and what the pending line holds (what the row
+// changes, its transaction id, and, for a merge, remove or split, a copy of the
+// artist's row and of every row that referenced it, taken before the write).
+// The pending line is synced to disk before the commit; if it cannot be, the
+// row is rolled back and the run stops.
 //
 // The worklist is a CSV whose header names artist_slug, action and target, with
-// optional show_slug, note and name columns and the evidence columns listed in
-// evidenceColumns, which are read past. Any other column refuses the file, and
-// so does a column whose name starts with "suggested_": the suggestions have to
-// be reviewed into action and target first. A name column holds the artist's
-// name as reviewed; a row whose artist now has another name is refused. action
-// is one of:
+// optional show_slug, note, name and artist_id columns and the evidence
+// columns listed in evidenceColumns, which are read past. Any other column
+// refuses the file, and so does a column whose name starts with "suggested_":
+// the suggestions have to be reviewed into action and target first. name and
+// artist_id hold the artist as reviewed; a row whose artist now has another
+// name, or whose slug now names another artist, is refused. action is one of:
 //
 //	rename  target = the new name. The name changes through
 //	        ArtistService.UpdateArtist and the slug stays as it was, so the
@@ -74,8 +72,11 @@
 // own transaction, in file order. Every transaction has a 5 second lock
 // timeout, a 60 second statement timeout and a 60 second idle timeout. A row
 // that fails at its write is rolled back and the run stops there; so does a row
-// whose record line or report output cannot be written. An interrupt lets the
-// row in flight finish and stops the run before the next row. Rename targets
+// whose record line or report output cannot be written. A row whose commit
+// errors is settled by asking the database how its transaction ended; one it
+// cannot settle is reported as OUTCOME UNKNOWN and stops the run. An interrupt
+// lets the row in flight finish and stops the run before the next row (a
+// second interrupt ends the process at once). Rename targets
 // and split act names with invisible characters, non-plain spaces or doubled
 // spaces are refused.
 //
@@ -84,10 +85,12 @@
 // split artist no longer exists, so its row is refused with a note that an
 // earlier run may have applied it, and the run exits 1 by design.
 //
-// Exit status: 0 when every row applied, was already in place or was kept, 1
-// when any row was refused or the run stopped, 2 when the command line, the env
-// file, the actor, the record file or the worklist cannot be used, 3 when the
-// configuration cannot be loaded or the database cannot be reached.
+// Exit status: 0 when no row was refused and the run did not stop (a dry run
+// whose rows would all apply exits 0); 1 when any row was refused, a row's
+// outcome is unknown, or the run stopped; 2 when the command line, the env
+// file, the record file or the worklist cannot be used, or the actor is not an
+// active admin; 3 when the configuration cannot be loaded, the database cannot
+// be reached or read, or the report's header cannot be written.
 package main
 
 import (
@@ -153,7 +156,7 @@ func main() {
 			usageFail("%v", err)
 		}
 		defer func() { _ = record.Close() }()
-		rec = &recorder{w: record, sync: record.Sync, now: time.Now, actorID: *actorID,
+		rec = &recorder{f: record, now: time.Now, actorID: *actorID,
 			runID: time.Now().UTC().Format("20060102T150405.000000000Z")}
 	}
 
@@ -178,12 +181,18 @@ func main() {
 
 	// An interrupt lets the row in flight finish, record lines included, and
 	// stops the run before the next row.
+	// A second interrupt ends the process at once. A write to a closed pipe
+	// (stdout piped to a tee that died) returns an error, which stops the run
+	// through the report's write error, rather than killing the process before
+	// the summary reaches stderr.
+	signal.Ignore(syscall.SIGPIPE)
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-signals
 		interrupted.Store(true)
-		_, _ = fmt.Fprintln(os.Stderr, "interrupt received: finishing the current row, then stopping")
+		signal.Stop(signals)
+		_, _ = fmt.Fprintln(os.Stderr, "interrupt received: finishing the current row, then stopping; interrupt again to end at once")
 	}()
 
 	mode := "DRY RUN: every row runs and is rolled back"
@@ -199,7 +208,10 @@ func main() {
 	}
 
 	if err := requireAdminActor(database, *actorID); err != nil {
-		usageFail("%v", err)
+		if errors.Is(err, errNotAnActiveAdmin) {
+			usageFail("%v", err)
+		}
+		fatal("%v", err)
 	}
 
 	outcome := runWorklist(database, rows, *actorID, rec, os.Stdout)

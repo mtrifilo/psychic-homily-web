@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"gorm.io/gorm"
 
@@ -113,7 +112,7 @@ func (s *TriageSuite) TestTheRecordCopyCoversEveryForeignKeyToArtists() {
 	s.Require().NoError(err)
 	covered := map[string]bool{}
 	for _, r := range refs {
-		covered[r.table+"."+r.column] = true
+		covered[r.key] = true
 	}
 	var fks []string
 	s.Require().NoError(s.db.Raw(`
@@ -216,13 +215,6 @@ func (s *TriageSuite) TestTheRecordFileMustBePrivateAndRegular() {
 	s.Require().NoError(f.Close())
 }
 
-// failingWriter fails every write.
-type failingWriter struct{}
-
-func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("disk full") }
-
-func noSync() error { return nil }
-
 // A record line that cannot be written rolls its row back and stops the run
 // before the next row.
 func (s *TriageSuite) TestARecordThatCannotBeWrittenRollsTheRowBackAndStops() {
@@ -232,8 +224,9 @@ func (s *TriageSuite) TestARecordThatCannotBeWrittenRollsTheRowBackAndStops() {
 	s.Require().NoError(err)
 	var out bytes.Buffer
 
-	outcome := runWorklist(s.db, rows, s.actor, &recorder{w: failingWriter{}, sync: noSync, now: time.Now}, &out)
-	s.Empty(s.recordLines())
+	s.record.failWrite, s.record.partial = true, 25
+	outcome := runWorklist(s.db, rows, s.actor, s.recorder(), &out)
+	s.Empty(s.record.buf.String(), "the partial line is cut back off the file")
 
 	s.Require().Error(outcome.Stopped, out.String())
 	s.Contains(outcome.Stopped.Error(), "the record file could not be written")
@@ -250,13 +243,17 @@ func (s *TriageSuite) TestARecordThatCannotBeSyncedRollsTheRowBack() {
 	a := s.artist("Synced Night")
 	rows, err := parseWorklist(strings.NewReader(csvOf(*a.Slug + ",rename,Synced")))
 	s.Require().NoError(err)
-	var buf, out bytes.Buffer
+	var out bytes.Buffer
+	s.record.failSync = true
 
-	outcome := runWorklist(s.db, rows, s.actor,
-		&recorder{w: &buf, sync: func() error { return errors.New("fsync failed") }, now: time.Now}, &out)
+	outcome := runWorklist(s.db, rows, s.actor, s.recorder(), &out)
 
 	s.Require().Error(outcome.Stopped)
 	s.Equal("Synced Night", s.artistByID(a.ID).Name)
+	lines := s.recordLines()
+	s.Require().Len(lines, 2, "the unsynced pending line, then a not_applied line")
+	s.Equal(recordPending, lines[0].Outcome)
+	s.Equal(recordNotApplied, lines[1].Outcome)
 }
 
 // writeAfter accepts the first n bytes and fails every write after them.
@@ -318,7 +315,7 @@ func (s *TriageSuite) TestRowTransactionsCarryTheirTimeouts() {
 	s.Require().NoError(err)
 	t := &triage{db: s.db, actor: s.actor}
 	p := &rowPlan{Row: rows[0], SubjectID: a.ID}
-	_, err = t.runRow(p, false, func(tx *gorm.DB) error {
+	_, err = t.runRow(p, func(tx *gorm.DB) error {
 		for setting, want := range map[string]string{
 			"lock_timeout":                        "5s",
 			"statement_timeout":                   "1min",

@@ -18,21 +18,25 @@ import (
 // write the tool makes is recorded against this user.
 func requireAdminActor(db *gorm.DB, id uint) error {
 	if id == 0 {
-		return fmt.Errorf("--actor is required: the id of the admin user the writes are recorded against")
+		return fmt.Errorf("%w: --actor is required: the id of the admin user the writes are recorded against", errNotAnActiveAdmin)
 	}
 	var u authm.User
 	err := db.First(&u, id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return fmt.Errorf("--actor %d: no such user", id)
+		return fmt.Errorf("%w: --actor %d: no such user", errNotAnActiveAdmin, id)
 	}
 	if err != nil {
-		return fmt.Errorf("--actor %d: %w", id, err)
+		return fmt.Errorf("--actor %d: read the user: %w", id, err)
 	}
 	if !u.IsAdmin || !u.IsActive {
-		return fmt.Errorf("--actor %d: not an active admin", id)
+		return fmt.Errorf("%w: --actor %d: not an active admin", errNotAnActiveAdmin, id)
 	}
 	return nil
 }
+
+// errNotAnActiveAdmin marks an --actor that names no active admin, as opposed
+// to a database error while reading it.
+var errNotAnActiveAdmin = errors.New("actor refused")
 
 // rowStatus is what happened to, or would happen to, one row.
 type rowStatus string
@@ -43,6 +47,9 @@ const (
 	statusDone       rowStatus = "ALREADY DONE"
 	statusKept       rowStatus = "KEPT"
 	statusRefused    rowStatus = "REFUSED"
+	// statusUnknown is a confirmed row whose commit errored and whose outcome
+	// the database could not settle: it may or may not be in the database.
+	statusUnknown rowStatus = "OUTCOME UNKNOWN"
 )
 
 // showRef names one show a row rewrites the bill of.
@@ -76,6 +83,12 @@ func (p *rowPlan) refuse(format string, args ...any) {
 	p.Reasons = append(p.Reasons, fmt.Sprintf(format, args...))
 }
 
+// unknown marks a confirmed row whose outcome could not be established.
+func (p *rowPlan) unknown(reason string) {
+	p.Status = statusUnknown
+	p.Reasons = append(p.Reasons, reason+"; read the database before acting on this row")
+}
+
 // runSummary counts rows by final status.
 type runSummary map[rowStatus]int
 
@@ -83,24 +96,32 @@ type runSummary map[rowStatus]int
 func (s runSummary) Refused() bool { return s[statusRefused] > 0 }
 
 // runOutcome is what a run did: the counts, why it stopped before the last
-// row (nil when it did not), and the rows it applied, in file order.
+// row (nil when it did not), the rows it applied and the rows whose outcome is
+// unknown, in file order.
 type runOutcome struct {
 	Summary runSummary
 	Stopped error
 	Applied []string
+	Unknown []string
 }
 
-// Failed reports whether the run must exit non-zero: a row was refused or the
-// run stopped.
-func (o runOutcome) Failed() bool { return o.Summary.Refused() || o.Stopped != nil }
+// Failed reports whether the run must exit non-zero: a row was refused, a
+// row's outcome is unknown, or the run stopped.
+func (o runOutcome) Failed() bool {
+	return o.Summary.Refused() || o.Summary[statusUnknown] > 0 || o.Stopped != nil
+}
 
-// appliedSentence says exactly which rows were applied, for a run that
-// stopped or whose report could not be written.
+// appliedSentence says exactly which rows were applied, and which may have
+// been, for a run that stopped or whose report could not be written.
 func (o runOutcome) appliedSentence() string {
-	if len(o.Applied) == 0 {
-		return "No row was applied."
+	sentence := "No row was applied."
+	if len(o.Applied) > 0 {
+		sentence = fmt.Sprintf("Applied, and only these: %s.", strings.Join(o.Applied, "; "))
 	}
-	return fmt.Sprintf("Applied, and only these: %s.", strings.Join(o.Applied, "; "))
+	if len(o.Unknown) > 0 {
+		sentence += fmt.Sprintf(" Outcome unknown, so read the database for: %s.", strings.Join(o.Unknown, "; "))
+	}
+	return sentence
 }
 
 // runWorklist plans every row against the database as it stands, then, when
@@ -127,16 +148,22 @@ func runWorklist(db *gorm.DB, rows []worklistRow, actorID uint, rec *recorder, o
 	refuseMalformedRows(plans)
 	refuseRepeatedArtists(plans)
 
+	w := &report{w: out}
+	outcome := runOutcome{Summary: runSummary{}}
 	t := &triage{db: db, actor: actorID}
 	for _, p := range plans {
+		if interrupted.Load() {
+			outcome.Stopped = errors.New("interrupted while planning; nothing was written")
+			w.f("STOPPED while planning line %d: interrupted; nothing was written\n\n", p.Row.Line)
+			printSummary(w, outcome, confirm)
+			return outcome
+		}
 		if p.Status == "" {
 			t.plan(p)
 		}
 	}
 	refuseEntangledRows(plans)
 
-	w := &report{w: out}
-	outcome := runOutcome{Summary: runSummary{}}
 	for i, p := range plans {
 		if w.err != nil {
 			outcome.Stopped = fmt.Errorf("the report could not be written: %w", w.err)
@@ -150,8 +177,12 @@ func runWorklist(db *gorm.DB, rows []worklistRow, actorID uint, rec *recorder, o
 		var stop error
 		if confirm && p.Status == statusWouldApply {
 			stop = t.apply(p, rec)
-			if p.Status == statusApplied {
-				outcome.Applied = append(outcome.Applied, fmt.Sprintf("line %d %s %s", p.Row.Line, p.Row.Action, clean(p.Row.ArtistSlug)))
+			label := fmt.Sprintf("line %d %s %s", p.Row.Line, p.Row.Action, clean(p.Row.ArtistSlug))
+			switch p.Status {
+			case statusApplied:
+				outcome.Applied = append(outcome.Applied, label)
+			case statusUnknown:
+				outcome.Unknown = append(outcome.Unknown, label)
 			}
 		}
 		printPlan(w, p)
@@ -214,6 +245,8 @@ func refuseMalformedRows(plans []*rowPlan) {
 			p.refuse("artist_slug is empty")
 		case r.ShowSlug != "" && r.Action != actionRemove && r.Action != actionSplit:
 			p.refuse("show_slug applies to remove and split only; clear it for a %s", r.Action)
+		case r.ArtistIDText != "" && r.ArtistID == 0:
+			p.refuse("artist_id %q is not an artist id", r.ArtistIDText)
 		}
 		if p.Status != "" {
 			continue
@@ -416,8 +449,8 @@ func printPlan(w *report, p *rowPlan) {
 
 func printSummary(w *report, o runOutcome, confirm bool) {
 	w.f("=== Summary ===\n")
-	for _, st := range []rowStatus{statusApplied, statusWouldApply, statusDone, statusKept, statusRefused} {
-		w.f("%-13s %d\n", string(st)+":", o.Summary[st])
+	for _, st := range []rowStatus{statusApplied, statusWouldApply, statusDone, statusKept, statusRefused, statusUnknown} {
+		w.f("%-16s %d\n", string(st)+":", o.Summary[st])
 	}
 	if !confirm {
 		w.f("DRY RUN: nothing was written. Log lines printed above this report describe the rolled-back preview. " +
@@ -427,7 +460,7 @@ func printSummary(w *report, o runOutcome, confirm bool) {
 		w.f("The run stopped early (%s). %s\n", clean(o.Stopped.Error()), o.appliedSentence())
 	}
 	if o.Failed() {
-		w.f("Some rows were REFUSED or the run stopped; nothing was written for a refused row. Exit status 1.\n")
+		w.f("Some rows were REFUSED, have an unknown outcome, or the run stopped; nothing was written for a refused row. Exit status 1.\n")
 	}
 }
 
