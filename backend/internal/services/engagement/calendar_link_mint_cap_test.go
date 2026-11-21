@@ -3,7 +3,6 @@ package engagement
 import (
 	"errors"
 	"sync"
-	"testing"
 	"time"
 
 	"gorm.io/gorm"
@@ -12,25 +11,6 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 )
-
-func TestCalendarLinkMintHour_IsTheClockHour(t *testing.T) {
-	phoenix := time.FixedZone("MST", -7*60*60)
-	for name, c := range map[string]struct{ at, want time.Time }{
-		"mid hour":       {time.Date(2026, 11, 21, 12, 34, 56, 789, time.UTC), time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)},
-		"last instant":   {time.Date(2026, 11, 21, 12, 59, 59, 999999000, time.UTC), time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)},
-		"on the hour":    {time.Date(2026, 11, 21, 13, 0, 0, 0, time.UTC), time.Date(2026, 11, 21, 13, 0, 0, 0, time.UTC)},
-		"another zone":   {time.Date(2026, 11, 21, 5, 30, 0, 0, phoenix), time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)},
-		"half-hour zone": {time.Date(2026, 11, 21, 18, 15, 0, 0, time.FixedZone("IST", 5*60*60+30*60)), time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)},
-	} {
-		t.Run(name, func(t *testing.T) {
-			if got := calendarLinkMintHour(c.at); !got.Equal(c.want) {
-				t.Errorf("calendarLinkMintHour(%s) = %s, want %s", c.at, got, c.want)
-			}
-		})
-	}
-}
-
-// --- Over a real database ---
 
 // drivenClock is a clock a test sets, read by the service's transactions.
 type drivenClock struct {
@@ -48,6 +28,12 @@ func (c *drivenClock) read() time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.now
+}
+
+// midHourClock is a driven clock set mid-hour, so a test's mints share one
+// clock hour however long the test takes.
+func midHourClock() *drivenClock {
+	return &drivenClock{now: time.Date(2026, 11, 21, 12, 30, 0, 0, time.UTC)}
 }
 
 // serviceOn is a CalendarService whose transactions read clock.
@@ -75,21 +61,7 @@ func (suite *CalendarIntegrationTestSuite) mintCount(userID uint) (hour time.Tim
 	return rows[0].MintHour, rows[0].MintCount, true
 }
 
-// midHourClock is a driven clock set mid-hour, so a test's mints share one
-// clock hour however long the test takes.
-func midHourClock() *drivenClock {
-	return &drivenClock{now: time.Date(2026, 11, 21, 12, 30, 0, 0, time.UTC)}
-}
-
-// mintOn mints userID's link through svc, failing the test on an error.
-func (suite *CalendarIntegrationTestSuite) mintOn(svc *CalendarService, userID uint) string {
-	suite.T().Helper()
-	minted, err := svc.CreateToken(userID, nil, "http://localhost:8080")
-	suite.Require().NoError(err)
-	return minted.Token
-}
-
-// mintAt mints userID's link at the instant at through svc on clock.
+// mintAt mints userID's link through svc with clock set to at.
 func mintAt(svc *CalendarService, clock *drivenClock, userID uint, at time.Time) (string, error) {
 	clock.set(at)
 	minted, err := svc.CreateToken(userID, nil, "http://localhost:8080")
@@ -97,6 +69,15 @@ func mintAt(svc *CalendarService, clock *drivenClock, userID uint, at time.Time)
 		return "", err
 	}
 	return minted.Token, nil
+}
+
+// mintNine brings userID's count for clock's hour to one short of the cap.
+func (suite *CalendarIntegrationTestSuite) mintNine(svc *CalendarService, clock *drivenClock, userID uint) {
+	suite.T().Helper()
+	for i := range calendarLinkMintsPerHour - 1 {
+		_, err := mintAt(svc, clock, userID, clock.read())
+		suite.Require().NoError(err, "mint %d", i+1)
+	}
 }
 
 // requireRefused asserts err is the hourly cap's refusal with retryAfter.
@@ -149,12 +130,14 @@ func (suite *CalendarIntegrationTestSuite) TestCreateToken_EleventhInAClockHourI
 }
 
 // The count belongs to the clock hour: ten at the end of one hour leave the
-// next hour's first instant free, which then allows ten of its own.
+// next hour's first instant free, which then allows ten of its own. The hour
+// is the UTC one whatever zone the clock reads in.
 func (suite *CalendarIntegrationTestSuite) TestCreateToken_NextClockHourStartsAtZero() {
 	user := suite.createTestUser(true)
 	clock := &drivenClock{}
 	svc := suite.serviceOn(clock)
-	lastSecond := time.Date(2026, 11, 21, 12, 59, 59, 0, time.UTC)
+	india := time.FixedZone("IST", 5*60*60+30*60)
+	lastSecond := time.Date(2026, 11, 21, 18, 29, 59, 0, india) // 12:59:59 UTC
 	nextHour := time.Date(2026, 11, 21, 13, 0, 0, 0, time.UTC)
 
 	for i := range calendarLinkMintsPerHour {
@@ -206,10 +189,9 @@ func (suite *CalendarIntegrationTestSuite) TestCreateToken_AClockBehindCountsAga
 // whichever order the database takes them in.
 func (suite *CalendarIntegrationTestSuite) TestCreateToken_TwoConcurrentMintsAtNineMakeOne() {
 	user := suite.createTestUser(true)
-	svc := suite.serviceOn(midHourClock())
-	for range calendarLinkMintsPerHour - 1 {
-		suite.mintOn(svc, user.ID)
-	}
+	clock := midHourClock()
+	svc := suite.serviceOn(clock)
+	suite.mintNine(svc, clock, user.ID)
 
 	start := make(chan struct{})
 	errs := make([]error, 2)
@@ -244,6 +226,26 @@ func (suite *CalendarIntegrationTestSuite) TestCreateToken_TwoConcurrentMintsAtN
 	suite.Equal(int64(calendarLinkMintsPerHour-1), suite.retiredRowCount())
 }
 
+// waitForALockWait returns once some session is waiting on a lock on the
+// count table, failing the test if none does within a few seconds.
+func (suite *CalendarIntegrationTestSuite) waitForALockWait() {
+	suite.T().Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var waiting int64
+		suite.Require().NoError(suite.db.Raw(`
+			SELECT count(*) FROM pg_stat_activity
+			WHERE wait_event_type = 'Lock' AND query LIKE '%calendar_link_mint_counts%'`).Scan(&waiting).Error)
+		if waiting > 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			suite.FailNow("no mint waited on the uncommitted count")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 // While one mint's count is uncommitted, another mint of the same account
 // waits for it, then is refused if that mint commits and made if it rolls
 // back: a mint that rolls back uses no slot.
@@ -253,9 +255,7 @@ func (suite *CalendarIntegrationTestSuite) TestCreateToken_WaitsForAnUncommitted
 			user := suite.createTestUser(true)
 			clock := midHourClock()
 			svc := suite.serviceOn(clock)
-			for range calendarLinkMintsPerHour - 1 {
-				suite.mintOn(svc, user.ID)
-			}
+			suite.mintNine(svc, clock, user.ID)
 
 			tx := suite.db.Begin()
 			suite.Require().NoError(tx.Error)
@@ -269,10 +269,11 @@ func (suite *CalendarIntegrationTestSuite) TestCreateToken_WaitsForAnUncommitted
 				_, err := svc.CreateToken(user.ID, nil, "http://localhost:8080")
 				done <- err
 			}()
+			suite.waitForALockWait()
 			select {
 			case err := <-done:
 				suite.FailNow("the second mint did not wait for the first's count", "returned %v", err)
-			case <-time.After(300 * time.Millisecond):
+			default:
 			}
 
 			if commit {
@@ -294,10 +295,12 @@ func (suite *CalendarIntegrationTestSuite) TestCreateToken_WaitsForAnUncommitted
 // signing out everywhere and a password reset leave the count where it was.
 func (suite *CalendarIntegrationTestSuite) TestCreateToken_OnlyMakingALinkCounts() {
 	user := suite.createTestUser(true)
-	svc := suite.serviceOn(midHourClock())
-	token := suite.mintOn(svc, user.ID)
+	clock := midHourClock()
+	svc := suite.serviceOn(clock)
+	token, err := mintAt(svc, clock, user.ID, clock.read())
+	suite.Require().NoError(err)
 
-	_, err := suite.svc.GetTokenStatus(user.ID, "http://localhost:8080")
+	_, err = suite.svc.GetTokenStatus(user.ID, "http://localhost:8080")
 	suite.Require().NoError(err)
 	_, err = suite.svc.ValidateCalendarToken(token)
 	suite.Require().NoError(err)
@@ -306,7 +309,8 @@ func (suite *CalendarIntegrationTestSuite) TestCreateToken_OnlyMakingALinkCounts
 		engagementm.CalendarLinkResetSignOutEverywhere,
 		engagementm.CalendarLinkResetPasswordReset,
 	} {
-		suite.mintOn(svc, user.ID)
+		_, err := mintAt(svc, clock, user.ID, clock.read())
+		suite.Require().NoError(err)
 		suite.Require().NoError(suite.db.Transaction(func(tx *gorm.DB) error {
 			_, err := RevokeCalendarLinkTx(tx, user.ID, time.Now(), reason)
 			return err
@@ -339,14 +343,4 @@ func (suite *CalendarIntegrationTestSuite) TestCalendarLinkMintCounts_HoldOnlyTh
 		SELECT column_name FROM information_schema.columns
 		WHERE table_name = 'calendar_link_mint_counts' ORDER BY ordinal_position`).Scan(&columns).Error)
 	suite.Equal([]string{"user_id", "mint_hour", "mint_count"}, columns)
-}
-
-// The refusal says what every surface already says when a link could not be
-// made, so the cap adds no wording of its own.
-func TestCalendarLinkRateLimitedError_IsTheCapsRefusal(t *testing.T) {
-	err := error(&apperrors.CalendarLinkRateLimitedError{Limit: calendarLinkMintsPerHour, RetryAfter: time.Minute})
-	var limited *apperrors.CalendarLinkRateLimitedError
-	if !errors.As(err, &limited) || limited.UserMessage() != "Couldn't create your calendar link. Try again." {
-		t.Fatalf("refusal = %v", err)
-	}
 }

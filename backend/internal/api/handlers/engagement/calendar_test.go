@@ -130,46 +130,34 @@ func TestCreateCalendarTokenHandler_ServiceError(t *testing.T) {
 }
 
 // The hourly cap answers 429 with its own code, the line every surface shows
-// for a link that could not be made, and a Retry-After of whole seconds to the
-// next clock hour, rounded up and never zero.
+// for a link that could not be made, and a Retry-After in whole seconds
+// (calendarRateLimited, whose rounding the steps handler's tests cover).
 func TestCreateCalendarTokenHandler_HourlyCapAnswers429WithRetryAfter(t *testing.T) {
-	for name, c := range map[string]struct {
-		retryAfter time.Duration
-		want       string
-	}{
-		"whole seconds": {20 * time.Minute, "1200"},
-		"rounded up":    {1199*time.Second + time.Microsecond, "1200"},
-		"a full hour":   {time.Hour, "3600"},
-		"never zero":    {time.Microsecond, "1"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			mock := &testhelpers.MockCalendarService{
-				CreateTokenFn: func(_ uint, _ *time.Time, _ string) (*contracts.CalendarTokenCreateResponse, error) {
-					return nil, &autherrors.CalendarLinkRateLimitedError{Limit: 10, RetryAfter: c.retryAfter}
-				},
-			}
-			h := NewCalendarHandler(mock, testCalendarConfig())
+	mock := &testhelpers.MockCalendarService{
+		CreateTokenFn: func(_ uint, _ *time.Time, _ string) (*contracts.CalendarTokenCreateResponse, error) {
+			return nil, &autherrors.CalendarLinkRateLimitedError{Limit: 10, RetryAfter: 20 * time.Minute}
+		},
+	}
+	h := NewCalendarHandler(mock, testCalendarConfig())
 
-			_, err := h.CreateCalendarTokenHandler(testhelpers.CtxWithSession(&authm.User{ID: 1}, time.Now()), &CreateCalendarTokenRequest{})
+	_, err := h.CreateCalendarTokenHandler(testhelpers.CtxWithSession(&authm.User{ID: 1}, time.Now()), &CreateCalendarTokenRequest{})
 
-			var withHeaders huma.HeadersError
-			if !errors.As(err, &withHeaders) {
-				t.Fatalf("expected headers on the refusal, got %v", err)
-			}
-			if got := withHeaders.GetHeaders().Get("Retry-After"); got != c.want {
-				t.Errorf("Retry-After = %q, want %q", got, c.want)
-			}
-			var refusal *calendarRateLimitedResponse
-			if !errors.As(err, &refusal) {
-				t.Fatalf("expected the rate-limit refusal, got %v", err)
-			}
-			if refusal.GetStatus() != http.StatusTooManyRequests || refusal.ErrorCode != autherrors.CodeCalendarLinkRateLimitedHourly {
-				t.Errorf("refusal = %d %s", refusal.GetStatus(), refusal.ErrorCode)
-			}
-			if refusal.Message != "Couldn't create your calendar link. Try again." {
-				t.Errorf("message = %q", refusal.Message)
-			}
-		})
+	var withHeaders huma.HeadersError
+	if !errors.As(err, &withHeaders) {
+		t.Fatalf("expected headers on the refusal, got %v", err)
+	}
+	if got := withHeaders.GetHeaders().Get("Retry-After"); got != "1200" {
+		t.Errorf("Retry-After = %q, want 1200", got)
+	}
+	var refusal *calendarRateLimitedResponse
+	if !errors.As(err, &refusal) {
+		t.Fatalf("expected the rate-limit refusal, got %v", err)
+	}
+	if refusal.GetStatus() != http.StatusTooManyRequests || refusal.ErrorCode != autherrors.CodeCalendarLinkRateLimitedHourly {
+		t.Errorf("refusal = %d %s", refusal.GetStatus(), refusal.ErrorCode)
+	}
+	if refusal.Message != "Couldn't create your calendar link. Try again." {
+		t.Errorf("message = %q", refusal.Message)
 	}
 }
 

@@ -36,11 +36,8 @@ func TestCalendarLinkHourlyCapThroughRouter(t *testing.T) {
 	cfg := testConfig()
 	sc := services.NewServiceContainer(td.DB, cfg)
 	router := chi.NewRouter()
-	unset := func(string) string { return "" }
-	if IsEngagementMutationRateLimitEnabled(unset) {
-		t.Fatal("the opt-in flag reads as set")
-	}
-	router.Use(EngagementMutationRateLimiter(sc.JWT, func(string) bool { return false }, unset))
+	flagUnset := func(string) string { return "" }
+	router.Use(EngagementMutationRateLimiter(sc.JWT, noAPITokens, flagUnset))
 	SetupRoutes(router, sc, cfg)
 
 	post := func(bearer string) *httptest.ResponseRecorder {
@@ -81,7 +78,6 @@ func TestCalendarLinkHourlyCapThroughRouter(t *testing.T) {
 			}
 			last = minted.Token
 		}
-		retiredBefore := retiredRows()
 
 		w := post(session)
 		requestHour := time.Now().UTC().Truncate(time.Hour)
@@ -122,7 +118,7 @@ func TestCalendarLinkHourlyCapThroughRouter(t *testing.T) {
 			t.Errorf("Retry-After = %q, want about %.0f, the seconds to the next clock hour", w.Header().Get("Retry-After"), toNextHour)
 		}
 
-		if got := retiredRows(); got != retiredBefore || got != retiredAtStart+9 {
+		if got := retiredRows(); got != retiredAtStart+9 {
 			t.Errorf("retired rows = %d, want %d: nine replacements and nothing from the refusal", got, retiredAtStart+9)
 		}
 		validated, err := sc.Calendar.ValidateCalendarToken(last)

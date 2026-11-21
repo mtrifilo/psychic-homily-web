@@ -15,12 +15,6 @@ import (
 // often a person may change their mind.
 const calendarLinkMintsPerHour = 10
 
-// calendarLinkMintHour is the clock hour the instant at falls in, the only
-// time calendar_link_mint_counts stores.
-func calendarLinkMintHour(at time.Time) time.Time {
-	return at.UTC().Truncate(time.Hour)
-}
-
 // countCalendarLinkMintTx counts one calendar link made for userID at the
 // instant at through tx, which the caller commits, or refuses with
 // *apperrors.CalendarLinkRateLimitedError when the account has already made
@@ -36,7 +30,8 @@ func calendarLinkMintHour(at time.Time) time.Time {
 // hour already stored, so clocks that disagree across an hour boundary cannot
 // restart the count by taking turns.
 func countCalendarLinkMintTx(tx *gorm.DB, userID uint, at time.Time) error {
-	hour := calendarLinkMintHour(at)
+	// The clock hour at falls in is the only time the row stores.
+	hour := at.UTC().Truncate(time.Hour)
 	result := tx.Exec(`
 		INSERT INTO calendar_link_mint_counts AS c (user_id, mint_hour, mint_count)
 		VALUES (?, ?, 1)

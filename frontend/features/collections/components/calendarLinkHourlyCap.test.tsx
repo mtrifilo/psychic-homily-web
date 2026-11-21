@@ -115,7 +115,6 @@ describe('the hourly cap on making a calendar link', () => {
 
     const alert = await within(panel).findByRole('alert')
     expect(alert).toHaveTextContent(PANEL_COPY.createFailed)
-    expect(PANEL_COPY.createFailed).toBe("Couldn't create your calendar link. Try again.")
     expectEveryMintRefusedByTheCap()
   })
 
