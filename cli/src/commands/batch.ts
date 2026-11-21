@@ -4,6 +4,7 @@ import * as display from "../lib/display";
 import { rematchRadioPlaysChunked, rematchRadioPlays, dedupeArtistNames, aggregateRematchResults } from "../lib/radio";
 import { expandInlineRosters, type RosterItem } from "../lib/roster";
 import { green, yellow, gray, dim } from "../lib/ansi";
+import type { SubmitShowsOptions } from "./submit-show";
 
 // -- Types --
 
@@ -152,6 +153,7 @@ export async function processBatch(
   items: BatchItem[],
   env: EnvironmentConfig,
   confirm: boolean,
+  showOptions: SubmitShowsOptions = {},
 ): Promise<BatchResult> {
   const groups = groupByType(items);
   const client = new APIClient(env);
@@ -170,7 +172,7 @@ export async function processBatch(
 
     display.header(`Processing ${groupItems.length} ${type}(s)...`);
 
-    const groupResult = await processGroup(client, type, groupItems, env, confirm);
+    const groupResult = await processGroup(client, type, groupItems, env, confirm, showOptions);
     result.groups.push(groupResult);
     result.totalProcessed += groupResult.total;
     result.totalCreated += groupResult.created;
@@ -241,6 +243,7 @@ async function processGroup(
   items: Record<string, unknown>[],
   env: EnvironmentConfig,
   confirm: boolean,
+  showOptions: SubmitShowsOptions,
 ): Promise<BatchGroupResult> {
   const groupResult: BatchGroupResult = {
     type,
@@ -287,7 +290,7 @@ async function processGroup(
     case "show": {
       const { submitShows } = await import("./submit-show");
       const jsonStr = JSON.stringify(items);
-      const result = await submitShows(client, jsonStr, confirm);
+      const result = await submitShows(client, jsonStr, confirm, showOptions);
       groupResult.created = result.created;
       groupResult.skipped = result.skipped;
       groupResult.errors = result.failed;
@@ -354,6 +357,7 @@ export async function runBatch(
   filePath: string,
   env: EnvironmentConfig,
   confirm: boolean,
+  showOptions: SubmitShowsOptions = {},
 ): Promise<void> {
   // Read file
   const file = Bun.file(filePath);
@@ -417,7 +421,7 @@ export async function runBatch(
   display.info(`Processing order: ${activeGroups.join(" -> ")}`);
 
   // Process
-  const result = await processBatch(items, env, confirm);
+  const result = await processBatch(items, env, confirm, showOptions);
 
   // `process.exitCode`, not `process.exit()`: entities written before a failure
   // still need their ISR revalidation flushed at the end of the run (PSY-1691).

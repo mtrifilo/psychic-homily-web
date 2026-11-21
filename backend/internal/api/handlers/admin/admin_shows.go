@@ -10,6 +10,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
+	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
@@ -588,6 +589,9 @@ func (h *AdminShowHandler) ImportShowConfirmHandler(ctx context.Context, req *Im
 			"error", err.Error(),
 			"request_id", requestID,
 		)
+		if boundErr, ok := apperrors.AsShowEventDateBeyondBound(err); ok {
+			return nil, shared.ShowEventDateBoundHTTPError(boundErr)
+		}
 		return nil, huma.Error422UnprocessableEntity(
 			fmt.Sprintf("Failed to import show (request_id: %s)", requestID),
 		)
@@ -936,9 +940,13 @@ func (h *AdminShowHandler) BulkImportConfirmHandler(ctx context.Context, req *Bu
 
 		show, err := h.showImportService.ConfirmShowImport(content, true)
 		if err != nil {
+			message := "Failed to import show"
+			if boundErr, ok := apperrors.AsShowEventDateBeyondBound(err); ok {
+				message = boundErr.Message
+			}
 			results = append(results, BulkImportResult{
 				Success: false,
-				Error:   "Failed to import show",
+				Error:   message,
 			})
 			errorCount++
 			logger.FromContext(ctx).Warn("admin_bulk_import_show_failed",

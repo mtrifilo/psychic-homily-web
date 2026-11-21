@@ -197,7 +197,13 @@ export class APIClient {
             )
             .join("; ");
         }
-        errorCode = parsed.error_code;
+        errorCode =
+          parsed.error_code ??
+          (Array.isArray(parsed.errors)
+            ? parsed.errors.find(
+                (e: { value?: { code?: unknown } }) => typeof e?.value?.code === "string",
+              )?.value?.code
+            : undefined);
         requestId = parsed.request_id;
       } catch {
         // Use the raw status text

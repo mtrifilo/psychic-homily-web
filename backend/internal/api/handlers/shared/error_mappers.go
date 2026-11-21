@@ -85,6 +85,18 @@ func MapCollectionError(err error) error {
 	return nil
 }
 
+// ShowEventDateBoundHTTPError is the one HTTP shape of the far-future refusal:
+// a 422 whose detail is the refusal's sentence and nothing else, plus one
+// structured error whose value carries the code, so a client can recognise the
+// refusal without reading the sentence.
+func ShowEventDateBoundHTTPError(boundErr *apperrors.ShowError) error {
+	return huma.Error422UnprocessableEntity(boundErr.Message, &huma.ErrorDetail{
+		Message:  boundErr.Message,
+		Location: "body.event_date",
+		Value:    map[string]any{"code": boundErr.Code},
+	})
+}
+
 // collectionLimitDetail builds an *huma.ErrorDetail that carries the
 // structured limit fields (tier / used / limit / soft_cap_kind) under
 // `errors[].value` so the frontend has direct programmatic access without
@@ -275,6 +287,11 @@ func MapFestivalError(err error) error {
 // (its single failure mode is SHOW_NOT_FOUND → 404). Adding a caller that can
 // update or delete means revisiting this switch, not just calling it.
 func MapShowError(err error) error {
+	// Checked first: this refusal usually arrives wrapped in a generic create
+	// failure, whose message would hide the bound and the override.
+	if boundErr, ok := apperrors.AsShowEventDateBeyondBound(err); ok {
+		return ShowEventDateBoundHTTPError(boundErr)
+	}
 	var showErr *apperrors.ShowError
 	if errors.As(err, &showErr) {
 		switch showErr.Code {
