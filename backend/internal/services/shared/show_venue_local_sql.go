@@ -367,6 +367,12 @@ var VenueLocalMonthSQL = `EXTRACT(MONTH FROM ` + VenueLocalDateSQL + `)::int`
 // the start instant (frontend showTiming.hasShowStarted).
 var VenueLocalTodaySQL = `(` + venueLocalNowSQL + `)::date`
 
+// VenueLocalDateAtParamSQL is VenueLocalTodaySQL with the instant bound rather
+// than read from now(): the venue-local calendar date of the timestamptz bound
+// to its single `?` placeholder, in the same zone every other expression here
+// uses. For callers that take "now" as an argument so a test can pin it.
+var VenueLocalDateAtParamSQL = `(CAST(? AS timestamptz) AT TIME ZONE ` + venueLocalZoneSQL + `)::date`
+
 // venueLocalNowSQL is this instant on the primary venue's own wall clock, as a
 // timestamp WITHOUT time zone.
 //

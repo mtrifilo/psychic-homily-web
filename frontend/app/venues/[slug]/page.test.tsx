@@ -83,6 +83,7 @@ vi.mock('@/features/venues/components/VenuePastShows', () => ({
 import VenuePage, { generateMetadata } from './page'
 import { VenueDetail } from '@/features/venues'
 import { VenueShowsList } from '@/features/venues/components/VenueShowsList'
+import { venueUpcomingShowsUrl } from '@/features/venues/api'
 
 function buildVenue(overrides: Record<string, unknown> = {}) {
   return {
@@ -149,38 +150,66 @@ afterEach(() => {
 })
 
 describe('venues/[slug] generateMetadata', () => {
-  it('puts the city and state in the title', async () => {
-    fetchMock.mockResolvedValueOnce(okResponse(buildVenue()))
-
-    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'the-rebel-lounge' }) })
-
-    expect(meta.title).toBe('The Rebel Lounge · Phoenix, AZ')
+  // The fixtures' show is 8:00 PM on September 11, 2026 in Phoenix; the clock
+  // is set the morning before so the row is still upcoming.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-09-10T15:00:00Z'))
+  })
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
-  it('names the next show in the description', async () => {
-    fetchMock.mockResolvedValueOnce(okResponse(buildVenue()))
+  function yearsResponse(years: Array<{ year: number; count: number }>, venueId = 77): Response {
+    return jsonBodyResponse({ venue_id: venueId, time_filter: 'past', years })
+  }
+
+  /** Answers the venue read and the past-years read by URL, fresh each call. */
+  function stubVenueAndYears({
+    venue = () => okResponse(buildVenue()),
+    years = () => yearsResponse([{ year: 2026, count: 4 }, { year: 2024, count: 2 }]),
+  }: { venue?: () => Response; years?: () => Response } = {}) {
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).includes('/shows/years') ? years() : venue(),
+    )
+  }
+
+  async function metadataFor(slug = 'the-rebel-lounge') {
+    return generateMetadata({ params: Promise.resolve({ slug }) })
+  }
+
+  it('puts `shows` and the city and state in the title', async () => {
+    stubVenueAndYears()
+    expect((await metadataFor()).title).toBe('The Rebel Lounge shows · Phoenix, AZ')
+  })
+
+  it('leads with the upcoming count for a room with shows coming', async () => {
+    stubVenueAndYears()
     upcomingFetchMock.mockResolvedValueOnce(upcomingResponse([upcomingShow()]))
 
-    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'the-rebel-lounge' }) })
-
-    expect(meta.description).toBe(
-      'Upcoming shows at The Rebel Lounge in Phoenix, AZ. Next: Top Billing, Sep 11.'
+    expect((await metadataFor()).description).toBe(
+      '1 upcoming show at The Rebel Lounge in Phoenix, AZ. Next: Top Billing, Sep 11. 6 past shows on record since 2024. Address: 2303 E Indian School Rd.'
     )
   })
 
-  it('asks for the venue upcoming shows by id', async () => {
-    fetchMock.mockResolvedValueOnce(okResponse(buildVenue()))
+  it('reads the upcoming shows the page body seeds, and the past years, by slug', async () => {
+    stubVenueAndYears()
 
-    await generateMetadata({ params: Promise.resolve({ slug: 'the-rebel-lounge' }) })
+    await metadataFor()
 
     expect(upcomingFetchMock).toHaveBeenCalledTimes(1)
-    const url = new URL(String(upcomingFetchMock.mock.calls[0][0]))
-    expect(url.pathname).toMatch(/\/venues\/77\/shows$/)
-    expect(url.searchParams.get('time_filter')).toBe('upcoming')
+    expect(String(upcomingFetchMock.mock.calls[0][0])).toBe(
+      venueUpcomingShowsUrl('the-rebel-lounge')
+    )
+    const yearsUrl = fetchMock.mock.calls
+      .map(call => new URL(String(call[0])))
+      .find(candidate => candidate.pathname.endsWith('/shows/years'))
+    expect(yearsUrl?.pathname).toMatch(/\/venues\/the-rebel-lounge\/shows\/years$/)
+    expect(yearsUrl?.searchParams.get('time_filter')).toBe('past')
   })
 
   it('skips a cancelled show when naming the next one', async () => {
-    fetchMock.mockResolvedValueOnce(okResponse(buildVenue()))
+    stubVenueAndYears()
     upcomingFetchMock.mockResolvedValueOnce(
       upcomingResponse([
         upcomingShow({
@@ -191,53 +220,154 @@ describe('venues/[slug] generateMetadata', () => {
       ])
     )
 
-    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'the-rebel-lounge' }) })
+    const { description } = await metadataFor()
 
-    expect(meta.description).toContain('Next: Top Billing, Sep 11.')
-    expect(meta.description).not.toContain('Called Off')
+    expect(description).toMatch(/^2 upcoming shows at The Rebel Lounge/)
+    expect(description).toContain('Next: Top Billing, Sep 11.')
+    expect(description).not.toContain('Called Off')
   })
 
-  it('omits the Next clause when the venue has no upcoming show', async () => {
-    fetchMock.mockResolvedValueOnce(okResponse(buildVenue()))
+  it('states no upcoming count when every upcoming show is cancelled', async () => {
+    stubVenueAndYears()
+    upcomingFetchMock.mockResolvedValueOnce(
+      upcomingResponse([upcomingShow({ is_cancelled: true })])
+    )
 
-    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'the-rebel-lounge' }) })
-
-    expect(meta.description).toBe('Upcoming shows at The Rebel Lounge in Phoenix, AZ.')
+    expect((await metadataFor()).description).toBe(
+      'The Rebel Lounge in Phoenix, AZ: 6 past shows on record since 2024. Address: 2303 E Indian School Rd.'
+    )
   })
 
-  it('omits the Next clause when the upcoming read fails', async () => {
-    fetchMock.mockResolvedValueOnce(okResponse(buildVenue()))
+  it('leads with the past record for a room with only past shows', async () => {
+    stubVenueAndYears()
+
+    expect((await metadataFor()).description).toBe(
+      'The Rebel Lounge in Phoenix, AZ: 6 past shows on record since 2024. Address: 2303 E Indian School Rd.'
+    )
+  })
+
+  it('says only that it is a venue when nothing is on record', async () => {
+    stubVenueAndYears({ years: () => yearsResponse([]) })
+
+    expect((await metadataFor()).description).toBe(
+      'The Rebel Lounge is a venue in Phoenix, AZ. Address: 2303 E Indian School Rd.'
+    )
+  })
+
+  // A Tokyo room, whose New Year comes before the UTC and the test machine's,
+  // so these fail if the year is read on any clock but the venue's.
+  const TOKYO = { timezone: 'Asia/Tokyo', city: 'Tokyo', state: '', address: null }
+
+  it('names the first year once the venue clock reaches the next year', async () => {
+    // 1:00 AM on January 1, 2027 in Tokyo; still 2026 in UTC.
+    vi.setSystemTime(new Date('2026-12-31T16:00:00Z'))
+    stubVenueAndYears({
+      venue: () => okResponse(buildVenue(TOKYO)),
+      years: () => yearsResponse([{ year: 2026, count: 3 }]),
+    })
+
+    expect((await metadataFor()).description).toBe(
+      'The Rebel Lounge in Tokyo: 3 past shows on record since 2026.'
+    )
+  })
+
+  it('names no first year while the venue clock is still in that year', async () => {
+    // 11:00 PM on December 31, 2026 in Tokyo.
+    vi.setSystemTime(new Date('2026-12-31T14:00:00Z'))
+    stubVenueAndYears({
+      venue: () => okResponse(buildVenue(TOKYO)),
+      years: () => yearsResponse([{ year: 2026, count: 3 }]),
+    })
+
+    expect((await metadataFor()).description).toBe(
+      'The Rebel Lounge in Tokyo: 3 past shows on record.'
+    )
+  })
+
+  it('drops what a failed read would have stated', async () => {
+    stubVenueAndYears({ years: () => errorResponse(500) })
     upcomingFetchMock.mockResolvedValueOnce(errorResponse(500))
 
-    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'the-rebel-lounge' }) })
+    const meta = await metadataFor()
 
-    expect(meta.title).toBe('The Rebel Lounge · Phoenix, AZ')
-    expect(meta.description).toBe('Upcoming shows at The Rebel Lounge in Phoenix, AZ.')
+    expect(meta.title).toBe('The Rebel Lounge shows · Phoenix, AZ')
+    expect(meta.description).toBe(
+      'The Rebel Lounge is a venue in Phoenix, AZ. Address: 2303 E Indian School Rd.'
+    )
   })
 
-  it('makes no upcoming read for a venue without a usable id', async () => {
-    fetchMock.mockResolvedValueOnce(okResponse(buildVenue({ id: 'not-a-number' })))
+  it('ignores a past-years answer for another venue', async () => {
+    stubVenueAndYears({ years: () => yearsResponse([{ year: 2024, count: 9 }], 999) })
 
-    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'the-rebel-lounge' }) })
+    expect((await metadataFor()).description).toBe(
+      'The Rebel Lounge is a venue in Phoenix, AZ. Address: 2303 E Indian School Rd.'
+    )
+  })
 
-    expect(upcomingFetchMock).not.toHaveBeenCalled()
-    expect(meta.description).toBe('Upcoming shows at The Rebel Lounge in Phoenix, AZ.')
+  it('drops rows that have provably passed since the read', async () => {
+    vi.setSystemTime(new Date('2026-09-20T15:00:00Z'))
+    stubVenueAndYears({ years: () => yearsResponse([]) })
+    upcomingFetchMock.mockResolvedValueOnce(upcomingResponse([upcomingShow()]))
+
+    expect((await metadataFor()).description).toBe(
+      'The Rebel Lounge is a venue in Phoenix, AZ. Address: 2303 E Indian School Rd.'
+    )
+  })
+
+  it("neither names nor counts a show whose venue-local day has ended", async () => {
+    // 10:00 AM on September 12, 2026 in Phoenix; the fixture show was last night.
+    vi.setSystemTime(new Date('2026-09-12T17:00:00Z'))
+    stubVenueAndYears({ years: () => yearsResponse([]) })
+    upcomingFetchMock.mockResolvedValueOnce(
+      upcomingResponse([
+        upcomingShow({ artists: [{ id: 5, slug: 'gone', name: 'Gone Band', is_headliner: true }] }),
+        upcomingShow({ id: 902, event_date: '2026-09-13T03:00:00Z' }),
+      ])
+    )
+
+    expect((await metadataFor()).description).toBe(
+      '1 upcoming show at The Rebel Lounge in Phoenix, AZ. Next: Top Billing, Sep 12. Address: 2303 E Indian School Rd.'
+    )
+  })
+
+  it("reads a show's day on the show's own state when the venue has no zone", async () => {
+    // 1:30 AM September 12 in Phoenix, 10:30 PM September 11 in Honolulu. The
+    // show is 7:00 PM September 11 in Honolulu: ended on the venue's state
+    // clock, still today on the show's own.
+    vi.setSystemTime(new Date('2026-09-12T08:30:00Z'))
+    stubVenueAndYears({
+      venue: () => okResponse(buildVenue({ timezone: null })),
+      years: () => yearsResponse([]),
+    })
+    upcomingFetchMock.mockResolvedValueOnce(
+      upcomingResponse([upcomingShow({ event_date: '2026-09-12T05:00:00Z', state: 'HI' })])
+    )
+
+    expect((await metadataFor()).description).toBe(
+      '1 upcoming show at The Rebel Lounge in Phoenix, AZ. Next: Top Billing, Sep 11. Address: 2303 E Indian School Rd.'
+    )
+  })
+
+  it('ignores an upcoming answer for another venue', async () => {
+    stubVenueAndYears({ years: () => yearsResponse([]) })
+    upcomingFetchMock.mockResolvedValueOnce(upcomingResponse([upcomingShow()], 999))
+
+    expect((await metadataFor()).description).toBe(
+      'The Rebel Lounge is a venue in Phoenix, AZ. Address: 2303 E Indian School Rd.'
+    )
   })
 
   it('sets the canonical URL to https://psychichomily.com/venues/{slug}', async () => {
-    fetchMock.mockResolvedValueOnce(okResponse(buildVenue()))
-
-    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'the-rebel-lounge' }) })
-
-    expect(meta.alternates?.canonical).toBe(
+    stubVenueAndYears()
+    expect((await metadataFor()).alternates?.canonical).toBe(
       'https://psychichomily.com/venues/the-rebel-lounge'
     )
   })
 
   it('mirrors the title and description into openGraph and sets url/type', async () => {
-    fetchMock.mockResolvedValueOnce(okResponse(buildVenue()))
+    stubVenueAndYears()
 
-    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'the-rebel-lounge' }) })
+    const meta = await metadataFor()
 
     expect(meta.openGraph?.title).toBe(meta.title)
     expect(meta.openGraph?.description).toBe(meta.description)
@@ -246,9 +376,9 @@ describe('venues/[slug] generateMetadata', () => {
   })
 
   it('falls back to the "Venue" title when the venue is missing', async () => {
-    fetchMock.mockResolvedValueOnce(errorResponse(404))
+    stubVenueAndYears({ venue: () => errorResponse(404), years: () => errorResponse(404) })
 
-    const meta = await generateMetadata({ params: Promise.resolve({ slug: 'missing' }) })
+    const meta = await metadataFor('missing')
 
     expect(meta.title).toBe('Venue')
     expect(meta.description).toBe('View venue details and upcoming shows')

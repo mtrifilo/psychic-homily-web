@@ -12,6 +12,7 @@ import { VenuePastShows } from './VenuePastShows'
 import { VenueShowsTable } from './VenueShowsTable'
 import { useShowSaveColumn } from '@/features/shows/components/ShowSaveColumn'
 import type { VenueShowYearsResponse, VenueShowZone } from '../types'
+import { NoSnippet } from '@/components/shared/NoSnippet'
 
 interface VenueShowsListProps {
   venueId: number
@@ -116,7 +117,7 @@ export function VenueShowsList({
           // duplicated the header's Follow control, which now subscribes on
           // its own (PSY-1893 / PSY-1905).
           <p className="py-2 text-sm text-muted-foreground">
-            No upcoming shows yet.
+            <NoSnippet>No upcoming shows yet.</NoSnippet>
           </p>
         ) : (
           <>

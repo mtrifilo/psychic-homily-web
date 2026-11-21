@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { NoSnippet } from '@/components/shared/NoSnippet'
 
 /**
  * The map link's type treatment: underlined body copy hovering to `foreground`
@@ -31,9 +32,11 @@ export function MobileGraphTeaser({
 }) {
   return (
     <p className="text-xs text-muted-foreground">
-      <Link href={href} className={GRAPH_MAP_LINK_CLASS}>
-        {children} <span aria-hidden="true">→</span>
-      </Link>
+      <NoSnippet>
+        <Link href={href} className={GRAPH_MAP_LINK_CLASS}>
+          {children} <span aria-hidden="true">→</span>
+        </Link>
+      </NoSnippet>
     </p>
   )
 }

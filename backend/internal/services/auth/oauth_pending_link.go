@@ -12,6 +12,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 	engagementsvc "psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/shared"
@@ -271,9 +272,11 @@ func (s *AuthService) CompleteOAuthLinkByEmail(claims *contracts.OAuthLinkTokenC
 //
 // It leaves no calendar link-reset marker, and removes any already there: the
 // link and every reset of it belonged to whoever held the account before the
-// proof, so the mailbox owner has no calendar to be told about.
+// proof, so the mailbox owner has no calendar to be told about. The old
+// link's address is remembered as reset, which tells whoever still polls it
+// why it stopped and names nobody.
 func evictOtherCredentials(tx *gorm.DB, userID uint, keepProvider string) error {
-	if _, err := engagementsvc.DeleteCalendarTokensTx(tx, userID); err != nil {
+	if _, err := engagementsvc.RetireCalendarTokensTx(tx, userID, engagementm.CalendarLinkRetiredReset, time.Now()); err != nil {
 		return err
 	}
 	if _, err := engagementsvc.ClearCalendarLinkResetTx(tx, userID); err != nil {

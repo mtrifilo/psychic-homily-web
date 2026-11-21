@@ -1,6 +1,8 @@
 import { describe, test, expect, mock } from "bun:test";
 import {
+  isPlaceholderLabelName,
   linkReleaseToLabel,
+  placeholderLabelWarning,
   resolveAndLinkReleaseLabel,
 } from "../src/lib/labels";
 import { APIClient } from "../src/lib/api";
@@ -49,6 +51,47 @@ async function quiet<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 // -- Tests --
+
+describe("isPlaceholderLabelName", () => {
+  test.each([
+    "3245973 Records DK",
+    "12345 Records",
+    "3245973 records dk",
+    "  3245973   Records   DK  ",
+  ])("flags the distributor placeholder shape: %p", (name: string) => {
+    expect(isPlaceholderLabelName(name)).toBe(true);
+  });
+
+  test.each([
+    "4AD",
+    "12XU",
+    "1-800 Records",
+    "Records DK",
+    "2000 Records",
+    "1234 Records DK",
+    "3245973 Records DKX",
+    "3245973 Records D1",
+    "3245973 Recordings",
+    "Label 3245973 Records",
+  ])("does not flag a real or near-miss name: %p", (name: string) => {
+    expect(isPlaceholderLabelName(name)).toBe(false);
+  });
+});
+
+describe("placeholderLabelWarning", () => {
+  test("names the label and the reason for a placeholder", () => {
+    const warning = placeholderLabelWarning("3245973 Records DK");
+    expect(warning).toContain('"3245973 Records DK"');
+    expect(warning).toContain("distributor placeholder");
+    expect(warning).toContain('five or more digits, then "Records"');
+  });
+
+  test("returns null for a real label or a non-string", () => {
+    expect(placeholderLabelWarning("4AD")).toBeNull();
+    expect(placeholderLabelWarning(12345)).toBeNull();
+    expect(placeholderLabelWarning(undefined)).toBeNull();
+  });
+});
 
 describe("linkReleaseToLabel", () => {
   test("includes catalog_number in the POST body when provided", async () => {

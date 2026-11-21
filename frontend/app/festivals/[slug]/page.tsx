@@ -8,6 +8,7 @@ import { FestivalDetail } from '@/features/festivals/components'
 import type { FestivalDetail as FestivalDetailData } from '@/features/festivals/types'
 import { API_BASE_URL } from '@/lib/api-base'
 import { reportServerFetchFailure } from '@/lib/ssr/reportServerFetchFailure'
+import { festivalDescription } from '@/lib/seo/entitySnippets'
 import { serverReadHeaders } from '@/lib/ssr/serverReadHeaders'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
@@ -57,15 +58,27 @@ export async function generateMetadata({
   if (festival) {
     const locationSuffix =
       festival.city && festival.state ? ` - ${festival.city}, ${festival.state}` : ''
+    const title = `${festival.name}${locationSuffix}`
+    const description = festivalDescription({
+      name: festival.name,
+      startDate: festival.start_date,
+      endDate: festival.end_date,
+      locationName: festival.location_name,
+      city: festival.city,
+      state: festival.state,
+      status: festival.status,
+      artistCount: festival.artist_count,
+      venueCount: festival.venue_count,
+    })
     return {
-      title: `${festival.name}${locationSuffix}`,
-      description: `${festival.name}${locationSuffix} - festival details on Psychic Homily`,
+      title,
+      description,
       alternates: {
         canonical: `https://psychichomily.com/festivals/${slug}`,
       },
       openGraph: {
-        title: `${festival.name}${locationSuffix}`,
-        description: `View details for ${festival.name}`,
+        title,
+        description,
         type: 'website',
         url: `/festivals/${slug}`,
       },

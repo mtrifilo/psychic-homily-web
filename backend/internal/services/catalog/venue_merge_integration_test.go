@@ -149,6 +149,19 @@ func (s *VenueMergeIntegrationSuite) createShow(
 	return show
 }
 
+func (s *VenueMergeIntegrationSuite) venueExists(id uint) bool {
+	var n int64
+	s.Require().NoError(s.db.Model(&catalogm.Venue{}).Where("id = ?", id).Count(&n).Error)
+	return n == 1
+}
+
+func (s *VenueMergeIntegrationSuite) venuesOfShow(showID uint) []uint {
+	var ids []uint
+	s.Require().NoError(s.db.Model(&catalogm.ShowVenue{}).
+		Where("show_id = ?", showID).Order("venue_id").Pluck("venue_id", &ids).Error)
+	return ids
+}
+
 func (s *VenueMergeIntegrationSuite) showExists(id uint) bool {
 	var n int64
 	s.Require().NoError(s.db.Model(&catalogm.Show{}).Where("id = ?", id).Count(&n).Error)
@@ -617,6 +630,61 @@ func (s *VenueMergeIntegrationSuite) TestMergeWritesAuditLog() {
 	s.Contains(row.Metadata, "duplicate_shows", "the audit entry records what was destroyed")
 	s.Contains(row.Metadata, "support_acts_rescued")
 	s.Contains(row.Metadata, "Dupe Room", "the merged venue's name is gone from venues — record it here")
+
+	var slug string
+	s.Require().NoError(s.db.Raw(
+		`SELECT metadata->>'merged_venue_slug' FROM audit_logs WHERE action = ? AND entity_id = ?`,
+		AuditActionMergeVenues, canonical.ID).Scan(&slug).Error)
+	s.Equal(*loser.Slug, slug, "the merged venue's slug is gone from venues too; the audit row keeps it")
+}
+
+// The same-place merge decides on the locked rows and refuses before writing:
+// both venues and everything attached to them survive a refusal.
+func (s *VenueMergeIntegrationSuite) TestMergeInSamePlaceRefusesAnotherCityOrState() {
+	artist := s.createArtist("Band")
+	date := time.Date(2026, 8, 8, 20, 0, 0, 0, time.UTC)
+
+	for _, tc := range []struct {
+		name, city, state string
+	}{
+		{"other city", "St. Paul", "MN"},
+		{"same city name, other state", "Minneapolis", "KS"},
+	} {
+		s.Run(tc.name, func() {
+			canonical := s.createVenue("Kept Room " + tc.name)
+			loser := s.createVenue("Loser Room " + tc.name)
+			s.Require().NoError(s.db.Model(&catalogm.Venue{}).Where("id = ?", loser.ID).
+				Updates(map[string]any{"city": tc.city, "state": tc.state}).Error)
+			show := s.createShow("loser show "+tc.name, loser, date, artist)
+
+			_, previewErr := s.svc.PreviewMergeVenuesInSamePlace(canonical.ID, loser.ID)
+			_, mergeErr := s.svc.MergeVenuesInSamePlace(canonical.ID, loser.ID, 0)
+
+			for _, err := range []error{previewErr, mergeErr} {
+				var venueErr *apperrors.VenueError
+				s.Require().ErrorAs(err, &venueErr)
+				s.Equal(apperrors.CodeVenueMergeInvalid, venueErr.Code)
+				s.Contains(venueErr.Message, "different places")
+			}
+			s.True(s.venueExists(loser.ID), "a refused merge deletes nothing")
+			s.Equal([]uint{loser.ID}, s.venuesOfShow(show.ID), "a refused merge moves nothing")
+		})
+	}
+}
+
+// City and state are compared trimmed and case-insensitively, so a pair written
+// with different casing still merges.
+func (s *VenueMergeIntegrationSuite) TestMergeInSamePlaceAcceptsCaseAndSpaceDifferences() {
+	canonical := s.createVenue("Kept Room")
+	loser := s.createVenue("Loser Room")
+	s.Require().NoError(s.db.Model(&catalogm.Venue{}).Where("id = ?", loser.ID).
+		Updates(map[string]any{"city": " minneapolis ", "state": "mn"}).Error)
+
+	result, err := s.svc.MergeVenuesInSamePlace(canonical.ID, loser.ID, 0)
+
+	s.Require().NoError(err)
+	s.Equal(canonical.ID, result.CanonicalVenueID)
+	s.False(s.venueExists(loser.ID))
 }
 
 // ──────────────────────────────────────────────

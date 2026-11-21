@@ -60,6 +60,13 @@ describe('Footer', () => {
     expect(screen.getByText('Your music knowledge graph.')).toBeInTheDocument()
   })
 
+  it('keeps the tagline out of search snippets', () => {
+    render(<Footer />)
+    expect(
+      screen.getByText('Your music knowledge graph.').closest('span[data-nosnippet]')
+    ).not.toBeNull()
+  })
+
   it('renders the four labelled link columns (PSY-389)', () => {
     render(<Footer />)
     for (const label of ['Discover', 'Browse', 'Community', 'About']) {

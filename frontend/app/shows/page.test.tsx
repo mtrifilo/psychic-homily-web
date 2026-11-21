@@ -27,6 +27,7 @@ import ShowsPage, {
   getScenesForWeekIndex,
   getShowsMonthsPayload,
   getUpcomingShows,
+  metadata,
 } from './page'
 import { showsFirstScreenSeeds } from '@/features/shows/firstScreen'
 import {
@@ -257,5 +258,14 @@ describe('HydratedShowList', () => {
     expect(
       new Set(boundaryStateOf(boundary).queries.map(q => hashKey(q.queryKey)))
     ).toEqual(new Set(showListFirstPaintKeys([]).map(hashKey)))
+  })
+})
+
+describe('/shows metadata', () => {
+  it('describes the list and its quick windows, on the share card too', () => {
+    expect(metadata.description).toBe(
+      'Live music coming up, night by night: who is playing, where, and when. Jump to tonight, this weekend or this month.'
+    )
+    expect(metadata.openGraph.description).toBe(metadata.description)
   })
 })

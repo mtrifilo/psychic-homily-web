@@ -39,16 +39,23 @@ import { showsFirstScreenSeeds } from '@/features/shows/firstScreen'
 import { seedFirstScreen } from '@/lib/query-hydration'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { fetchListPayload } from '@/lib/ssr/fetchListPayload'
+import { QUICK_WINDOW_LABEL } from '@/features/shows/quickWindows'
+
+/** Names three of the page's own quick windows, in the chips' words. */
+const SHOWS_INDEX_DESCRIPTION = `Live music coming up, night by night: who is playing, where, and when. Jump to ${[
+  QUICK_WINDOW_LABEL.tonight,
+  QUICK_WINDOW_LABEL['this-weekend'],
+].join(', ').toLowerCase()} or ${QUICK_WINDOW_LABEL['this-month'].toLowerCase()}.`
 
 export const metadata = {
   title: 'Upcoming Shows',
-  description: 'Discover upcoming live music shows in Phoenix and beyond.',
+  description: SHOWS_INDEX_DESCRIPTION,
   alternates: {
     canonical: 'https://psychichomily.com/shows',
   },
   openGraph: {
     title: 'Upcoming Shows | Psychic Homily',
-    description: 'Discover upcoming live music shows in Phoenix and beyond.',
+    description: SHOWS_INDEX_DESCRIPTION,
     url: '/shows',
     type: 'website',
   },
@@ -362,7 +369,7 @@ export default async function ShowsPage() {
       {showsWithSlugs.length > 0 && (
         <JsonLd data={generateItemListSchema({
           name: 'Upcoming Shows',
-          description: 'Upcoming live music shows in Phoenix and beyond.',
+          description: 'Upcoming live music shows.',
           listItems: showsWithSlugs.map(show => ({
             url: `https://psychichomily.com/shows/${show.slug}`,
             name: getShowName(show),

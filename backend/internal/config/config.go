@@ -95,6 +95,9 @@ const (
 
 	// Discogs (image enrichment — token auth; PSY-1216)
 	EnvDiscogsToken = "DISCOGS_TOKEN"
+
+	// Personal calendar and follows feeds
+	EnvCalendarRetiredLinkNoticeEnabled = "CALENDAR_RETIRED_LINK_NOTICE_ENABLED"
 )
 
 // Config holds all configuration for the application
@@ -117,6 +120,18 @@ type Config struct {
 	Anthropic      AnthropicConfig
 	Spotify        SpotifyConfig
 	Discogs        DiscogsConfig
+	Calendar       CalendarConfig
+}
+
+// CalendarConfig holds configuration for the personal calendar and follows
+// feeds.
+type CalendarConfig struct {
+	// RetiredLinkNoticeEnabled makes a retired feed address answer 200 with a
+	// notice (a calendar with one dated note, or an Atom feed with one entry)
+	// saying why the link stopped, in place of the 401 an address the site
+	// does not know gets. Off by default: retired addresses are remembered
+	// either way, and the switch decides only how they are answered.
+	RetiredLinkNoticeEnabled bool
 }
 
 // AppleConfig holds Sign in with Apple configuration
@@ -432,6 +447,9 @@ func Load() (*Config, error) {
 		},
 		Discogs: DiscogsConfig{
 			Token: GetEnv(EnvDiscogsToken, ""),
+		},
+		Calendar: CalendarConfig{
+			RetiredLinkNoticeEnabled: getEnvAsBool(EnvCalendarRetiredLinkNoticeEnabled, false),
 		},
 	}
 	cfg.sessionLifetimeErr = sessionHoursErr

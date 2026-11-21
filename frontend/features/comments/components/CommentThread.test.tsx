@@ -104,6 +104,10 @@ describe('CommentThread', () => {
     render(<CommentThread {...defaultProps} />)
 
     expect(screen.getByTestId('auth-gate')).toBeInTheDocument()
+    // The whole prompt sits in a span Google will not quote in a snippet.
+    expect(
+      screen.getByTestId('auth-gate').querySelector('span[data-nosnippet]')?.textContent
+    ).toBe('Sign in to join the discussion.')
     // PSY-1870: must point at the real auth route. `/login` does not exist
     // and 404d, dead-ending signup from every show page.
     expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute(

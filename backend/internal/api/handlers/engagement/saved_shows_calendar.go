@@ -50,6 +50,6 @@ func (h *CalendarHandler) GetSavedShowsCalendarDownloadHandler(w http.ResponseWr
 		return
 	}
 
-	writeCalendarResponse(w, r, savedShowsDownloadCacheControl, savedShowsDownloadDisposition,
+	writeCalendarResponse(w, r, icsContentType, savedShowsDownloadCacheControl, savedShowsDownloadDisposition,
 		savedShowsDownloadFilename, "", icsData)
 }

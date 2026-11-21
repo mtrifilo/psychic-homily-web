@@ -23,6 +23,12 @@ const (
 	// atomFeedCacheTTL mirrors icsFeedCacheTTL: short private cache, cleared on
 	// token create/delete so regenerate invalidates immediately.
 	atomFeedCacheTTL = 2 * time.Minute
+
+	// followsActivityFeedTitle and followsActivityFeedAuthor are what every
+	// answer at a follows address calls itself, the live feed and a retired
+	// link's notice alike.
+	followsActivityFeedTitle  = "Psychic Homily — Followed artists"
+	followsActivityFeedAuthor = "Psychic Homily"
 )
 
 // activityKind distinguishes feed entry types in the merged stream.
@@ -136,13 +142,13 @@ func (s *CalendarService) GenerateFollowsActivityFeed(userID uint, frontendURL s
 
 	feed := atomFeed{
 		Xmlns:   "http://www.w3.org/2005/Atom",
-		Title:   "Psychic Homily — Followed artists",
+		Title:   followsActivityFeedTitle,
 		ID:      fmt.Sprintf("tag:psychichomily.com,2026:follows-activity:%d", userID),
 		Updated: updated.Format(time.RFC3339),
 		Link: []atomLink{
 			{Rel: "alternate", Href: frontendURL + "/library"},
 		},
-		Author: atomAuthor{Name: "Psychic Homily"},
+		Author: atomAuthor{Name: followsActivityFeedAuthor},
 	}
 
 	feed.Entries = make([]atomEntry, 0, len(items))

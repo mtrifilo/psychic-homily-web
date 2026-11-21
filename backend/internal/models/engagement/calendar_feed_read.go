@@ -40,7 +40,8 @@ func (CalendarFeedRead) TableName() string {
 
 // CalendarLinkResetReason is why a security revocation deleted an account's
 // feed link. The values are the ones the
-// user_preferences.calendar_link_reset_reason CHECK constraint admits.
+// user_preferences.calendar_link_reset_reason CHECK constraint admits. What
+// the old address is told is CalendarLinkRetiredReason, a separate set.
 type CalendarLinkResetReason string
 
 const (
