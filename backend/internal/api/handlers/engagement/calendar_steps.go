@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -75,7 +76,7 @@ func (h *CalendarStepsHandler) SendCalendarStepsEmailHandler(ctx context.Context
 			"user_id", user.ID,
 			"retry_after", limited.RetryAfter,
 		)
-		return nil, calendarStepsRateLimited(ctx, limited)
+		return nil, calendarRateLimited(ctx, apperrors.CodeCalendarStepsRateLimitedHourly, limited.UserMessage(), limited.RetryAfter)
 	case errors.As(err, &authErr):
 		logger.FromContext(ctx).Warn("calendar_steps_email_refused",
 			"user_id", user.ID,
@@ -91,26 +92,26 @@ func (h *CalendarStepsHandler) SendCalendarStepsEmailHandler(ctx context.Context
 	}
 }
 
-// calendarStepsRateLimitedResponse is the 429 refusal in the envelope the
-// other refusals of this route answer in (success, message, error_code,
-// request_id), so a client reads every refusal's code from one field.
-type calendarStepsRateLimitedResponse struct {
+// calendarRateLimitedResponse is the 429 refusal of a calendar route's hourly
+// cap, in the envelope the other refusals of these routes answer in (success,
+// message, error_code, request_id), so a client reads every refusal's code
+// from one field.
+type calendarRateLimitedResponse struct {
 	middleware.JWTErrorResponse
 }
 
-func (e *calendarStepsRateLimitedResponse) Error() string { return e.Message }
+func (e *calendarRateLimitedResponse) Error() string { return e.Message }
 
 // GetStatus satisfies huma.StatusError, so huma writes this value as the body.
-func (e *calendarStepsRateLimitedResponse) GetStatus() int { return http.StatusTooManyRequests }
+func (e *calendarRateLimitedResponse) GetStatus() int { return http.StatusTooManyRequests }
 
-// calendarStepsRateLimited answers the hourly cap with 429 and a Retry-After
-// of the whole seconds, rounded up and at least one, until the account may ask
-// again.
-func calendarStepsRateLimited(ctx context.Context, limited *apperrors.CalendarStepsRateLimitedError) error {
-	retryAfter := max(int64(math.Ceil(limited.RetryAfter.Seconds())), 1)
-	return huma.ErrorWithHeaders(&calendarStepsRateLimitedResponse{JWTErrorResponse: middleware.JWTErrorResponse{
-		Message:   limited.UserMessage(),
-		ErrorCode: apperrors.CodeCalendarStepsRateLimitedHourly,
+// calendarRateLimited answers an hourly cap with 429, code and message, and a
+// Retry-After of the whole seconds in retryAfter, rounded up and at least one.
+func calendarRateLimited(ctx context.Context, code, message string, retryAfter time.Duration) error {
+	seconds := max(int64(math.Ceil(retryAfter.Seconds())), 1)
+	return huma.ErrorWithHeaders(&calendarRateLimitedResponse{JWTErrorResponse: middleware.JWTErrorResponse{
+		Message:   message,
+		ErrorCode: code,
 		RequestID: logger.GetRequestID(ctx),
-	}}, http.Header{"Retry-After": {strconv.FormatInt(retryAfter, 10)}})
+	}}, http.Header{"Retry-After": {strconv.FormatInt(seconds, 10)}})
 }

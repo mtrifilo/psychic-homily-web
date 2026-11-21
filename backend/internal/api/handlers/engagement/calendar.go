@@ -13,6 +13,7 @@ import (
 
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
+	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/respond"
@@ -227,6 +228,12 @@ type CreateCalendarTokenResponse struct {
 // group also admits API-token (phk_) principals, and those must not mint,
 // rotate or read the account's feed URLs. A CLI token is a session JWT and
 // counts as a session here.
+//
+// Past the account's hourly cap on making links it answers 429
+// CALENDAR_LINK_RATE_LIMITED_HOURLY with a Retry-After of the seconds to the
+// next clock hour, and the current link is unchanged. The cap is the
+// service's, so it holds whether or not the engagement-mutation limiter is
+// switched on.
 func (h *CalendarHandler) CreateCalendarTokenHandler(ctx context.Context, req *CreateCalendarTokenRequest) (*CreateCalendarTokenResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
@@ -248,6 +255,14 @@ func (h *CalendarHandler) CreateCalendarTokenHandler(ctx context.Context, req *C
 		// middleware validated it.
 		if shared.IsSessionRefusal(err) {
 			return nil, middleware.RefuseSession(ctx, "create_calendar_token", err, h.config.Session)
+		}
+		var limited *apperrors.CalendarLinkRateLimitedError
+		if errors.As(err, &limited) {
+			logger.FromContext(ctx).Warn("create_calendar_token_rate_limited",
+				"user_id", user.ID,
+				"request_id", requestID,
+			)
+			return nil, calendarRateLimited(ctx, apperrors.CodeCalendarLinkRateLimitedHourly, limited.UserMessage(), limited.RetryAfter)
 		}
 		logger.FromContext(ctx).Error("create_calendar_token_failed",
 			"user_id", user.ID,

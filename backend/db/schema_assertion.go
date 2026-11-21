@@ -130,6 +130,9 @@ var requiredSchemaColumns = []requiredColumn{
 	// reclaim, whether or not the account holds a token, and signing out
 	// everywhere and a password reset for every account that holds one.
 	{Table: "retired_calendar_links", Column: "retired_at"},
+	// Every New link counts toward the account's hourly cap here in the
+	// transaction that makes it, so absent DDL fails every New link.
+	{Table: "calendar_link_mint_counts", Column: "mint_count"},
 	// Typed entries: exactly the columns whose type a timestamp-named
 	// migration changed. golang-migrate skips a timestamp-named migration
 	// whose version is below the recorded pointer, which happens when branches

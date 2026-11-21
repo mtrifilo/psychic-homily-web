@@ -418,7 +418,9 @@ type CalendarServiceInterface interface {
 	// request whose session carries the revocation stamp sessionsValidAfter
 	// (the SessionsValidAfter its validation loaded). Refuses with
 	// shared.LockSessionAccount's refusals, and mints nothing, when the
-	// account may not sign in or that session has been revoked since.
+	// account may not sign in or that session has been revoked since, and
+	// with *apperrors.CalendarLinkRateLimitedError, changing nothing, when
+	// the account has already made as many links as the clock hour allows.
 	CreateToken(userID uint, sessionsValidAfter *time.Time, apiBaseURL string) (*CalendarTokenCreateResponse, error)
 	// GetTokenStatus reports whether userID holds a feed token and, when its
 	// plaintext is stored, the subscribe URLs built on apiBaseURL. The URLs
