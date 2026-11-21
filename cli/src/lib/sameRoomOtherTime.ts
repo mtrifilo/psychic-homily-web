@@ -107,6 +107,9 @@ export function sameRoomShows(
 /** The venue-local hour a show listed with a date and no start is stored at. */
 const DATE_ONLY_CLOCK = "20:00";
 
+/** How far apart two times must be to read as a matinee and an evening show. */
+const MATINEE_GAP_MS = 3 * 60 * 60 * 1000;
+
 /**
  * A listing that states a day and is stored at the date-only hour without a
  * readable music time at that hour: no start time was stated or none could be
@@ -156,9 +159,9 @@ async function readDay(client: APIClient, fromDate: string, toDate: string): Pro
  *
  * A plan ph already treats as a duplicate is flagged only when the show it
  * matched is at a different time, no stored show of the same headliner at that
- * room is at the plan's own instant, and both the listing and the matched show
- * state a start: ph skips such a listing, so a second show that day cannot be
- * added through it.
+ * room is at the plan's own instant, and either both the listing and the
+ * matched show state a start or the two are a matinee gap or more apart: ph
+ * skips such a listing, so a second show that day cannot be added through it.
  */
 export async function reportSameRoomOtherTime<P extends SameRoomPlan>(
   client: APIClient,
@@ -264,11 +267,12 @@ export async function reportSameRoomOtherTime<P extends SameRoomPlan>(
           : startClock;
       const ref = other.slug ? clean(other.slug) : `show ${other.id}`;
       if (plan.duplicate?.isDuplicate) {
-        // A refresh that states a start for a show stored without one is the
-        // same show gaining its time, which --confirm fills.
-        if (plan.duplicate.existingShowId !== other.id || sameInstant.length > 0 || noTime || theyStoreNoStart) {
-          continue;
-        }
+        if (plan.duplicate.existingShowId !== other.id || sameInstant.length > 0) continue;
+        // When one side states no start, a gap under a matinee gap is the same
+        // show gaining or lacking its time, which --confirm fills; a wider one
+        // may be a second show, as the finder's review rule reads it.
+        const gap = Math.abs(Date.parse(instant) - Date.parse(storedStart(other)));
+        if ((noTime || theyStoreNoStart) && gap < MATINEE_GAP_MS) continue;
         lines.push(
           `${label}: ph skips this listing as a copy of ${ref}, which is at ${theirs} where this listing says ${clock}. ` +
             `If they are two shows that day, ph cannot add this one, and --confirm writes any doors or music time ` +

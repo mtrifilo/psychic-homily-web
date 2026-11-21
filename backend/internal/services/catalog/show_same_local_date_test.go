@@ -620,6 +620,31 @@ func TestSuggestSameLocalDateKeep_NamesDifferingValuesTitlesAndScraperEvents(t *
 		"the scraper listed them as two events (evt-1 and evt-2)")
 }
 
+// A copy stored at a stated 21:00 whose music time says 15:00 matches a 15:00
+// matinee on its music time; which show it is cannot be told, so the pair is
+// review rather than a merge on the older row.
+func TestSuggestSameLocalDateKeep_ACopyWhoseOwnTimesDisagreeIsReview(t *testing.T) {
+	conflicted := copyAt(1, "2026-10-09 21:00", true, aug30)
+	conflicted.StoredClockStated = true
+	conflicted.StartAt, _ = time.Parse("2006-01-02 15:04", "2026-10-09 15:00")
+	conflicted.Clock = "music 15:00, stored start 21:00"
+	matinee := copyAt(2, "2026-10-09 15:00", true, sep13)
+	matinee.StoredClockStated = true
+	keep, rows := suggest(t, conflicted, matinee)
+	if keep != nil || len(rows) != 2 || rows[0].Action != SameLocalDateReview {
+		t.Fatalf("got keep=%v rows=%+v", keep, rows)
+	}
+	requireReason(t, rows[0].Reason, "show-1 states two times 6h apart")
+}
+
+func TestSuggestSameLocalDateKeep_NamesALostSubmitter(t *testing.T) {
+	kept := copyAt(1, "2026-10-09 20:30", true, aug30)
+	gone := copyAt(2, "2026-10-09 20:30", true, sep13)
+	gone.SubmittedBy = 7
+	_, rows := suggest(t, kept, gone)
+	requireReason(t, rows[0].Reason, "submitted by user 7, whose credit for it the merge drops")
+}
+
 func TestSuggestSameLocalDateKeep_ACopyWithNoSlugIsReview(t *testing.T) {
 	noSlug := copyAt(2, "2026-10-09 20:30", true, sep13)
 	noSlug.Slug = ""

@@ -29,8 +29,10 @@ import (
 //     slug writer and ReattributeShow use.
 //   - A show at two rooms is in both rooms' groups.
 //   - A merge is suggested only for a pair; a group of more than two copies, a
-//     pair where one copy is cancelled, and a pair where only one copy states
-//     a time and the two are a matinee gap apart are left to the reviewer.
+//     pair where one copy is cancelled or has no slug, a pair where only one
+//     copy states a time and the two are a matinee gap apart, and a pair with a
+//     copy whose own music time and stored start are a matinee gap apart are
+//     left to the reviewer (pairNeedsReview).
 
 // sameLocalDateCandidateWindow bounds the coarse SQL pairing. Two instants on
 // one local day in one zone are less than 25 hours apart (a day the clocks go
@@ -75,13 +77,19 @@ type SameLocalDateCopy struct {
 	Title string
 	// SourceEventID is the scraper's event id, "" for a row it did not write.
 	SourceEventID string
-	IsCancelled   bool
-	CreatedAt     time.Time
-	Source        string
-	DataSource    string
-	TicketURL     string
-	Saves         int64
-	Comments      int64
+	// SubmittedBy is the submitting user's id, 0 when none; a merge does not
+	// carry it.
+	SubmittedBy uint
+	// StoredClockStated is true when event_date's own clock is not the
+	// date-only hour, so it states a time of its own beside any music time.
+	StoredClockStated bool
+	IsCancelled       bool
+	CreatedAt         time.Time
+	Source            string
+	DataSource        string
+	TicketURL         string
+	Saves             int64
+	Comments          int64
 	// RoomCount is how many rooms the show lists.
 	RoomCount int
 }
@@ -113,6 +121,7 @@ type sameLocalDateRow struct {
 	Slug           *string
 	Title          string
 	SourceEventID  *string
+	SubmittedBy    *uint
 	EventDate      time.Time
 	MusicAt        *time.Time
 	DoorsAt        *time.Time
@@ -219,7 +228,7 @@ func FindSameLocalDateGroups(db *gorm.DB) ([]SameLocalDateGroup, error) {
 					  AND b.event_date < a.event_date + interval '` + sameLocalDateCandidateWindow + `'
 				)
 			)
-			SELECT s.id AS show_id, s.slug, s.title, s.source_event_id,
+			SELECT s.id AS show_id, s.slug, s.title, s.source_event_id, s.submitted_by,
 			       s.event_date, s.music_at, s.doors_at, s.is_cancelled, s.is_sold_out,
 			       s.price, s.door_price, s.age_requirement, s.description, s.image_url,
 			       s.created_at, s.source, s.data_source, s.ticket_url,
@@ -308,6 +317,10 @@ func copyFromRow(r sameLocalDateRow) SameLocalDateCopy {
 		c.DoorsAt = *r.DoorsAt
 	}
 	atDateOnlyHour := local.Hour() == utils.DateOnlyEventHour && local.Minute() == 0 && local.Second() == 0
+	c.StoredClockStated = !atDateOnlyHour
+	if r.SubmittedBy != nil {
+		c.SubmittedBy = *r.SubmittedBy
+	}
 	switch {
 	case r.MusicAt != nil:
 		c.StartAt = *r.MusicAt
@@ -354,8 +367,9 @@ var SameLocalDateRuleText = fmt.Sprintf("Suggestions only, for a person to revie
 	"and its URL. So in a pair, the copy to keep is the one stating a start time (a music time, or a clock other "+
 	"than the %02d:00 date-only hour), then the one holding more of the fields a merge drops (%s), then the older "+
 	"row. Two copies that both state a start or doors time %s or more apart look like a matinee and an evening "+
-	"show: keep both. A group of more than two copies, a pair where one copy is cancelled, and a pair %s or more "+
-	"apart where only one copy states a time are marked review, with no copy suggested.",
+	"show: keep both. A group of more than two copies, a pair where one copy is cancelled or has no slug, a pair "+
+	"%s or more apart where only one copy states a time, and a pair with a copy whose own music time and stored "+
+	"start disagree by that much are marked review, with no copy suggested.",
 	utils.DateOnlyEventHour, strings.Join(DroppedByMergeFields, ", "), formatGap(matineeGap), formatGap(matineeGap))
 
 // SameLocalDateSuggestion is the suggestion for one copy. Keep is the copy to
@@ -421,6 +435,14 @@ func pairNeedsReview(a, b SameLocalDateCopy) (string, bool) {
 	}
 	if a.Slug == "" || b.Slug == "" {
 		return "a copy has no slug, so reattribute-shows cannot name it in a merge row: decide by hand", true
+	}
+	for _, c := range []SameLocalDateCopy{a, b} {
+		if c.StoredClockStated && c.StatesStart() {
+			if gap := c.StartAt.Sub(c.EventDate).Abs(); gap >= matineeGap {
+				return fmt.Sprintf("%s states two times %s apart (%s), so which show it is cannot be read from it: "+
+					"decide by hand", c.Slug, formatGap(gap), c.Clock), true
+			}
+		}
 	}
 	timed, untimed := a, b
 	if timed.statedTime().IsZero() {
@@ -497,6 +519,10 @@ func suggestFor(keep, c SameLocalDateCopy) SameLocalDateSuggestion {
 	if c.Title != keep.Title {
 		parts = append(parts, fmt.Sprintf("the titles differ (this copy %q; kept copy %q) and the merge keeps the "+
 			"kept copy's: a title can name an early and a late show", c.Title, keep.Title))
+	}
+	if c.SubmittedBy != 0 && c.SubmittedBy != keep.SubmittedBy {
+		parts = append(parts, fmt.Sprintf("this copy was submitted by user %d, whose credit for it the merge drops",
+			c.SubmittedBy))
 	}
 	if c.SourceEventID != "" && keep.SourceEventID != "" && c.SourceEventID != keep.SourceEventID {
 		parts = append(parts, fmt.Sprintf("the scraper listed them as two events (%s and %s), which may mean two shows",

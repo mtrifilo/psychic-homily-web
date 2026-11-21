@@ -220,6 +220,33 @@ describe("reportSameRoomOtherTime", () => {
     expect(warnings[0]).toContain("this listing states 20:00 PDT");
   });
 
+  test("a matinee listing matched to an untimed 8pm stored show is flagged: --confirm would write its time there", async () => {
+    const { client: c } = client(() => ({ shows: [stored(1, "2026-10-10T03:00:00Z")], total: 1 }));
+    await reportSameRoomOtherTime(
+      c,
+      [plan({ input: { event_date: "2026-10-09", music_at: "3:00 PM" }, duplicate: { isDuplicate: true, existingShowId: 1 } })],
+      pacific,
+      () => "2026-10-09T22:00:00.000Z",
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("ph skips this listing as a copy of show-1, which is at 20:00 PDT with no start time stored");
+  });
+
+  test("an untimed listing matched to a stored matinee three hours away is flagged", async () => {
+    const { client: c } = client(() => ({
+      shows: [stored(1, "2026-10-09T22:00:00Z", { music_at: "2026-10-09T22:00:00Z" })],
+      total: 1,
+    }));
+    await reportSameRoomOtherTime(
+      c,
+      [plan({ input: { event_date: "2026-10-09" }, duplicate: { isDuplicate: true, existingShowId: 1 } })],
+      pacific,
+      () => "2026-10-10T03:00:00.000Z",
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("which is at 15:00 PDT where this listing says no start time");
+  });
+
   test("a refresh matching a stored show's backfilled music time is the same instant, not another time", async () => {
     // Stored date-only at 20:00, then --confirm filled music 21:00 without
     // moving event_date; the next run lists 9 PM again.
