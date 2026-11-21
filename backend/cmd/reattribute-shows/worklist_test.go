@@ -397,3 +397,43 @@ func TestOpenRecord_AppendsAndNeverTruncates(t *testing.T) {
 	_, err = openRecord(filepath.Join(t.TempDir(), "missing-dir", "run.jsonl"))
 	require.ErrorContains(t, err, "cannot be opened for append")
 }
+
+// dedup-shows --same-local-date writes this tool's worklist plus suggested_*
+// columns, and its tests keep this golden file equal to what it writes. As
+// written the file is refused, so an unreviewed worklist cannot run; with each
+// suggested_ column renamed by dropping the prefix, it parses unchanged.
+func TestParseWorklist_AcceptsTheSameLocalDateWorklistOnceRenamed(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "dedup-shows", "testdata", "same_local_date_worklist.csv"))
+	require.NoError(t, err)
+
+	_, err = parseWorklist(bytes.NewReader(raw))
+	require.ErrorContains(t, err, `unknown column "suggested_merge_into_show_slug"`)
+
+	header, body, ok := bytes.Cut(raw, []byte("\n"))
+	require.True(t, ok)
+	renamed := append(bytes.ReplaceAll(header, []byte("suggested_"), nil), '\n')
+	rows, err := parseWorklist(bytes.NewReader(append(renamed, body...)))
+	require.NoError(t, err)
+	require.Len(t, rows, 5)
+
+	assert.Equal(t, catalog.ShowReattribution{
+		ShowSlug:      "2026-12-09-maris-at-the-casbah",
+		RoomSlug:      "the-casbah",
+		MergeIntoSlug: "2026-12-09-maris-at-casbah",
+	}, rows[0].Row)
+	assert.Empty(t, rows[0].Refusal)
+	// Review rows name no room and no merge target, so they are refused before
+	// the database.
+	for i, slug := range []string{
+		"2026-12-06-the-beat-farmers-at-casbah",
+		"2026-12-06-the-beat-farmers-at-the-casbah",
+		"2026-08-07-plus-minus-at-space-2",
+		"2026-08-07-plus-minus-at-space",
+	} {
+		assert.Equal(t, catalog.ShowReattribution{ShowSlug: slug}, rows[1+i].Row)
+		assert.Equal(t, "no target room given", rows[1+i].Refusal)
+	}
+	for _, row := range rows {
+		assert.NotEmpty(t, row.Note)
+	}
+}

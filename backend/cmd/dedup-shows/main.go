@@ -15,6 +15,21 @@
 // The confirm path runs the same plan inside a single transaction
 // per cluster (each cluster is independent — a partial run leaves
 // partial progress, never half-merged shows).
+//
+// --same-local-date is a second, read-only mode. It lists approved shows that
+// share a room, a venue-local date and a headliner at any clock time, which
+// the mode above cannot see, with a suggestion of which copy to keep:
+//
+//	go run ./cmd/dedup-shows --same-local-date --env FILE                       # print the groups
+//	go run ./cmd/dedup-shows --same-local-date --env FILE --csv worklist.csv    # and write a worklist
+//
+// It reads inside a READ ONLY transaction and merges nothing; --confirm is
+// refused with it. --env is required and decides the database, as in
+// reattribute-shows. The worklist is a reattribute-shows worklist plus
+// suggested_* columns, which that tool refuses until a reviewer renames them
+// (see samedate.go); the merge is then run with reattribute-shows. --csv never
+// overwrites an existing file. Exit status: 0 on success, 1 on an error, 2 on
+// a command line it cannot use.
 package main
 
 import (
@@ -34,10 +49,12 @@ import (
 )
 
 var (
-	confirm   bool
-	verbose   bool
-	noSlugFix bool
-	envFile   string
+	confirm       bool
+	verbose       bool
+	noSlugFix     bool
+	envFile       string
+	sameLocalDate bool
+	csvPath       string
 )
 
 func main() {
@@ -45,7 +62,19 @@ func main() {
 	flag.BoolVar(&verbose, "verbose", false, "Print per-cluster details")
 	flag.BoolVar(&noSlugFix, "no-slug-fix", false, "Skip slug recanonicalisation pass on winners")
 	flag.StringVar(&envFile, "env", "", "Path to .env file (defaults to .env.development / .env)")
+	flag.BoolVar(&sameLocalDate, "same-local-date", false,
+		"Read-only: list approved shows sharing a room, a venue-local date and a headliner (requires --env)")
+	flag.StringVar(&csvPath, "csv", "", "With --same-local-date: write a reattribute-shows worklist to this new file")
 	flag.Parse()
+
+	if sameLocalDate {
+		mainSameLocalDate()
+		return
+	}
+	if csvPath != "" {
+		_, _ = fmt.Fprintln(os.Stderr, "--csv is written only by --same-local-date")
+		os.Exit(2)
+	}
 
 	loadEnv()
 
