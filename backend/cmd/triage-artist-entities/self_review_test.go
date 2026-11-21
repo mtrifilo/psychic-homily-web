@@ -48,7 +48,7 @@ func (s *TriageSuite) TestACommittedLineThatCannotBeWrittenStopsTheRun() {
 	s.record.failAfterLines = 1
 	var out bytes.Buffer
 
-	outcome := runWorklist(s.db, rows, s.actor, s.recorder(), &out)
+	outcome := runWorklist(s.db, rows, s.actor, s.recorder(), &out, s.reviewed(rows))
 
 	s.Require().Error(outcome.Stopped, out.String())
 	s.Contains(outcome.Stopped.Error(), "committed, but the record could not say so")

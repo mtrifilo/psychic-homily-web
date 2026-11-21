@@ -5,7 +5,8 @@
 //
 //	go run ./cmd/triage-artist-entities --env FILE --actor ID worklist.csv                          # dry run (default)
 //	go run ./cmd/triage-artist-entities --env FILE --actor ID --dry-run worklist.csv                # the same, said out loud
-//	go run ./cmd/triage-artist-entities --env FILE --actor ID --confirm --record FILE worklist.csv  # apply
+//	go run ./cmd/triage-artist-entities --env FILE --actor ID --confirm \
+//	    --expect-plan DIGEST --record FILE worklist.csv                                         # apply exactly the reviewed plan
 //
 // --env is required on every run, dry run included: the file names the
 // database, overrides an exported DATABASE_URL, and is refused when it sets no
@@ -18,6 +19,13 @@
 // a remove leaves a show revision. The admin endpoints record nothing for a
 // bill change or an artist delete, and neither does this tool in the database.
 //
+// The dry run prints a plan digest, and each row its plan fingerprint.
+// --confirm requires --expect-plan with the digest the reviewed dry run
+// printed, and writes nothing when the plan it computes now has another digest
+// (the database changed: a new bill, a new artist a split act would link, a
+// row whose partner is now refused). The rows whose plan fingerprint differs
+// from the reviewed run's are the ones that changed.
+//
 // --confirm requires --record: a file opened for append (never truncated, a
 // regular file readable by its owner only) that gets JSON lines stamped with
 // the run, the actor and the database. Each applied row writes a "pending" line
@@ -27,6 +35,15 @@
 // artist's row and of every row that referenced it, taken before the write).
 // The pending line is synced to disk before the commit; if it cannot be, the
 // row is rolled back and the run stops.
+//
+// The record holds more than ids. For each merge, remove or split it copies
+// whole rows that reference the artist, which can include comment bodies with
+// their authors, report text with the reporter, pending edit content with the
+// submitter, follows, tags and tag votes with user ids, whole notification
+// filter rows (user id, cities, price limit, venue and label lists, email and
+// push choices) and notification log rows. No email address, password hash or
+// token is copied. Keep the file private: off shared drives and out of the
+// repository. Delete it once the changes it records are settled.
 //
 // The worklist is a CSV whose header names artist_slug, action and target, with
 // optional show_slug, note, name and artist_id columns and the evidence
@@ -124,10 +141,11 @@ func main() {
 	dryRun := flag.Bool("dry-run", false, "Preview the worklist and roll every row back (the default without --confirm)")
 	envFile := flag.String("env", "", "Path to the .env file that names the database (required, on dry runs too)")
 	recordPath := flag.String("record", "", "With --confirm: file the applied rows are appended to (required)")
+	expectPlan := flag.String("expect-plan", "", "With --confirm: the plan digest the reviewed dry run printed (required)")
 	actorID := flag.Uint("actor", 0, "ID of the active admin the writes are recorded against (required)")
 	flag.Usage = func() {
 		_, _ = fmt.Fprintln(flag.CommandLine.Output(),
-			"usage: triage-artist-entities --env FILE --actor ID [--dry-run | --confirm --record FILE] WORKLIST.csv")
+			"usage: triage-artist-entities --env FILE --actor ID [--dry-run | --confirm --expect-plan DIGEST --record FILE] WORKLIST.csv")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -135,7 +153,7 @@ func main() {
 		flag.Usage()
 		os.Exit(exitUsage)
 	}
-	if err := validateFlags(*confirm, *dryRun, *envFile, *recordPath, *actorID); err != nil {
+	if err := validateFlags(*confirm, *dryRun, *envFile, *recordPath, *expectPlan, *actorID); err != nil {
 		usageFail("%v", err)
 	}
 
@@ -214,7 +232,8 @@ func main() {
 		fatal("%v", err)
 	}
 
-	outcome := runWorklist(database, rows, *actorID, rec, os.Stdout)
+	target := fmt.Sprintf("ENVIRONMENT=%q db=%s", os.Getenv(config.EnvEnvironment), redactDBHost(cfg.Database.URL))
+	outcome := runWorklist(database, rows, *actorID, rec, os.Stdout, planBinding{target: target, expect: strings.TrimSpace(*expectPlan)})
 	if outcome.Stopped != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "the run stopped (%s). %s\n", clean(outcome.Stopped.Error()), outcome.appliedSentence())
 	}
@@ -225,7 +244,7 @@ func main() {
 
 // validateFlags checks the command line before anything is opened or
 // connected.
-func validateFlags(confirm, dryRun bool, envFile, recordPath string, actorID uint) error {
+func validateFlags(confirm, dryRun bool, envFile, recordPath, expectPlan string, actorID uint) error {
 	if confirm && dryRun {
 		return errors.New("--dry-run and --confirm cannot be combined")
 	}
@@ -240,6 +259,12 @@ func validateFlags(confirm, dryRun bool, envFile, recordPath string, actorID uin
 	}
 	if !confirm && recordPath != "" {
 		return errors.New("--record is written only by --confirm; a dry run applies nothing")
+	}
+	if confirm && strings.TrimSpace(expectPlan) == "" {
+		return errors.New("--confirm requires --expect-plan: the plan digest the reviewed dry run printed")
+	}
+	if !confirm && expectPlan != "" {
+		return errors.New("--expect-plan is checked only by --confirm; a dry run prints the digest")
 	}
 	return nil
 }

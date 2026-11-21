@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"strings"
@@ -52,6 +53,7 @@ func (s *TriageSuite) SetupTest() {
 		"DELETE FROM audit_logs",
 		"DELETE FROM entity_edit_audit_logs",
 		"DELETE FROM revisions",
+		"DELETE FROM comments",
 		"DELETE FROM user_bookmarks",
 		"DELETE FROM entity_tags",
 		"DELETE FROM tags",
@@ -160,12 +162,21 @@ func (s *TriageSuite) runOutcome(csv string, confirm bool) (string, runOutcome) 
 	rows, err := parseWorklist(strings.NewReader(csv))
 	s.Require().NoError(err)
 	var rec *recorder
+	bind := planBinding{target: "test"}
 	if confirm {
 		rec = s.recorder()
+		bind = s.reviewed(rows)
 	}
 	var out bytes.Buffer
-	outcome := runWorklist(s.db, rows, s.actor, rec, &out)
+	outcome := runWorklist(s.db, rows, s.actor, rec, &out, bind)
 	return out.String(), outcome
+}
+
+// reviewed dry-runs rows and returns the binding a confirmed run of them
+// needs: the digest that dry run printed.
+func (s *TriageSuite) reviewed(rows []worklistRow) planBinding {
+	dry := runWorklist(s.db, rows, s.actor, nil, io.Discard, planBinding{target: "test"})
+	return planBinding{target: "test", expect: dry.Digest}
 }
 
 // recorder appends to s.record.
@@ -404,14 +415,13 @@ func (s *TriageSuite) TestMergeIntoAnUnknownArtistIsRefused() {
 // ── remove ─────────────────────────────────────────────
 
 // A remove takes a non-performer off its bill and deletes it. The other acts
-// keep their roles, its follow and tag go with it, and its derived graph edge
-// is deleted so the database lets it go.
+// keep their roles, its tag goes with it, and its derived graph edge is
+// deleted so the database lets it go.
 func (s *TriageSuite) TestRemoveTakesItOffTheBillAndDeletesIt() {
 	head := s.artist("Ouija Macc")
 	junk := s.artist("LIVE AT LAUNCHPAD")
 	support := s.artist("Mikey Rotten")
 	sh := s.show("Ouija Macc", act{head, "headliner"}, act{junk, "performer"}, act{support, "opener"})
-	s.follow(junk)
 	s.tag(junk)
 	s.relationship(junk, head, "shared_bills", true)
 	s.relationship(junk, support, "shared_bills", true)
@@ -421,7 +431,7 @@ func (s *TriageSuite) TestRemoveTakesItOffTheBillAndDeletesIt() {
 
 	s.False(summary.Refused(), out)
 	s.Contains(out, `bill ["Ouija Macc" [headliner], "LIVE AT LAUNCHPAD" [performer], "Mikey Rotten" [opener]] -> ["Ouija Macc" [headliner], "Mikey Rotten" [opener]]`)
-	s.Contains(out, "drops, among others, 1 follow/save row(s), 1 tag(s), 0 crate item(s), 0 alias(es)")
+	s.Contains(out, "drops, among others, 0 follow/save row(s), 1 tag(s), 0 crate item(s), 0 alias(es)")
 	s.Contains(out, "2 derived graph edge(s) deleted")
 	s.Contains(out, "/artists/live-at-launchpad answers 404")
 	s.NotNil(s.artistByID(junk.ID), "the dry run deletes nothing")
@@ -577,7 +587,7 @@ func (s *TriageSuite) TestSplitReplacesTheBillRowInOrder() {
 	existing := s.artist("Darby O'Trill")
 	last := s.artist("Closer")
 	sh := s.show("", act{head, "headliner"}, act{joined, "direct_support"}, act{last, "opener"})
-	fan := s.follow(joined)
+	s.tag(joined)
 	csv := csvOf(*joined.Slug + ",split,darby o'trill | Mikey Rotten,,feed bills three acts")
 
 	out, summary := s.run(csv, false)
@@ -596,7 +606,8 @@ func (s *TriageSuite) TestSplitReplacesTheBillRowInOrder() {
 	var created catalogm.Artist
 	s.Require().NoError(s.db.Where("name = ?", "Mikey Rotten").First(&created).Error)
 	s.Equal("mikey-rotten", *created.Slug)
-	s.Equal(int64(0), s.count(`SELECT COUNT(*) FROM user_bookmarks WHERE user_id = ?`, fan), "the joined entity's follow goes with it")
+	s.Equal(int64(0), s.count(`SELECT COUNT(*) FROM entity_tags WHERE entity_type = 'artist' AND entity_id = ?`, joined.ID),
+		"the joined entity's tag goes with it")
 }
 
 func (s *TriageSuite) TestSplitRefusals() {

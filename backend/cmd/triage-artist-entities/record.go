@@ -45,8 +45,9 @@ import (
 //   - "table.column" is a foreign key column to artists(id), or a bare id
 //     column (artist_relationship_votes' pair, notification_log's
 //     subject_entity_id for artist show alerts);
-//   - "table.entity_id" is a polymorphic table, holding only its rows whose
-//     entity_type is 'artist';
+//   - "table.entity_id", or "table.<x>_entity_id", is a polymorphic column,
+//     holding only its rows whose entity_type is 'artist' (a table with an
+//     entity_type column and an entity_id or *_entity_id column);
 //   - "notification_filters.artist_ids" holds the whole filter rows whose
 //     artist_ids list the artist.
 //
@@ -227,11 +228,14 @@ type artistReference struct {
 	where string
 }
 
-// artistReferenceColumns lists, from the live schema, every column that holds
-// an artist id: each single-column foreign key to artists(id), each entity_id
-// column of a table that also has an entity_type column, and the bare id
-// columns no constraint marks. Reading the schema rather than a list keeps the
-// record complete when a migration adds a reference.
+// artistReferenceColumns lists, from the live schema, the columns that hold an
+// artist id: each single-column foreign key to artists(id); each entity_id or
+// *_entity_id column of a table that also has an entity_type column; and the
+// bare id columns named below. Reading the schema keeps the copy current when a
+// migration adds a reference of those shapes. It misses a reference of any
+// other shape: a composite foreign key, an id column with another name and no
+// entity_type beside it, or an array of ids other than notification filters'
+// artist_ids.
 func artistReferenceColumns(db *gorm.DB) ([]artistReference, error) {
 	var fks []struct{ Table, Column string }
 	if err := db.Raw(`
@@ -245,16 +249,23 @@ func artistReferenceColumns(db *gorm.DB) ([]artistReference, error) {
 		ORDER BY 1, 2`).Scan(&fks).Error; err != nil {
 		return nil, fmt.Errorf("list the foreign keys to artists: %w", err)
 	}
-	var poly []struct{ Table string }
+	// Polymorphic columns: entity_id, or a column ending in _entity_id
+	// (requests.requested_entity_id, entity_requests.created_entity_id), in a
+	// table that also has an entity_type column. notification_log's
+	// subject_entity_id is keyed by alert type, not entity_type, and is read
+	// below on its own terms.
+	var poly []struct{ Table, Column string }
 	if err := db.Raw(`
-		SELECT c.table_name AS "table"
+		SELECT c.table_name AS "table", c.column_name AS "column"
 		FROM information_schema.columns c
 		JOIN information_schema.tables t ON t.table_schema = c.table_schema AND t.table_name = c.table_name
-		WHERE c.table_schema = current_schema() AND c.column_name = 'entity_id' AND t.table_type = 'BASE TABLE'
+		WHERE c.table_schema = current_schema() AND t.table_type = 'BASE TABLE'
+		  AND (c.column_name = 'entity_id' OR c.column_name LIKE '%\_entity\_id')
+		  AND NOT (c.table_name = 'notification_log' AND c.column_name = 'subject_entity_id')
 		  AND EXISTS (SELECT 1 FROM information_schema.columns e
 		              WHERE e.table_schema = c.table_schema AND e.table_name = c.table_name AND e.column_name = 'entity_type')
-		ORDER BY 1`).Scan(&poly).Error; err != nil {
-		return nil, fmt.Errorf("list the entity reference tables: %w", err)
+		ORDER BY 1, 2`).Scan(&poly).Error; err != nil {
+		return nil, fmt.Errorf("list the entity reference columns: %w", err)
 	}
 
 	refs := []artistReference{{key: "artists.id", from: "artists", where: "t.id = @id"}}
@@ -263,8 +274,8 @@ func artistReferenceColumns(db *gorm.DB) ([]artistReference, error) {
 			where: "t." + quoteIdent(fk.Column) + " = @id"})
 	}
 	for _, p := range poly {
-		refs = append(refs, artistReference{key: p.Table + ".entity_id", from: quoteIdent(p.Table),
-			where: "t.entity_id = @id AND t.entity_type = 'artist'"})
+		refs = append(refs, artistReference{key: p.Table + "." + p.Column, from: quoteIdent(p.Table),
+			where: "t." + quoteIdent(p.Column) + " = @id AND t.entity_type = 'artist'"})
 	}
 	// Bare id columns. Each is read only when the column exists, so a
 	// migration that drops one does not break the copy.

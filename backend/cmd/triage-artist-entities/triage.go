@@ -76,6 +76,10 @@ type rowPlan struct {
 	// Record is what the row's write changed and deleted, filled as it runs
 	// and written to the --record file before a confirmed row commits.
 	Record recordLine
+
+	// Fingerprint is the hash of what the plan digest binds for this row; see
+	// rowFingerprint.
+	Fingerprint string
 }
 
 func (p *rowPlan) refuse(format string, args ...any) {
@@ -103,6 +107,8 @@ type runOutcome struct {
 	Stopped error
 	Applied []string
 	Unknown []string
+	// Digest is the plan's digest; see fingerprintPlans.
+	Digest string
 }
 
 // Failed reports whether the run must exit non-zero: a row was refused, a
@@ -136,10 +142,17 @@ func (o runOutcome) appliedSentence() string {
 // before any of them is refused, so the set of rows applied does not depend on
 // the order of the file.
 //
+// The plan is reduced to a digest (fingerprintPlans) that the dry run prints.
+// A confirmed run writes nothing unless the plan it computes now has the
+// digest bind.expect, the one the reviewed dry run printed: the database may
+// have changed in between (a new bill, a new artist a split would link, a
+// partner row now refused), and the confirmed run applies only the plan that
+// was reviewed.
+//
 // A confirmed run stops before the next row when a row fails at its write (the
 // database changed since the plan, or the commit failed), when its record line
 // cannot be written, or when the report cannot be written.
-func runWorklist(db *gorm.DB, rows []worklistRow, actorID uint, rec *recorder, out io.Writer) runOutcome {
+func runWorklist(db *gorm.DB, rows []worklistRow, actorID uint, rec *recorder, out io.Writer, bind planBinding) runOutcome {
 	confirm := rec != nil
 	plans := make([]*rowPlan, len(rows))
 	for i, row := range rows {
@@ -163,6 +176,19 @@ func runWorklist(db *gorm.DB, rows []worklistRow, actorID uint, rec *recorder, o
 		}
 	}
 	refuseEntangledRows(plans)
+	outcome.Digest = fingerprintPlans(bind.target, plans)
+	if confirm && outcome.Digest != bind.expect {
+		for _, p := range plans {
+			printPlan(w, p)
+			outcome.Summary[p.Status]++
+		}
+		outcome.Stopped = fmt.Errorf("the plan now has digest %s, not the reviewed %s; nothing written. "+
+			"Run the dry run again, compare each row's plan fingerprint with the reviewed run's, and review it",
+			outcome.Digest, bind.expect)
+		w.f("[ERROR] %s.\n\n", outcome.Stopped)
+		printSummary(w, outcome, confirm)
+		return outcome
+	}
 
 	for i, p := range plans {
 		if w.err != nil {
@@ -451,6 +477,9 @@ func printPlan(w *report, p *rowPlan) {
 	if p.Row.Note != "" {
 		w.f("  note: %s\n", clean(p.Row.Note))
 	}
+	if p.Fingerprint != "" {
+		w.f("  plan: %s\n", p.Fingerprint)
+	}
 	if len(p.Reasons) == 0 {
 		w.f("  %s\n\n", p.Status)
 		return
@@ -463,9 +492,15 @@ func printSummary(w *report, o runOutcome, confirm bool) {
 	for _, st := range []rowStatus{statusApplied, statusWouldApply, statusDone, statusKept, statusRefused, statusUnknown} {
 		w.f("%-16s %d\n", string(st)+":", o.Summary[st])
 	}
+	if o.Digest != "" {
+		w.f("Plan digest:     %s\n", o.Digest)
+	}
 	if !confirm {
-		w.f("DRY RUN: nothing was written. Log lines printed above this report describe the rolled-back preview. " +
-			"Re-run with --confirm to apply the rows marked WOULD APPLY.\n")
+		w.f("DRY RUN: nothing was written. Log lines printed above this report describe the rolled-back preview. "+
+			"To apply exactly this plan, re-run with\n  --confirm --expect-plan %s --record <file>\n"+
+			"The digest covers each row's verdict and footprint (its artist, the bills it rewrites as they stand now, a "+
+			"merge's kept artist, the artist each split act links or that it will be created): a change to any of them "+
+			"after this dry run changes it, and --confirm then refuses until the dry run is re-run.\n", o.Digest)
 	}
 	if o.Stopped != nil {
 		w.f("The run stopped early (%s). %s\n", clean(o.Stopped.Error()), o.appliedSentence())

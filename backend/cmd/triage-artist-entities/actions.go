@@ -55,6 +55,12 @@ func (t *triage) plan(p *rowPlan) {
 		return
 	}
 	p.SubjectID = subject.ID
+	// The stale-review checks run before the shortcuts below, so a slug that
+	// now names another artist is refused, not reported as kept or done.
+	if err := staleReview(subject, p.Row); err != nil {
+		p.refuse("%v", err)
+		return
+	}
 
 	switch p.Row.Action {
 	case actionKeep:
@@ -274,13 +280,8 @@ func (t *triage) execute(tx *gorm.DB, p *rowPlan) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if p.Row.ArtistID != 0 && subject.ID != p.Row.ArtistID {
-		return nil, fmt.Errorf("slug %s now names artist %d, not %d as reviewed; review the row again",
-			slugOf(subject), subject.ID, p.Row.ArtistID)
-	}
-	if p.Row.ArtistName != "" && subject.Name != p.Row.ArtistName {
-		return nil, fmt.Errorf("the artist with slug %s is now named %q, not %q as reviewed; review the row again",
-			slugOf(subject), subject.Name, p.Row.ArtistName)
+	if err := staleReview(subject, p.Row); err != nil {
+		return nil, err
 	}
 	p.Record = recordLine{Line: p.Row.Line, Action: p.Row.Action,
 		ArtistID: subject.ID, ArtistSlug: slugOf(subject), ArtistName: subject.Name}
@@ -304,6 +305,21 @@ func (t *triage) execute(tx *gorm.DB, p *rowPlan) ([]string, error) {
 		return t.split(tx, p, subject)
 	}
 	return nil, fmt.Errorf("action %q has no write", p.Row.Action)
+}
+
+// staleReview refuses a row whose artist is no longer the one reviewed: the
+// slug now names another id (artist_id), or the artist has another name
+// (name). Either column is checked only when the row gives it.
+func staleReview(subject *catalogm.Artist, row worklistRow) error {
+	if row.ArtistID != 0 && subject.ID != row.ArtistID {
+		return fmt.Errorf("slug %s now names artist %d, not %d as reviewed; review the row again",
+			slugOf(subject), subject.ID, row.ArtistID)
+	}
+	if row.ArtistName != "" && subject.Name != row.ArtistName {
+		return fmt.Errorf("the artist with slug %s is now named %q, not %q as reviewed; review the row again",
+			slugOf(subject), subject.Name, row.ArtistName)
+	}
+	return nil
 }
 
 // references returns the columns that reference artists, read from the schema
@@ -900,9 +916,11 @@ func linksTheTargetLacks(from, into *catalogm.Artist) []string {
 
 // refuseRealAct refuses to delete an artist that carries what a real act has:
 // a release credit, a link, a label, a festival lineup, a matched radio play,
-// a hand-made relationship, a vote on a relationship, a MusicBrainz id, or a
-// band-membership edge imported from MusicBrainz. Deleting it would drop those
-// rows or, for radio plays, strand them without an artist.
+// a hand-made relationship, a vote on a relationship, a MusicBrainz id, a
+// band-membership edge imported from MusicBrainz, a follow, a comment, or a
+// description. Deleting it would drop those rows or, for radio plays, strand
+// them without an artist. The number of bills is not counted: an event series
+// can sit on many.
 func refuseRealAct(tx *gorm.DB, a *catalogm.Artist) error {
 	var found []string
 	if links := setLinks(a); len(links) > 0 {
@@ -943,6 +961,9 @@ var realActCounts = []labeledCount{
 	handMadeRelationships,
 	{"relationship vote(s)", "SELECT COUNT(*) FROM artist_relationship_votes WHERE source_artist_id = @id OR target_artist_id = @id"},
 	{"MusicBrainz id", "SELECT COUNT(*) FROM artists WHERE id = @id AND COALESCE(btrim(musicbrainz_artist_id), '') <> ''"},
+	{"follow(s)", "SELECT COUNT(*) FROM user_bookmarks WHERE entity_type = 'artist' AND entity_id = @id AND action = 'follow'"},
+	{"comment(s)", "SELECT COUNT(*) FROM comments WHERE entity_type = 'artist' AND entity_id = @id"},
+	{"description", "SELECT COUNT(*) FROM artists WHERE id = @id AND COALESCE(btrim(description), '') <> ''"},
 	// Imported from MusicBrainz and stored auto_derived, so the hand-made count
 	// does not see them.
 	{"band-membership edge(s)", "SELECT COUNT(*) FROM artist_relationships WHERE (source_artist_id = @id OR target_artist_id = @id) " +

@@ -27,7 +27,7 @@ func (s *TriageSuite) TestEveryAppliedRowLeavesARecordLine() {
 	shRemove := s.show("", act{junk, "headliner"}, act{head, "performer"})
 	shSplit := s.show("", act{s.artist("Closer"), "headliner"}, act{joined, "opener"})
 	s.show("", act{renamed, "headliner"})
-	fan := s.follow(junk)
+	s.tag(junk)
 	s.relationship(junk, head, "shared_bills", true)
 	csv := csvOf(
 		*junk.Slug+",remove,title",
@@ -74,14 +74,14 @@ func (s *TriageSuite) TestEveryAppliedRowLeavesARecordLine() {
 	}, rm.Shows[0].BillBefore)
 	s.Equal([]recordAct{{ArtistID: head.ID, Name: "Ouija Macc", Position: 0, SetType: "performer"}}, rm.Shows[0].BillAfter)
 	// The copy taken before the write: the artist's row, its bill, its derived
-	// edge and its follow.
+	// edge and its tag.
 	s.Contains(string(rm.Before["artists.id"]), `"name":"LIVE AT LAUNCHPAD"`)
 	s.Contains(string(rm.Before["show_artists.artist_id"]), fmt.Sprintf(`"show_id":%d`, shRemove.ID))
 	src, tgt := catalogm.CanonicalOrder(junk.ID, head.ID)
 	edges := string(rm.Before["artist_relationships.source_artist_id"]) + string(rm.Before["artist_relationships.target_artist_id"])
 	s.Contains(edges, fmt.Sprintf(`"source_artist_id":%d`, src))
 	s.Contains(edges, fmt.Sprintf(`"target_artist_id":%d`, tgt))
-	s.Contains(string(rm.Before["user_bookmarks.entity_id"]), fmt.Sprintf(`"user_id":%d`, fan))
+	s.Contains(string(rm.Before["entity_tags.entity_id"]), fmt.Sprintf(`"added_by_user_id":%d`, s.actor))
 
 	sp := byAction[actionSplit]
 	s.True(sp.ArtistDeleted)
@@ -225,7 +225,7 @@ func (s *TriageSuite) TestARecordThatCannotBeWrittenRollsTheRowBackAndStops() {
 	var out bytes.Buffer
 
 	s.record.failWrite, s.record.partial = true, 25
-	outcome := runWorklist(s.db, rows, s.actor, s.recorder(), &out)
+	outcome := runWorklist(s.db, rows, s.actor, s.recorder(), &out, s.reviewed(rows))
 	s.Empty(s.record.buf.String(), "the partial line is cut back off the file")
 
 	s.Require().Error(outcome.Stopped, out.String())
@@ -246,7 +246,7 @@ func (s *TriageSuite) TestARecordThatCannotBeSyncedRollsTheRowBack() {
 	var out bytes.Buffer
 	s.record.failSync = true
 
-	outcome := runWorklist(s.db, rows, s.actor, s.recorder(), &out)
+	outcome := runWorklist(s.db, rows, s.actor, s.recorder(), &out, s.reviewed(rows))
 
 	s.Require().Error(outcome.Stopped)
 	s.Equal("Synced Night", s.artistByID(a.ID).Name)
@@ -276,7 +276,7 @@ func (s *TriageSuite) TestAReportThatCannotBeWrittenStopsTheRun() {
 	rows, err := parseWorklist(strings.NewReader(csvOf(*first.Slug+",rename,Report One", *second.Slug+",rename,Report Two")))
 	s.Require().NoError(err)
 
-	outcome := runWorklist(s.db, rows, s.actor, s.recorder(), &writeAfter{n: 10})
+	outcome := runWorklist(s.db, rows, s.actor, s.recorder(), &writeAfter{n: 10}, s.reviewed(rows))
 
 	s.Require().Error(outcome.Stopped)
 	s.Contains(outcome.Stopped.Error(), "the report could not be written")

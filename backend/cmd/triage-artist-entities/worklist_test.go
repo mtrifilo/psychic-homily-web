@@ -154,23 +154,26 @@ func TestLoadNamedEnvRefusesAFileWithoutADatabaseURL(t *testing.T) {
 }
 
 func TestValidateFlags(t *testing.T) {
-	require.NoError(t, validateFlags(false, false, "stage.env", "", 2))
-	require.NoError(t, validateFlags(false, true, "stage.env", "", 2))
-	require.NoError(t, validateFlags(true, false, "prod.env", "applied.jsonl", 2))
+	require.NoError(t, validateFlags(false, false, "stage.env", "", "", 2))
+	require.NoError(t, validateFlags(false, true, "stage.env", "", "", 2))
+	require.NoError(t, validateFlags(true, false, "prod.env", "applied.jsonl", "0123abcd", 2))
 	for name, tc := range map[string]struct {
 		confirm, dryRun bool
 		env, record     string
+		expect          string
 		actor           uint
 		want            string
 	}{
-		"both modes":             {confirm: true, dryRun: true, env: "e", record: "r", actor: 2, want: "cannot be combined"},
-		"no env":                 {env: "", actor: 2, want: "--env is required"},
-		"no actor":               {env: "e", want: "--actor is required"},
-		"confirm with no record": {confirm: true, env: "e", actor: 2, want: "--confirm requires --record"},
-		"record on a dry run":    {env: "e", record: "r", actor: 2, want: "--record is written only by --confirm"},
+		"both modes":                  {confirm: true, dryRun: true, env: "e", record: "r", expect: "x", actor: 2, want: "cannot be combined"},
+		"no env":                      {env: "", actor: 2, want: "--env is required"},
+		"no actor":                    {env: "e", want: "--actor is required"},
+		"confirm with no record":      {confirm: true, env: "e", expect: "x", actor: 2, want: "--confirm requires --record"},
+		"record on a dry run":         {env: "e", record: "r", actor: 2, want: "--record is written only by --confirm"},
+		"confirm with no expect-plan": {confirm: true, env: "e", record: "r", actor: 2, want: "--confirm requires --expect-plan"},
+		"expect-plan on a dry run":    {env: "e", expect: "x", actor: 2, want: "--expect-plan is checked only by --confirm"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			require.ErrorContains(t, validateFlags(tc.confirm, tc.dryRun, tc.env, tc.record, tc.actor), tc.want)
+			require.ErrorContains(t, validateFlags(tc.confirm, tc.dryRun, tc.env, tc.record, tc.expect, tc.actor), tc.want)
 		})
 	}
 }
