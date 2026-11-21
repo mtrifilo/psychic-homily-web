@@ -9,10 +9,12 @@ import { cn } from '@/lib/utils'
 import { PANEL_COPY } from './savedShowsCalendarCopy'
 
 /**
- * Where the panel is drawn. The sheet gives every row a 44px tap target and
- * stacks rows edge to edge; the popover spaces 20px rows 10px apart.
+ * Where the calendar pieces are drawn. The sheet gives every row a 44px tap
+ * target and stacks rows edge to edge; the popover spaces 20px rows 10px
+ * apart. The Settings card is responsive by CSS alone: the sheet's targets
+ * below `sm`, the popover's rows from `sm` up.
  */
-export type CalendarPanelLayout = 'popover' | 'sheet'
+export type CalendarPanelLayout = 'popover' | 'sheet' | 'card'
 
 export const CalendarPanelLayoutContext =
   createContext<CalendarPanelLayout>('popover')
@@ -20,6 +22,12 @@ export const CalendarPanelLayoutContext =
 export function useCalendarPanelLayout(): CalendarPanelLayout {
   return useContext(CalendarPanelLayoutContext)
 }
+
+/**
+ * True on a surface that shows the address in a field (the Settings card):
+ * a refused copy there points to that field rather than to Settings.
+ */
+export const CalendarAddressShownContext = createContext(false)
 
 /**
  * On every element that carries or acts on the private calendar link. The
@@ -34,7 +42,8 @@ const CALENDAR_SURFACE_ATTRIBUTE = 'data-calendar-surface'
 
 /**
  * Spread on the element that holds a calendar surface (the panel's popover or
- * sheet, the steps page): the element holdFocusInSurface returns focus to.
+ * sheet, the steps page, the Settings card): the element holdFocusInSurface
+ * returns focus to.
  */
 export const CALENDAR_SURFACE_PROPS = { [CALENDAR_SURFACE_ATTRIBUTE]: '' }
 
@@ -46,6 +55,12 @@ export const CALENDAR_SURFACE_PROPS = { [CALENDAR_SURFACE_ATTRIBUTE]: '' }
  */
 export function holdFocusInSurface(control: HTMLElement) {
   control.closest<HTMLElement>(`[${CALENDAR_SURFACE_ATTRIBUTE}]`)?.focus()
+}
+
+/** The 44px tap target of a row or control, where the layout has one. */
+export function tapTargetClass(layout: CalendarPanelLayout): string | false {
+  if (layout === 'sheet') return 'min-h-11'
+  return layout === 'card' && 'min-h-11 sm:min-h-0'
 }
 
 /** The rows' stack: spaced in the popover, edge to edge in the sheet. */
@@ -63,7 +78,7 @@ const ROW_CLASS = cn(
 )
 
 function rowClass(layout: CalendarPanelLayout, className?: string) {
-  return cn(ROW_CLASS, layout === 'sheet' && 'min-h-11', className)
+  return cn(ROW_CLASS, tapTargetClass(layout), className)
 }
 
 interface RowButtonProps {
@@ -213,9 +228,11 @@ export function PanelErrorWithRetry({
         }}
         className={cn(
           'rounded-sm underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50',
-          // The sheet's 44px tap target, without changing how the line reads.
-          layout === 'sheet' &&
-            "relative after:absolute after:-inset-x-1 after:-inset-y-4 after:content-['']"
+          // A 44px tap target (the sheet's, and the card's below `sm`),
+          // without changing how the line reads.
+          layout !== 'popover' &&
+            "relative after:absolute after:-inset-x-1 after:-inset-y-4 after:content-['']",
+          layout === 'card' && 'sm:after:hidden'
         )}
       >
         {TRY_AGAIN}

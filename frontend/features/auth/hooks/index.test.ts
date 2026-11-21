@@ -32,11 +32,8 @@ describe('auth hooks barrel', () => {
     expect(typeof hooks.useRevokeAPIToken).toBe('function')
   })
 
-  it('re-exports the calendar-feed hooks', () => {
-    expect(typeof hooks.useCalendarTokenStatus).toBe('function')
+  it('re-exports the calendar feed status hook', () => {
     expect(typeof hooks.useCalendarFeedStatus).toBe('function')
-    expect(typeof hooks.useCreateCalendarToken).toBe('function')
-    expect(typeof hooks.useDeleteCalendarToken).toBe('function')
   })
 
   it('re-exports the favorite-cities hook', () => {

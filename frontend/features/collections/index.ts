@@ -31,8 +31,4 @@ export {
 // PSY-350 / PSY-515: weekly digest preference toggle (notification settings).
 export { useSetCollectionDigestPreference } from './hooks/useCollectionDigestPreference'
 
-export {
-  CalendarFeedSection,
-  FollowsActivityFeedSection,
-  EntityCollections,
-} from './components'
+export { EntityCollections } from './components'
