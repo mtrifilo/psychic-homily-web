@@ -111,6 +111,8 @@ var testFixturesAllowlistContractSkips = map[string]string{
 	// Calendar tokens — generated on demand by iCal subscription flow.
 	// Unique per user; regenerated if missing.
 	"calendar_tokens": "transient per-user tokens; iCal flow regenerates as needed",
+	// The calendar E2E specs delete it with calendar_tokens in their own reset.
+	"calendar_link_mint_counts": "backend-owned per-account hourly mint counter; one row per account, overwritten by a later hour's first mint, cascades on user delete",
 
 	// Profile — preferences-style rows, not test artifacts.
 	"user_profile_sections": "preferences-style; upserted, not user-mutated in E2E",

@@ -101,7 +101,7 @@ func TestSendCalendarStepsEmailHandler_CapAnswers429WithRetryAfter(t *testing.T)
 			if got := withHeaders.GetHeaders().Get("Retry-After"); got != c.want {
 				t.Errorf("Retry-After = %q, want %q", got, c.want)
 			}
-			var refusal *calendarStepsRateLimitedResponse
+			var refusal *calendarRateLimitedResponse
 			if !errors.As(err, &refusal) {
 				t.Fatalf("expected the rate-limit refusal, got %v", err)
 			}

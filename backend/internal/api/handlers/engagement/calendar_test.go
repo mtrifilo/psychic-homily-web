@@ -129,6 +129,38 @@ func TestCreateCalendarTokenHandler_ServiceError(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 500)
 }
 
+// The hourly cap answers 429 with its own code, the saved-shows panel's line
+// for a link it could not make, and a Retry-After in whole seconds
+// (calendarRateLimited, whose rounding the steps handler's tests cover).
+func TestCreateCalendarTokenHandler_HourlyCapAnswers429WithRetryAfter(t *testing.T) {
+	mock := &testhelpers.MockCalendarService{
+		CreateTokenFn: func(_ uint, _ *time.Time, _ string) (*contracts.CalendarTokenCreateResponse, error) {
+			return nil, &autherrors.CalendarLinkRateLimitedError{Limit: 10, RetryAfter: 20 * time.Minute}
+		},
+	}
+	h := NewCalendarHandler(mock, testCalendarConfig())
+
+	_, err := h.CreateCalendarTokenHandler(testhelpers.CtxWithSession(&authm.User{ID: 1}, time.Now()), &CreateCalendarTokenRequest{})
+
+	var withHeaders huma.HeadersError
+	if !errors.As(err, &withHeaders) {
+		t.Fatalf("expected headers on the refusal, got %v", err)
+	}
+	if got := withHeaders.GetHeaders().Get("Retry-After"); got != "1200" {
+		t.Errorf("Retry-After = %q, want 1200", got)
+	}
+	var refusal *calendarRateLimitedResponse
+	if !errors.As(err, &refusal) {
+		t.Fatalf("expected the rate-limit refusal, got %v", err)
+	}
+	if refusal.GetStatus() != http.StatusTooManyRequests || refusal.ErrorCode != autherrors.CodeCalendarLinkRateLimitedHourly {
+		t.Errorf("refusal = %d %s", refusal.GetStatus(), refusal.ErrorCode)
+	}
+	if refusal.Message != "Couldn't create your calendar link. Try again." {
+		t.Errorf("message = %q", refusal.Message)
+	}
+}
+
 // The mint is handed the revocation stamp of the user the JWT middleware
 // loaded, which is the acting session's.
 func TestCreateCalendarTokenHandler_PassesTheSessionsRevocationStamp(t *testing.T) {
