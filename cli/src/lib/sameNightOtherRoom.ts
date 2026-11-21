@@ -45,7 +45,7 @@ const ARTIST_SHOWS_PAGE = 200;
  * The act the show is billed under: the act whose own signal says headliner
  * (read the way the payload is built), else the first act.
  */
-function headlinerOf(plan: SameNightPlan) {
+export function headlinerOf(plan: Pick<SameNightPlan, "artists">) {
   return plan.artists.find((a) => statedSlot(a) === "headliner") ?? plan.artists[0];
 }
 

@@ -63,7 +63,8 @@ import (
 //     predicate, name an act whenever the bill has one at all (on an
 //     artist-less show they degrade to '' or omit the show rather than
 //     reporting "no headline slot"). Five sites, in two shapes (plus the
-//     show reattribution's reads, which share RecanonicaliseShowSlug's clause):
+//     show reattribution's reads and FindSameLocalDateGroups, which share
+//     RecanonicaliseShowSlug's clause):
 //
 //     tag_service.enrichShows, explore.headlinerNameByShow,
 //     show_dedup.RecanonicaliseShowSlug and show_replica_purge.replicaRowsSQL

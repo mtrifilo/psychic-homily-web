@@ -12,6 +12,7 @@ import { isValidSetType, statedSlot } from "../lib/setType";
 import { readEventDate, resolveShowTimes } from "../lib/showTimes";
 import type { ShowTimes, ShowTimesRefusal } from "../lib/showTimes";
 import { reportSameNightOtherRooms } from "../lib/sameNightOtherRoom";
+import { reportSameRoomOtherTime } from "../lib/sameRoomOtherTime";
 import {
   SHOW_EVENT_DATE_BOUND_MONTHS,
   isBeyondShowEventDateBound,
@@ -816,6 +817,7 @@ export async function submitShows(
   displayPreview(plans, resolvedTags);
   if (!confirm) await reportSameNightOtherRooms(client, plans, planVenueZone);
   if (!confirm) await reportArtistNameFlags(client, plans);
+  if (!confirm) await reportSameRoomOtherTime(client, plans, planVenueZone, (p) => String(buildShowPayload(p).event_date));
 
   // 4. Fill empty venue addresses the batch states. Duplicate shows count:
   // a calendar refresh whose shows all exist still carries the address.
