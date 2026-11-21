@@ -6,6 +6,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"unicode"
 
 	"gorm.io/gorm"
@@ -141,6 +142,11 @@ func runWorklist(db *gorm.DB, rows []worklistRow, actorID uint, rec *recorder, o
 			outcome.Stopped = fmt.Errorf("the report could not be written: %w", w.err)
 			break
 		}
+		if interrupted.Load() {
+			outcome.Stopped = errors.New("interrupted: the run stopped before this row; every row above finished")
+			w.f("STOPPED before line %d: interrupted\n\n", p.Row.Line)
+			break
+		}
 		var stop error
 		if confirm && p.Status == statusWouldApply {
 			stop = t.apply(p, rec)
@@ -167,6 +173,11 @@ func runWorklist(db *gorm.DB, rows []worklistRow, actorID uint, rec *recorder, o
 	return outcome
 }
 
+// interrupted is set when the operator interrupts the run. The row in flight
+// finishes, commit and record lines included, and the run stops before the next
+// row.
+var interrupted atomic.Bool
+
 // report writes the run's report and keeps the first write error; the run
 // stops before the next row once one is kept.
 type report struct {
@@ -187,7 +198,7 @@ func (r *report) f(format string, args ...any) {
 // operator reviews from.
 func clean(s string) string {
 	return strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == ' ' || r == ' ' {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '\u2028' || r == '\u2029' {
 			return '?'
 		}
 		return r
@@ -216,6 +227,8 @@ func refuseMalformedRows(plans []*rowPlan) {
 				p.refuse("rename target %q has no letters or digits", r.Target)
 			case slugShaped.MatchString(r.Target):
 				p.refuse("rename target %q looks like a slug, not a name; a merge takes a slug", r.Target)
+			case nameProblem(r.Target) != "":
+				p.refuse("rename target %q %s", r.Target, nameProblem(r.Target))
 			}
 		case actionMerge:
 			switch r.Target {
@@ -267,10 +280,12 @@ func refuseRepeatedArtists(plans []*rowPlan) {
 //     splits;
 //   - two merges into one artist (the second merge's preview cannot see what
 //     the first moves);
-//   - a split that puts on a bill an existing artist another row changes;
+//   - a split that puts on a bill an existing artist another row changes or
+//     merges into;
 //   - two rows that would give artists the same name (renames, and the new acts
 //     a split creates);
-//   - two rows that rewrite the bill of the same show;
+//   - two rows that rewrite the bill of the same show (a merge counts every
+//     bill the merged artist is on);
 //   - a row that changes an artist that already received a merge done by an
 //     earlier run of this file, which would leave that merge's row with no
 //     target and the file unable to run clean again.
@@ -334,6 +349,11 @@ func refuseEntangledRows(plans []*rowPlan) {
 						other.Row.Line, other.Row.Action, other.Row.ArtistSlug)
 					add(other, "artist %s is an act the split on line %d puts on a bill; run them separately",
 						other.Row.ArtistSlug, p.Row.Line)
+				}
+				for _, other := range mergesInto[id] {
+					add(p, "an act it puts on the bill receives the merge on line %d; run them separately", other.Row.Line)
+					add(other, "target %s is an act the split on line %d puts on a bill; run them separately",
+						other.Row.Target, p.Row.Line)
 				}
 			}
 		}

@@ -206,5 +206,13 @@ export async function reportArtistNameFlags(
   }
   if (lines.length === 0) return;
   display.header("Artist names to check (flag only: nothing is refused or changed)");
-  for (const line of lines) display.warn(line);
+  for (const line of lines) display.warn(printable(line));
+}
+
+/**
+ * Replaces control, format and line-separator characters, so a scraped name
+ * cannot rewrite or reorder the terminal line a reviewer reads.
+ */
+export function printable(s: string): string {
+  return s.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, "?");
 }

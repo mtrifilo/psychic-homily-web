@@ -66,7 +66,7 @@ func (t *triage) plan(p *rowPlan) {
 		}
 	}
 
-	detail, err := t.runRow(p, func() error { return errDryRunRollback })
+	detail, err := t.runRow(p, false, func(*gorm.DB) error { return errDryRunRollback })
 	p.Detail = detail
 	if !errors.Is(err, errDryRunRollback) {
 		p.refuse("%v", err)
@@ -113,15 +113,17 @@ func (t *triage) planMissingSubject(p *rowPlan) {
 	}
 }
 
-// apply writes one accepted row in its own transaction. The row's record line
-// is written and synced before the commit; if it cannot be, the row is rolled
-// back. A non-nil error stops the run: the row failed and was rolled back, its
-// record line could not be written, or its outcome could not be established.
+// apply writes one accepted row in its own transaction. A pending record line,
+// carrying the copy of what the row changes, is written and synced before the
+// commit; if it cannot be, the row is rolled back. A committed line follows a
+// commit that returned, and a not_applied or unknown line follows one that
+// errored. A non-nil error stops the run: the row failed and was rolled back,
+// a record line could not be written, or the row's outcome is unknown.
 func (t *triage) apply(p *rowPlan, rec *recorder) error {
 	var recordErr error
 	recorded := false
-	detail, err := t.runRow(p, func() error {
-		p.Record.Outcome = recordApplied
+	detail, err := t.runRow(p, true, func(*gorm.DB) error {
+		p.Record.Outcome = recordPending
 		if err := rec.write(p.Record); err != nil {
 			recordErr = err
 			return err
@@ -129,48 +131,64 @@ func (t *triage) apply(p *rowPlan, rec *recorder) error {
 		recorded = true
 		return nil
 	})
-	if err == nil {
+	switch {
+	case err == nil:
 		p.Detail = detail
 		p.Status = statusApplied
+		if werr := rec.write(outcomeLine(p, recordCommitted, "")); werr != nil {
+			return fmt.Errorf("line %d committed, but the record could not say so: %w", p.Row.Line, werr)
+		}
 		return nil
-	}
-	if recordErr != nil {
+	case recordErr != nil:
 		p.refuse("the record line could not be written, so the row was rolled back: %v", recordErr)
 		return fmt.Errorf("the record file could not be written: %w", recordErr)
+	case !recorded:
+		// The error came before the commit was attempted, so the transaction
+		// rolled back and nothing of the row is in the database.
+		p.refuse("%s failed and was rolled back: %v", p.Row.Action, err)
+		return fmt.Errorf("line %d failed and was rolled back: %w", p.Row.Line, err)
 	}
-	// An error can come at COMMIT, which does not prove the commit failed. What
-	// the row leaves behind decides.
+
+	// The commit itself errored, which does not prove it failed. What the row
+	// leaves behind decides.
 	done, checkErr := t.rowTookEffect(p)
+	outcome, reason := recordNotApplied, "the commit failed: "+err.Error()
 	switch {
 	case checkErr != nil:
-		p.refuse("%s outcome unknown: %v; could not check the database: %v", p.Row.Action, err, checkErr)
-		return fmt.Errorf("the outcome of line %d is unknown: %w", p.Row.Line, err)
+		outcome, reason = recordUnknown, fmt.Sprintf("the commit errored (%v) and the database could not be checked (%v)", err, checkErr)
+		p.refuse("%s outcome unknown: %s", p.Row.Action, reason)
 	case done:
-		p.Detail = append(detail, fmt.Sprintf("the write reported an error but its result is in the database, so it committed: %v", err))
+		outcome, reason = recordCommitted, "the commit reported an error but the change is in the database: "+err.Error()
+		p.Detail = append(detail, reason)
 		p.Status = statusApplied
+	default:
+		p.refuse("%s failed and was rolled back: %v", p.Row.Action, err)
+	}
+	if werr := rec.write(outcomeLine(p, outcome, reason)); werr != nil {
+		return fmt.Errorf("line %d: %s, and the record could not say so (%w); the record's last line for this row is pending",
+			p.Row.Line, reason, werr)
+	}
+	if outcome == recordCommitted {
 		return nil
 	}
-	p.refuse("%s failed and was rolled back: %v", p.Row.Action, err)
-	if recorded {
-		notApplied := p.Record
-		notApplied.Outcome = recordNotApplied
-		notApplied.Reason = "the line above was written before a commit that failed: " + err.Error()
-		if werr := rec.write(notApplied); werr != nil {
-			return fmt.Errorf("the commit failed (%v) and the record could not say so (%v); "+
-				"the record's last line for this row is wrong", err, werr)
-		}
-	}
-	return fmt.Errorf("line %d failed and was rolled back: %w", p.Row.Line, err)
+	return fmt.Errorf("line %d: %s", p.Row.Line, reason)
 }
 
-// rowTookEffect reports whether an applied row's change is in the database: a
-// rename's new name is on the artist, and every other action deleted the
-// artist.
+// rowTookEffect reports whether a row whose commit errored is in the database
+// anyway: a rename's new name is on the artist; a merge's artist is gone and
+// the merge's audit row names this target; a remove's or split's artist is
+// gone.
 func (t *triage) rowTookEffect(p *rowPlan) (bool, error) {
 	var a catalogm.Artist
 	err := t.db.First(&a, p.SubjectID).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return p.Row.Action != actionRename, nil
+		switch p.Row.Action {
+		case actionRename:
+			return false, nil
+		case actionMerge:
+			return mergeRecorded(t.db, p.Record.ArtistSlug, p.TargetID)
+		}
+		return true, nil
 	}
 	if err != nil {
 		return false, err
@@ -179,20 +197,22 @@ func (t *triage) rowTookEffect(p *rowPlan) (bool, error) {
 }
 
 // runRow runs a row's write in its own transaction and returns the lines that
-// describe it. beforeCommit runs once the write has succeeded, inside the
-// transaction; an error from it rolls the transaction back and is returned.
-func (t *triage) runRow(p *rowPlan, beforeCommit func() error) ([]string, error) {
+// describe it. recording makes the write copy, before it changes anything, the
+// rows it touches into the row's record. beforeCommit runs once the write has
+// succeeded, inside the transaction; an error from it rolls the transaction
+// back and is returned.
+func (t *triage) runRow(p *rowPlan, recording bool, beforeCommit func(tx *gorm.DB) error) ([]string, error) {
 	var detail []string
 	err := t.db.Transaction(func(tx *gorm.DB) error {
 		if err := setRowTimeouts(tx); err != nil {
 			return err
 		}
-		d, err := t.execute(tx, p)
+		d, err := t.execute(tx, p, recording)
 		detail = d
 		if err != nil {
 			return err
 		}
-		return beforeCommit()
+		return beforeCommit(tx)
 	})
 	return detail, err
 }
@@ -211,14 +231,25 @@ func setRowTimeouts(tx *gorm.DB) error {
 
 // execute performs a row's write inside tx and returns the lines that
 // describe it. The plan and the confirmed run both call it, so the preview and
-// the write are one code path. It fills the row's footprint as it goes.
-func (t *triage) execute(tx *gorm.DB, p *rowPlan) ([]string, error) {
+// the write are one code path. It fills the row's footprint and record as it
+// goes; with recording set, a merge, remove or split first copies the artist's
+// row and every row referencing it into the record.
+func (t *triage) execute(tx *gorm.DB, p *rowPlan, recording bool) ([]string, error) {
 	subject, err := lockArtist(tx, p.SubjectID)
 	if err != nil {
 		return nil, err
 	}
+	if p.Row.ArtistName != "" && subject.Name != p.Row.ArtistName {
+		return nil, fmt.Errorf("the artist with slug %s is now named %q, not %q as reviewed; review the row again",
+			slugOf(subject), subject.Name, p.Row.ArtistName)
+	}
 	p.Record = recordLine{Line: p.Row.Line, Action: p.Row.Action,
 		ArtistID: subject.ID, ArtistSlug: slugOf(subject), ArtistName: subject.Name}
+	if recording && p.Row.Action != actionRename {
+		if p.Record.Before, err = snapshotArtistReferences(tx, subject.ID); err != nil {
+			return nil, err
+		}
+	}
 	switch p.Row.Action {
 	case actionRename:
 		return t.rename(tx, p, subject)
@@ -315,12 +346,15 @@ func (t *triage) merge(tx *gorm.DB, p *rowPlan, subject *catalogm.Artist) ([]str
 	}
 	handMade := handMadeCount[0]
 	lost := linksTheTargetLacks(subject, into)
-	// MergeArtists deletes every relationship of the merged artist.
-	edges, err := relationshipsOf(tx, subject.ID, false)
+	// The merge moves the artist's place on every bill it is on, so those bills
+	// are part of the row's footprint.
+	shows, err := billedShows(tx, p, subject)
 	if err != nil {
 		return detail, err
 	}
-	p.Record.EdgesDeleted = edges
+	for _, sh := range shows {
+		p.BillShows = append(p.BillShows, showRef{ID: sh.ID, Slug: slugText(sh.Slug)})
+	}
 
 	result, err := catalog.NewArtistService(tx).MergeArtists(into.ID, subject.ID)
 	if err != nil {
@@ -533,18 +567,21 @@ func (t *triage) split(tx *gorm.DB, p *rowPlan, subject *catalogm.Artist) ([]str
 	return append(detail, deleted...), err
 }
 
-// relationshipsOf lists the artist's relationships, only the derived ones when
-// derivedOnly is set.
-func relationshipsOf(tx *gorm.DB, id uint, derivedOnly bool) ([]recordEdge, error) {
-	q := tx.Model(&catalogm.ArtistRelationship{}).
+// derivedEdge is one auto-derived relationship of an artist.
+type derivedEdge struct {
+	SourceArtistID   uint
+	TargetArtistID   uint
+	RelationshipType string
+}
+
+// derivedEdgesOf lists the artist's auto-derived relationships.
+func derivedEdgesOf(tx *gorm.DB, id uint) ([]derivedEdge, error) {
+	var edges []derivedEdge
+	if err := tx.Model(&catalogm.ArtistRelationship{}).
 		Select("source_artist_id, target_artist_id, relationship_type").
-		Where("source_artist_id = ? OR target_artist_id = ?", id, id)
-	if derivedOnly {
-		q = q.Where("auto_derived")
-	}
-	var edges []recordEdge
-	if err := q.Order("source_artist_id, target_artist_id, relationship_type").Scan(&edges).Error; err != nil {
-		return nil, fmt.Errorf("load the relationships of artist %d: %w", id, err)
+		Where("(source_artist_id = ? OR target_artist_id = ?) AND auto_derived", id, id).
+		Order("source_artist_id, target_artist_id, relationship_type").Scan(&edges).Error; err != nil {
+		return nil, fmt.Errorf("load the derived edges of artist %d: %w", id, err)
 	}
 	return edges, nil
 }
@@ -555,21 +592,16 @@ func relationshipsOf(tx *gorm.DB, id uint, derivedOnly bool) ([]recordEdge, erro
 // artist_relationships references artists with no ON DELETE clause and the
 // database refuses the delete while any edge remains; refuseRealAct has already
 // refused an artist with a hand-made edge or a vote. It returns lines saying
-// what the delete takes with it, and puts the edges and the dropped follows,
-// tags and crate items in the row's record.
+// what the delete takes with it.
 func deleteArtist(tx *gorm.DB, p *rowPlan, actor uint, subject *catalogm.Artist) ([]string, error) {
 	collateral, err := deleteCollateral(tx, subject.ID)
 	if err != nil {
 		return nil, err
 	}
-	if err := recordDroppedRows(tx, subject.ID, &p.Record); err != nil {
-		return nil, err
-	}
-	edges, err := relationshipsOf(tx, subject.ID, true)
+	edges, err := derivedEdgesOf(tx, subject.ID)
 	if err != nil {
 		return nil, err
 	}
-	p.Record.EdgesDeleted = edges
 	p.Record.ArtistDeleted = true
 	relationships := catalog.NewArtistRelationshipService(tx)
 	for _, e := range edges {

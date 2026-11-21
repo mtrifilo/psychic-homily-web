@@ -18,20 +18,25 @@
 // a remove leaves a show revision. The admin endpoints record nothing for a
 // bill change or an artist delete, and neither does this tool in the database.
 //
-// --confirm requires --record: a file opened for append (never truncated) that
-// gets one JSON line per applied row naming, by id and slug, everything the row
-// changed or deleted: the artist, the kept artist of a merge, each show whose
-// bill was rewritten with its bill before and after and any title written, the
-// acts a split linked or created, the derived graph edges deleted, and the
-// follows, tags and crate items the delete dropped. Each line is written and
-// synced to disk before its row commits; if it cannot be, the row is rolled
-// back and the run stops.
+// --confirm requires --record: a file opened for append (never truncated, a
+// regular file readable by its owner only) that gets JSON lines stamped with
+// the run, the actor and the database. Each applied row writes a "pending" line
+// before its commit and a "committed" line after it (see recordLine). The
+// pending line names, by id and slug, what the row changes: the artist, the
+// kept artist of a merge, each show whose bill was rewritten with its bill
+// before and after and any title written, the acts a split linked or created,
+// and, for a merge, remove or split, a copy of the artist's row and of every
+// row that referenced it, taken before the write. The pending line is synced
+// to disk before the commit; if it cannot be, the row is rolled back and the
+// run stops.
 //
 // The worklist is a CSV whose header names artist_slug, action and target, with
-// optional show_slug and note columns and the evidence columns listed in
+// optional show_slug, note and name columns and the evidence columns listed in
 // evidenceColumns, which are read past. Any other column refuses the file, and
 // so does a column whose name starts with "suggested_": the suggestions have to
-// be reviewed into action and target first. action is one of:
+// be reviewed into action and target first. A name column holds the artist's
+// name as reviewed; a row whose artist now has another name is refused. action
+// is one of:
 //
 //	rename  target = the new name. The name changes through
 //	        ArtistService.UpdateArtist and the slug stays as it was, so the
@@ -69,7 +74,10 @@
 // own transaction, in file order. Every transaction has a 5 second lock
 // timeout, a 60 second statement timeout and a 60 second idle timeout. A row
 // that fails at its write is rolled back and the run stops there; so does a row
-// whose record line or report output cannot be written.
+// whose record line or report output cannot be written. An interrupt lets the
+// row in flight finish and stops the run before the next row. Rename targets
+// and split act names with invisible characters, non-plain spaces or doubled
+// spaces are refused.
 //
 // A second run over the same file changes nothing: a renamed artist already
 // has its name and a merge is recognised from its audit row, while a removed or
@@ -89,10 +97,14 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/joho/godotenv"
+	"gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
@@ -131,7 +143,7 @@ func main() {
 	rows, err := parseWorklist(f)
 	_ = f.Close()
 	if err != nil {
-		usageFail("worklist %s: %v", flag.Arg(0), err)
+		usageFail("worklist %s: %s", clean(flag.Arg(0)), clean(err.Error()))
 	}
 
 	var rec *recorder
@@ -141,7 +153,8 @@ func main() {
 			usageFail("%v", err)
 		}
 		defer func() { _ = record.Close() }()
-		rec = &recorder{w: record, sync: record.Sync, now: time.Now}
+		rec = &recorder{w: record, sync: record.Sync, now: time.Now, actorID: *actorID,
+			runID: time.Now().UTC().Format("20060102T150405.000000000Z")}
 	}
 
 	if err := loadNamedEnv(*envFile); err != nil {
@@ -155,6 +168,23 @@ func main() {
 	if err := db.Connect(cfg); err != nil {
 		fatal("connect db: %v", err)
 	}
+	// The shared connection logs slow and failed SQL to stdout with values
+	// written in, which would put raw artist names between the report's lines.
+	// Errors reach the report through the code instead.
+	database := db.GetDB().Session(&gorm.Session{Logger: gormlogger.Discard})
+	if rec != nil {
+		rec.environment, rec.database = os.Getenv(config.EnvEnvironment), redactDBHost(cfg.Database.URL)
+	}
+
+	// An interrupt lets the row in flight finish, record lines included, and
+	// stops the run before the next row.
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-signals
+		interrupted.Store(true)
+		_, _ = fmt.Fprintln(os.Stderr, "interrupt received: finishing the current row, then stopping")
+	}()
 
 	mode := "DRY RUN: every row runs and is rolled back"
 	if *confirm {
@@ -168,13 +198,13 @@ func main() {
 		fatal("write the report: %v", err)
 	}
 
-	if err := requireAdminActor(db.GetDB(), *actorID); err != nil {
+	if err := requireAdminActor(database, *actorID); err != nil {
 		usageFail("%v", err)
 	}
 
-	outcome := runWorklist(db.GetDB(), rows, *actorID, rec, os.Stdout)
+	outcome := runWorklist(database, rows, *actorID, rec, os.Stdout)
 	if outcome.Stopped != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "the run stopped (%v). %s\n", outcome.Stopped, outcome.appliedSentence())
+		_, _ = fmt.Fprintf(os.Stderr, "the run stopped (%s). %s\n", clean(outcome.Stopped.Error()), outcome.appliedSentence())
 	}
 	if outcome.Failed() {
 		os.Exit(exitRowsRefused)

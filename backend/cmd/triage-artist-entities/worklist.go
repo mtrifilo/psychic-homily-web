@@ -29,6 +29,9 @@ const (
 	colTarget     = "target"
 	colShowSlug   = "show_slug"
 	colNote       = "note"
+	// colName is the artist's name as reviewed. When given, a row whose artist now
+	// has another name is refused: the decision was made about that name.
+	colName = "name"
 )
 
 // suggestionColumnPrefix marks a column that carries an unreviewed suggestion.
@@ -40,13 +43,13 @@ const suggestionColumnPrefix = "suggested_"
 // columns above, so a misspelt show_slug or target refuses the file instead of
 // being read as empty.
 var evidenceColumns = []string{
-	"name", "heuristics", "h2_match", "handcheck_verdict", "show_count", "release_count", "has_link",
+	"heuristics", "h2_match", "handcheck_verdict", "show_count", "release_count", "has_link",
 	"latest_show_slug", "bill_position", "set_type", "in_headline_slot", "bill_size", "show_headliner",
 }
 
 func knownColumn(name string) bool {
 	switch name {
-	case colArtistSlug, colAction, colTarget, colShowSlug, colNote:
+	case colArtistSlug, colAction, colTarget, colShowSlug, colNote, colName:
 		return true
 	}
 	for _, c := range evidenceColumns {
@@ -76,6 +79,7 @@ type worklistRow struct {
 	Target     string
 	ShowSlug   string
 	Note       string
+	ArtistName string
 }
 
 // parseWorklist reads a reviewed CSV. The header must name artist_slug, action
@@ -112,7 +116,7 @@ func parseWorklist(r io.Reader) ([]worklistRow, error) {
 		}
 		if !knownColumn(name) {
 			return nil, fmt.Errorf("header has an unknown column %q; the columns are %s, %s, %s, %s, %s and the evidence columns %s",
-				name, colArtistSlug, colAction, colTarget, colShowSlug, colNote, strings.Join(evidenceColumns, ", "))
+				name, colArtistSlug, colAction, colTarget, colShowSlug, colNote+", "+colName, strings.Join(evidenceColumns, ", "))
 		}
 		index[name] = i
 	}
@@ -147,6 +151,7 @@ func parseWorklist(r io.Reader) ([]worklistRow, error) {
 			Target:     field(record, colTarget),
 			ShowSlug:   field(record, colShowSlug),
 			Note:       field(record, colNote),
+			ArtistName: field(record, colName),
 		}
 		if row == (worklistRow{Line: line}) {
 			continue
@@ -162,6 +167,26 @@ func parseWorklist(r io.Reader) ([]worklistRow, error) {
 // slugShaped matches a lowercase, hyphen-joined string with no spaces: the shape
 // of a slug, which a rename target or an act name is not.
 var slugShaped = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)+$`)
+
+// nameProblem says why s cannot be stored as an artist name, or "" when it can:
+// a control, format or line-separator character, a space other than U+0020,
+// or two spaces in a row. Such a name prints like another name and does not
+// match it under the case-insensitive comparison names are deduplicated by.
+func nameProblem(s string) string {
+	prev := rune(0)
+	for _, r := range s {
+		switch {
+		case unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.In(r, unicode.Zl, unicode.Zp):
+			return fmt.Sprintf("contains the invisible character %U", r)
+		case unicode.Is(unicode.Zs, r) && r != ' ':
+			return fmt.Sprintf("contains the space character %U, not a plain space", r)
+		case r == ' ' && prev == ' ':
+			return "contains two spaces in a row"
+		}
+		prev = r
+	}
+	return ""
+}
 
 // hasLetterOrDigit reports whether s carries anything a name can be made of.
 func hasLetterOrDigit(s string) bool {
@@ -185,6 +210,8 @@ func splitActNames(target, joinedName string) ([]string, error) {
 			return nil, fmt.Errorf("split target %q has an empty act name", target)
 		case slugShaped.MatchString(name):
 			return nil, fmt.Errorf("act name %q looks like a slug; a split takes act names", name)
+		case nameProblem(name) != "":
+			return nil, fmt.Errorf("act name %q %s", name, nameProblem(name))
 		case seen[strings.ToLower(name)]:
 			return nil, fmt.Errorf("split target %q names %q twice", target, name)
 		case joinedName != "" && strings.EqualFold(name, joinedName):

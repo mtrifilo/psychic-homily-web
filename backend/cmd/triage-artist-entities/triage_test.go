@@ -160,11 +160,17 @@ func (s *TriageSuite) runOutcome(csv string, confirm bool) (string, runOutcome) 
 	s.Require().NoError(err)
 	var rec *recorder
 	if confirm {
-		rec = &recorder{w: &s.record, sync: func() error { return nil }, now: time.Now}
+		rec = s.recorder()
 	}
 	var out bytes.Buffer
 	outcome := runWorklist(s.db, rows, s.actor, rec, &out)
 	return out.String(), outcome
+}
+
+// recorder appends to s.record, synced trivially.
+func (s *TriageSuite) recorder() *recorder {
+	return &recorder{w: &s.record, sync: func() error { return nil }, now: time.Now,
+		runID: "run-1", actorID: s.actor, environment: "test", database: "test-db"}
 }
 
 // recordLines parses the record lines written so far.

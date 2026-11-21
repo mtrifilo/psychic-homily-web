@@ -184,6 +184,18 @@ describe("reportArtistNameFlags", () => {
     expect(written).toBe("");
   });
 
+  test("prints names with control and format characters replaced", async () => {
+    const spy = stderr();
+    const esc = String.fromCharCode(27);
+    const rlo = String.fromCharCode(0x202e);
+    await reportArtistNameFlags(new APIClient({ url: "http://localhost:1", token: "t" } as never), [
+      plan({ artists: [{ name: `Jazz Night${esc}[2J${rlo}`, status: "new" }] }),
+    ], noneKnown);
+    spy.mockRestore();
+    expect(written).toContain(`"Jazz Night?[2J?" (new artist)`);
+    expect(written).not.toContain(esc + "[2J");
+  });
+
   test("names an existing artist by its id", async () => {
     const spy = stderr();
     await reportArtistNameFlags(new APIClient({ url: "http://localhost:1", token: "t" } as never), [

@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -43,12 +45,21 @@ func (s *TriageSuite) TestEveryAppliedRowLeavesARecordLine() {
 	s.Require().Equal(4, summary[statusApplied], out)
 
 	lines := s.recordLines()
-	s.Require().Len(lines, 4)
+	s.Require().Len(lines, 8, "a pending and a committed line per row")
 	byAction := map[string]recordLine{}
-	for _, l := range lines {
-		s.Equal(recordApplied, l.Outcome)
+	for i, l := range lines {
 		s.NotEmpty(l.At)
-		byAction[l.Action] = l
+		s.Equal(s.actor, l.ActorID)
+		s.Equal("run-1", l.RunID)
+		s.Equal("test-db", l.Database)
+		if i%2 == 0 {
+			s.Equal(recordPending, l.Outcome)
+			byAction[l.Action] = l
+			continue
+		}
+		s.Equal(recordCommitted, l.Outcome)
+		s.Equal(lines[i-1].Line, l.Line)
+		s.Equal(lines[i-1].ArtistID, l.ArtistID)
 	}
 
 	rm := byAction[actionRemove]
@@ -63,9 +74,15 @@ func (s *TriageSuite) TestEveryAppliedRowLeavesARecordLine() {
 		{ArtistID: head.ID, Name: "Ouija Macc", Position: 1, SetType: "performer"},
 	}, rm.Shows[0].BillBefore)
 	s.Equal([]recordAct{{ArtistID: head.ID, Name: "Ouija Macc", Position: 0, SetType: "performer"}}, rm.Shows[0].BillAfter)
+	// The copy taken before the write: the artist's row, its bill, its derived
+	// edge and its follow.
+	s.Contains(string(rm.Before["artists.id"]), `"name":"LIVE AT LAUNCHPAD"`)
+	s.Contains(string(rm.Before["show_artists.artist_id"]), fmt.Sprintf(`"show_id":%d`, shRemove.ID))
 	src, tgt := catalogm.CanonicalOrder(junk.ID, head.ID)
-	s.Equal([]recordEdge{{SourceArtistID: src, TargetArtistID: tgt, RelationshipType: "shared_bills"}}, rm.EdgesDeleted)
-	s.Equal([]recordFollow{{UserID: fan, Action: "follow"}}, rm.FollowsDropped)
+	edges := string(rm.Before["artist_relationships.source_artist_id"]) + string(rm.Before["artist_relationships.target_artist_id"])
+	s.Contains(edges, fmt.Sprintf(`"source_artist_id":%d`, src))
+	s.Contains(edges, fmt.Sprintf(`"target_artist_id":%d`, tgt))
+	s.Contains(string(rm.Before["user_bookmarks.entity_id"]), fmt.Sprintf(`"user_id":%d`, fan))
 
 	sp := byAction[actionSplit]
 	s.True(sp.ArtistDeleted)
@@ -80,10 +97,123 @@ func (s *TriageSuite) TestEveryAppliedRowLeavesARecordLine() {
 	s.Equal("Riot Act", rn.NewName)
 	s.False(rn.ArtistDeleted)
 
+	s.Empty(rn.Before, "a rename deletes nothing, so it copies nothing")
+
 	mg := byAction[actionMerge]
 	s.True(mg.ArtistDeleted)
 	s.Equal(keep.ID, mg.KeptArtistID)
 	s.Equal(*keep.Slug, mg.KeptArtistSlug)
+	s.Contains(string(mg.Before["artists.id"]), `"name":"Harry Katz and the Pistachios"`)
+}
+
+// The copy covers every foreign key to artists in the live schema, so a
+// migration that adds one is copied without a change here.
+func (s *TriageSuite) TestTheRecordCopyCoversEveryForeignKeyToArtists() {
+	refs, err := artistReferenceColumns(s.db)
+	s.Require().NoError(err)
+	covered := map[string]bool{}
+	for _, r := range refs {
+		covered[r.table+"."+r.column] = true
+	}
+	var fks []string
+	s.Require().NoError(s.db.Raw(`
+		SELECT cl.relname || '.' || att.attname FROM pg_constraint con
+		JOIN pg_class cl ON cl.oid = con.conrelid
+		JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = con.conkey[1]
+		WHERE con.contype = 'f' AND con.confrelid = 'artists'::regclass`).Scan(&fks).Error)
+	s.Require().NotEmpty(fks)
+	for _, fk := range fks {
+		s.True(covered[fk], "the record does not copy %s", fk)
+	}
+	for _, want := range []string{"user_bookmarks.entity_id", "entity_tags.entity_id", "collection_items.entity_id",
+		"artist_releases.artist_id", "artist_aliases.artist_id", "notification_filters.artist_ids"} {
+		s.True(covered[want], "the record does not copy %s", want)
+	}
+}
+
+// A row whose artist is deleted between the plan and the write is refused, not
+// reported applied, leaves no record line, and stops the run.
+func (s *TriageSuite) TestARowWhoseArtistVanishesBeforeItsWriteIsRefused() {
+	a := s.artist("Vanishing Night")
+	other := s.show("", act{s.artist("Stays"), "headliner"}, act{a, "performer"})
+	rows, err := parseWorklist(strings.NewReader(csvOf(*a.Slug + ",remove,")))
+	s.Require().NoError(err)
+	t := &triage{db: s.db, actor: s.actor}
+	p := &rowPlan{Row: rows[0]}
+	t.plan(p)
+	s.Require().Equal(statusWouldApply, p.Status)
+	s.Require().NoError(s.db.Exec("DELETE FROM show_artists WHERE artist_id = ?", a.ID).Error)
+	s.Require().NoError(s.db.Exec("DELETE FROM artists WHERE id = ?", a.ID).Error)
+
+	stop := t.apply(p, s.recorder())
+
+	s.Require().Error(stop)
+	s.Equal(statusRefused, p.Status)
+	s.Contains(strings.Join(p.Reasons, "; "), "no longer exists")
+	s.Empty(s.recordLines())
+	s.Equal([]string{"Stays:headliner"}, s.bill(other.ID))
+}
+
+// A row whose artist was renamed after review is refused.
+func (s *TriageSuite) TestARowWhoseArtistWasRenamedSinceReviewIsRefused() {
+	a := s.artist("Renamed Since Review")
+	s.show("", act{s.artist("Head"), "headliner"}, act{a, "performer"})
+	csv := "artist_slug,action,target,name\n" + *a.Slug + ",remove,,Foo Presents\n"
+
+	out, summary := s.run(csv, true)
+
+	s.True(summary.Refused(), out)
+	s.Contains(out, `is now named "Renamed Since Review", not "Foo Presents" as reviewed`)
+	s.NotNil(s.artistByID(a.ID))
+
+	out, summary = s.run("artist_slug,action,target,name\n"+*a.Slug+",remove,,Renamed Since Review\n", true)
+	s.False(summary.Refused(), out)
+	s.Nil(s.artistByID(a.ID))
+}
+
+// A merge into an artist that a split links on another bill is entangled: in
+// either order one of them would fail at its write. Both are refused, in a
+// confirmed run, whichever order the file lists them.
+func (s *TriageSuite) TestAMergeIntoAnActASplitLinksIsRefusedInEitherOrder() {
+	x := s.artist("Hoopla")
+	joined := s.artist("Hoopla & Gnarwhal")
+	z := s.artist("The Hoopla")
+	sh := s.show("", act{joined, "headliner"}, act{s.artist("Opener"), "performer"})
+	s.show("", act{z, "headliner"})
+	split := *joined.Slug + ",split,Hoopla | Gnarwhal"
+	merge := *z.Slug + ",merge," + *x.Slug
+
+	for name, file := range map[string]string{"split first": csvOf(split, merge), "merge first": csvOf(merge, split)} {
+		out, summary := s.run(file, true)
+		s.Equal(2, summary[statusRefused], "%s: %s", name, out)
+		s.Equal(0, summary[statusApplied], "%s: %s", name, out)
+		s.Equal([]string{"Hoopla & Gnarwhal:headliner", "Opener:performer"}, s.bill(sh.ID), name)
+		s.Contains(out, "receives the merge on line", name)
+		s.NotContains(out, "each rewrite the bill of show", name)
+	}
+}
+
+// The record file is refused when it is a symlink or others can read it.
+func (s *TriageSuite) TestTheRecordFileMustBePrivateAndRegular() {
+	dir := s.T().TempDir()
+	open := dir + "/open.jsonl"
+	s.Require().NoError(os.WriteFile(open, nil, 0o644))
+	_, err := openRecord(open)
+	s.ErrorContains(err, "readable by its owner only")
+
+	target := dir + "/target.jsonl"
+	s.Require().NoError(os.WriteFile(target, nil, 0o600))
+	link := dir + "/link.jsonl"
+	s.Require().NoError(os.Symlink(target, link))
+	_, err = openRecord(link)
+	s.ErrorContains(err, "cannot be opened for append")
+
+	f, err := openRecord(dir + "/new.jsonl")
+	s.Require().NoError(err)
+	info, err := f.Stat()
+	s.Require().NoError(err)
+	s.Equal(os.FileMode(0o600), info.Mode().Perm())
+	s.Require().NoError(f.Close())
 }
 
 // failingWriter fails every write.
@@ -103,6 +233,7 @@ func (s *TriageSuite) TestARecordThatCannotBeWrittenRollsTheRowBackAndStops() {
 	var out bytes.Buffer
 
 	outcome := runWorklist(s.db, rows, s.actor, &recorder{w: failingWriter{}, sync: noSync, now: time.Now}, &out)
+	s.Empty(s.recordLines())
 
 	s.Require().Error(outcome.Stopped, out.String())
 	s.Contains(outcome.Stopped.Error(), "the record file could not be written")
@@ -148,14 +279,14 @@ func (s *TriageSuite) TestAReportThatCannotBeWrittenStopsTheRun() {
 	rows, err := parseWorklist(strings.NewReader(csvOf(*first.Slug+",rename,Report One", *second.Slug+",rename,Report Two")))
 	s.Require().NoError(err)
 
-	outcome := runWorklist(s.db, rows, s.actor, &recorder{w: &s.record, sync: noSync, now: time.Now}, &writeAfter{n: 10})
+	outcome := runWorklist(s.db, rows, s.actor, s.recorder(), &writeAfter{n: 10})
 
 	s.Require().Error(outcome.Stopped)
 	s.Contains(outcome.Stopped.Error(), "the report could not be written")
 	s.Equal("Report One", s.artistByID(first.ID).Name, "the first row was applied before the report failed")
 	s.Equal("Report Second", s.artistByID(second.ID).Name, "no row runs after the report fails")
 	s.Equal([]string{"line 2 rename report-first"}, outcome.Applied)
-	s.Len(s.recordLines(), 1)
+	s.Len(s.recordLines(), 2, "the applied row's pending and committed lines")
 }
 
 // A row the database refuses at its write (a name taken between the plan and
@@ -170,7 +301,7 @@ func (s *TriageSuite) TestARowThatFailsAtItsWriteStopsTheRun() {
 	s.Require().Equal(statusWouldApply, p.Status)
 	s.artist("Race")
 
-	stop := t.apply(p, &recorder{w: &s.record, sync: noSync, now: time.Now})
+	stop := t.apply(p, s.recorder())
 
 	s.Require().Error(stop)
 	s.Equal(statusRefused, p.Status)
@@ -179,10 +310,15 @@ func (s *TriageSuite) TestARowThatFailsAtItsWriteStopsTheRun() {
 	s.Empty(s.recordLines(), "a row refused before its record was written leaves no line")
 }
 
-// Every row's transaction carries the lock, statement and idle timeouts.
+// Every row's transaction carries the lock, statement and idle timeouts: read
+// back inside a real row's transaction, through runRow.
 func (s *TriageSuite) TestRowTransactionsCarryTheirTimeouts() {
-	err := s.db.Transaction(func(tx *gorm.DB) error {
-		s.Require().NoError(setRowTimeouts(tx))
+	a := s.artist("Timed Night")
+	rows, err := parseWorklist(strings.NewReader(csvOf(*a.Slug + ",rename,Timed")))
+	s.Require().NoError(err)
+	t := &triage{db: s.db, actor: s.actor}
+	p := &rowPlan{Row: rows[0], SubjectID: a.ID}
+	_, err = t.runRow(p, false, func(tx *gorm.DB) error {
 		for setting, want := range map[string]string{
 			"lock_timeout":                        "5s",
 			"statement_timeout":                   "1min",
@@ -195,4 +331,5 @@ func (s *TriageSuite) TestRowTransactionsCarryTheirTimeouts() {
 		return errDryRunRollback
 	})
 	s.ErrorIs(err, errDryRunRollback)
+	s.Equal("Timed Night", s.artistByID(a.ID).Name)
 }

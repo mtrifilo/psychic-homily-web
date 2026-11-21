@@ -191,6 +191,23 @@ func TestOpenRecordAppendsAndRefusesAnUnopenablePath(t *testing.T) {
 	require.ErrorContains(t, err, "cannot be opened for append")
 }
 
+// A name that prints like another name but does not match it is refused.
+func TestNameProblem(t *testing.T) {
+	assert.Empty(t, nameProblem("Darby O'Trill"))
+	assert.Empty(t, nameProblem("Beyoncé"))
+	for name, want := range map[string]string{
+		"Foo\u00a0Bar": "space character U+00A0",
+		"Foo\u200bBar": "invisible character U+200B",
+		"Foo\nBar":     "invisible character U+000A",
+		"Foo\u2028Bar": "invisible character U+2028",
+		"Foo  Bar":     "two spaces in a row",
+	} {
+		assert.Contains(t, nameProblem(name), want, "%q", name)
+	}
+	_, err := splitActNames("Darby | Mikey\u00a0Rotten", "")
+	assert.ErrorContains(t, err, "space character U+00A0")
+}
+
 // Names from the database cannot rewrite the line the operator reads.
 func TestCleanReplacesControlAndFormatCharacters(t *testing.T) {
 	assert.Equal(t, "LIVE?AT?LAUNCHPAD?", clean("LIVE\nAT\u202eLAUNCHPAD\u2028"))
