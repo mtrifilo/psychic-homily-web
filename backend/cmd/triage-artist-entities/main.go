@@ -1,11 +1,37 @@
 // Command triage-artist-entities applies a reviewed list of decisions about
 // artist entities that are not acts, or are several acts stored as one.
 //
-// The worklist is a CSV whose header names artist_slug, action and target,
-// with optional show_slug and note columns; any other column is ignored. A file
-// that still has a column whose name starts with "suggested_" is refused whole:
-// the suggestions have to be reviewed into action and target first. action is
-// one of:
+// Usage:
+//
+//	go run ./cmd/triage-artist-entities --env FILE --actor ID worklist.csv                          # dry run (default)
+//	go run ./cmd/triage-artist-entities --env FILE --actor ID --dry-run worklist.csv                # the same, said out loud
+//	go run ./cmd/triage-artist-entities --env FILE --actor ID --confirm --record FILE worklist.csv  # apply
+//
+// --env is required on every run, dry run included: the file names the
+// database, overrides an exported DATABASE_URL, and is refused when it sets no
+// DATABASE_URL. Dry-run with the same --env you will confirm with. The target
+// (ENVIRONMENT and host/dbname, no credentials) is printed before any row runs.
+//
+// --actor names the active admin the writes are recorded against, the way the
+// admin endpoints record them: a rename leaves a revision and an entity edit
+// audit row, a merge leaves the merge_artists audit row, and a title written by
+// a remove leaves a show revision. The admin endpoints record nothing for a
+// bill change or an artist delete, and neither does this tool in the database.
+//
+// --confirm requires --record: a file opened for append (never truncated) that
+// gets one JSON line per applied row naming, by id and slug, everything the row
+// changed or deleted: the artist, the kept artist of a merge, each show whose
+// bill was rewritten with its bill before and after and any title written, the
+// acts a split linked or created, the derived graph edges deleted, and the
+// follows, tags and crate items the delete dropped. Each line is written and
+// synced to disk before its row commits; if it cannot be, the row is rolled
+// back and the run stops.
+//
+// The worklist is a CSV whose header names artist_slug, action and target, with
+// optional show_slug and note columns and the evidence columns listed in
+// evidenceColumns, which are read past. Any other column refuses the file, and
+// so does a column whose name starts with "suggested_": the suggestions have to
+// be reviewed into action and target first. action is one of:
 //
 //	rename  target = the new name. The name changes through
 //	        ArtistService.UpdateArtist and the slug stays as it was, so the
@@ -29,43 +55,42 @@
 // show_slug, on a remove or split row, must name the only show the artist is
 // billed on; leave it empty to act on every bill.
 //
-// Refused, reported, and the run goes on (exit status 1): an unknown artist or
-// target slug; a merge into the artist itself; a rename onto a name or an
-// alias another artist has; a remove or split of an artist with a release
-// credit, a link, a label, a festival lineup, a matched radio play, a hand-made
-// relationship or a relationship vote (it looks like a real act); a remove that
-// would leave a show with no acts; an artist named on two rows; and rows whose
-// writes depend on each other (see refuseEntangledRows), decided over the
-// whole file so the result does not depend on row order.
-//
-// Usage:
-//
-//	go run ./cmd/triage-artist-entities --file reviewed.csv --actor 2 --env .env.x            # dry run (default)
-//	go run ./cmd/triage-artist-entities --file reviewed.csv --actor 2 --env .env.x --confirm  # apply
-//
-// --actor names the admin user the writes are recorded against, the way the
-// admin endpoints record them: a rename leaves a revision and an entity edit
-// audit row, a merge leaves the merge_artists audit row, and a title written by
-// a remove leaves a show revision. The admin endpoints record nothing for a
-// bill change or an artist delete, and neither does this tool. --env is
-// required on every run and the named file decides the database, so a dry run
-// previews the same database the confirmed run with the same --env writes to.
+// Refused, reported, and the run goes on: an unknown artist or target slug; a
+// merge into the artist itself; a rename onto a name or an alias another artist
+// has; a remove or split of an artist with a release credit, a link, a label, a
+// festival lineup, a matched radio play, a hand-made relationship or a
+// relationship vote (it looks like a real act); a remove that would leave a
+// show with no acts; an artist named on two rows; and rows whose writes depend
+// on each other (see refuseEntangledRows), decided over the whole file so the
+// result does not depend on row order.
 //
 // The dry run runs each row's write in a transaction it rolls back, so it
 // prints what the write would do. --confirm applies each accepted row in its
-// own transaction, in file order. A second run over the same file changes
-// nothing: a renamed artist already has its name and a merge is recognised
-// from its audit row, while a removed or split artist no longer exists, so its
-// row is refused with a note that an earlier run may have applied it.
+// own transaction, in file order. Every transaction has a 5 second lock
+// timeout, a 60 second statement timeout and a 60 second idle timeout. A row
+// that fails at its write is rolled back and the run stops there; so does a row
+// whose record line or report output cannot be written.
+//
+// A second run over the same file changes nothing: a renamed artist already
+// has its name and a merge is recognised from its audit row, while a removed or
+// split artist no longer exists, so its row is refused with a note that an
+// earlier run may have applied it, and the run exits 1 by design.
+//
+// Exit status: 0 when every row applied, was already in place or was kept, 1
+// when any row was refused or the run stopped, 2 when the command line, the env
+// file, the actor, the record file or the worklist cannot be used, 3 when the
+// configuration cannot be loaded or the database cannot be reached.
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 
@@ -73,66 +98,108 @@ import (
 	"psychic-homily-backend/internal/config"
 )
 
-func main() {
-	var (
-		file    string
-		actorID uint
-		confirm bool
-		envFile string
-	)
-	flag.StringVar(&file, "file", "", "Path to the reviewed worklist CSV (required)")
-	flag.UintVar(&actorID, "actor", 0, "ID of the admin user the writes are recorded against (required)")
-	flag.BoolVar(&confirm, "confirm", false, "Apply the accepted rows (default: dry run only)")
-	flag.StringVar(&envFile, "env", "", "Path to the .env file that names the database (required, on dry runs too)")
-	flag.Parse()
+const (
+	exitRowsRefused = 1
+	exitUsage       = 2
+	exitDatabase    = 3
+)
 
-	if file == "" {
-		log.Fatal("--file is required")
+func main() {
+	confirm := flag.Bool("confirm", false, "Apply the worklist, each row in its own transaction (requires --record)")
+	dryRun := flag.Bool("dry-run", false, "Preview the worklist and roll every row back (the default without --confirm)")
+	envFile := flag.String("env", "", "Path to the .env file that names the database (required, on dry runs too)")
+	recordPath := flag.String("record", "", "With --confirm: file the applied rows are appended to (required)")
+	actorID := flag.Uint("actor", 0, "ID of the active admin the writes are recorded against (required)")
+	flag.Usage = func() {
+		_, _ = fmt.Fprintln(flag.CommandLine.Output(),
+			"usage: triage-artist-entities --env FILE --actor ID [--dry-run | --confirm --record FILE] WORKLIST.csv")
+		flag.PrintDefaults()
 	}
-	if err := requireEnvFlag(envFile); err != nil {
-		log.Fatal(err)
+	flag.Parse()
+	if flag.NArg() != 1 {
+		flag.Usage()
+		os.Exit(exitUsage)
 	}
-	f, err := os.Open(file)
+	if err := validateFlags(*confirm, *dryRun, *envFile, *recordPath, *actorID); err != nil {
+		usageFail("%v", err)
+	}
+
+	f, err := os.Open(flag.Arg(0))
 	if err != nil {
-		log.Fatalf("open worklist: %v", err)
+		usageFail("open worklist: %v", err)
 	}
 	rows, err := parseWorklist(f)
 	_ = f.Close()
 	if err != nil {
-		log.Fatalf("worklist %s: %v", file, err)
+		usageFail("worklist %s: %v", flag.Arg(0), err)
 	}
 
-	if err := loadNamedEnv(envFile); err != nil {
-		log.Fatal(err)
+	var rec *recorder
+	if *confirm {
+		record, err := openRecord(*recordPath)
+		if err != nil {
+			usageFail("%v", err)
+		}
+		defer func() { _ = record.Close() }()
+		rec = &recorder{w: record, sync: record.Sync, now: time.Now}
 	}
-	log.Printf("loaded env from %s (authoritative)", envFile)
+
+	if err := loadNamedEnv(*envFile); err != nil {
+		usageFail("%v", err)
+	}
+	log.Printf("loaded env from %s (authoritative)", *envFile)
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("load config: %v", err)
+		fatal("load config: %v", err)
 	}
 	if err := db.Connect(cfg); err != nil {
-		log.Fatalf("connect db: %v", err)
+		fatal("connect db: %v", err)
 	}
 
-	mode := "DRY RUN"
-	if confirm {
-		mode = "LIVE"
+	mode := "DRY RUN: every row runs and is rolled back"
+	if *confirm {
+		mode = "LIVE: each row commits on its own"
 	}
-	fmt.Printf("=== Triage Artist Entities (%s): %d row(s) from %s ===\n", mode, len(rows), file)
-	// The resolved target is printed before anything runs, so a --confirm aimed
-	// at the wrong database is visible. Credentials are not printed.
-	fmt.Printf("Target: ENVIRONMENT=%q db=%s\n\n", os.Getenv(config.EnvEnvironment), redactDBHost(cfg.Database.URL))
-	if !confirm {
-		log.Print("dry run: every row runs in a transaction that is rolled back, so the services' log lines below describe writes that are undone")
-	}
-
-	if err := requireAdminActor(db.GetDB(), actorID); err != nil {
-		log.Fatal(err)
+	// The resolved target is printed before anything runs, so a run aimed at
+	// the wrong database is visible. Credentials are not printed.
+	header := fmt.Sprintf("=== Triage artist entities (%s): %d row(s) from %s ===\nTarget: ENVIRONMENT=%q db=%s\n\n",
+		mode, len(rows), clean(flag.Arg(0)), os.Getenv(config.EnvEnvironment), redactDBHost(cfg.Database.URL))
+	if _, err := os.Stdout.WriteString(header); err != nil {
+		fatal("write the report: %v", err)
 	}
 
-	if summary := runWorklist(db.GetDB(), rows, actorID, confirm, os.Stdout); summary.Refused() {
-		os.Exit(1)
+	if err := requireAdminActor(db.GetDB(), *actorID); err != nil {
+		usageFail("%v", err)
 	}
+
+	outcome := runWorklist(db.GetDB(), rows, *actorID, rec, os.Stdout)
+	if outcome.Stopped != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "the run stopped (%v). %s\n", outcome.Stopped, outcome.appliedSentence())
+	}
+	if outcome.Failed() {
+		os.Exit(exitRowsRefused)
+	}
+}
+
+// validateFlags checks the command line before anything is opened or
+// connected.
+func validateFlags(confirm, dryRun bool, envFile, recordPath string, actorID uint) error {
+	if confirm && dryRun {
+		return errors.New("--dry-run and --confirm cannot be combined")
+	}
+	if err := requireEnvFlag(envFile); err != nil {
+		return err
+	}
+	if actorID == 0 {
+		return errors.New("--actor is required: the id of the admin user the writes are recorded against")
+	}
+	if confirm && strings.TrimSpace(recordPath) == "" {
+		return errors.New("--confirm requires --record: the file the applied rows are appended to")
+	}
+	if !confirm && recordPath != "" {
+		return errors.New("--record is written only by --confirm; a dry run applies nothing")
+	}
+	return nil
 }
 
 // requireEnvFlag refuses a run with no --env. A dry run and a confirmed run both
@@ -175,4 +242,14 @@ func redactDBHost(raw string) string {
 		return u.Host + "/" + name
 	}
 	return u.Host
+}
+
+func usageFail(format string, args ...any) {
+	_, _ = fmt.Fprintf(os.Stderr, format+"\n", args...)
+	os.Exit(exitUsage)
+}
+
+func fatal(format string, args ...any) {
+	log.Printf(format, args...)
+	os.Exit(exitDatabase)
 }

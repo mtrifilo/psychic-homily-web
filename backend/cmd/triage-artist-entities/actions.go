@@ -66,7 +66,7 @@ func (t *triage) plan(p *rowPlan) {
 		}
 	}
 
-	detail, err := t.runRow(p, true)
+	detail, err := t.runRow(p, func() error { return errDryRunRollback })
 	p.Detail = detail
 	if !errors.Is(err, errDryRunRollback) {
 		p.refuse("%v", err)
@@ -113,14 +113,30 @@ func (t *triage) planMissingSubject(p *rowPlan) {
 	}
 }
 
-// apply writes one accepted row in its own transaction. A failure leaves the
-// row unapplied and is reported as a refusal.
-func (t *triage) apply(p *rowPlan) {
-	detail, err := t.runRow(p, false)
+// apply writes one accepted row in its own transaction. The row's record line
+// is written and synced before the commit; if it cannot be, the row is rolled
+// back. A non-nil error stops the run: the row failed and was rolled back, its
+// record line could not be written, or its outcome could not be established.
+func (t *triage) apply(p *rowPlan, rec *recorder) error {
+	var recordErr error
+	recorded := false
+	detail, err := t.runRow(p, func() error {
+		p.Record.Outcome = recordApplied
+		if err := rec.write(p.Record); err != nil {
+			recordErr = err
+			return err
+		}
+		recorded = true
+		return nil
+	})
 	if err == nil {
 		p.Detail = detail
 		p.Status = statusApplied
-		return
+		return nil
+	}
+	if recordErr != nil {
+		p.refuse("the record line could not be written, so the row was rolled back: %v", recordErr)
+		return fmt.Errorf("the record file could not be written: %w", recordErr)
 	}
 	// An error can come at COMMIT, which does not prove the commit failed. What
 	// the row leaves behind decides.
@@ -128,12 +144,23 @@ func (t *triage) apply(p *rowPlan) {
 	switch {
 	case checkErr != nil:
 		p.refuse("%s outcome unknown: %v; could not check the database: %v", p.Row.Action, err, checkErr)
+		return fmt.Errorf("the outcome of line %d is unknown: %w", p.Row.Line, err)
 	case done:
 		p.Detail = append(detail, fmt.Sprintf("the write reported an error but its result is in the database, so it committed: %v", err))
 		p.Status = statusApplied
-	default:
-		p.refuse("%s failed, nothing changed: %v", p.Row.Action, err)
+		return nil
 	}
+	p.refuse("%s failed and was rolled back: %v", p.Row.Action, err)
+	if recorded {
+		notApplied := p.Record
+		notApplied.Outcome = recordNotApplied
+		notApplied.Reason = "the line above was written before a commit that failed: " + err.Error()
+		if werr := rec.write(notApplied); werr != nil {
+			return fmt.Errorf("the commit failed (%v) and the record could not say so (%v); "+
+				"the record's last line for this row is wrong", err, werr)
+		}
+	}
+	return fmt.Errorf("line %d failed and was rolled back: %w", p.Row.Line, err)
 }
 
 // rowTookEffect reports whether an applied row's change is in the database: a
@@ -152,9 +179,9 @@ func (t *triage) rowTookEffect(p *rowPlan) (bool, error) {
 }
 
 // runRow runs a row's write in its own transaction and returns the lines that
-// describe it. With rollback set the transaction is always rolled back, and a
-// write that succeeded returns errDryRunRollback.
-func (t *triage) runRow(p *rowPlan, rollback bool) ([]string, error) {
+// describe it. beforeCommit runs once the write has succeeded, inside the
+// transaction; an error from it rolls the transaction back and is returned.
+func (t *triage) runRow(p *rowPlan, beforeCommit func() error) ([]string, error) {
 	var detail []string
 	err := t.db.Transaction(func(tx *gorm.DB) error {
 		if err := setRowTimeouts(tx); err != nil {
@@ -162,20 +189,22 @@ func (t *triage) runRow(p *rowPlan, rollback bool) ([]string, error) {
 		}
 		d, err := t.execute(tx, p)
 		detail = d
-		if err == nil && rollback {
-			return errDryRunRollback
+		if err != nil {
+			return err
 		}
-		return err
+		return beforeCommit()
 	})
 	return detail, err
 }
 
-// setRowTimeouts bounds how long a row's transaction waits on a lock the site
-// holds and how long one statement may run, so a busy row fails instead of
-// stalling the run or the site. Both settings last for the transaction only.
+// setRowTimeouts bounds every row's transaction: the lock timeout stops it
+// waiting on a site write, and the statement and idle-in-transaction timeouts
+// stop it holding its own locks when a statement runs away or the connection
+// stops talking. All three last for the transaction only.
 func setRowTimeouts(tx *gorm.DB) error {
-	if err := tx.Exec("SELECT set_config('lock_timeout', '5s', true), set_config('statement_timeout', '60s', true)").Error; err != nil {
-		return fmt.Errorf("set the row's lock and statement timeouts: %w", err)
+	if err := tx.Exec(`SELECT set_config('lock_timeout', '5s', true), set_config('statement_timeout', '60s', true),
+		set_config('idle_in_transaction_session_timeout', '60s', true)`).Error; err != nil {
+		return fmt.Errorf("set the row's transaction timeouts: %w", err)
 	}
 	return nil
 }
@@ -188,6 +217,8 @@ func (t *triage) execute(tx *gorm.DB, p *rowPlan) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	p.Record = recordLine{Line: p.Row.Line, Action: p.Row.Action,
+		ArtistID: subject.ID, ArtistSlug: slugOf(subject), ArtistName: subject.Name}
 	switch p.Row.Action {
 	case actionRename:
 		return t.rename(tx, p, subject)
@@ -256,6 +287,7 @@ func (t *triage) rename(tx *gorm.DB, p *rowPlan, subject *catalogm.Artist) ([]st
 	admin.NewAuditLogService(tx).LogEntityEdit(t.actor, "artist", subject.ID, nil)
 
 	p.NewNames = []string{strings.ToLower(name)}
+	p.Record.NewName = name
 	return append(detail,
 		fmt.Sprintf("name: %q -> %q", subject.Name, name),
 		fmt.Sprintf("slug: %s (unchanged)", slugOf(subject))), nil
@@ -274,6 +306,7 @@ func (t *triage) merge(tx *gorm.DB, p *rowPlan, subject *catalogm.Artist) ([]str
 		return detail, fmt.Errorf("no artist has target slug %s", p.Row.Target)
 	}
 	p.TargetID = into.ID
+	p.Record.KeptArtistID, p.Record.KeptArtistSlug, p.Record.ArtistDeleted = into.ID, slugOf(into), true
 	detail = append(detail, describeArtist(tx, "into", into))
 
 	handMadeCount, err := countAll(tx, subject.ID, []labeledCount{handMadeRelationships})
@@ -282,6 +315,12 @@ func (t *triage) merge(tx *gorm.DB, p *rowPlan, subject *catalogm.Artist) ([]str
 	}
 	handMade := handMadeCount[0]
 	lost := linksTheTargetLacks(subject, into)
+	// MergeArtists deletes every relationship of the merged artist.
+	edges, err := relationshipsOf(tx, subject.ID, false)
+	if err != nil {
+		return detail, err
+	}
+	p.Record.EdgesDeleted = edges
 
 	result, err := catalog.NewArtistService(tx).MergeArtists(into.ID, subject.ID)
 	if err != nil {
@@ -386,13 +425,14 @@ func (t *triage) remove(tx *gorm.DB, p *rowPlan, subject *catalogm.Artist) ([]st
 				return detail, fmt.Errorf("record title revision: %w", err)
 			}
 			detail = append(detail, fmt.Sprintf("  title: (empty) -> %q", title))
+			p.Record.Shows[len(p.Record.Shows)-1].TitleSet = title
 		}
 		if headlineSlot(bill)[subject.ID] {
 			detail = append(detail, "  WARNING: "+headlineSlotWarning(after.bill))
 		}
 	}
 
-	deleted, err := deleteArtist(tx, t.actor, subject)
+	deleted, err := deleteArtist(tx, p, t.actor, subject)
 	return append(detail, deleted...), err
 }
 
@@ -427,6 +467,7 @@ func (t *triage) split(tx *gorm.DB, p *rowPlan, subject *catalogm.Artist) ([]str
 		found[i] = a
 		if a != nil {
 			p.FoundActIDs = append(p.FoundActIDs, a.ID)
+			p.Record.ActsLinked = append(p.Record.ActsLinked, recordArtist{ID: a.ID, Slug: slugOf(a), Name: a.Name})
 			detail = append(detail, fmt.Sprintf("act %q: links the existing %s", name, describeArtist(tx, "artist", a)))
 			continue
 		}
@@ -474,9 +515,38 @@ func (t *triage) split(tx *gorm.DB, p *rowPlan, subject *catalogm.Artist) ([]str
 		}
 		detail = append(detail, line)
 	}
+	for i, name := range acts {
+		if found[i] != nil {
+			continue
+		}
+		created, err := artistByName(tx, name, 0)
+		if err != nil {
+			return detail, err
+		}
+		if created == nil {
+			return detail, fmt.Errorf("act %q was not created", name)
+		}
+		p.Record.ActsCreated = append(p.Record.ActsCreated, recordArtist{ID: created.ID, Slug: slugOf(created), Name: created.Name})
+	}
 
-	deleted, err := deleteArtist(tx, t.actor, subject)
+	deleted, err := deleteArtist(tx, p, t.actor, subject)
 	return append(detail, deleted...), err
+}
+
+// relationshipsOf lists the artist's relationships, only the derived ones when
+// derivedOnly is set.
+func relationshipsOf(tx *gorm.DB, id uint, derivedOnly bool) ([]recordEdge, error) {
+	q := tx.Model(&catalogm.ArtistRelationship{}).
+		Select("source_artist_id, target_artist_id, relationship_type").
+		Where("source_artist_id = ? OR target_artist_id = ?", id, id)
+	if derivedOnly {
+		q = q.Where("auto_derived")
+	}
+	var edges []recordEdge
+	if err := q.Order("source_artist_id, target_artist_id, relationship_type").Scan(&edges).Error; err != nil {
+		return nil, fmt.Errorf("load the relationships of artist %d: %w", id, err)
+	}
+	return edges, nil
 }
 
 // deleteArtist deletes an artist that is on no bill through
@@ -485,17 +555,22 @@ func (t *triage) split(tx *gorm.DB, p *rowPlan, subject *catalogm.Artist) ([]str
 // artist_relationships references artists with no ON DELETE clause and the
 // database refuses the delete while any edge remains; refuseRealAct has already
 // refused an artist with a hand-made edge or a vote. It returns lines saying
-// what the delete takes with it.
-func deleteArtist(tx *gorm.DB, actor uint, subject *catalogm.Artist) ([]string, error) {
+// what the delete takes with it, and puts the edges and the dropped follows,
+// tags and crate items in the row's record.
+func deleteArtist(tx *gorm.DB, p *rowPlan, actor uint, subject *catalogm.Artist) ([]string, error) {
 	collateral, err := deleteCollateral(tx, subject.ID)
 	if err != nil {
 		return nil, err
 	}
-	var edges []catalogm.ArtistRelationship
-	if err := tx.Where("(source_artist_id = ? OR target_artist_id = ?) AND auto_derived", subject.ID, subject.ID).
-		Find(&edges).Error; err != nil {
-		return nil, fmt.Errorf("load derived edges: %w", err)
+	if err := recordDroppedRows(tx, subject.ID, &p.Record); err != nil {
+		return nil, err
 	}
+	edges, err := relationshipsOf(tx, subject.ID, true)
+	if err != nil {
+		return nil, err
+	}
+	p.Record.EdgesDeleted = edges
+	p.Record.ArtistDeleted = true
 	relationships := catalog.NewArtistRelationshipService(tx)
 	for _, e := range edges {
 		if err := relationships.DeleteRelationship(e.SourceArtistID, e.TargetArtistID, e.RelationshipType); err != nil {
@@ -533,6 +608,8 @@ func rewriteBill(tx *gorm.DB, p *rowPlan, sh billedShow, before []billEntry,
 	if err != nil {
 		return rewrittenShow{}, "", err
 	}
+	p.Record.Shows = append(p.Record.Shows, recordShow{ShowID: sh.ID, ShowSlug: slug,
+		BillBefore: recordBill(before), BillAfter: recordBill(after)})
 	line := fmt.Sprintf("show %s (%s): bill %s -> %s", slug, sh.Status, describeBill(before), describeBill(after))
 	return rewrittenShow{show: show, bill: after}, line, nil
 }

@@ -13,7 +13,7 @@ import (
 func TestParseWorklist(t *testing.T) {
 	t.Run("reads the reviewed columns, trims, lowercases the action and ignores extra columns", func(t *testing.T) {
 		rows, err := parseWorklist(strings.NewReader(
-			"\xef\xbb\xbfartist_slug,action,target,show_slug,note,heuristic\n" +
+			"\xef\xbb\xbfartist_slug,action,target,show_slug,note,heuristics\n" +
 				" live-at-launchpad , REMOVE , title , 2026-11-21-x-at-launchpad ,subtitle line,H1\n" +
 				",,,,,\n" +
 				"lone-stranger-friends,rename,Lone Stranger,,,H1\n"))
@@ -40,10 +40,14 @@ func TestParseWorklist(t *testing.T) {
 			wantErr: "suggestion column",
 		},
 		"a missing target column": {in: "artist_slug,action\na,keep\n", wantErr: `no "target" column`},
-		"a repeated column":       {in: "artist_slug,action,target,action\na,keep,,merge\n", wantErr: "twice"},
-		"an empty file":           {in: "", wantErr: "empty"},
-		"a header and no rows":    {in: "artist_slug,action,target\n", wantErr: "no rows"},
-		"a ragged row":            {in: "artist_slug,action,target\na,keep\n", wantErr: "read worklist"},
+		"a misspelt optional column": {
+			in:      "artist_slug,action,target,show_slugs\na,remove,,a-show\n",
+			wantErr: `unknown column "show_slugs"`,
+		},
+		"a repeated column":    {in: "artist_slug,action,target,action\na,keep,,merge\n", wantErr: "twice"},
+		"an empty file":        {in: "", wantErr: "empty"},
+		"a header and no rows": {in: "artist_slug,action,target\n", wantErr: "no rows"},
+		"a ragged row":         {in: "artist_slug,action,target\na,keep\n", wantErr: "read worklist"},
 	} {
 		t.Run("refuses "+name, func(t *testing.T) {
 			_, err := parseWorklist(strings.NewReader(tc.in))
@@ -143,6 +147,54 @@ func TestLoadNamedEnvRefusesAFileWithoutADatabaseURL(t *testing.T) {
 	require.ErrorContains(t, err, "sets no DATABASE_URL")
 	assert.Equal(t, "postgres://exported.example/prod", os.Getenv("DATABASE_URL"))
 	assert.Equal(t, "development", os.Getenv("ENVIRONMENT"), "nothing from the refused file is loaded")
+}
+
+func TestValidateFlags(t *testing.T) {
+	require.NoError(t, validateFlags(false, false, "stage.env", "", 2))
+	require.NoError(t, validateFlags(false, true, "stage.env", "", 2))
+	require.NoError(t, validateFlags(true, false, "prod.env", "applied.jsonl", 2))
+	for name, tc := range map[string]struct {
+		confirm, dryRun bool
+		env, record     string
+		actor           uint
+		want            string
+	}{
+		"both modes":             {confirm: true, dryRun: true, env: "e", record: "r", actor: 2, want: "cannot be combined"},
+		"no env":                 {env: "", actor: 2, want: "--env is required"},
+		"no actor":               {env: "e", want: "--actor is required"},
+		"confirm with no record": {confirm: true, env: "e", actor: 2, want: "--confirm requires --record"},
+		"record on a dry run":    {env: "e", record: "r", actor: 2, want: "--record is written only by --confirm"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.ErrorContains(t, validateFlags(tc.confirm, tc.dryRun, tc.env, tc.record, tc.actor), tc.want)
+		})
+	}
+}
+
+// The record file is opened for append and never truncated, and a path that
+// cannot be opened is refused before anything runs.
+func TestOpenRecordAppendsAndRefusesAnUnopenablePath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "applied.jsonl")
+	require.NoError(t, os.WriteFile(path, []byte("{\"earlier\":true}\n"), 0o600))
+
+	f, err := openRecord(path)
+	require.NoError(t, err)
+	_, err = f.WriteString("{\"later\":true}\n")
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "{\"earlier\":true}\n{\"later\":true}\n", string(got))
+
+	_, err = openRecord(filepath.Join(t.TempDir(), "no-such-dir", "applied.jsonl"))
+	require.ErrorContains(t, err, "cannot be opened for append")
+}
+
+// Names from the database cannot rewrite the line the operator reads.
+func TestCleanReplacesControlAndFormatCharacters(t *testing.T) {
+	assert.Equal(t, "LIVE?AT?LAUNCHPAD?", clean("LIVE\nAT\u202eLAUNCHPAD\u2028"))
+	assert.Equal(t, "Beyoncé", clean("Beyoncé"))
 }
 
 func TestEnvIsRequiredOnEveryRun(t *testing.T) {

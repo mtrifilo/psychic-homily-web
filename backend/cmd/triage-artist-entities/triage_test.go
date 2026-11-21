@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -28,6 +29,7 @@ type TriageSuite struct {
 	actor  uint
 	venue  uint
 	seq    atomic.Int64
+	record bytes.Buffer
 }
 
 func TestTriageSuite(t *testing.T) {
@@ -69,6 +71,7 @@ func (s *TriageSuite) SetupTest() {
 	} {
 		s.Require().NoError(s.db.Exec(stmt).Error, stmt)
 	}
+	s.record.Reset()
 	s.actor = s.user()
 	s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", s.actor).Update("is_admin", true).Error)
 	slug := "launchpad-albuquerque-nm"
@@ -146,11 +149,36 @@ func (s *TriageSuite) relationship(a, b *catalogm.Artist, relType string, autoDe
 }
 
 func (s *TriageSuite) run(csv string, confirm bool) (string, runSummary) {
+	out, outcome := s.runOutcome(csv, confirm)
+	return out, outcome.Summary
+}
+
+// runOutcome runs a worklist; a confirmed run appends its record lines to
+// s.record.
+func (s *TriageSuite) runOutcome(csv string, confirm bool) (string, runOutcome) {
 	rows, err := parseWorklist(strings.NewReader(csv))
 	s.Require().NoError(err)
+	var rec *recorder
+	if confirm {
+		rec = &recorder{w: &s.record, sync: func() error { return nil }, now: time.Now}
+	}
 	var out bytes.Buffer
-	summary := runWorklist(s.db, rows, s.actor, confirm, &out)
-	return out.String(), summary
+	outcome := runWorklist(s.db, rows, s.actor, rec, &out)
+	return out.String(), outcome
+}
+
+// recordLines parses the record lines written so far.
+func (s *TriageSuite) recordLines() []recordLine {
+	var lines []recordLine
+	for _, raw := range strings.Split(strings.TrimSpace(s.record.String()), "\n") {
+		if raw == "" {
+			continue
+		}
+		var l recordLine
+		s.Require().NoError(json.Unmarshal([]byte(raw), &l), raw)
+		lines = append(lines, l)
+	}
+	return lines
 }
 
 func (s *TriageSuite) artistByID(id uint) *catalogm.Artist {

@@ -35,6 +35,28 @@ const (
 // A file with any such column is refused whole.
 const suggestionColumnPrefix = "suggested_"
 
+// evidenceColumns are the context columns of the reviewed worklist format,
+// which this tool reads past. Every header must be one of these or one of the
+// columns above, so a misspelt show_slug or target refuses the file instead of
+// being read as empty.
+var evidenceColumns = []string{
+	"name", "heuristics", "h2_match", "handcheck_verdict", "show_count", "release_count", "has_link",
+	"latest_show_slug", "bill_position", "set_type", "in_headline_slot", "bill_size", "show_headliner",
+}
+
+func knownColumn(name string) bool {
+	switch name {
+	case colArtistSlug, colAction, colTarget, colShowSlug, colNote:
+		return true
+	}
+	for _, c := range evidenceColumns {
+		if name == c {
+			return true
+		}
+	}
+	return false
+}
+
 // removeTargetTitle is the one target a remove row may carry: write the
 // artist's name to the title of each show it is taken off.
 const removeTargetTitle = "title"
@@ -57,9 +79,9 @@ type worklistRow struct {
 }
 
 // parseWorklist reads a reviewed CSV. The header must name artist_slug, action
-// and target; show_slug and note are optional, and any other column is ignored
-// so the review context can stay in the file. A column whose name starts with
-// "suggested_" refuses the whole file. Values are trimmed and the action is
+// and target; show_slug, note and the evidence columns are optional, and any
+// other column refuses the whole file, as does a column whose name starts with
+// "suggested_". Values are trimmed and the action is
 // lowercased. A malformed file is an error for the whole file; a malformed row
 // is left for refuseMalformedRows, so one bad row never hides the others.
 func parseWorklist(r io.Reader) ([]worklistRow, error) {
@@ -87,6 +109,10 @@ func parseWorklist(r io.Reader) ([]worklistRow, error) {
 		}
 		if _, dup := index[name]; dup {
 			return nil, fmt.Errorf("header names column %q twice", name)
+		}
+		if !knownColumn(name) {
+			return nil, fmt.Errorf("header has an unknown column %q; the columns are %s, %s, %s, %s, %s and the evidence columns %s",
+				name, colArtistSlug, colAction, colTarget, colShowSlug, colNote, strings.Join(evidenceColumns, ", "))
 		}
 		index[name] = i
 	}

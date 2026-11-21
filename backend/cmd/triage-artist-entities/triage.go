@@ -6,6 +6,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"unicode"
 
 	"gorm.io/gorm"
 
@@ -63,6 +64,10 @@ type rowPlan struct {
 	BillShows   []showRef // shows whose bill a remove or split rewrites
 	FoundActIDs []uint    // existing artists a split puts on a bill
 	NewNames    []string  // lowercased names a rename gives or a split creates
+
+	// Record is what the row's write changed and deleted, filled as it runs
+	// and written to the --record file before a confirmed row commits.
+	Record recordLine
 }
 
 func (p *rowPlan) refuse(format string, args ...any) {
@@ -73,23 +78,47 @@ func (p *rowPlan) refuse(format string, args ...any) {
 // runSummary counts rows by final status.
 type runSummary map[rowStatus]int
 
-// Refused reports whether any row was refused, which makes the run exit
-// non-zero.
+// Refused reports whether any row was refused.
 func (s runSummary) Refused() bool { return s[statusRefused] > 0 }
 
+// runOutcome is what a run did: the counts, why it stopped before the last
+// row (nil when it did not), and the rows it applied, in file order.
+type runOutcome struct {
+	Summary runSummary
+	Stopped error
+	Applied []string
+}
+
+// Failed reports whether the run must exit non-zero: a row was refused or the
+// run stopped.
+func (o runOutcome) Failed() bool { return o.Summary.Refused() || o.Stopped != nil }
+
+// appliedSentence says exactly which rows were applied, for a run that
+// stopped or whose report could not be written.
+func (o runOutcome) appliedSentence() string {
+	if len(o.Applied) == 0 {
+		return "No row was applied."
+	}
+	return fmt.Sprintf("Applied, and only these: %s.", strings.Join(o.Applied, "; "))
+}
+
 // runWorklist plans every row against the database as it stands, then, when
-// confirm is set, applies the rows the plan accepted, each in its own
-// transaction and in file order. actorID is the admin the writes are recorded
-// against.
+// rec is non-nil (a confirmed run), applies the rows the plan accepted, each in
+// its own transaction and in file order, and records each in rec before it
+// commits. actorID is the admin the writes are recorded against.
 //
 // Every verdict is reached before the first write: each row is planned by
 // running its write in a transaction that is rolled back, against the
 // database as it stood before the run. The file-level checks then refuse every
 // row whose write would depend on another row's, decided over the whole file
 // before any of them is refused, so the set of rows applied does not depend on
-// the order of the file. A write can still fail if the database changes
-// between the plan and the write; that row is reported as refused.
-func runWorklist(db *gorm.DB, rows []worklistRow, actorID uint, confirm bool, out io.Writer) runSummary {
+// the order of the file.
+//
+// A confirmed run stops before the next row when a row fails at its write (the
+// database changed since the plan, or the commit failed), when its record line
+// cannot be written, or when the report cannot be written.
+func runWorklist(db *gorm.DB, rows []worklistRow, actorID uint, rec *recorder, out io.Writer) runOutcome {
+	confirm := rec != nil
 	plans := make([]*rowPlan, len(rows))
 	for i, row := range rows {
 		plans[i] = &rowPlan{Row: row}
@@ -105,16 +134,64 @@ func runWorklist(db *gorm.DB, rows []worklistRow, actorID uint, confirm bool, ou
 	}
 	refuseEntangledRows(plans)
 
-	summary := runSummary{}
-	for _, p := range plans {
-		if confirm && p.Status == statusWouldApply {
-			t.apply(p)
+	w := &report{w: out}
+	outcome := runOutcome{Summary: runSummary{}}
+	for i, p := range plans {
+		if w.err != nil {
+			outcome.Stopped = fmt.Errorf("the report could not be written: %w", w.err)
+			break
 		}
-		printPlan(out, p)
-		summary[p.Status]++
+		var stop error
+		if confirm && p.Status == statusWouldApply {
+			stop = t.apply(p, rec)
+			if p.Status == statusApplied {
+				outcome.Applied = append(outcome.Applied, fmt.Sprintf("line %d %s %s", p.Row.Line, p.Row.Action, clean(p.Row.ArtistSlug)))
+			}
+		}
+		printPlan(w, p)
+		outcome.Summary[p.Status]++
+		if stop != nil {
+			outcome.Stopped = stop
+			w.f("STOPPED at line %d: %s\n", p.Row.Line, clean(stop.Error()))
+			if left := len(plans) - i - 1; left > 0 {
+				w.f("%d row(s) after it were not run.\n", left)
+			}
+			w.f("\n")
+			break
+		}
 	}
-	printSummary(out, summary, confirm)
-	return summary
+	printSummary(w, outcome, confirm)
+	if w.err != nil && outcome.Stopped == nil {
+		outcome.Stopped = fmt.Errorf("the report could not be written: %w", w.err)
+	}
+	return outcome
+}
+
+// report writes the run's report and keeps the first write error; the run
+// stops before the next row once one is kept.
+type report struct {
+	w   io.Writer
+	err error
+}
+
+func (r *report) f(format string, args ...any) {
+	if r.err != nil {
+		return
+	}
+	_, r.err = fmt.Fprintf(r.w, format, args...)
+}
+
+// clean replaces control and format characters (bidirectional overrides among
+// them) and the Unicode line separators in text that came from the database or
+// the worklist, so a name cannot rewrite or reorder the terminal line the
+// operator reviews from.
+func clean(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == ' ' || r == ' ' {
+			return '?'
+		}
+		return r
+	}, s)
 }
 
 // refuseMalformedRows refuses rows whose fields cannot describe a decision.
@@ -295,7 +372,7 @@ func linesOf(plans []*rowPlan) []int {
 	return lines
 }
 
-func printPlan(out io.Writer, p *rowPlan) {
+func printPlan(w *report, p *rowPlan) {
 	head := fmt.Sprintf("[line %d] %s %s", p.Row.Line, p.Row.Action, p.Row.ArtistSlug)
 	if p.Row.Target != "" {
 		head += " -> " + p.Row.Target
@@ -303,36 +380,34 @@ func printPlan(out io.Writer, p *rowPlan) {
 	if p.Row.ShowSlug != "" {
 		head += " (show " + p.Row.ShowSlug + ")"
 	}
-	printf(out, "%s\n", head)
+	w.f("%s\n", clean(head))
 	for _, d := range p.Detail {
-		printf(out, "  %s\n", d)
+		w.f("  %s\n", clean(d))
 	}
 	if p.Row.Note != "" {
-		printf(out, "  note: %s\n", p.Row.Note)
+		w.f("  note: %s\n", clean(p.Row.Note))
 	}
 	if len(p.Reasons) == 0 {
-		printf(out, "  %s\n\n", p.Status)
+		w.f("  %s\n\n", p.Status)
 		return
 	}
-	printf(out, "  %s: %s\n\n", p.Status, strings.Join(p.Reasons, "; "))
+	w.f("  %s: %s\n\n", p.Status, clean(strings.Join(p.Reasons, "; ")))
 }
 
-// printf writes one piece of the report. The report goes to a terminal or a
-// pipe, and a failed write there has nowhere better to be reported.
-func printf(out io.Writer, format string, args ...any) {
-	_, _ = fmt.Fprintf(out, format, args...)
-}
-
-func printSummary(out io.Writer, s runSummary, confirm bool) {
-	printf(out, "=== Summary ===\n")
+func printSummary(w *report, o runOutcome, confirm bool) {
+	w.f("=== Summary ===\n")
 	for _, st := range []rowStatus{statusApplied, statusWouldApply, statusDone, statusKept, statusRefused} {
-		printf(out, "%-13s %d\n", string(st)+":", s[st])
+		w.f("%-13s %d\n", string(st)+":", o.Summary[st])
 	}
 	if !confirm {
-		printf(out, "DRY RUN: nothing was written. Re-run with --confirm to apply the rows marked WOULD APPLY.\n")
+		w.f("DRY RUN: nothing was written. Log lines printed above this report describe the rolled-back preview. " +
+			"Re-run with --confirm to apply the rows marked WOULD APPLY.\n")
 	}
-	if s.Refused() {
-		printf(out, "Some rows were REFUSED; nothing was written for them. Exit status 1.\n")
+	if o.Stopped != nil {
+		w.f("The run stopped early (%s). %s\n", clean(o.Stopped.Error()), o.appliedSentence())
+	}
+	if o.Failed() {
+		w.f("Some rows were REFUSED or the run stopped; nothing was written for a refused row. Exit status 1.\n")
 	}
 }
 
