@@ -817,7 +817,7 @@ export async function submitShows(
   displayPreview(plans, resolvedTags);
   if (!confirm) await reportSameNightOtherRooms(client, plans, planVenueZone);
   if (!confirm) await reportArtistNameFlags(client, plans);
-  if (!confirm) await reportSameRoomOtherTime(client, plans, planVenueZone, (p) => String(buildShowPayload(p).event_date));
+  if (!confirm) await reportSameRoomOtherTime(client, plans, planVenueZone, (p) => { const b = buildShowPayload(p); return String(b.music_at ?? b.event_date); });
 
   // 4. Fill empty venue addresses the batch states. Duplicate shows count:
   // a calendar refresh whose shows all exist still carries the address.

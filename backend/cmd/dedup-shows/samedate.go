@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/joho/godotenv"
@@ -56,11 +57,18 @@ func sameLocalDateCSVRows(groups []catalog.SameLocalDateGroup) [][]string {
 				clean(room),
 				spreadsheetSafe(clean(sameLocalDateNote(g, s))),
 				clean(mergeInto),
-				spreadsheetSafe(clean(fmt.Sprintf("%s (suggested): %s", s.Action, s.Reason))),
+				spreadsheetSafe(clean(verdict(s))),
 			})
 		}
 	}
 	return out
+}
+
+// verdict is the row's suggestion: the action and its reason, the span of the
+// group's clocks, and every condition's result.
+func verdict(s catalog.SameLocalDateSuggestion) string {
+	return fmt.Sprintf("%s (suggested): %s. Clocks span %d minutes. Conditions: %s.",
+		s.Action, s.Reason, int(s.Span/time.Minute), strings.Join(s.Conditions, ", "))
 }
 
 // sameLocalDateNote is the evidence for one row: the group, then this copy,
@@ -78,29 +86,31 @@ func sameLocalDateNote(g catalog.SameLocalDateGroup, s catalog.SameLocalDateSugg
 // copyEvidence describes one copy as it is, whichever side of a merge it is
 // on; what a merge does with it is said in the row's verdict.
 func copyEvidence(c catalog.SameLocalDateCopy) string {
-	clock := c.Clock
+	clocks := c.ClockText()
 	if c.IsCancelled {
-		clock += ", CANCELLED"
+		clocks += ", CANCELLED"
 	}
 	source := c.Source
 	if c.DataSource != "" {
 		source += "/" + c.DataSource
 	}
-	tickets := "no ticket link"
-	if c.TicketURL != "" {
-		tickets = "tickets " + c.TicketURL
-	}
 	if c.SourceEventID != "" {
 		source += " event " + c.SourceEventID
 	}
-	fills := "none"
-	if len(c.DroppedFields) > 0 {
-		fills = strings.Join(c.DroppedFields, ", ")
+	if c.SubmittedBy != 0 {
+		source += fmt.Sprintf(", submitted by user %d", c.SubmittedBy)
 	}
-	return fmt.Sprintf("%s titled %q (%s, event_date %s), created %s, source %s, %s, fills: %s, "+
-		"%d saves, %d visible comments, %d room(s)",
-		c.Slug, c.Title, clock, c.EventDate.UTC().Format("2006-01-02T15:04:05Z"),
-		c.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"), source, tickets, fills, c.Saves, c.Comments, c.RoomCount)
+	fills := make([]string, 0, len(c.DroppedFields))
+	for _, f := range c.DroppedFields {
+		fills = append(fills, f+" "+c.FieldValues[f])
+	}
+	filled := "none"
+	if len(fills) > 0 {
+		filled = strings.Join(fills, "; ")
+	}
+	return fmt.Sprintf("%s titled %q (%s), created %s, source %s, fills: %s, %d saves, %d visible comments, %d room(s)",
+		c.Slug, c.Title, clocks, c.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"), source, filled,
+		c.Saves, c.Comments, c.RoomCount)
 }
 
 // writeSameLocalDateCSV writes the worklist.
@@ -218,7 +228,7 @@ func mainSameLocalDate() {
 // worklistInstructions tells the reviewer how to turn the worklist into one
 // reattribute-shows runs.
 var worklistInstructions = fmt.Sprintf("To merge: review every row. Clear correct_room_slug and %[1]smerge_into_show_slug "+
-	"on any merge row that should not merge; on a keep-both or review row you decide to merge, fill both. Then rename "+
+	"on any merge row that should not merge; on a review row you decide to merge, fill both. Then rename "+
 	"each %[1]s column by dropping the prefix (%[1]smerge_into_show_slug to merge_into_show_slug, %[1]sverdict to "+
 	"verdict) and run reattribute-shows --dry-run with the same --env.", suggestedPrefix)
 

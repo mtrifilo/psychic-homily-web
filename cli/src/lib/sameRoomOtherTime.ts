@@ -1,19 +1,24 @@
 import type { APIClient } from "./api";
 import * as display from "./display";
 import { showDedupWindow } from "./duplicates";
-import { parseClockTime, readEventDate } from "./showTimes";
+import { readEventDate } from "./showTimes";
 import { resolveVenueTimezone } from "./timezone";
 import { clean, fold, headlinerOf } from "./sameNightOtherRoom";
 
 /**
  * Flag-only QA check for the dry run: a show whose headliner already has a show
- * at the SAME room on the same venue-local day, at a different time, in the
- * catalog or elsewhere in this run.
+ * at the SAME room on the same venue-local day, starting at a different time,
+ * in the catalog or elsewhere in this run.
  *
- * That shape is two things that only a person can tell apart: a matinee and an
- * evening show, which are two shows, or one show listed again at a new time,
- * which is a duplicate. So this never refuses and never rewrites; it prints a
- * warning naming the other show and says so when a plan could not be checked.
+ * That shape is two things that only a person can tell apart: one show stored
+ * at another time, or a second show the same day (a matinee, a late set). So
+ * this never refuses and never rewrites; it prints a warning naming the other
+ * show and says so when a plan could not be checked.
+ *
+ * Both sides are compared on their start: a stored show's music time when it
+ * has one, else its event_date; a listing's music time when it states one, else
+ * the event_date it will be written with. So a listing identical to what is
+ * stored compares equal on every later run.
  *
  * The headliner is read the way each side stores it: on a plan, the act whose
  * own signal says headliner, else the first act; on a stored show, the act
@@ -47,6 +52,16 @@ const SCAN_CAP = 600;
 const CONCURRENT_DAY_READS = 4;
 
 /**
+ * The widest gap between two starts of one show: the reach of one event's doors
+ * and start, and shorter than the gap between an early and a late show. The
+ * finder's merge rule (SameShowClockSpan in the backend) uses the same value.
+ */
+export const SAME_SHOW_SPAN_MINUTES = 90;
+
+/** The venue-local hour a show listed with a date and no start is stored at. */
+const DATE_ONLY_CLOCK = "20:00";
+
+/**
  * The stored show's headliner: role first, then bill position, then id, the
  * order the backend's showBillHeadlinerRank ranks a bill in.
  */
@@ -73,26 +88,23 @@ export function localClock(instant: string, zone: string): string {
   }).format(at);
 }
 
-/**
- * A stored show's start: its music time when it has one, which a refresh can
- * fill without moving event_date, else event_date.
- */
+/** A stored show's start: its music time when it has one, else event_date. */
 function storedStart(show: StoredShowForSameRoom): string {
   return show.music_at || show.event_date;
 }
 
 /**
  * The shows in `shows` at `roomId` headlined by `headlinerId`, split into those
- * starting at `instant` and those starting at another readable instant (see
- * storedStart). The caller passes one venue-local day's shows.
+ * starting at `start` and those starting at another readable instant. The
+ * caller passes one venue-local day's shows.
  */
 export function sameRoomShows(
   roomId: number,
   headlinerId: number,
-  instant: string,
+  start: string,
   shows: StoredShowForSameRoom[],
 ): { sameInstant: StoredShowForSameRoom[]; otherTime: StoredShowForSameRoom[] } {
-  const ours = Date.parse(instant);
+  const ours = Date.parse(start);
   const sameInstant: StoredShowForSameRoom[] = [];
   const otherTime: StoredShowForSameRoom[] = [];
   for (const show of shows) {
@@ -104,28 +116,23 @@ export function sameRoomShows(
   return { sameInstant, otherTime };
 }
 
-/** The venue-local hour a show listed with a date and no start is stored at. */
-const DATE_ONLY_CLOCK = "20:00";
-
-/** How far apart two times must be to read as a matinee and an evening show. */
-const MATINEE_GAP_MS = 3 * 60 * 60 * 1000;
-
-/**
- * A listing that states a day and is stored at the date-only hour without a
- * readable music time at that hour: no start time was stated or none could be
- * read (a doors-only listing is one). A readable music time at any other hour
- * moves the stored instant off it.
- */
-function statesNoStart(plan: SameRoomPlan, instant: string, zone: string): boolean {
-  if (readEventDate(plan.input.event_date, zone)?.kind !== "day") return false;
-  if (!localClock(instant, zone).startsWith(DATE_ONLY_CLOCK)) return false;
-  const music = parseClockTime(plan.input.music_at);
-  return !(music && `${String(music.hour).padStart(2, "0")}:${String(music.minute).padStart(2, "0")}` === DATE_ONLY_CLOCK);
+/** What a gap between two starts suggests, in the warnings' words. */
+export function gapReading(minutes: number): string {
+  return minutes < SAME_SHOW_SPAN_MINUTES
+    ? `${minutes} minutes apart: probably the same show, stored at another time`
+    : `${minutes} minutes apart: may be a second show the same day`;
 }
 
-/** A stored show with no music time whose start is the date-only hour. */
-function storesNoStart(show: StoredShowForSameRoom, zone: string): boolean {
-  return !show.music_at && localClock(show.event_date, zone).startsWith(DATE_ONLY_CLOCK);
+/**
+ * A listing that states a day and no start: written at the date-only hour with
+ * no music time. Its stored instant is a placeholder, not a start to compare.
+ */
+function statesNoStart(plan: SameRoomPlan, start: string, zone: string): boolean {
+  return (
+    readEventDate(plan.input.event_date, zone)?.kind === "day" &&
+    !plan.input.music_at &&
+    localClock(start, zone).startsWith(DATE_ONLY_CLOCK)
+  );
 }
 
 interface DayPage {
@@ -150,37 +157,39 @@ async function readDay(client: APIClient, fromDate: string, toDate: string): Pro
   return { shows, truncated: true };
 }
 
+const minutesBetween = (a: string, b: string) => Math.round(Math.abs(Date.parse(a) - Date.parse(b)) / 60000);
+
 /**
  * Prints the check. The stored-show half runs for every valid plan whose room
  * and headliner exist; the in-run half runs for every valid plan. `zoneOf` is
- * the zone the plan's clocks are read in and `instantOf` is the event_date the
- * plan will store, so the day and the time compared are the ones the show
- * would be written with.
+ * the zone the plan's clocks are read in and `startOf` is the plan's start (its
+ * music time when it states one, else the event_date it will be written with).
  *
- * A plan ph already treats as a duplicate is flagged only when the show it
- * matched is at a different time, no stored show of the same headliner at that
- * room is at the plan's own instant, and either both the listing and the
- * matched show state a start or the two are a matinee gap or more apart: ph
- * skips such a listing, so a second show that day cannot be added through it.
+ * A plan ph already treats as a duplicate is flagged when the show it matched
+ * starts at another time and no stored show of the same headliner at that room
+ * starts at the plan's own start; ph skips such a listing, so a second show
+ * that day cannot be added through it. A listing that states no start is
+ * flagged against a stored show only when the two are SAME_SHOW_SPAN_MINUTES
+ * or more apart, since its placeholder instant is not a start.
  */
 export async function reportSameRoomOtherTime<P extends SameRoomPlan>(
   client: APIClient,
   plans: P[],
   zoneOf: (plan: P) => { state?: string; timezone?: string },
-  instantOf: (plan: P) => string,
+  startOf: (plan: P) => string,
 ): Promise<void> {
   const lines: string[] = [];
 
   interface Placed {
     plan: P;
     index: number;
-    instant: string;
+    start: string;
     state?: string;
     timezone?: string;
     day: string;
-    /** The listing's clock as the warnings print it. */
+    /** The listing's start as the warnings print it. */
     clock: string;
-    noTime: boolean;
+    noStart: boolean;
     roomKey: string;
     headKey: string;
     label: string;
@@ -197,25 +206,25 @@ export async function reportSameRoomOtherTime<P extends SameRoomPlan>(
     if (!headliner || !room) continue;
     const { state, timezone } = zoneOf(plan);
     const zone = resolveVenueTimezone(state, timezone);
-    const instant = instantOf(plan);
-    const day = readEventDate(instant, zone)?.day;
-    if (!day || Number.isNaN(Date.parse(instant))) continue;
-    const noTime = statesNoStart(plan, instant, zone);
+    const start = startOf(plan);
+    const day = readEventDate(start, zone)?.day;
+    if (!day || Number.isNaN(Date.parse(start))) continue;
+    const noStart = statesNoStart(plan, start, zone);
     const p: Placed = {
       plan,
       index,
-      instant,
+      start,
       state,
       timezone,
       day,
-      noTime,
-      clock: noTime ? `no start time (it is stored at ${localClock(instant, zone)})` : localClock(instant, zone),
+      noStart,
+      clock: noStart ? `no start time (it is stored at ${localClock(start, zone)})` : localClock(start, zone),
       roomKey: room.id !== undefined ? `id:${room.id}` : `name:${fold(room.name)}`,
       headKey: headliner.id !== undefined ? `id:${headliner.id}` : `name:${fold(headliner.name)}`,
       label: `${clean(headliner.name)} on ${day} at ${clean(room.name)}`,
     };
     if (room.id !== undefined && headliner.id !== undefined) {
-      const window = showDedupWindow(instant, state, timezone);
+      const window = showDedupWindow(start, state, timezone);
       const dayKey = `${window.fromDate}|${window.toDate}`;
       if (!windows.has(dayKey)) windows.set(dayKey, window);
       p.stored = { roomId: room.id, headlinerId: headliner.id, dayKey };
@@ -242,7 +251,7 @@ export async function reportSameRoomOtherTime<P extends SameRoomPlan>(
     }
   };
 
-  for (const { plan, instant, state, timezone, label, clock, noTime, stored } of placed) {
+  for (const { plan, start, state, timezone, label, clock, noStart, stored } of placed) {
     if (!stored) continue;
     startThrough(dayKeys.indexOf(stored.dayKey) + CONCURRENT_DAY_READS - 1);
     const { page: found, error } = await reads.get(stored.dayKey)!;
@@ -254,41 +263,35 @@ export async function reportSameRoomOtherTime<P extends SameRoomPlan>(
     if (found.truncated) {
       lines.push(`${label}: read the first ${SCAN_CAP} shows that day and stopped; the rest were not checked`);
     }
-    const { sameInstant, otherTime } = sameRoomShows(stored.roomId, stored.headlinerId, instant, found.shows);
+    const { sameInstant, otherTime } = sameRoomShows(stored.roomId, stored.headlinerId, start, found.shows);
     for (const other of otherTime) {
+      const minutes = minutesBetween(start, storedStart(other));
+      if (noStart && minutes < SAME_SHOW_SPAN_MINUTES) continue;
       const venue = (other.venues ?? []).find((v) => v.id === stored.roomId);
       const theirZone = resolveVenueTimezone(venue?.state ?? state, venue?.timezone ?? timezone);
-      const theyStoreNoStart = storesNoStart(other, theirZone);
-      const startClock = localClock(storedStart(other), theirZone);
-      const theirs = theyStoreNoStart
-        ? `${startClock} with no start time stored`
-        : other.music_at && Date.parse(other.music_at) !== Date.parse(other.event_date)
-          ? `${startClock} (its music time; it is stored at ${localClock(other.event_date, theirZone)})`
-          : startClock;
+      const theirs =
+        other.music_at && Date.parse(other.music_at) !== Date.parse(other.event_date)
+          ? `${localClock(other.music_at, theirZone)} (its music time; it is stored at ${localClock(other.event_date, theirZone)})`
+          : localClock(storedStart(other), theirZone);
       const ref = other.slug ? clean(other.slug) : `show ${other.id}`;
       if (plan.duplicate?.isDuplicate) {
         if (plan.duplicate.existingShowId !== other.id || sameInstant.length > 0) continue;
-        // When one side states no start, a gap under a matinee gap is the same
-        // show gaining or lacking its time, which --confirm fills; a wider one
-        // may be a second show, as the finder's review rule reads it.
-        const gap = Math.abs(Date.parse(instant) - Date.parse(storedStart(other)));
-        if ((noTime || theyStoreNoStart) && gap < MATINEE_GAP_MS) continue;
         lines.push(
-          `${label}: ph skips this listing as a copy of ${ref}, which is at ${theirs} where this listing says ${clock}. ` +
-            `If they are two shows that day, ph cannot add this one, and --confirm writes any doors or music time ` +
-            `this listing states onto ${ref} where it has none`,
+          `${label}: ph skips this listing as a copy of ${ref}, which starts ${theirs} where this listing states ${clock}, ` +
+            `${gapReading(minutes)}. If it is a second show, ph cannot add it, and --confirm writes any doors or ` +
+            `music time this listing states onto ${ref} where it has none`,
         );
       } else {
         lines.push(
-          `${label}: ${ref} is already at this room that day with this headliner, at ${theirs}; this listing states ${clock}. ` +
-            `Two shows that day are real, one show listed again at a new time is a duplicate: check before --confirm`,
+          `${label}: ${ref} is already at this room that day with this headliner, starting ${theirs}; this listing ` +
+            `states ${clock}, ${gapReading(minutes)}. Check before --confirm`,
         );
       }
     }
   }
 
   // Within the run: two listings this run would create at one room on one day
-  // with one headliner, at different times.
+  // with one headliner, starting at different times.
   const creatable = placed.filter((p) => !p.plan.duplicate?.isDuplicate);
   for (const p of creatable) {
     const others = creatable.filter(
@@ -297,12 +300,13 @@ export async function reportSameRoomOtherTime<P extends SameRoomPlan>(
         q.roomKey === p.roomKey &&
         q.headKey === p.headKey &&
         q.day === p.day &&
-        Date.parse(q.instant) !== Date.parse(p.instant),
+        Date.parse(q.start) !== Date.parse(p.start),
     );
     for (const q of others) {
       lines.push(
         `${p.label}: show #${q.index + 1} in this run is at this room that day with this headliner and states ` +
-          `${q.clock}; this listing states ${p.clock}. Check before --confirm`,
+          `${q.clock}; this listing states ${p.clock}, ${gapReading(minutesBetween(p.start, q.start))}. ` +
+          `Check before --confirm`,
       );
     }
   }
