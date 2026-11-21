@@ -43,16 +43,18 @@ func sameLocalDateCSVRows(groups []catalog.SameLocalDateGroup) [][]string {
 	for _, g := range groups {
 		_, suggestions := catalog.SuggestSameLocalDateKeep(g)
 		for _, s := range suggestions {
-			mergeInto := s.Keep.Slug
-			if s.Action != catalog.SameLocalDateMerge {
-				mergeInto = ""
+			mergeInto := ""
+			if s.Action == catalog.SameLocalDateMerge {
+				mergeInto = s.Keep.Slug
 			}
+			// Slug cells are only cleaned: reattribute-shows looks them up as
+			// written. The prose cells also pass through spreadsheetSafe.
 			out = append(out, []string{
-				s.Copy.Slug,
-				g.Room.Slug,
-				sameLocalDateNote(g, s),
-				mergeInto,
-				fmt.Sprintf("%s (suggested): %s", s.Action, s.Reason),
+				clean(s.Copy.Slug),
+				clean(g.Room.Slug),
+				spreadsheetSafe(clean(sameLocalDateNote(g, s))),
+				clean(mergeInto),
+				spreadsheetSafe(clean(fmt.Sprintf("%s (suggested): %s", s.Action, s.Reason))),
 			})
 		}
 	}
@@ -89,34 +91,20 @@ func copyEvidence(c catalog.SameLocalDateCopy) string {
 		c.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"), source, tickets, c.Saves, c.Comments)
 }
 
-// freeTextColumns are the worklist columns holding prose rather than a slug.
-var freeTextColumns = map[int]bool{2: true, 4: true}
-
-// writeSameLocalDateCSV writes the worklist. Every cell is cleaned, and the
-// prose cells pass through spreadsheetSafe.
+// writeSameLocalDateCSV writes the worklist.
 func writeSameLocalDateCSV(w io.Writer, groups []catalog.SameLocalDateGroup) error {
 	cw := csv.NewWriter(w)
 	if err := cw.Write(sameLocalDateCSVHeader); err != nil {
 		return err
 	}
-	for _, row := range sameLocalDateCSVRows(groups) {
-		for i := range row {
-			row[i] = clean(row[i])
-			if freeTextColumns[i] {
-				row[i] = spreadsheetSafe(row[i])
-			}
-		}
-		if err := cw.Write(row); err != nil {
-			return err
-		}
+	if err := cw.WriteAll(sameLocalDateCSVRows(groups)); err != nil {
+		return err
 	}
-	cw.Flush()
 	return cw.Error()
 }
 
 // spreadsheetSafe keeps a prose cell that starts with an act's name from being
-// read as a formula by a spreadsheet the reviewer opens the file in. Slug cells
-// are left alone: reattribute-shows looks them up as written.
+// read as a formula by a spreadsheet the reviewer opens the file in.
 func spreadsheetSafe(s string) string {
 	if s != "" && strings.ContainsRune("=+-@", rune(s[0])) {
 		return "'" + s
@@ -210,9 +198,7 @@ func mainSameLocalDate() {
 		fail("write %s: %v", csvPath, err)
 	}
 	if err := worklist.Close(); err != nil {
-		worklist = nil
-		_ = os.Remove(csvPath)
-		log.Fatalf("close %s: %v", csvPath, err)
+		fail("close %s: %v", csvPath, err)
 	}
 	fmt.Printf("\nWrote %s. To merge: review every row and clear suggested_merge_into_show_slug on any "+
 		"row that should not merge; then rename suggested_merge_into_show_slug to merge_into_show_slug and "+

@@ -40,12 +40,11 @@ const matineeGap = 3 * time.Hour
 
 // SameLocalDateRoom is the room a group shares.
 type SameLocalDateRoom struct {
-	ID       uint
-	Slug     string
-	Name     string
-	City     string
-	State    string
-	Timezone *string
+	ID    uint
+	Slug  string
+	Name  string
+	City  string
+	State string
 }
 
 // SameLocalDateCopy is one show in a group.
@@ -70,8 +69,8 @@ type SameLocalDateCopy struct {
 	RoomCount int
 }
 
-// StatesTime is the opposite of DateOnlyAnchor.
-func (c SameLocalDateCopy) StatesTime() bool { return !c.DateOnlyAnchor }
+// statesTime is the opposite of DateOnlyAnchor.
+func (c SameLocalDateCopy) statesTime() bool { return !c.DateOnlyAnchor }
 
 func (c SameLocalDateCopy) engaged() bool { return c.Saves > 0 || c.Comments > 0 }
 
@@ -120,7 +119,7 @@ func FindSameLocalDateGroups(db *gorm.DB) ([]SameLocalDateGroup, error) {
 				FROM show_artists
 				JOIN artists ON artists.id = show_artists.artist_id
 				JOIN shows ON shows.id = show_artists.show_id AND shows.status = 'approved'
-				ORDER BY show_artists.show_id, `+showBillHeadlinerRank+`
+				ORDER BY show_artists.show_id, ` + showBillHeadlinerRank + `
 			), placed AS (
 				SELECT shows.id AS show_id, shows.event_date, show_venues.venue_id,
 				       head.artist_id, head.artist_name
@@ -132,8 +131,8 @@ func FindSameLocalDateGroups(db *gorm.DB) ([]SameLocalDateGroup, error) {
 				WHERE EXISTS (
 					SELECT 1 FROM placed b
 					WHERE b.venue_id = a.venue_id AND b.artist_id = a.artist_id AND b.show_id <> a.show_id
-					  AND b.event_date > a.event_date - interval '`+sameLocalDateCandidateWindow+`'
-					  AND b.event_date < a.event_date + interval '`+sameLocalDateCandidateWindow+`'
+					  AND b.event_date > a.event_date - interval '` + sameLocalDateCandidateWindow + `'
+					  AND b.event_date < a.event_date + interval '` + sameLocalDateCandidateWindow + `'
 				)
 			)
 			SELECT s.id AS show_id, s.slug, s.event_date, s.music_at, s.created_at,
@@ -166,14 +165,13 @@ func groupSameLocalDateRows(rows []sameLocalDateRow) []SameLocalDateGroup {
 	groups := map[key]*SameLocalDateGroup{}
 	var order []key
 	for _, r := range rows {
-		loc := utils.EventLocation(r.RoomTimezone, r.RoomState)
-		local := r.EventDate.In(loc)
-		k := key{room: r.RoomID, artist: r.ArtistID, date: local.Format("2006-01-02")}
+		local := r.EventDate.In(utils.EventLocation(r.RoomTimezone, r.RoomState))
+		k := key{room: r.RoomID, artist: r.ArtistID, date: venueRowLocalDate(r.EventDate, r.RoomTimezone, r.RoomState)}
 		g, ok := groups[k]
 		if !ok {
 			g = &SameLocalDateGroup{
 				Room: SameLocalDateRoom{ID: r.RoomID, Slug: shared.DerefOrEmpty(r.RoomSlug), Name: r.RoomName,
-					City: r.RoomCity, State: r.RoomState, Timezone: r.RoomTimezone},
+					City: r.RoomCity, State: r.RoomState},
 				LocalDate: k.date, HeadlinerID: r.ArtistID, HeadlinerName: r.ArtistName,
 			}
 			groups[k] = g
@@ -264,8 +262,8 @@ func keepRanksAhead(a, b SameLocalDateCopy) bool {
 	if a.engaged() != b.engaged() {
 		return a.engaged()
 	}
-	if a.StatesTime() != b.StatesTime() {
-		return a.StatesTime()
+	if a.statesTime() != b.statesTime() {
+		return a.statesTime()
 	}
 	if !a.CreatedAt.Equal(b.CreatedAt) {
 		return a.CreatedAt.Before(b.CreatedAt)
@@ -276,7 +274,7 @@ func keepRanksAhead(a, b SameLocalDateCopy) bool {
 func suggestFor(keep, c SameLocalDateCopy) SameLocalDateSuggestion {
 	s := SameLocalDateSuggestion{Copy: c, Keep: keep}
 	gap := keep.EventDate.Sub(c.EventDate).Abs()
-	if keep.StatesTime() && c.StatesTime() && gap >= matineeGap {
+	if keep.statesTime() && c.statesTime() && gap >= matineeGap {
 		s.Action = SameLocalDateKeepBoth
 		s.Reason = fmt.Sprintf("both state a time, %s and %s, %s apart: they look like a matinee and an evening show",
 			c.LocalTime, keep.LocalTime, formatGap(gap))
@@ -288,7 +286,7 @@ func suggestFor(keep, c SameLocalDateCopy) SameLocalDateSuggestion {
 	switch {
 	case keep.engaged() && !c.engaged():
 		why = fmt.Sprintf("it has %d saves and %d comments, and this copy has none", keep.Saves, keep.Comments)
-	case keep.StatesTime() && !c.StatesTime():
+	case keep.statesTime() && !c.statesTime():
 		why = fmt.Sprintf("it states a time (%s), and this copy is at the 20:00 date-only anchor", keep.LocalTime)
 	case !keep.CreatedAt.Equal(c.CreatedAt):
 		why = fmt.Sprintf("it is the older row (created %s)", keep.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"))
@@ -299,7 +297,7 @@ func suggestFor(keep, c SameLocalDateCopy) SameLocalDateSuggestion {
 	if keep.engaged() && c.engaged() {
 		parts = append(parts, "both copies have saves or comments; the merge moves this copy's onto the kept one")
 	}
-	if c.StatesTime() && !keep.StatesTime() {
+	if c.statesTime() && !keep.statesTime() {
 		parts = append(parts, fmt.Sprintf("this copy's time (%s) is not carried by the merge; the kept copy stays at %s",
 			c.LocalTime, keep.LocalTime))
 	}

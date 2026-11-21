@@ -3,7 +3,7 @@ import * as display from "./display";
 import { showDedupWindow } from "./duplicates";
 import { readEventDate } from "./showTimes";
 import { resolveVenueTimezone } from "./timezone";
-import { headlinerOf } from "./sameNightOtherRoom";
+import { clean, fold, headlinerOf } from "./sameNightOtherRoom";
 
 /**
  * Flag-only QA check for the dry run: a show whose headliner already has a show
@@ -43,13 +43,9 @@ const PAGE = 200;
 const SCAN_CAP = 600;
 
 /**
- * Replaces control and format characters (bidirectional overrides among them)
- * and the Unicode line separators, so a stored name cannot rewrite or reorder
- * the terminal line the operator reads.
+ * The stored show's headliner: role first, then bill position, then id, the
+ * order the backend's showBillHeadlinerRank ranks a bill in.
  */
-const clean = (s: string) => s.replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, "?");
-
-/** The stored show's headliner: role first, then bill position, then id. */
 export function storedHeadlinerId(show: StoredShowForSameRoom): number | undefined {
   const ranked = [...(show.artists ?? [])].sort(
     (a, b) =>
@@ -131,16 +127,23 @@ export async function reportSameRoomOtherTime<P extends SameRoomPlan>(
   instantOf: (plan: P) => string,
 ): Promise<void> {
   const lines: string[] = [];
-  const days = new Map<string, Promise<DayPage>>();
+  // Every day is requested before any is awaited, so the reads overlap; each is
+  // held settled, so a failed one waits for its turn to be reported.
+  const days = new Map<string, Promise<{ page?: DayPage; error?: unknown }>>();
 
   interface Placed {
+    plan: P;
     index: number;
     instant: string;
     zone: string;
+    state?: string;
+    timezone?: string;
     day: string;
     roomKey: string;
     headKey: string;
     label: string;
+    /** Set when the room and the headliner both exist, so stored shows can be read. */
+    stored?: { roomId: number; headlinerId: number; read: Promise<{ page?: DayPage; error?: unknown }> };
   }
   const placed: Placed[] = [];
 
@@ -154,32 +157,39 @@ export async function reportSameRoomOtherTime<P extends SameRoomPlan>(
     const instant = instantOf(plan);
     const day = readEventDate(instant, zone)?.day;
     if (!day || Number.isNaN(Date.parse(instant))) continue;
-    const label = `${clean(headliner.name)} on ${day} at ${clean(room.name)}`;
-    placed.push({
+    const p: Placed = {
+      plan,
       index,
       instant,
       zone,
+      state,
+      timezone,
       day,
-      roomKey: room.id !== undefined ? `id:${room.id}` : `name:${room.name.trim().toLowerCase()}`,
-      headKey: headliner.id !== undefined ? `id:${headliner.id}` : `name:${headliner.name.trim().toLowerCase()}`,
-      label,
-    });
-
-    // The catalog half needs both ids: a room or headliner this run would
-    // create has no stored shows.
-    if (room.id === undefined || headliner.id === undefined) continue;
-    const { fromDate, toDate } = showDedupWindow(instant, state, timezone);
-    const key = `${fromDate}|${toDate}`;
-    let page = days.get(key);
-    if (!page) {
-      page = readDay(client, fromDate, toDate);
-      days.set(key, page);
+      roomKey: room.id !== undefined ? `id:${room.id}` : `name:${fold(room.name)}`,
+      headKey: headliner.id !== undefined ? `id:${headliner.id}` : `name:${fold(headliner.name)}`,
+      label: `${clean(headliner.name)} on ${day} at ${clean(room.name)}`,
+    };
+    if (room.id !== undefined && headliner.id !== undefined) {
+      const { fromDate, toDate } = showDedupWindow(instant, state, timezone);
+      const key = `${fromDate}|${toDate}`;
+      let read = days.get(key);
+      if (!read) {
+        read = readDay(client, fromDate, toDate).then(
+          (page) => ({ page }),
+          (error: unknown) => ({ error }),
+        );
+        days.set(key, read);
+      }
+      p.stored = { roomId: room.id, headlinerId: headliner.id, read };
     }
-    let found: DayPage;
-    try {
-      found = await page;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
+    placed.push(p);
+  }
+
+  for (const { plan, instant, zone, state, timezone, label, stored } of placed) {
+    if (!stored) continue;
+    const { page: found, error } = await stored.read;
+    if (!found) {
+      const message = error instanceof Error ? error.message : "Unknown error";
       lines.push(`${label}: could not read that day's shows (${clean(message)}); not checked`);
       continue;
     }
@@ -187,8 +197,8 @@ export async function reportSameRoomOtherTime<P extends SameRoomPlan>(
       lines.push(`${label}: read the first ${SCAN_CAP} shows that day and stopped; the rest were not checked`);
     }
     const ours = localClock(instant, zone);
-    for (const other of sameRoomOtherTimeShows(room.id, headliner.id, instant, found.shows)) {
-      const venue = (other.venues ?? []).find((v) => v.id === room.id);
+    for (const other of sameRoomOtherTimeShows(stored.roomId, stored.headlinerId, instant, found.shows)) {
+      const venue = (other.venues ?? []).find((v) => v.id === stored.roomId);
       const theirs = localClock(other.event_date, resolveVenueTimezone(venue?.state ?? state, venue?.timezone ?? timezone));
       const ref = other.slug ? clean(other.slug) : `show ${other.id}`;
       if (plan.duplicate?.isDuplicate) {
@@ -209,7 +219,7 @@ export async function reportSameRoomOtherTime<P extends SameRoomPlan>(
 
   // Within the run: two listings this run would create at one room on one day
   // with one headliner, at different times.
-  const creatable = placed.filter((p) => !plans[p.index].duplicate?.isDuplicate);
+  const creatable = placed.filter((p) => !p.plan.duplicate?.isDuplicate);
   for (const p of creatable) {
     const others = creatable.filter(
       (q) =>

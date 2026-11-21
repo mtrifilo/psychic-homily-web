@@ -31,11 +31,9 @@ func at(s string) time.Time {
 }
 
 func worklistGroups() []catalog.SameLocalDateGroup {
-	la := "America/Los_Angeles"
-	chicago := "America/Chicago"
 	return []catalog.SameLocalDateGroup{
 		{
-			Room:      catalog.SameLocalDateRoom{ID: 7, Slug: "the-casbah", Name: "The Casbah", City: "San Diego", State: "CA", Timezone: &la},
+			Room:      catalog.SameLocalDateRoom{ID: 7, Slug: "the-casbah", Name: "The Casbah", City: "San Diego", State: "CA"},
 			LocalDate: "2026-12-06", HeadlinerID: 3, HeadlinerName: "The Beat Farmers",
 			Copies: []catalog.SameLocalDateCopy{
 				{ShowID: 21, Slug: "2026-12-06-the-beat-farmers-at-casbah", EventDate: at("2026-12-07T00:00:00Z"),
@@ -46,7 +44,7 @@ func worklistGroups() []catalog.SameLocalDateGroup {
 			},
 		},
 		{
-			Room:      catalog.SameLocalDateRoom{ID: 9, Slug: "space", Name: "SPACE", City: "Evanston", State: "IL", Timezone: &chicago},
+			Room:      catalog.SameLocalDateRoom{ID: 9, Slug: "space", Name: "SPACE", City: "Evanston", State: "IL"},
 			LocalDate: "2026-08-07", HeadlinerID: 4, HeadlinerName: "+/- (Plus Minus)",
 			Copies: []catalog.SameLocalDateCopy{
 				{ShowID: 31, Slug: "2026-08-07-plus-minus-at-space-2", EventDate: at("2026-08-07T20:00:00Z"),
