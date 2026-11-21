@@ -282,7 +282,8 @@ export const CONFIRM_ARMING_DELAY_MS = 400
  * Asks before a change that disconnects every calendar and feed reader, in
  * the card itself rather than a dialog. Focus moves to the question when it
  * opens, so a screen reader reads it before the buttons. The destructive
- * button acts only once CONFIRM_ARMING_DELAY_MS has passed; Cancel always acts.
+ * button acts only once CONFIRM_ARMING_DELAY_MS has passed; Cancel is not
+ * delayed.
  */
 function InlineConfirmation({
   sentence,
