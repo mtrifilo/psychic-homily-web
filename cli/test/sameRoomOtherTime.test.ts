@@ -357,6 +357,50 @@ describe("reportSameRoomOtherTime", () => {
     expect(most).toBeGreaterThan(1);
   });
 
+  test("says so when a day holds more shows than the read cap", async () => {
+    const page = Array.from({ length: 200 }, (_, i) => stored(1000 + i, "2026-10-10T03:00:00Z", { venues: [] }));
+    const { client: c, calls } = client(() => ({ shows: page, total: 900 }));
+    await reportSameRoomOtherTime(c, [plan()], pacific, () => "2026-10-10T03:30:00.000Z");
+    expect(calls).toHaveLength(3);
+    expect(warnings).toEqual([
+      "MARIS on 2026-10-09 at The Casbah: read the first 600 shows that day and stopped; the rest were not checked",
+    ]);
+  });
+
+  test("reads a bare-array response, ending on a short page", async () => {
+    const { client: c, calls } = client(() => [stored(1, "2026-10-10T03:00:00Z", { music_at: "2026-10-10T03:00:00Z" })]);
+    await reportSameRoomOtherTime(c, [plan()], pacific, () => "2026-10-10T03:30:00.000Z");
+    expect(calls).toHaveLength(1);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("show-1 is already at this room that day");
+  });
+
+  test("the in-run check matches a new room and a new act by name, and leaves out duplicates", async () => {
+    const { client: c } = client(() => ({ shows: [] }));
+    const fresh = (music: string, over: Partial<SameRoomPlan> = {}) =>
+      plan({
+        input: { event_date: "2026-10-09", music_at: music },
+        artists: [{ name: "Brand New Act", set_type: "headliner" }],
+        venues: [{ name: "New Room" }],
+        ...over,
+      });
+    await reportSameRoomOtherTime(
+      c,
+      [fresh("3:00 PM"), fresh("8:30 PM", { venues: [{ name: " new room " }] }), fresh("9:00 PM", { duplicate: { isDuplicate: true } })],
+      pacific,
+      (p) =>
+        p.input.music_at === "3:00 PM"
+          ? "2026-10-09T22:00:00.000Z"
+          : p.input.music_at === "8:30 PM"
+            ? "2026-10-10T03:30:00.000Z"
+            : "2026-10-10T04:00:00.000Z",
+    );
+    expect(warnings).toHaveLength(2);
+    expect(warnings[0]).toContain("show #2 in this run");
+    expect(warnings[1]).toContain("show #1 in this run");
+    expect(warnings.some((w) => w.includes("show #3"))).toBe(false);
+  });
+
   test("a failed read is reported as not checked and never throws", async () => {
     const { client: c } = client(() => {
       throw new Error("HTTP 503");

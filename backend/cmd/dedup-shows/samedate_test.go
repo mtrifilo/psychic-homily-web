@@ -148,6 +148,33 @@ func TestValidateSameLocalDateFlags(t *testing.T) {
 	assert.NoError(t, validateSameLocalDateFlags(false, "/tmp/env"))
 }
 
+func TestLoadNamedEnvOverridesAnExportedDatabaseURL(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://exported.example/prod")
+	file := filepath.Join(t.TempDir(), "stage.env")
+	require.NoError(t, os.WriteFile(file, []byte("DATABASE_URL=postgres://named.example/stage\n"), 0o600))
+
+	require.NoError(t, loadNamedEnv(file))
+
+	assert.Equal(t, "postgres://named.example/stage", os.Getenv("DATABASE_URL"))
+}
+
+func TestLoadNamedEnvRefusesAFileWithoutADatabaseURL(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://exported.example/prod")
+	t.Setenv("ENVIRONMENT", "development")
+	file := filepath.Join(t.TempDir(), "partial.env")
+	require.NoError(t, os.WriteFile(file, []byte("ENVIRONMENT=stage\n"), 0o600))
+
+	require.ErrorContains(t, loadNamedEnv(file), "sets no DATABASE_URL")
+	assert.Equal(t, "postgres://exported.example/prod", os.Getenv("DATABASE_URL"))
+	assert.Equal(t, "development", os.Getenv("ENVIRONMENT"), "nothing from the refused file is loaded")
+	require.ErrorContains(t, loadNamedEnv(filepath.Join(t.TempDir(), "absent.env")), "read env file")
+}
+
+func TestRedactDBHostDropsCredentials(t *testing.T) {
+	assert.Equal(t, "db.example:5432/app", redactDBHost("postgres://user:secret@db.example:5432/app?sslmode=require"))
+	assert.Equal(t, "(unparseable)", redactDBHost("not a url"))
+}
+
 func TestCreateWorklistFileNeverOverwrites(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "worklist.csv")
 	require.NoError(t, os.WriteFile(path, []byte("reviewed\n"), 0o600))
