@@ -2,6 +2,7 @@ package routes
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
@@ -22,8 +23,8 @@ import (
 // POST /calendar/token through a router built the way the server builds it,
 // with the engagement-mutation limiter mounted and its opt-in flag unset: ten
 // mints in a clock hour answer 200, and the eleventh answers 429 with the
-// cap's code, the line the surfaces show for a link that could not be made,
-// and a Retry-After of the seconds to the next clock hour. The link minted
+// cap's code, the saved-shows panel's line for a link it could not make, and a
+// Retry-After of the seconds to the next clock hour. The link minted
 // tenth still works and no retired row was added. Run with -v to print the
 // eleventh response.
 func TestCalendarLinkHourlyCapThroughRouter(t *testing.T) {
@@ -79,7 +80,12 @@ func TestCalendarLinkHourlyCapThroughRouter(t *testing.T) {
 			last = minted.Token
 		}
 
+		// The server reads its clock between these two readings, so the
+		// seconds it counts to the next hour lie between them.
+		nextHour := startHour.Add(time.Hour)
+		mostSeconds := math.Ceil(time.Until(nextHour).Seconds())
 		w := post(session)
+		leastSeconds := math.Ceil(time.Until(nextHour).Seconds())
 		requestHour := time.Now().UTC().Truncate(time.Hour)
 		if !requestHour.Equal(startHour) {
 			if attempt == 2 {
@@ -113,9 +119,8 @@ func TestCalendarLinkHourlyCapThroughRouter(t *testing.T) {
 			t.Errorf("body = %+v", body)
 		}
 		retryAfter, err := strconv.Atoi(w.Header().Get("Retry-After"))
-		toNextHour := time.Until(startHour.Add(time.Hour)).Seconds()
-		if err != nil || retryAfter < 1 || float64(retryAfter) < toNextHour-5 || float64(retryAfter) > toNextHour+1 {
-			t.Errorf("Retry-After = %q, want about %.0f, the seconds to the next clock hour", w.Header().Get("Retry-After"), toNextHour)
+		if err != nil || retryAfter < 1 || float64(retryAfter) < leastSeconds || float64(retryAfter) > max(mostSeconds, 1) {
+			t.Errorf("Retry-After = %q, want the seconds to the next clock hour, %.0f to %.0f", w.Header().Get("Retry-After"), leastSeconds, mostSeconds)
 		}
 
 		if got := retiredRows(); got != retiredAtStart+9 {

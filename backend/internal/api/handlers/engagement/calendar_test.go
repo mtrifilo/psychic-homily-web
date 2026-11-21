@@ -129,8 +129,8 @@ func TestCreateCalendarTokenHandler_ServiceError(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 500)
 }
 
-// The hourly cap answers 429 with its own code, the line every surface shows
-// for a link that could not be made, and a Retry-After in whole seconds
+// The hourly cap answers 429 with its own code, the saved-shows panel's line
+// for a link it could not make, and a Retry-After in whole seconds
 // (calendarRateLimited, whose rounding the steps handler's tests cover).
 func TestCreateCalendarTokenHandler_HourlyCapAnswers429WithRetryAfter(t *testing.T) {
 	mock := &testhelpers.MockCalendarService{

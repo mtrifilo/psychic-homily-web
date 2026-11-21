@@ -18,7 +18,8 @@ const SHOW_TITLE = 'E2E [calendar-panel-test]'
 /**
  * Puts the worker's user back to "never saved, never hinted, no calendar
  * link": the only state in which a save opens the hint. The link's checks
- * cascade with it.
+ * cascade with it. The hour's link count goes too, so repeated runs against
+ * one database never reach the hourly cap on making a link.
  */
 async function resetCalendarState(userId: number) {
   await resetTestFixtures(userId, ['user_bookmarks'])
@@ -28,6 +29,7 @@ async function resetCalendarState(userId: number) {
       `WHERE user_id = ${userId}`
   )
   runE2ESql(`DELETE FROM calendar_tokens WHERE user_id = ${userId}`)
+  runE2ESql(`DELETE FROM calendar_link_mint_counts WHERE user_id = ${userId}`)
 }
 
 test.describe('Saved-shows calendar panel', () => {

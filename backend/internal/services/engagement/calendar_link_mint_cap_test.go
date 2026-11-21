@@ -10,6 +10,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	engagementm "psychic-homily-backend/internal/models/engagement"
+	"psychic-homily-backend/internal/testutil"
 )
 
 // drivenClock is a clock a test sets, read by the service's transactions.
@@ -194,21 +195,19 @@ func (suite *CalendarIntegrationTestSuite) TestCreateToken_TwoConcurrentMintsAtN
 	suite.mintNine(svc, clock, user.ID)
 
 	start := make(chan struct{})
-	errs := make([]error, 2)
-	var wg sync.WaitGroup
-	for i := range errs {
-		wg.Add(1)
+	results := make(chan error, 2)
+	for range 2 {
 		go func() {
-			defer wg.Done()
 			<-start
-			_, errs[i] = svc.CreateToken(user.ID, nil, "http://localhost:8080")
+			_, err := svc.CreateToken(user.ID, nil, "http://localhost:8080")
+			results <- err
 		}()
 	}
 	close(start)
-	wg.Wait()
 
 	var made, refused int
-	for _, err := range errs {
+	for range 2 {
+		err := testutil.AwaitConcurrentWrite(suite.T(), results)
 		var limited *apperrors.CalendarLinkRateLimitedError
 		switch {
 		case err == nil:
@@ -224,26 +223,6 @@ func (suite *CalendarIntegrationTestSuite) TestCreateToken_TwoConcurrentMintsAtN
 	_, count, _ := suite.mintCount(user.ID)
 	suite.Equal(calendarLinkMintsPerHour, count)
 	suite.Equal(int64(calendarLinkMintsPerHour-1), suite.retiredRowCount())
-}
-
-// waitForALockWait returns once some session is waiting on a lock on the
-// count table, failing the test if none does within a few seconds.
-func (suite *CalendarIntegrationTestSuite) waitForALockWait() {
-	suite.T().Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		var waiting int64
-		suite.Require().NoError(suite.db.Raw(`
-			SELECT count(*) FROM pg_stat_activity
-			WHERE wait_event_type = 'Lock' AND query LIKE '%calendar_link_mint_counts%'`).Scan(&waiting).Error)
-		if waiting > 0 {
-			return
-		}
-		if time.Now().After(deadline) {
-			suite.FailNow("no mint waited on the uncommitted count")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
 }
 
 // While one mint's count is uncommitted, another mint of the same account
@@ -264,26 +243,20 @@ func (suite *CalendarIntegrationTestSuite) TestCreateToken_WaitsForAnUncommitted
 			defer tx.Rollback()
 			suite.Require().NoError(countCalendarLinkMintTx(tx, user.ID, clock.read()))
 
-			done := make(chan error, 1)
-			go func() {
+			done := testutil.StartOnAnotherConnection(suite.T(), suite.db, func() error {
 				_, err := svc.CreateToken(user.ID, nil, "http://localhost:8080")
-				done <- err
-			}()
-			suite.waitForALockWait()
-			select {
-			case err := <-done:
-				suite.FailNow("the second mint did not wait for the first's count", "returned %v", err)
-			default:
-			}
+				return err
+			})
+			suite.Require().Empty(done, "the second mint did not wait for the first's count")
 
 			if commit {
 				suite.Require().NoError(tx.Commit().Error)
 				var limited *apperrors.CalendarLinkRateLimitedError
-				err := <-done
+				err := testutil.AwaitConcurrentWrite(suite.T(), done)
 				suite.True(errors.As(err, &limited), "want the hourly cap's refusal, got %v", err)
 			} else {
 				suite.Require().NoError(tx.Rollback().Error)
-				suite.NoError(<-done)
+				suite.NoError(testutil.AwaitConcurrentWrite(suite.T(), done))
 			}
 			_, count, _ := suite.mintCount(user.ID)
 			suite.Equal(calendarLinkMintsPerHour, count)

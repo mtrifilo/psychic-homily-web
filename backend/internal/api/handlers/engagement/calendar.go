@@ -230,8 +230,8 @@ type CreateCalendarTokenResponse struct {
 // counts as a session here.
 //
 // Past the account's hourly cap on making links it answers 429
-// CALENDAR_LINK_RATE_LIMITED_HOURLY with a Retry-After of the seconds to the
-// next clock hour, and the current link is unchanged. The cap is the
+// CALENDAR_LINK_RATE_LIMITED_HOURLY with a Retry-After of the seconds until
+// the counted clock hour ends, and the current link is unchanged. The cap is the
 // service's, so it holds whether or not the engagement-mutation limiter is
 // switched on.
 func (h *CalendarHandler) CreateCalendarTokenHandler(ctx context.Context, req *CreateCalendarTokenRequest) (*CreateCalendarTokenResponse, error) {

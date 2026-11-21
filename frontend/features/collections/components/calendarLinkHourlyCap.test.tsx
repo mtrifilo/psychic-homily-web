@@ -6,6 +6,7 @@ import { useRef, useState } from 'react'
 import { server as msw } from '@/test/mocks/server'
 import { createTestQueryClient, createWrapperWithClient } from '@/test/utils'
 import { CalendarFeedSection } from './CalendarFeedSection'
+import { FollowsActivityFeedSection } from './FollowsActivityFeedSection'
 import { SavedShowsCalendarPanel } from './saved-shows-calendar/SavedShowsCalendarPanel'
 import { CalendarStepsPage } from './saved-shows-calendar/CalendarStepsPage'
 import { STEPS_PAGE_COPY } from './saved-shows-calendar/calendarStepsPageCopy'
@@ -129,11 +130,12 @@ describe('the hourly cap on making a calendar link', () => {
     expectEveryMintRefusedByTheCap()
   })
 
-  it('the Settings feed card shows its existing mint-failure line', async () => {
+  it.each([
+    ['saved shows calendar', () => <CalendarFeedSection variant="settings" />],
+    ['followed artists activity', () => <FollowsActivityFeedSection />],
+  ])('the Settings %s feed card shows its existing mint-failure line', async (_name, card) => {
     const user = userEvent.setup()
-    render(<CalendarFeedSection variant="settings" />, {
-      wrapper: createWrapperWithClient(createTestQueryClient()),
-    })
+    render(card(), { wrapper: createWrapperWithClient(createTestQueryClient()) })
 
     await user.click(await screen.findByRole('button', { name: 'Enable' }))
 
