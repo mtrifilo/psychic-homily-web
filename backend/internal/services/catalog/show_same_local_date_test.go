@@ -151,9 +151,10 @@ func (s *SameLocalDateTestSuite) TestAPairThatDiffersByClockTimeIsOneGroup() {
 	s.Equal("MARIS", g.HeadlinerName)
 	s.Equal("the-casbah", g.Room.Slug)
 	s.Equal([]string{"2026-10-09-maris-at-the-casbah", "2026-10-09-maris-at-casbah"}, groupSlugs(g))
-	s.True(g.Copies[0].DateOnlyAnchor, "8pm with no music time reads as the date-only anchor")
-	s.False(g.Copies[1].DateOnlyAnchor)
-	s.Equal("20:30 PDT", g.Copies[1].LocalTime)
+	s.False(g.Copies[0].StatesStart(), "8pm with no music time states no start")
+	s.Equal("20:00 PDT with no music time stored, so it may be the date-only anchor", g.Copies[0].Clock)
+	s.True(g.Copies[1].StatesStart())
+	s.Equal("music 20:30 PDT", g.Copies[1].Clock)
 }
 
 func (s *SameLocalDateTestSuite) TestAPairAcrossMidnightUTCOnOneVenueLocalDayIsOneGroup() {
@@ -201,7 +202,7 @@ func (s *SameLocalDateTestSuite) TestAVenueWithNoStoredTimezoneIsDatedByItsState
 	s.Require().Len(groups, 1)
 	s.Equal("2026-10-07", groups[0].LocalDate)
 	s.Equal("16:30 PDT", groups[0].Copies[0].LocalTime)
-	s.True(groups[0].Copies[1].DateOnlyAnchor, "the state's zone reads the 03:00 UTC copy as 8pm")
+	s.False(groups[0].Copies[1].StatesStart(), "the state's zone reads the 03:00 UTC copy as 8pm, the date-only hour")
 }
 
 func (s *SameLocalDateTestSuite) TestOtherHeadlinersOtherRoomsAndUnapprovedShowsAreNotGrouped() {
@@ -268,16 +269,18 @@ func (s *SameLocalDateTestSuite) TestCountsSavesAndComments() {
 	// Saves and comments move with a merge, so they do not decide which copy is
 	// kept: the 8:30 copy states a time and the saved 8pm copy may not.
 	keep, rows := SuggestSameLocalDateKeep(groups[0])
+	s.Require().NotNil(keep)
 	s.Equal(newer, keep.ShowID)
 	s.Require().Len(rows, 1)
 	s.Equal(SameLocalDateMerge, rows[0].Action)
-	s.Contains(rows[0].Reason, "states a time (20:30 PDT)")
+	s.Contains(rows[0].Reason, "states a start time (start 20:30 PDT)")
 	s.Contains(rows[0].Reason, "this copy's 2 saves and 1 visible comments move to the kept copy")
 }
 
 // A listing with doors and no music time is stored at the date-only hour with
-// its doors time; that doors time is what it states, so a doors-3pm copy and a
-// 9pm copy are a matinee and an evening show.
+// its doors time. It states no start, and its doors time is what the matinee
+// rule compares, so a doors-3pm copy and a 9pm copy are a matinee and an
+// evening show.
 func (s *SameLocalDateTestSuite) TestADoorsOnlyCopyStatesItsDoorsTime() {
 	casbah := s.room("the-casbah", "The Casbah", zonePtr(losAngeles))
 	act := s.artist("Doors Only Act")
@@ -291,12 +294,40 @@ func (s *SameLocalDateTestSuite) TestADoorsOnlyCopyStatesItsDoorsTime() {
 	s.Require().Len(groups, 1)
 	matinee := groups[0].Copies[0]
 	s.Equal("doors-only-matinee", matinee.Slug)
-	s.False(matinee.DateOnlyAnchor, "a stored doors time is a stated time")
-	s.Equal("15:00 PDT", matinee.DoorsTime)
-	s.Contains(matinee.Details, "doors time")
+	s.False(matinee.StatesStart())
+	s.Equal("20:00 PDT with no music time stored, so it may be the date-only anchor, doors 15:00 PDT", matinee.Clock)
+	s.Contains(matinee.DroppedFields, "doors time")
 	_, rows := SuggestSameLocalDateKeep(groups[0])
 	s.Require().Len(rows, 1)
 	s.Equal(SameLocalDateKeepBoth, rows[0].Action, rows[0].Reason)
+	s.Contains(rows[0].Reason, "doors 15:00 PDT")
+	s.Contains(rows[0].Reason, "music 21:00 PDT")
+	s.Contains(rows[0].Reason, "6h apart")
+}
+
+// Every column the finder reads into DroppedFields and IsCancelled is read
+// from the database under the name the query selects.
+func (s *SameLocalDateTestSuite) TestReadsEveryDroppedFieldFromTheRow() {
+	casbah := s.room("the-casbah", "The Casbah", zonePtr(losAngeles))
+	act := s.artist("Full Record")
+	evening := time.Date(2026, 10, 12, 3, 0, 0, 0, time.UTC)
+	doors := evening.Add(-time.Hour)
+	full := s.show(showSpec{slug: "full", at: evening, doorsAt: &doors, cancelled: true,
+		ticket: "https://tickets.example/full", rooms: []uint{casbah.ID}, acts: []uint{act}})
+	s.Require().NoError(s.db.Exec(`UPDATE shows SET price = 10, door_price = 12, age_requirement = '21+',
+		description = 'a night', image_url = 'https://img.example/x.jpg', is_sold_out = true WHERE id = ?`, full).Error)
+	s.show(showSpec{slug: "empty", at: evening.Add(30 * time.Minute), rooms: []uint{casbah.ID}, acts: []uint{act}})
+
+	groups := s.groups()
+	s.Require().Len(groups, 1)
+	var got SameLocalDateCopy
+	for _, c := range groups[0].Copies {
+		if c.Slug == "full" {
+			got = c
+		}
+	}
+	s.Equal(DroppedByMergeFields, got.DroppedFields)
+	s.True(got.IsCancelled)
 }
 
 func (s *SameLocalDateTestSuite) TestOnlyVisibleCommentsAreCounted() {
@@ -382,15 +413,27 @@ func (s *SameLocalDateTestSuite) TestAListedPairMergesThroughReattributeShowOnly
 
 // --- the suggestion rule, without the database ---
 
-func copyAt(id uint, local string, anchor bool, created time.Time) SameLocalDateCopy {
-	at, err := time.Parse("2006-01-02 15:04", local)
-	if err != nil {
-		panic(err)
+// copyAt builds a copy at a local clock. start says whether that clock is a
+// stated start; doors, when set, is a doors clock on the same day.
+func copyAt(id uint, local string, start bool, created time.Time, doors ...string) SameLocalDateCopy {
+	parse := func(s string) time.Time {
+		at, err := time.Parse("2006-01-02 15:04", s)
+		if err != nil {
+			panic(err)
+		}
+		return at
 	}
+	at := parse(local)
 	c := SameLocalDateCopy{ShowID: id, Slug: fmt.Sprintf("show-%d", id), EventDate: at,
-		LocalTime: at.Format("15:04"), DateOnlyAnchor: anchor, CreatedAt: created, RoomCount: 1}
-	if !anchor {
-		c.StatedAt = at
+		LocalTime: at.Format("15:04"), Clock: at.Format("15:04"), CreatedAt: created, RoomCount: 1}
+	if start {
+		c.StartAt = at
+		c.Clock = "start " + at.Format("15:04")
+	}
+	if len(doors) > 0 {
+		c.DoorsAt = parse(doors[0])
+		c.DroppedFields = append(c.DroppedFields, "doors time")
+		c.Clock += ", doors " + c.DoorsAt.Format("15:04")
 	}
 	return c
 }
@@ -400,137 +443,157 @@ var (
 	sep13 = time.Date(2026, 9, 13, 23, 54, 0, 0, time.UTC)
 )
 
-func TestSuggestSameLocalDateKeep_MatineeAndEveningAreKeptBoth(t *testing.T) {
-	g := SameLocalDateGroup{Copies: []SameLocalDateCopy{
-		copyAt(1, "2026-12-26 15:00", false, sep13),
-		copyAt(2, "2026-12-26 19:30", false, sep13),
-	}}
-	keep, rows := SuggestSameLocalDateKeep(g)
-	if keep.ShowID != 1 || len(rows) != 1 || rows[0].Action != SameLocalDateKeepBoth {
-		t.Fatalf("want keep both, got keep=%d rows=%+v", keep.ShowID, rows)
-	}
-	if want := "4h30m apart"; !strings.Contains(rows[0].Reason, want) {
-		t.Errorf("reason %q lacks %q", rows[0].Reason, want)
-	}
+func suggest(t *testing.T, copies ...SameLocalDateCopy) (*SameLocalDateCopy, []SameLocalDateSuggestion) {
+	t.Helper()
+	return SuggestSameLocalDateKeep(SameLocalDateGroup{Copies: copies})
 }
 
-func TestSuggestSameLocalDateKeep_AnAnchorIsNotAStatedTime(t *testing.T) {
-	// 4pm stated and the 8pm anchor, four hours apart: not a matinee pair,
-	// because only one copy states a time.
-	g := SameLocalDateGroup{Copies: []SameLocalDateCopy{
-		copyAt(1, "2026-12-06 16:00", false, sep13),
-		copyAt(2, "2026-12-06 20:00", true, aug30),
-	}}
-	keep, rows := SuggestSameLocalDateKeep(g)
-	if keep.ShowID != 1 || rows[0].Action != SameLocalDateMerge {
-		t.Fatalf("want merge into the stated copy, got keep=%d rows=%+v", keep.ShowID, rows)
-	}
-	for _, want := range []string{"states a time (16:00)",
-		"they are 4h apart, so if the 20:00 copy is a real start time these are two shows"} {
-		if !strings.Contains(rows[0].Reason, want) {
-			t.Errorf("reason %q lacks %q", rows[0].Reason, want)
+func requireReason(t *testing.T, reason string, wants ...string) {
+	t.Helper()
+	for _, want := range wants {
+		if !strings.Contains(reason, want) {
+			t.Errorf("reason %q lacks %q", reason, want)
 		}
 	}
 }
 
-func TestSuggestSameLocalDateKeep_StatedTimesUnderThreeHoursApartMerge(t *testing.T) {
-	g := SameLocalDateGroup{Copies: []SameLocalDateCopy{
-		copyAt(1, "2026-12-06 19:00", false, sep13),
-		copyAt(2, "2026-12-06 21:30", false, aug30),
-	}}
-	keep, rows := SuggestSameLocalDateKeep(g)
-	if keep.ShowID != 2 || rows[0].Action != SameLocalDateMerge || !strings.Contains(rows[0].Reason, "older row") {
-		t.Fatalf("want merge into the older row, got keep=%d rows=%+v", keep.ShowID, rows)
+func TestSuggestSameLocalDateKeep_MatineeAndEveningAreKeptBoth(t *testing.T) {
+	keep, rows := suggest(t, copyAt(1, "2026-12-26 15:00", true, sep13), copyAt(2, "2026-12-26 19:30", true, sep13))
+	if keep == nil || keep.ShowID != 1 || len(rows) != 1 || rows[0].Action != SameLocalDateKeepBoth {
+		t.Fatalf("want keep both, got keep=%v rows=%+v", keep, rows)
 	}
+	requireReason(t, rows[0].Reason, "this copy start 19:30; the other start 15:00", "4h30m apart")
+}
+
+func TestSuggestSameLocalDateKeep_ADoorsOnlyMatineeIsKeptBothAndPrintsItsDoors(t *testing.T) {
+	matinee := copyAt(1, "2026-10-09 20:00", false, sep13, "2026-10-09 15:00")
+	evening := copyAt(2, "2026-10-09 21:00", true, sep13)
+	_, rows := suggest(t, matinee, evening)
+	if len(rows) != 1 || rows[0].Action != SameLocalDateKeepBoth {
+		t.Fatalf("got %+v", rows)
+	}
+	requireReason(t, rows[0].Reason, "doors 15:00", "start 21:00", "6h apart")
+}
+
+// Doors and a real start an hour or two apart are one show; the copy stating
+// the start is kept, whatever the doors-only copy holds.
+func TestSuggestSameLocalDateKeep_AStartOutranksADoorsOnlyCopy(t *testing.T) {
+	doorsOnly := copyAt(1, "2026-10-09 20:00", false, aug30, "2026-10-09 19:00")
+	doorsOnly.TicketURL = "https://tickets.example/a"
+	doorsOnly.DroppedFields = []string{"ticket link", "doors time"}
+	start := copyAt(2, "2026-10-09 21:00", true, sep13)
+	keep, rows := suggest(t, doorsOnly, start)
+	if keep == nil || keep.ShowID != 2 || rows[0].Action != SameLocalDateMerge {
+		t.Fatalf("want the stated start kept, got keep=%v rows=%+v", keep, rows)
+	}
+	requireReason(t, rows[0].Reason, "it states a start time (start 21:00)",
+		"this copy holds ticket link, doors time, which the kept copy lacks")
+}
+
+// A pair a matinee gap apart where only one copy states a time may be a
+// matinee and a real 8pm show entered with the form's default time.
+func TestSuggestSameLocalDateKeep_AWidePairWithOneUntimedCopyIsReview(t *testing.T) {
+	keep, rows := suggest(t, copyAt(1, "2026-12-06 16:00", true, sep13), copyAt(2, "2026-12-06 20:00", false, aug30))
+	if keep != nil || len(rows) != 2 {
+		t.Fatalf("want review rows for both copies, got keep=%v rows=%+v", keep, rows)
+	}
+	for _, r := range rows {
+		if r.Action != SameLocalDateReview {
+			t.Errorf("got %+v", r)
+		}
+		requireReason(t, r.Reason, "4h apart and only one states a time")
+	}
+}
+
+func TestSuggestSameLocalDateKeep_ANarrowPairWithOneUntimedCopyMergesIntoTheStatedOne(t *testing.T) {
+	keep, rows := suggest(t, copyAt(1, "2026-10-09 20:00", false, aug30), copyAt(2, "2026-10-09 20:30", true, sep13))
+	if keep == nil || keep.ShowID != 2 || rows[0].Action != SameLocalDateMerge {
+		t.Fatalf("got keep=%v rows=%+v", keep, rows)
+	}
+	requireReason(t, rows[0].Reason, "it states a start time (start 20:30), and this copy does not (20:00)")
+}
+
+func TestSuggestSameLocalDateKeep_StatedStartsUnderThreeHoursApartMergeAndNameBothTimes(t *testing.T) {
+	keep, rows := suggest(t, copyAt(1, "2026-12-06 19:00", true, sep13), copyAt(2, "2026-12-06 21:30", true, aug30))
+	if keep == nil || keep.ShowID != 2 || rows[0].Action != SameLocalDateMerge {
+		t.Fatalf("got keep=%v rows=%+v", keep, rows)
+	}
+	requireReason(t, rows[0].Reason, "older row",
+		"the two state different times (kept copy start 21:30; this copy start 19:00)")
 }
 
 func TestSuggestSameLocalDateKeep_SavesAndCommentsDoNotDecide(t *testing.T) {
-	stated := copyAt(1, "2026-10-09 20:30", false, sep13)
-	anchored := copyAt(2, "2026-10-09 20:00", true, aug30)
+	stated := copyAt(1, "2026-10-09 20:30", true, sep13)
+	anchored := copyAt(2, "2026-10-09 20:00", false, aug30)
 	anchored.TicketURL = "https://tickets.example/maris"
+	anchored.DroppedFields = []string{"ticket link"}
 	anchored.Saves = 4
 	anchored.Comments = 1
-	keep, rows := SuggestSameLocalDateKeep(SameLocalDateGroup{Copies: []SameLocalDateCopy{stated, anchored}})
-	if keep.ShowID != 1 {
-		t.Fatalf("want the copy stating a time kept, got %d", keep.ShowID)
+	keep, rows := suggest(t, stated, anchored)
+	if keep == nil || keep.ShowID != 1 {
+		t.Fatalf("want the copy stating a start kept, got %v", keep)
 	}
-	for _, want := range []string{"it states a time (20:30)", "this copy's 4 saves and 1 visible comments move to the kept copy",
-		"this copy holds ticket link, which the kept copy lacks and the merge drops: copy it over by hand"} {
-		if !strings.Contains(rows[0].Reason, want) {
-			t.Errorf("reason %q lacks %q", rows[0].Reason, want)
-		}
-	}
+	requireReason(t, rows[0].Reason, "this copy's 4 saves and 1 visible comments move to the kept copy",
+		"this copy holds ticket link, which the kept copy lacks and the merge drops: copy it over by hand")
 }
 
 func TestSuggestSameLocalDateKeep_MoreDroppedFieldsOutrankTheOlderRow(t *testing.T) {
-	older := copyAt(1, "2026-10-09 20:30", false, aug30)
-	fuller := copyAt(2, "2026-10-09 20:45", false, sep13)
-	fuller.TicketURL = "https://tickets.example/x"
-	fuller.Details = []string{"price"}
-	keep, rows := SuggestSameLocalDateKeep(SameLocalDateGroup{Copies: []SameLocalDateCopy{older, fuller}})
-	if keep.ShowID != 2 || !strings.Contains(rows[0].Reason, "holds more of the fields a merge drops (ticket link, price) than this copy (none)") {
-		t.Fatalf("got keep=%d rows=%+v", keep.ShowID, rows)
+	older := copyAt(1, "2026-10-09 20:30", true, aug30)
+	fuller := copyAt(2, "2026-10-09 20:30", true, sep13)
+	fuller.DroppedFields = []string{"ticket link", "price"}
+	keep, rows := suggest(t, older, fuller)
+	if keep == nil || keep.ShowID != 2 {
+		t.Fatalf("got keep=%v rows=%+v", keep, rows)
 	}
+	requireReason(t, rows[0].Reason, "holds more of the fields a merge drops (ticket link, price) than this copy (none)")
 }
 
 func TestSuggestSameLocalDateKeep_ATieOnEverythingKeepsTheLowerID(t *testing.T) {
-	g := SameLocalDateGroup{Copies: []SameLocalDateCopy{
-		copyAt(9, "2026-12-13 20:00", true, sep13),
-		copyAt(4, "2026-12-13 20:30", true, sep13),
-	}}
-	keep, rows := SuggestSameLocalDateKeep(g)
-	if keep.ShowID != 4 || !strings.Contains(rows[0].Reason, "lower id") {
-		t.Fatalf("got keep=%d rows=%+v", keep.ShowID, rows)
+	keep, rows := suggest(t, copyAt(9, "2026-12-13 20:00", false, sep13), copyAt(4, "2026-12-13 20:30", false, sep13))
+	if keep == nil || keep.ShowID != 4 {
+		t.Fatalf("got keep=%v rows=%+v", keep, rows)
 	}
+	requireReason(t, rows[0].Reason, "lower id")
 }
 
-func TestSuggestSameLocalDateKeep_MoreThanTwoCopiesGetNoSuggestion(t *testing.T) {
-	// The 19:30 and 19:45 copies are the duplicate pair here, and each is a
-	// matinee gap from the 15:00 one; only a person can sort that out.
-	g := SameLocalDateGroup{Copies: []SameLocalDateCopy{
-		copyAt(1, "2026-12-26 15:00", false, aug30),
-		copyAt(2, "2026-12-26 19:30", false, sep13),
-		copyAt(3, "2026-12-26 19:45", false, sep13),
-	}}
-	_, rows := SuggestSameLocalDateKeep(g)
-	if len(rows) != 2 {
-		t.Fatalf("got rows=%+v", rows)
+func TestSuggestSameLocalDateKeep_MoreThanTwoCopiesAreReviewWithARowEach(t *testing.T) {
+	keep, rows := suggest(t,
+		copyAt(1, "2026-12-26 15:00", true, aug30),
+		copyAt(2, "2026-12-26 19:30", true, sep13),
+		copyAt(3, "2026-12-26 19:45", true, sep13))
+	if keep != nil || len(rows) != 3 {
+		t.Fatalf("got keep=%v rows=%+v", keep, rows)
 	}
 	for _, r := range rows {
-		if r.Action != SameLocalDateReview || !strings.Contains(r.Reason, "show-1, show-2, show-3") {
-			t.Errorf("want review naming every copy, got %+v", r)
+		if r.Action != SameLocalDateReview {
+			t.Errorf("got %+v", r)
 		}
+		requireReason(t, r.Reason, "show-1, show-2, show-3")
 	}
 }
 
-func TestSuggestSameLocalDateKeep_ACancelledCopyIsLeftToAPerson(t *testing.T) {
-	live := copyAt(1, "2026-10-09 20:30", false, sep13)
-	cancelled := copyAt(2, "2026-10-09 20:00", true, aug30)
+func TestSuggestSameLocalDateKeep_ACancelledCopyIsReview(t *testing.T) {
+	cancelled := copyAt(2, "2026-10-09 20:00", false, aug30)
 	cancelled.IsCancelled = true
-	cancelled.Saves = 3
-	_, rows := SuggestSameLocalDateKeep(SameLocalDateGroup{Copies: []SameLocalDateCopy{live, cancelled}})
-	if rows[0].Action != SameLocalDateReview || !strings.Contains(rows[0].Reason, "cancelled") {
-		t.Fatalf("got %+v", rows[0])
+	keep, rows := suggest(t, copyAt(1, "2026-10-09 20:30", true, sep13), cancelled)
+	if keep != nil || len(rows) != 2 || rows[0].Action != SameLocalDateReview {
+		t.Fatalf("got keep=%v rows=%+v", keep, rows)
 	}
+	requireReason(t, rows[0].Reason, "cancelled")
 }
 
-func TestSuggestSameLocalDateKeep_NamesWhatTheMergeDropsAndAScrapedCopy(t *testing.T) {
-	kept := copyAt(1, "2026-10-09 20:30", false, aug30)
-	gone := copyAt(2, "2026-10-09 20:45", false, sep13)
-	gone.Source = "discovery"
-	gone.Details = []string{"price", "image"}
-	kept.Source = "user"
-	kept.Details = []string{"price", "door price", "description"}
-	keep, rows := SuggestSameLocalDateKeep(SameLocalDateGroup{Copies: []SameLocalDateCopy{kept, gone}})
-	if keep.ShowID != 1 {
-		t.Fatalf("want the copy holding more fields kept, got %d", keep.ShowID)
-	}
-	for _, want := range []string{"this copy holds image, which the kept copy lacks", "discovery scraper"} {
-		if !strings.Contains(rows[0].Reason, want) {
-			t.Errorf("reason %q lacks %q", rows[0].Reason, want)
+func TestSuggestSameLocalDateKeep_WarnsAboutAnyScrapedCopy(t *testing.T) {
+	kept := copyAt(1, "2026-10-09 20:30", true, aug30)
+	gone := copyAt(2, "2026-10-09 20:30", true, sep13)
+	kept.Source, gone.Source = "discovery", "discovery"
+	_, rows := suggest(t, kept, gone)
+	requireReason(t, rows[0].Reason, "discovery scraper")
+}
+
+func TestSameLocalDateRuleTextNamesEveryDroppedField(t *testing.T) {
+	for _, f := range droppedFields {
+		if !strings.Contains(SameLocalDateRuleText, f.name) {
+			t.Errorf("rule text does not name %q", f.name)
 		}
-	}
-	if strings.Contains(rows[0].Reason, "holds image, price") || strings.Contains(rows[0].Reason, "holds price") {
-		t.Errorf("a field both copies fill is not lost: %q", rows[0].Reason)
 	}
 }

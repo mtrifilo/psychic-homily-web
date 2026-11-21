@@ -1,7 +1,7 @@
 import type { APIClient } from "./api";
 import * as display from "./display";
 import { showDedupWindow } from "./duplicates";
-import { readEventDate } from "./showTimes";
+import { parseClockTime, readEventDate } from "./showTimes";
 import { resolveVenueTimezone } from "./timezone";
 import { clean, fold, headlinerOf } from "./sameNightOtherRoom";
 
@@ -35,6 +35,7 @@ export interface StoredShowForSameRoom {
   id: number;
   slug?: string;
   event_date: string;
+  music_at?: string | null;
   venues?: Array<{ id: number; name: string; state?: string | null; timezone?: string | null }>;
   artists?: Array<{ id: number; name: string; set_type?: string | null; position?: number | null }>;
 }
@@ -95,9 +96,25 @@ export function sameRoomShows(
   return { sameInstant, otherTime };
 }
 
-/** A listing that states a day and neither a music nor a doors time. */
-function statesNoTime(plan: SameRoomPlan, zone: string): boolean {
-  return readEventDate(plan.input.event_date, zone)?.kind === "day" && !plan.input.music_at && !plan.input.doors_at;
+/** The venue-local hour a show listed with a date and no start is stored at. */
+const DATE_ONLY_CLOCK = "20:00";
+
+/**
+ * A listing that states a day and is stored at the date-only hour without a
+ * readable music time at that hour: no start time was stated or none could be
+ * read (a doors-only listing is one). A readable music time at any other hour
+ * moves the stored instant off it.
+ */
+function statesNoStart(plan: SameRoomPlan, instant: string, zone: string): boolean {
+  if (readEventDate(plan.input.event_date, zone)?.kind !== "day") return false;
+  if (!localClock(instant, zone).startsWith(DATE_ONLY_CLOCK)) return false;
+  const music = parseClockTime(plan.input.music_at);
+  return !(music && `${String(music.hour).padStart(2, "0")}:${String(music.minute).padStart(2, "0")}` === DATE_ONLY_CLOCK);
+}
+
+/** A stored show with no music time whose start is the date-only hour. */
+function storesNoStart(show: StoredShowForSameRoom, zone: string): boolean {
+  return !show.music_at && localClock(show.event_date, zone).startsWith(DATE_ONLY_CLOCK);
 }
 
 interface DayPage {
@@ -131,8 +148,9 @@ async function readDay(client: APIClient, fromDate: string, toDate: string): Pro
  *
  * A plan ph already treats as a duplicate is flagged only when the show it
  * matched is at a different time, no stored show of the same headliner at that
- * room is at the plan's own instant, and the listing states a time: ph skips
- * such a listing, so a second show that day cannot be added through it.
+ * room is at the plan's own instant, and both the listing and the matched show
+ * state a start: ph skips such a listing, so a second show that day cannot be
+ * added through it.
  */
 export async function reportSameRoomOtherTime<P extends SameRoomPlan>(
   client: APIClient,
@@ -171,7 +189,7 @@ export async function reportSameRoomOtherTime<P extends SameRoomPlan>(
     const instant = instantOf(plan);
     const day = readEventDate(instant, zone)?.day;
     if (!day || Number.isNaN(Date.parse(instant))) continue;
-    const noTime = statesNoTime(plan, zone);
+    const noTime = statesNoStart(plan, instant, zone);
     const p: Placed = {
       plan,
       index,
@@ -180,7 +198,7 @@ export async function reportSameRoomOtherTime<P extends SameRoomPlan>(
       timezone,
       day,
       noTime,
-      clock: noTime ? `no time (it is stored at ${localClock(instant, zone)})` : localClock(instant, zone),
+      clock: noTime ? `no start time (it is stored at ${localClock(instant, zone)})` : localClock(instant, zone),
       roomKey: room.id !== undefined ? `id:${room.id}` : `name:${fold(room.name)}`,
       headKey: headliner.id !== undefined ? `id:${headliner.id}` : `name:${fold(headliner.name)}`,
       label: `${clean(headliner.name)} on ${day} at ${clean(room.name)}`,
@@ -228,10 +246,18 @@ export async function reportSameRoomOtherTime<P extends SameRoomPlan>(
     const { sameInstant, otherTime } = sameRoomShows(stored.roomId, stored.headlinerId, instant, found.shows);
     for (const other of otherTime) {
       const venue = (other.venues ?? []).find((v) => v.id === stored.roomId);
-      const theirs = localClock(other.event_date, resolveVenueTimezone(venue?.state ?? state, venue?.timezone ?? timezone));
+      const theirZone = resolveVenueTimezone(venue?.state ?? state, venue?.timezone ?? timezone);
+      const theyStoreNoStart = storesNoStart(other, theirZone);
+      const theirs = theyStoreNoStart
+        ? `${localClock(other.event_date, theirZone)} with no start time stored`
+        : localClock(other.event_date, theirZone);
       const ref = other.slug ? clean(other.slug) : `show ${other.id}`;
       if (plan.duplicate?.isDuplicate) {
-        if (plan.duplicate.existingShowId !== other.id || sameInstant.length > 0 || noTime) continue;
+        // A refresh that states a start for a show stored without one is the
+        // same show gaining its time, which --confirm fills.
+        if (plan.duplicate.existingShowId !== other.id || sameInstant.length > 0 || noTime || theyStoreNoStart) {
+          continue;
+        }
         lines.push(
           `${label}: ph skips this listing as a copy of ${ref}, which is at ${theirs} where this listing says ${clock}. ` +
             `If they are two shows that day, ph cannot add this one, and --confirm writes any doors or music time ` +

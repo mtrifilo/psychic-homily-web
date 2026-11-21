@@ -414,17 +414,24 @@ func TestParseWorklist_AcceptsTheSameLocalDateWorklistOnceRenamed(t *testing.T) 
 	renamed := append(bytes.ReplaceAll(header, []byte("suggested_"), nil), '\n')
 	rows, err := parseWorklist(bytes.NewReader(append(renamed, body...)))
 	require.NoError(t, err)
-	require.Len(t, rows, 2)
+	require.Len(t, rows, 4)
 
 	assert.Equal(t, catalog.ShowReattribution{
-		ShowSlug:      "2026-12-06-the-beat-farmers-at-the-casbah",
+		ShowSlug:      "2026-12-09-maris-at-the-casbah",
 		RoomSlug:      "the-casbah",
-		MergeIntoSlug: "2026-12-06-the-beat-farmers-at-casbah",
+		MergeIntoSlug: "2026-12-09-maris-at-casbah",
 	}, rows[0].Row)
 	assert.Empty(t, rows[0].Refusal)
-	assert.Equal(t, catalog.ShowReattribution{ShowSlug: "2026-08-07-plus-minus-at-space-2"}, rows[1].Row)
-	assert.Equal(t, "no target room given", rows[1].Refusal,
-		"a keep-both row names no room and no merge target, so it is refused before the database")
+	// Review and keep-both rows name no room and no merge target, so they are
+	// refused before the database.
+	for i, slug := range []string{
+		"2026-12-06-the-beat-farmers-at-casbah",
+		"2026-12-06-the-beat-farmers-at-the-casbah",
+		"2026-08-07-plus-minus-at-space-2",
+	} {
+		assert.Equal(t, catalog.ShowReattribution{ShowSlug: slug}, rows[1+i].Row)
+		assert.Equal(t, "no target room given", rows[1+i].Refusal)
+	}
 	for _, row := range rows {
 		assert.NotEmpty(t, row.Note)
 	}

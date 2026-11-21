@@ -89,6 +89,10 @@ describe("localClock", () => {
   test("reads an instant in the venue's zone", () => {
     expect(localClock("2026-10-10T03:30:00Z", LA)).toBe("20:30 PDT");
   });
+
+  test("returns an unreadable instant cleaned", () => {
+    expect(localClock(`bad${String.fromCharCode(27)}[2K`, LA)).toBe("bad?[2K");
+  });
 });
 
 describe("reportSameRoomOtherTime", () => {
@@ -129,7 +133,7 @@ describe("reportSameRoomOtherTime", () => {
     expect(calls[0].params?.to_date).toBe("2026-10-10T06:59:00Z");
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain("MARIS on 2026-10-09 at The Casbah: show-1 is already at this room that day");
-    expect(warnings[0]).toContain("at 20:00 PDT; this listing states 20:30 PDT");
+    expect(warnings[0]).toContain("at 20:00 PDT with no start time stored; this listing states 20:30 PDT");
   });
 
   test("an evening listing across midnight UTC reads the venue-local day that holds the matinee", async () => {
@@ -155,7 +159,10 @@ describe("reportSameRoomOtherTime", () => {
   });
 
   test("a duplicate ph skips is flagged only when the show it matched is at another time", async () => {
-    const { client: c } = client(() => ({ shows: [stored(1, "2026-10-10T03:00:00Z")], total: 1 }));
+    const { client: c } = client(() => ({
+      shows: [stored(1, "2026-10-10T03:00:00Z", { music_at: "2026-10-10T03:00:00Z" })],
+      total: 1,
+    }));
     await reportSameRoomOtherTime(
       c,
       [plan({ duplicate: { isDuplicate: true, existingShowId: 1 } }), plan({ duplicate: { isDuplicate: true, existingShowId: 9 } })],
@@ -198,7 +205,44 @@ describe("reportSameRoomOtherTime", () => {
     const { client: c } = client(() => ({ shows: [stored(1, "2026-10-09T22:00:00Z")], total: 1 }));
     await reportSameRoomOtherTime(c, [plan({ input: { event_date: "2026-10-09" } })], pacific, () => "2026-10-10T03:00:00.000Z");
     expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain("this listing states no time (it is stored at 20:00 PDT)");
+    expect(warnings[0]).toContain("this listing states no start time (it is stored at 20:00 PDT)");
+  });
+
+  test("a listing whose music time is 8pm states that start, though it is stored at the date-only hour", async () => {
+    const { client: c } = client(() => ({ shows: [stored(1, "2026-10-09T22:00:00Z")], total: 1 }));
+    await reportSameRoomOtherTime(
+      c,
+      [plan({ input: { event_date: "2026-10-09", music_at: "8:00 PM" } })],
+      pacific,
+      () => "2026-10-10T03:00:00.000Z",
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("this listing states 20:00 PDT");
+  });
+
+  test("a doors-only refresh, stored at the date-only hour, is not flagged as a duplicate at another time", async () => {
+    const { client: c } = client(() => ({
+      shows: [stored(1, "2026-10-10T03:30:00Z", { music_at: "2026-10-10T03:30:00Z" })],
+      total: 1,
+    }));
+    await reportSameRoomOtherTime(
+      c,
+      [plan({ input: { event_date: "2026-10-09", doors_at: "7:30 PM" }, duplicate: { isDuplicate: true, existingShowId: 1 } })],
+      pacific,
+      () => "2026-10-10T03:00:00.000Z",
+    );
+    expect(warnings).toEqual([]);
+  });
+
+  test("a timed refresh of a show stored with no start is not flagged: --confirm fills its time", async () => {
+    const { client: c } = client(() => ({ shows: [stored(1, "2026-10-10T03:00:00Z")], total: 1 }));
+    await reportSameRoomOtherTime(
+      c,
+      [plan({ input: { event_date: "2026-10-09", music_at: "9:00 PM" }, duplicate: { isDuplicate: true, existingShowId: 1 } })],
+      pacific,
+      () => "2026-10-10T04:00:00.000Z",
+    );
+    expect(warnings).toEqual([]);
   });
 
   test("flags two listings in one run at one room, one day, one headliner, at two times", async () => {
@@ -287,7 +331,9 @@ describe("reportSameRoomOtherTime", () => {
         };
       }
       if (path === "/venues/7") return { id: 7, city: "San Diego", state: "CA" };
-      if (path === "/shows" && params?.from_date) return { shows: [stored(1, "2026-10-10T03:00:00Z")], total: 1 };
+      if (path === "/shows" && params?.from_date) {
+        return { shows: [stored(1, "2026-10-10T03:00:00Z", { music_at: "2026-10-10T03:00:00Z" })], total: 1 };
+      }
       return { shows: [] };
     });
     (c as unknown as Record<string, unknown>).post = async () => ({ id: 2 });

@@ -33,7 +33,8 @@ var sameLocalDateCSVHeader = []string{
 	suggestedPrefix + "verdict",
 }
 
-// sameLocalDateCSVRows is one row per copy a group does not suggest keeping.
+// sameLocalDateCSVRows is one row per copy a group does not suggest keeping,
+// and one per copy of a group marked review.
 // Only a merge row fills correct_room_slug (the room the copy is already in)
 // and the merge column. Every other row leaves both empty, so reattribute-shows
 // refuses it ("no target room given") and it can write nothing, whatever has
@@ -74,14 +75,10 @@ func sameLocalDateNote(g catalog.SameLocalDateGroup, s catalog.SameLocalDateSugg
 		copyEvidence(s.Copy), other, copyEvidence(s.Keep))
 }
 
+// copyEvidence describes one copy as it is, whichever side of a merge it is
+// on; what a merge does with it is said in the row's verdict.
 func copyEvidence(c catalog.SameLocalDateCopy) string {
-	clock := c.LocalTime
-	if c.DateOnlyAnchor {
-		clock += " (no music or doors time stored: may be the date-only anchor)"
-	}
-	if c.DoorsTime != "" {
-		clock += ", doors " + c.DoorsTime
-	}
+	clock := c.Clock
 	if c.IsCancelled {
 		clock += ", CANCELLED"
 	}
@@ -93,14 +90,14 @@ func copyEvidence(c catalog.SameLocalDateCopy) string {
 	if c.TicketURL != "" {
 		tickets = "tickets " + c.TicketURL
 	}
-	fields := "none"
-	if f := c.Fields(); len(f) > 0 {
-		fields = strings.Join(f, ", ")
+	fills := "none"
+	if len(c.DroppedFields) > 0 {
+		fills = strings.Join(c.DroppedFields, ", ")
 	}
-	return fmt.Sprintf("%s at %s, %s, created %s, source %s, %s, fields a merge drops: %s, "+
-		"%d saves and %d visible comments (a merge moves them to the kept copy), %d room(s)",
+	return fmt.Sprintf("%s (%s, event_date %s), created %s, source %s, %s, fills: %s, "+
+		"%d saves, %d visible comments, %d room(s)",
 		c.Slug, clock, c.EventDate.UTC().Format("2006-01-02T15:04:05Z"),
-		c.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"), source, tickets, fields, c.Saves, c.Comments, c.RoomCount)
+		c.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"), source, tickets, fills, c.Saves, c.Comments, c.RoomCount)
 }
 
 // writeSameLocalDateCSV writes the worklist.
@@ -145,7 +142,7 @@ func printSameLocalDateGroups(w io.Writer, groups []catalog.SameLocalDateGroup) 
 			clean(g.Room.Name), clean(g.Room.Slug), clean(g.Room.City), clean(g.Room.State))
 		for _, c := range g.Copies {
 			mark := "    "
-			if c.ShowID == keep.ShowID {
+			if keep != nil && c.ShowID == keep.ShowID {
 				mark = "  * "
 			}
 			_, _ = fmt.Fprintf(w, "%sshow %d  %s\n", mark, c.ShowID, clean(copyEvidence(c)))
@@ -155,7 +152,7 @@ func printSameLocalDateGroups(w io.Writer, groups []catalog.SameLocalDateGroup) 
 		}
 		_, _ = fmt.Fprintln(w)
 	}
-	_, _ = fmt.Fprintln(w, "* marks the copy suggested to keep.")
+	_, _ = fmt.Fprintln(w, "* marks the copy suggested to keep; a group marked review has none.")
 }
 
 // mainSameLocalDate is the --same-local-date mode: it lists, it never writes
