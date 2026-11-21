@@ -30,8 +30,7 @@ func TestMapShowError_SurfacesTheWrappedDateBoundRefusal(t *testing.T) {
 			if got := statusOf(t, mapped); got != http.StatusUnprocessableEntity {
 				t.Fatalf("status %d, want 422", got)
 			}
-			if !strings.Contains(mapped.Error(), "more than 18 months ahead") ||
-				!strings.Contains(mapped.Error(), "allow_far_future_date: true") {
+			if !strings.Contains(mapped.Error(), "Shows can be listed up to 18 months ahead. If this date is right, contact us and we'll add it.") {
 				t.Fatalf("message lost: %v", mapped)
 			}
 		})

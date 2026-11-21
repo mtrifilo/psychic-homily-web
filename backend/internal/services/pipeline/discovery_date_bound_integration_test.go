@@ -20,7 +20,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_RefusesAnEventPastT
 	suite.Equal(1, result.Imported)
 	suite.Equal(1, result.Rejected)
 	suite.Equal(0, result.Errors, "a refusal is not a failed import")
-	suite.True(strings.Contains(strings.Join(result.Messages, "\n"), "more than 18 months ahead"), "messages: %v", result.Messages)
+	suite.True(strings.Contains(strings.Join(result.Messages, "\n"), "Shows can be listed up to 18 months ahead"), "messages: %v", result.Messages)
 
 	var n int64
 	suite.Require().NoError(suite.db.Model(&catalogm.Show{}).Where("source_event_id = ?", "evt-bound-far").Count(&n).Error)

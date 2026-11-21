@@ -170,15 +170,14 @@ func ErrInvalidEventDate(message string) *ShowError {
 
 // ShowEventDateBeyondBoundSentence is the refusal a person reads, on every
 // surface, when a show is dated past the far-future bound: the web form, the
-// admin import, the request fulfiller and the API. Its verbs, in order, are the
-// requested event_date, the bound in months and the latest date accepted; they
-// are indexed, so a wording may use any of them in any order, but it must use at
-// least one or fmt reports the unused arguments. Clients that know their own
-// way past the bound (the ph CLI)
-// add their hint by recognising CodeShowEventDateBeyondBound, not by reading
-// this text.
-const ShowEventDateBeyondBoundSentence = "event_date %[1]s is more than %[2]d months ahead (the latest date accepted today is %[3]s). " +
-	"Only an admin can create it, through POST /shows with allow_far_future_date: true"
+// admin import, the request fulfiller and the API. The wording is the owner's;
+// change it only with the owner. Its indexed verbs are the requested event_date (%[1]s), the bound in
+// months (%[2]d) and the latest date accepted (%[3]s); this wording uses only
+// the months, so the number cannot drift from the rule. A wording must use at
+// least one indexed verb, or fmt reports the unused arguments. Clients that
+// know their own way past the bound (the ph CLI) add their hint by recognising
+// CodeShowEventDateBeyondBound, not by reading this text.
+const ShowEventDateBeyondBoundSentence = "Shows can be listed up to %[2]d months ahead. If this date is right, contact us and we'll add it."
 
 // ErrShowEventDateBeyondBound creates the refusal for a show dated more than
 // boundMonths after now, worded by ShowEventDateBeyondBoundSentence.

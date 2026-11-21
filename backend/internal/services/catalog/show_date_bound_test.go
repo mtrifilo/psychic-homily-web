@@ -74,10 +74,15 @@ func TestCheckShowEventDateBound_BothSidesAndOverride(t *testing.T) {
 			if !errors.As(err, &showErr) || showErr.Code != apperrors.CodeShowEventDateBeyondBound {
 				t.Fatalf("want %s, got %v", apperrors.CodeShowEventDateBeyondBound, err)
 			}
-			for _, want := range []string{"18 months", "POST /shows with allow_far_future_date: true", bound.Format(time.RFC3339)} {
-				if !strings.Contains(showErr.Message, want) {
-					t.Errorf("message %q does not name %q", showErr.Message, want)
-				}
+			// The owner's sentence, with the months taken from the bound itself
+			// and no dates in it.
+			want := "Shows can be listed up to " + strconv.Itoa(ShowEventDateBoundMonths) +
+				" months ahead. If this date is right, contact us and we'll add it."
+			if showErr.Message != want {
+				t.Errorf("message %q, want %q", showErr.Message, want)
+			}
+			if strings.Contains(showErr.Message, "%!") {
+				t.Errorf("message carries a fmt error: %q", showErr.Message)
 			}
 		})
 	}

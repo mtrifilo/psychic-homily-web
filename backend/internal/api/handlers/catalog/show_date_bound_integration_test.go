@@ -39,8 +39,8 @@ func (s *ShowHandlerIntegrationSuite) showCount() int64 {
 	return n
 }
 
-// The refusal reaches the caller with its own message, naming the bound and the
-// override, rather than the generic create failure.
+// The refusal reaches the caller with its own sentence rather than the generic
+// create failure.
 func (s *ShowHandlerIntegrationSuite) TestCreateShow_FarFutureDateRefusedWithBoundAndOverrideNamed() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Valley Bar", "Phoenix", "AZ")
@@ -48,8 +48,7 @@ func (s *ShowHandlerIntegrationSuite) TestCreateShow_FarFutureDateRefusedWithBou
 	_, err := s.handler.CreateShowHandler(testhelpers.CtxWithUser(admin), s.farFutureCreateRequest(venue.ID, nil))
 
 	se := s.requireStatus(err, http.StatusUnprocessableEntity)
-	s.Contains(se.Error(), "more than 18 months ahead")
-	s.Contains(se.Error(), "POST /shows with allow_far_future_date: true")
+	s.Contains(se.Error(), "Shows can be listed up to 18 months ahead. If this date is right, contact us and we'll add it.")
 	s.NotContains(se.Error(), "SHOW_EVENT_DATE_BEYOND_BOUND", "the sentence a person reads carries no code")
 
 	// The code travels in the structured error, for clients that add their own hint.
