@@ -459,7 +459,7 @@ func requireReason(t *testing.T, reason string, wants ...string) {
 
 func TestSuggestSameLocalDateKeep_MatineeAndEveningAreKeptBoth(t *testing.T) {
 	keep, rows := suggest(t, copyAt(1, "2026-12-26 15:00", true, sep13), copyAt(2, "2026-12-26 19:30", true, sep13))
-	if keep == nil || keep.ShowID != 1 || len(rows) != 1 || rows[0].Action != SameLocalDateKeepBoth {
+	if keep != nil || len(rows) != 1 || rows[0].Action != SameLocalDateKeepBoth {
 		t.Fatalf("want keep both, got keep=%v rows=%+v", keep, rows)
 	}
 	requireReason(t, rows[0].Reason, "this copy start 19:30; the other start 15:00", "4h30m apart")
@@ -588,6 +588,45 @@ func TestSuggestSameLocalDateKeep_WarnsAboutAnyScrapedCopy(t *testing.T) {
 	kept.Source, gone.Source = "discovery", "discovery"
 	_, rows := suggest(t, kept, gone)
 	requireReason(t, rows[0].Reason, "discovery scraper")
+}
+
+// The review rule measures from the time a copy states, not from its stored
+// instant: a doors-only matinee and a music time added after the fact both sit
+// at the date-only hour.
+func TestSuggestSameLocalDateKeep_AWidePairIsMeasuredFromTheStatedTime(t *testing.T) {
+	doorsOnly := copyAt(1, "2026-10-09 20:00", false, aug30, "2026-10-09 13:00")
+	backfilled := copyAt(3, "2026-10-09 20:00", false, aug30)
+	backfilled.StartAt, _ = time.Parse("2006-01-02 15:04", "2026-10-09 14:00")
+	backfilled.Clock = "music 14:00, stored start 20:00"
+	for _, timed := range []SameLocalDateCopy{doorsOnly, backfilled} {
+		keep, rows := suggest(t, timed, copyAt(2, "2026-10-09 20:00", false, sep13))
+		if keep != nil || len(rows) != 2 || rows[0].Action != SameLocalDateReview {
+			t.Fatalf("%s: want review, got keep=%v rows=%+v", timed.Clock, keep, rows)
+		}
+		requireReason(t, rows[0].Reason, "only one states a time")
+	}
+}
+
+func TestSuggestSameLocalDateKeep_NamesDifferingValuesTitlesAndScraperEvents(t *testing.T) {
+	kept := copyAt(1, "2026-10-09 20:30", true, aug30)
+	kept.Title, kept.SourceEventID = "X (Late Show)", "evt-2"
+	kept.DroppedFields, kept.FieldValues = []string{"age requirement"}, map[string]string{"age requirement": "21+"}
+	gone := copyAt(2, "2026-10-09 20:30", true, sep13)
+	gone.Title, gone.SourceEventID = "X (Early Show)", "evt-1"
+	gone.DroppedFields, gone.FieldValues = []string{"age requirement"}, map[string]string{"age requirement": "All Ages"}
+	_, rows := suggest(t, kept, gone)
+	requireReason(t, rows[0].Reason, "this copy's age requirement All Ages (kept: 21+) differ",
+		`the titles differ (this copy "X (Early Show)"; kept copy "X (Late Show)")`,
+		"the scraper listed them as two events (evt-1 and evt-2)")
+}
+
+func TestSuggestSameLocalDateKeep_ACopyWithNoSlugIsReview(t *testing.T) {
+	noSlug := copyAt(2, "2026-10-09 20:30", true, sep13)
+	noSlug.Slug = ""
+	keep, rows := suggest(t, copyAt(1, "2026-10-09 20:30", true, aug30), noSlug)
+	if keep != nil || rows[0].Action != SameLocalDateReview {
+		t.Fatalf("got keep=%v rows=%+v", keep, rows)
+	}
 }
 
 func TestSameLocalDateRuleTextNamesEveryDroppedField(t *testing.T) {

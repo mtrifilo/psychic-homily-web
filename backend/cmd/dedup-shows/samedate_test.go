@@ -43,11 +43,11 @@ func worklistGroups() []catalog.SameLocalDateGroup {
 		{
 			Room: casbah, LocalDate: "2026-12-09", HeadlinerID: 2, HeadlinerName: "MARIS",
 			Copies: []catalog.SameLocalDateCopy{
-				{ShowID: 12, Slug: "2026-12-09-maris-at-the-casbah", EventDate: at("2026-12-10T04:00:00Z"),
+				{ShowID: 12, Slug: "2026-12-09-maris-at-the-casbah", Title: "MARIS", EventDate: at("2026-12-10T04:00:00Z"),
 					LocalTime: "20:00 PST", Clock: untimed("20:00 PST"), CreatedAt: at("2026-08-30T01:11:30Z"),
 					Source: "user", TicketURL: "https://tickets.example/maris", DroppedFields: []string{"ticket link"},
 					Saves: 2, RoomCount: 1},
-				{ShowID: 22, Slug: "2026-12-09-maris-at-casbah", EventDate: at("2026-12-10T04:30:00Z"),
+				{ShowID: 22, Slug: "2026-12-09-maris-at-casbah", Title: "MARIS", EventDate: at("2026-12-10T04:30:00Z"),
 					LocalTime: "20:30 PST", StartAt: at("2026-12-10T04:30:00Z"), Clock: "music 20:30 PST",
 					CreatedAt: at("2026-09-13T23:54:13Z"), Source: "user", RoomCount: 1},
 			},
@@ -108,9 +108,9 @@ func TestSameLocalDateWorklistRows(t *testing.T) {
 	assert.True(t, strings.HasPrefix(merge[4], "merge (suggested): keep 2026-12-09-maris-at-casbah"))
 	assert.Contains(t, merge[4], "this copy holds ticket link, which the kept copy lacks and the merge drops")
 	assert.Contains(t, merge[4], "this copy's 2 saves and 0 visible comments move to the kept copy")
-	assert.Contains(t, merge[2], "This copy: 2026-12-09-maris-at-the-casbah (20:00 PST with no music time stored")
+	assert.Contains(t, merge[2], `This copy: 2026-12-09-maris-at-the-casbah titled "MARIS" (20:00 PST with no music time stored`)
 	assert.Contains(t, merge[2], "fills: ticket link, 2 saves")
-	assert.Contains(t, merge[2], "Copy suggested to keep: 2026-12-09-maris-at-casbah (music 20:30 PST")
+	assert.Contains(t, merge[2], `Copy suggested to keep: 2026-12-09-maris-at-casbah titled "MARIS" (music 20:30 PST`)
 
 	// A wide pair with one untimed copy is review: a row for each copy, with no
 	// room and no merge target, so reattribute-shows refuses both.
@@ -166,5 +166,7 @@ func TestPrintSameLocalDateGroupsStatesTheRuleAndMarksOnlyAKeptCopy(t *testing.T
 	assert.Contains(t, out, "  * show 22  2026-12-09-maris-at-casbah")
 	assert.NotContains(t, out, "  * show 21", "a review group stars no copy")
 	assert.NotContains(t, out, "  * show 11", "a review group stars no copy")
+	assert.NotContains(t, out, "  * show 30", "a keep-both pair stars no copy")
+	assert.NotContains(t, out, "  * show 31", "a keep-both pair stars no copy")
 	assert.Contains(t, out, "suggested for 2026-08-07-plus-minus-at-space-2: keep both")
 }

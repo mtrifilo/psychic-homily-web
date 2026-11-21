@@ -74,9 +74,17 @@ export function localClock(instant: string, zone: string): string {
 }
 
 /**
+ * A stored show's start: its music time when it has one, which a refresh can
+ * fill without moving event_date, else event_date.
+ */
+function storedStart(show: StoredShowForSameRoom): string {
+  return show.music_at || show.event_date;
+}
+
+/**
  * The shows in `shows` at `roomId` headlined by `headlinerId`, split into those
- * stored at `instant` and those stored at another readable instant. The caller
- * passes one venue-local day's shows.
+ * starting at `instant` and those starting at another readable instant (see
+ * storedStart). The caller passes one venue-local day's shows.
  */
 export function sameRoomShows(
   roomId: number,
@@ -89,7 +97,7 @@ export function sameRoomShows(
   const otherTime: StoredShowForSameRoom[] = [];
   for (const show of shows) {
     if (!(show.venues ?? []).some((v) => v.id === roomId) || storedHeadlinerId(show) !== headlinerId) continue;
-    const at = Date.parse(show.event_date);
+    const at = Date.parse(storedStart(show));
     if (Number.isNaN(at)) continue;
     (at === ours ? sameInstant : otherTime).push(show);
   }
@@ -248,9 +256,12 @@ export async function reportSameRoomOtherTime<P extends SameRoomPlan>(
       const venue = (other.venues ?? []).find((v) => v.id === stored.roomId);
       const theirZone = resolveVenueTimezone(venue?.state ?? state, venue?.timezone ?? timezone);
       const theyStoreNoStart = storesNoStart(other, theirZone);
+      const startClock = localClock(storedStart(other), theirZone);
       const theirs = theyStoreNoStart
-        ? `${localClock(other.event_date, theirZone)} with no start time stored`
-        : localClock(other.event_date, theirZone);
+        ? `${startClock} with no start time stored`
+        : other.music_at && Date.parse(other.music_at) !== Date.parse(other.event_date)
+          ? `${startClock} (its music time; it is stored at ${localClock(other.event_date, theirZone)})`
+          : startClock;
       const ref = other.slug ? clean(other.slug) : `show ${other.id}`;
       if (plan.duplicate?.isDuplicate) {
         // A refresh that states a start for a show stored without one is the

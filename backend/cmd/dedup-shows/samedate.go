@@ -90,13 +90,16 @@ func copyEvidence(c catalog.SameLocalDateCopy) string {
 	if c.TicketURL != "" {
 		tickets = "tickets " + c.TicketURL
 	}
+	if c.SourceEventID != "" {
+		source += " event " + c.SourceEventID
+	}
 	fills := "none"
 	if len(c.DroppedFields) > 0 {
 		fills = strings.Join(c.DroppedFields, ", ")
 	}
-	return fmt.Sprintf("%s (%s, event_date %s), created %s, source %s, %s, fills: %s, "+
+	return fmt.Sprintf("%s titled %q (%s, event_date %s), created %s, source %s, %s, fills: %s, "+
 		"%d saves, %d visible comments, %d room(s)",
-		c.Slug, clock, c.EventDate.UTC().Format("2006-01-02T15:04:05Z"),
+		c.Slug, c.Title, clock, c.EventDate.UTC().Format("2006-01-02T15:04:05Z"),
 		c.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"), source, tickets, fills, c.Saves, c.Comments, c.RoomCount)
 }
 

@@ -220,6 +220,33 @@ describe("reportSameRoomOtherTime", () => {
     expect(warnings[0]).toContain("this listing states 20:00 PDT");
   });
 
+  test("a refresh matching a stored show's backfilled music time is the same instant, not another time", async () => {
+    // Stored date-only at 20:00, then --confirm filled music 21:00 without
+    // moving event_date; the next run lists 9 PM again.
+    const { client: c } = client(() => ({
+      shows: [stored(1, "2026-10-10T03:00:00Z", { music_at: "2026-10-10T04:00:00Z" })],
+      total: 1,
+    }));
+    await reportSameRoomOtherTime(
+      c,
+      [plan({ input: { event_date: "2026-10-09", music_at: "9:00 PM" }, duplicate: { isDuplicate: true, existingShowId: 1 } })],
+      pacific,
+      () => "2026-10-10T04:00:00.000Z",
+    );
+    expect(warnings).toEqual([]);
+  });
+
+  test("a stored show's music time is the time compared and printed", async () => {
+    // A matinee whose music time was backfilled; its event_date still reads 20:00.
+    const { client: c } = client(() => ({
+      shows: [stored(1, "2026-10-10T03:00:00Z", { music_at: "2026-10-09T21:00:00Z" })],
+      total: 1,
+    }));
+    await reportSameRoomOtherTime(c, [plan()], pacific, () => "2026-10-10T03:00:00.000Z");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("at 14:00 PDT (its music time; it is stored at 20:00 PDT)");
+  });
+
   test("a doors-only refresh, stored at the date-only hour, is not flagged as a duplicate at another time", async () => {
     const { client: c } = client(() => ({
       shows: [stored(1, "2026-10-10T03:30:00Z", { music_at: "2026-10-10T03:30:00Z" })],
