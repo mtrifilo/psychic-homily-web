@@ -42,10 +42,9 @@ describe("event-like wording", () => {
     expect(eventWording("Tilde~Joined")).toBeNull();
   });
 
-  // The hand check of the audit's sample found these four real acts among the
-  // names the wording rule flags. They stay flaggable, because the rule is
-  // flag-only, and are pinned here so its false-positive rate is on record:
-  // 4 of 50 in the sample.
+  // Four real acts the wording rule flags: known false positives (4 of a
+  // hand-checked sample of 50). They stay flaggable, because the rule is
+  // flag-only, and are pinned here so the false-positive rate is on record.
   test.each(["Ganja White Night", "Late Night Radio", "Our Last Night", "Sunshine & The Night Walkers"])(
     "flags the real act %s (a known false positive)",
     async (name: string) => {

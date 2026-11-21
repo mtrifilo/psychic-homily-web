@@ -73,7 +73,7 @@ const removeTargetTitle = "title"
 // carry commas, ampersands and "and", so none of those can separate them.
 const splitActSeparator = "|"
 
-// maxShowTitleLength is the longest title the show update API accepts.
+// maxShowTitleLength is the longest title, in bytes, the show update API accepts.
 const maxShowTitleLength = 255
 
 // worklistRow is one reviewed decision about one artist.

@@ -68,10 +68,13 @@ func (s *TriageSuite) TestTwoSplitsLinkingOneActAreRefused() {
 	s.show("", act{s.artist("Head One"), "headliner"}, act{one, "performer"})
 	s.show("", act{s.artist("Head Two"), "headliner"}, act{two, "performer"})
 
-	out, summary := s.run(csvOf(*one.Slug+",split,Shared Act | Other One", *two.Slug+",split,Shared Act | Other Two"), false)
-
-	s.Equal(2, summary[statusRefused], out)
-	s.Contains(out, "lines 2, 3 each put the same existing act on a bill")
+	rowOne := *one.Slug + ",split,Shared Act | Other One"
+	rowTwo := *two.Slug + ",split,Shared Act | Other Two"
+	for name, file := range map[string]string{"file order": csvOf(rowOne, rowTwo), "reversed": csvOf(rowTwo, rowOne)} {
+		out, summary := s.run(file, false)
+		s.Equal(2, summary[statusRefused], "%s: %s", name, out)
+		s.Contains(out, "lines 2, 3 each put the same existing act on a bill", name)
+	}
 }
 
 // An artist MusicBrainz identifies, by id or by a band-membership edge it

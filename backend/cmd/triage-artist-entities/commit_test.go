@@ -93,11 +93,13 @@ func (s *TriageSuite) TestAMergeAndARemoveOnOneBillAreRefused() {
 	junk := s.artist("Bill Junk Night")
 	sh := s.show("", act{s.artist("Bill Head"), "headliner"}, act{dup, "performer"}, act{junk, "performer"})
 
-	out, summary := s.run(csvOf(*dup.Slug+",merge,"+*keep.Slug, *junk.Slug+",remove,"), true)
-
-	s.Equal(2, summary[statusRefused], out)
-	s.Contains(out, "each rewrite the bill of show "+*sh.Slug)
-	s.Len(s.bill(sh.ID), 3)
+	merge, remove := *dup.Slug+",merge,"+*keep.Slug, *junk.Slug+",remove,"
+	for name, file := range map[string]string{"file order": csvOf(merge, remove), "reversed": csvOf(remove, merge)} {
+		out, summary := s.run(file, true)
+		s.Equal(2, summary[statusRefused], "%s: %s", name, out)
+		s.Contains(out, "each rewrite the bill of show "+*sh.Slug, name)
+		s.Len(s.bill(sh.ID), 3, name)
+	}
 }
 
 // A slug that now names a different artist from the one reviewed is refused.

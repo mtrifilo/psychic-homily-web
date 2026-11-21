@@ -52,7 +52,8 @@ export interface ArtistNameContext {
 
 /**
  * Lowercases and folds every run of characters that are not letters or digits
- * to one space, the way the audit's SQL compares names.
+ * to one space, so "LIVE AT LAUNCHPAD!" and "live at launchpad" compare equal
+ * and whole-word matches ignore punctuation.
  */
 export function foldName(s: string): string {
   return s

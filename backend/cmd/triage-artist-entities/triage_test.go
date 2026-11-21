@@ -220,15 +220,22 @@ func (s *TriageSuite) bill(showID uint) []string {
 }
 
 // memRecord is an in-memory record file. With failWrite set, a write puts the
-// first partial bytes in and fails; with failSync set, Sync fails.
+// first partial bytes in and fails; with failAfterLines above 0, every write
+// after that many lines fails; with failSync set, Sync fails.
 type memRecord struct {
-	buf       bytes.Buffer
-	failWrite bool
-	partial   int
-	failSync  bool
+	buf            bytes.Buffer
+	failWrite      bool
+	partial        int
+	failAfterLines int
+	lines          int
+	failSync       bool
 }
 
 func (m *memRecord) Write(p []byte) (int, error) {
+	if m.failAfterLines > 0 && m.lines >= m.failAfterLines {
+		return 0, errors.New("disk full")
+	}
+	m.lines++
 	if m.failWrite {
 		n := min(m.partial, len(p))
 		m.buf.Write(p[:n])

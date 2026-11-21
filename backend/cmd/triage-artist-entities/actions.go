@@ -496,7 +496,7 @@ func (t *triage) remove(tx *gorm.DB, p *rowPlan, subject *catalogm.Artist) ([]st
 		return detail, fmt.Errorf("%s is on no bill, so there is no show title to write", slugOf(subject))
 	}
 	if writeTitle && len(title) > maxShowTitleLength {
-		return detail, fmt.Errorf("the name is longer than the %d characters a show title holds", maxShowTitleLength)
+		return detail, fmt.Errorf("the name is longer than the %d bytes the show update accepts for a title", maxShowTitleLength)
 	}
 
 	showSvc := catalog.NewShowService(tx)
