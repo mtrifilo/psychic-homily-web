@@ -230,7 +230,10 @@ func mainSameLocalDate() {
 var worklistInstructions = fmt.Sprintf("To merge: review every row. Clear correct_room_slug and %[1]smerge_into_show_slug "+
 	"on any merge row that should not merge; on a review row you decide to merge, fill both. Then rename "+
 	"each %[1]s column by dropping the prefix (%[1]smerge_into_show_slug to merge_into_show_slug, %[1]sverdict to "+
-	"verdict) and run reattribute-shows --dry-run with the same --env.", suggestedPrefix)
+	"verdict) and run reattribute-shows --dry-run with the same --env. Right before --confirm, run this finder again "+
+	"into a new file and check that every merge row you kept still reads merge there: reattribute-shows re-checks "+
+	"status, date, rooms and collisions, not this rule, so a copy edited since the worklist was made is not caught.",
+	suggestedPrefix)
 
 // validateSameLocalDateFlags checks the command line for the mode.
 func validateSameLocalDateFlags(confirm bool, envFile string) error {

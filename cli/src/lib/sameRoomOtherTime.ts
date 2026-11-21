@@ -52,9 +52,11 @@ const SCAN_CAP = 600;
 const CONCURRENT_DAY_READS = 4;
 
 /**
- * The widest gap between two starts of one show: the reach of one event's doors
- * and start, and shorter than the gap between an early and a late show. The
- * finder's merge rule (SameShowClockSpan in the backend) uses the same value.
+ * The gap, in minutes, from which two starts read as possibly two shows: the
+ * reach of one event's doors and start. The backend finder's SameShowClockSpan
+ * holds the same value, applied to every stored clock rather than to starts,
+ * and it accepts a spread of exactly this much where this check already reads
+ * "may be a second show".
  */
 export const SAME_SHOW_SPAN_MINUTES = 90;
 

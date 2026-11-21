@@ -22,8 +22,10 @@ import (
 //
 // The rule is conservative on purpose. A pair is "merge" only when every
 // condition in mergeConditions holds; anything else is "review", with each
-// failed condition named. Two shows the same day (a matinee and an evening
-// show, an early and a late set) fail the clock test and are never merged here.
+// failed condition named. Two shows the same day whose stored clocks are more
+// than SameShowClockSpan apart (a matinee and an evening show, most early and
+// late sets) fail the clock test and are never merged here; two shows closer
+// than that are told apart only by conditions 2 to 5.
 //
 // Invariants a reader can check against the code below:
 //
@@ -41,9 +43,9 @@ import (
 // made in Go.
 const sameLocalDateCandidateWindow = "26 hours"
 
-// SameShowClockSpan is the widest spread of clocks two copies of one show can
-// carry: the reach of one event's doors and start, and shorter than the gap
-// between an early and a late show.
+// SameShowClockSpan is the widest spread of clocks the rule accepts for two
+// copies of one show: the reach of one event's doors and start. A spread of
+// exactly this much passes; more fails.
 const SameShowClockSpan = 90 * time.Minute
 
 // twoShowsClockSpan is the spread at which a review row says the copies may be
@@ -545,6 +547,11 @@ func mergeReason(keep, c SameLocalDateCopy) string {
 		why = "both rows were created at the same instant; it has the lower id"
 	}
 	parts := []string{fmt.Sprintf("all %d conditions hold; keep %s: %s", len(mergeConditions), keep.Slug, why)}
+	if keep.StatesStart && c.StatesStart && !startOf(keep).Equal(startOf(c)) {
+		parts = append(parts, fmt.Sprintf("the two state different starts (kept copy %s; this copy %s) and the "+
+			"merge keeps only the kept copy's: if this copy's is right, set it by hand after the merge",
+			keep.ClockText(), c.ClockText()))
+	}
 	if lost := notCarried(keep, c); len(lost) > 0 {
 		parts = append(parts, fmt.Sprintf("this copy fills %s, which the kept copy lacks and the merge drops: "+
 			"copy it over by hand before or after the merge", strings.Join(lost, ", ")))
@@ -565,6 +572,17 @@ func mergeReason(keep, c SameLocalDateCopy) string {
 		parts = append(parts, "a copy lists more than one room, and reattribute-shows merges only shows with exactly one")
 	}
 	return strings.Join(parts, "; ")
+}
+
+// startOf is the copy's start: its music time when stored, else its stored
+// start.
+func startOf(c SameLocalDateCopy) time.Time {
+	for _, k := range c.Clocks {
+		if k.Label == "music" {
+			return k.At
+		}
+	}
+	return c.EventDate
 }
 
 // notCarried names what the merged-away copy fills that the kept copy leaves

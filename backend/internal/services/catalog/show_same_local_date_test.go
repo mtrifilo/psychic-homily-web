@@ -623,11 +623,11 @@ func TestRule_AMatineeAndAnEveningShowAreReview(t *testing.T) {
 // Each of conditions 1 to 5 failing alone, on a pair whose clocks agree.
 func TestRule_EachConditionFailingAloneIsReview(t *testing.T) {
 	base := func() (SameLocalDateCopy, SameLocalDateCopy) {
-		return copyAt(1, "2026-10-09 20:30", aug30), copyAt(2, "2026-10-09 20:30", sep13)
+		return copyAt(1, "2026-10-09 20:30", aug30), copyAt(2, "2026-10-09 20:45", sep13)
 	}
 	cases := map[string]func(a, b *SameLocalDateCopy) []SameLocalDateCopy{
 		"(1) the group holds 3 copies": func(a, b *SameLocalDateCopy) []SameLocalDateCopy {
-			return []SameLocalDateCopy{*a, *b, copyAt(3, "2026-10-09 20:30", sep13)}
+			return []SameLocalDateCopy{*a, *b, copyAt(3, "2026-10-09 20:50", sep13)}
 		},
 		"(1) show 2 has no slug": func(a, b *SameLocalDateCopy) []SameLocalDateCopy {
 			b.Slug = ""
@@ -662,7 +662,7 @@ func TestRule_EachConditionFailingAloneIsReview(t *testing.T) {
 // one scraper event id, both cancelled, a field filled on one side only.
 func TestRule_ConditionsThatHold(t *testing.T) {
 	a := copyAt(1, "2026-10-09 20:30", aug30, withField("price", "12.00"))
-	b := copyAt(2, "2026-10-09 20:30", sep13)
+	b := copyAt(2, "2026-10-09 20:45", sep13)
 	b.Title = " a night OUT "
 	a.SourceEventID = "evt-1"
 	a.IsCancelled, b.IsCancelled = true, true
@@ -694,21 +694,38 @@ func TestRule_SavesAndCommentsDoNotDecideAndMove(t *testing.T) {
 func TestRule_MoreDroppedFieldsOutrankTheOlderRow(t *testing.T) {
 	row := requireMerge(t, 2,
 		copyAt(1, "2026-10-09 20:30", aug30),
-		copyAt(2, "2026-10-09 20:30", sep13, withField("ticket link", "x/1"), withField("price", "10.00")))
+		copyAt(2, "2026-10-09 20:45", sep13, withField("ticket link", "x/1"), withField("price", "10.00")))
 	requireReason(t, row.Reason, "it fills more of the fields a merge drops (ticket link, price) than this copy (none)")
 }
 
 func TestRule_ATieOnEverythingKeepsTheLowerID(t *testing.T) {
-	row := requireMerge(t, 4, copyAt(9, "2026-12-13 20:30", sep13), copyAt(4, "2026-12-13 20:30", sep13))
+	row := requireMerge(t, 4, copyAt(9, "2026-12-13 20:45", sep13), copyAt(4, "2026-12-13 20:30", sep13))
 	requireReason(t, row.Reason, "it has the lower id")
 }
 
 func TestRule_NamesALostSubmitterAndAScrapedCopy(t *testing.T) {
-	gone := copyAt(2, "2026-10-09 20:30", sep13)
+	gone := copyAt(2, "2026-10-09 20:45", sep13)
 	gone.SubmittedBy = 7
 	gone.Source = "discovery"
 	row := requireMerge(t, 1, copyAt(1, "2026-10-09 20:30", aug30), gone)
 	requireReason(t, row.Reason, "submitted by user 7, whose credit for it the merge drops", "discovery scraper")
+}
+
+// A spread of exactly SameShowClockSpan passes; one minute more fails.
+func TestRule_TheClockSpanBoundary(t *testing.T) {
+	requireMerge(t, 1, copyAt(1, "2026-10-09 18:30", aug30), copyAt(2, "2026-10-09 20:00", sep13, withMusic("2026-10-09 20:00")))
+	row := requireReview(t, copyAt(1, "2026-10-09 18:29", aug30), copyAt(2, "2026-10-09 20:00", sep13, withMusic("2026-10-09 20:00")))
+	requireReason(t, row.Reason, "(6) the clocks span 91 minutes")
+}
+
+// Two copies both stating a start, 15 minutes apart: the keep falls to field
+// count, and the merged-away copy's start is named.
+func TestRule_TwoStatedStartsNameTheDroppedOne(t *testing.T) {
+	row := requireMerge(t, 2,
+		copyAt(1, "2026-10-09 20:30", aug30),
+		copyAt(2, "2026-10-09 20:45", sep13, withField("ticket link", "x/1")))
+	requireReason(t, row.Reason, "it fills more of the fields",
+		"the two state different starts (kept copy stored start 20:45; this copy stored start 20:30)")
 }
 
 func TestRule_TextIsBuiltFromTheConditionsAndConstants(t *testing.T) {
