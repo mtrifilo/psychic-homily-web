@@ -20,13 +20,17 @@ const GOOGLE_ADD_BY_URL = 'https://calendar.google.com/calendar/r/settings/addby
 // The shared password of the seeded users (e2e/setup-db.sh).
 const SEEDED_PASSWORD = 'e2e-test-password-123'
 
-/** No calendar link and no reset marker. */
+/**
+ * No calendar link, no reset marker, and no links made this hour, so repeated
+ * runs against one database never reach the hourly cap on making a link.
+ */
 function resetCalendarLink(userId: number) {
   runE2ESql(
     `UPDATE user_preferences SET calendar_link_reset_at = NULL, ` +
       `calendar_link_reset_reason = NULL WHERE user_id = ${userId}`
   )
   runE2ESql(`DELETE FROM calendar_tokens WHERE user_id = ${userId}`)
+  runE2ESql(`DELETE FROM calendar_link_mint_counts WHERE user_id = ${userId}`)
 }
 
 test.describe('Library calendar page', () => {

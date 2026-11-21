@@ -256,6 +256,11 @@ func hashCalendarToken(token string) string {
 // lock on it), and then deletes the account's feed tokens, therefore either
 // commits first, and this mint is refused, or waits for this one and then
 // deletes the token it wrote.
+//
+// Each mint counts toward the account's hourly cap in the same transaction
+// (countCalendarLinkMintTx). Past the cap it returns
+// *apperrors.CalendarLinkRateLimitedError and changes nothing: the current
+// link stays, and no retired link is written.
 func (s *CalendarService) CreateToken(userID uint, sessionsValidAfter *time.Time, apiBaseURL string) (*contracts.CalendarTokenCreateResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -285,6 +290,13 @@ func (s *CalendarService) CreateToken(userID uint, sessionsValidAfter *time.Time
 		// exactly and the CreatedAt returned equals the one GetTokenStatus
 		// later reads.
 		token.CreatedAt = tx.NowFunc().Truncate(time.Microsecond)
+
+		// Counted before the old link is touched, so a refused mint has deleted
+		// and written nothing, and concurrent mints of one account wait for
+		// each other here rather than colliding on the token's unique index.
+		if err := countCalendarLinkMintTx(tx, userID, token.CreatedAt); err != nil {
+			return err
+		}
 
 		// The link this one replaces is remembered as replaced.
 		if _, err := RetireCalendarTokensTx(tx, userID, engagementm.CalendarLinkRetiredReplaced, token.CreatedAt); err != nil {
