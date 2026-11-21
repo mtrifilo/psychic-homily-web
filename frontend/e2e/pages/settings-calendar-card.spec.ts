@@ -8,7 +8,9 @@ import { runE2ESql } from '../e2e-db'
 // the END of its address, the part that tells the two addresses apart, at
 // 390 and at 1440. jsdom has no layout, so this is checked in a browser from
 // what the field actually draws: its overflow, its scroll position, its
-// direction and the drawn width of the address's last segment.
+// direction and the drawn width of the address's last segment. The ellipsis
+// where the beginning is cut is checked as the computed `text-overflow`; the
+// glyph itself is not measured.
 
 const CARD_HREF = '/profile?tab=settings#calendar'
 
@@ -50,6 +52,7 @@ async function drawnEnd(page: Page) {
         suffix,
         overflows,
         direction: style.direction,
+        textOverflow: style.textOverflow,
         endVisible:
           hiddenAtEnd < 1 &&
           (overflows ? suffixWidth <= visibleFromEnd : textWidth <= inner + 0.5),
@@ -94,6 +97,7 @@ test.describe('Settings calendar card: the address fields', () => {
       ])
       for (const field of drawn) {
         expect(field.endVisible, JSON.stringify(field)).toBe(true)
+        expect(field.textOverflow, JSON.stringify(field)).toBe('ellipsis')
       }
       if (width === 390) {
         // At 390 neither address fits, so each field must be showing its end

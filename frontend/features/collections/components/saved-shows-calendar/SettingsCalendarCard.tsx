@@ -104,7 +104,12 @@ function SettingsCalendarBody() {
     case 'loading':
       return <PanelNote>{PANEL_COPY.loading}</PanelNote>
     case 'load_failed':
-      return <LinkFailedLine failure="load" onRetry={state.retry} />
+      // Leaves under focus when a read the person did not ask for succeeds.
+      return (
+        <FocusHold>
+          <LinkFailedLine failure="load" onRetry={state.retry} />
+        </FocusHold>
+      )
     case 'no_link':
       return <NoLink resetReason={state.resetReason} add={add} />
     case 'link':

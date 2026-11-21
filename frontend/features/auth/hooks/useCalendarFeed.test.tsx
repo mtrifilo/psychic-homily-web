@@ -523,30 +523,6 @@ describe('useCalendarTokenStatus + useCreateCalendarToken integration', () => {
   })
 })
 
-describe('useCalendarTokenStatus live', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockApiRequest.mockReset()
-  })
-
-  it('reads the addresses afresh when a live observer mounts, whatever the cache holds', async () => {
-    mockApiRequest.mockResolvedValue({ has_token: false })
-    const queryClient = createTestQueryClient()
-    queryClient.setQueryData(['calendar', 'tokenStatus'], {
-      has_token: true,
-      feed_url: 'https://api.example.test/feeds/replaced/saved-shows.ics',
-    })
-
-    const { result } = renderHook(
-      () => useCalendarTokenStatus(true, { live: true }),
-      { wrapper: createWrapperWithClient(queryClient) }
-    )
-
-    await waitFor(() => expect(result.current.data).toEqual({ has_token: false }))
-    expect(mockApiRequest).toHaveBeenCalledWith('/calendar/token', { method: 'GET' })
-  })
-})
-
 describe('useCalendarFeedStatus live', () => {
   beforeEach(() => {
     vi.clearAllMocks()

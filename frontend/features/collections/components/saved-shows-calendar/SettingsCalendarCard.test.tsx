@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { focusManager } from '@tanstack/react-query'
 import userEvent from '@testing-library/user-event'
 import { createTestQueryClient, createWrapperWithClient } from '@/test/utils'
+import { trackAppTimers } from '@/test/appTimers'
+import { RETRY_FAILED_READ_MS } from '@/lib/retryFailedRead'
 import type {
   CalendarFeedRead,
   CalendarTokenStatusResponse,
@@ -13,6 +15,7 @@ import {
   calendarStoppedLine,
 } from '@/features/collections/lib/calendarFeedStatus'
 import { SettingsCalendarCard } from './SettingsCalendarCard'
+import { CONFIRM_ARMING_DELAY_MS } from './SettingsCalendarLinks'
 import { PANEL_COPY, addAgainLabel } from './savedShowsCalendarCopy'
 import {
   SETTINGS_CALENDAR_COPY as COPY,
@@ -195,10 +198,40 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   document.removeEventListener('click', stopNavigation, true)
   focusManager.setFocused(undefined)
   vi.restoreAllMocks()
 })
+
+/** Another window or device replaced the link. */
+function replacedElsewhere() {
+  server.token = {
+    has_token: true,
+    url_recoverable: true,
+    feed_url: NEW_FEED_URL,
+    follows_feed_url: NEW_FOLLOWS_URL,
+  }
+}
+
+/**
+ * Clicks an open question's confirming button once it acts: it ignores
+ * activation for CONFIRM_ARMING_DELAY_MS after the question appears.
+ */
+async function confirmOnceArmed(
+  user: ReturnType<typeof userEvent.setup>,
+  name: string
+) {
+  await act(
+    () => new Promise(resolve => setTimeout(resolve, CONFIRM_ARMING_DELAY_MS))
+  )
+  await user.click(screen.getByRole('button', { name }))
+}
+
+/** Lets fake time pass, with the promises and renders it releases. */
+async function passTime(ms: number) {
+  await act(() => vi.advanceTimersByTimeAsync(ms))
+}
 
 /** The page is hidden and shown again, as when the person comes back from a calendar app. */
 function showPageAgain() {
@@ -363,7 +396,7 @@ describe('SettingsCalendarCard', () => {
       ).toBeInTheDocument()
 
       await user.click(screen.getByRole('button', { name: open }))
-      await user.click(screen.getByRole('button', { name: confirm }))
+      await confirmOnceArmed(user, confirm)
       await waitFor(() =>
         expect(
           screen.queryByText(SETTINGS_RESET_SENTENCE.sign_out_everywhere)
@@ -533,9 +566,7 @@ describe('SettingsCalendarCard', () => {
       const user = setupUser()
       await renderReadCard()
       await user.click(screen.getByRole('button', { name: COPY.newLink }))
-      await user.click(
-        screen.getByRole('button', { name: COPY.confirmNewLinkAction })
-      )
+      await confirmOnceArmed(user, COPY.confirmNewLinkAction)
       await waitFor(() => expect(fieldValues()).toEqual([NEW_FEED_URL, NEW_FOLLOWS_URL]))
       expect(addControls()).toHaveLength(4)
     })
@@ -712,6 +743,71 @@ describe('SettingsCalendarCard', () => {
       }
       expect(container.firstElementChild).toHaveClass('ph-no-capture')
     })
+
+    it.each([
+      ['the calendar field', () => screen.getByLabelText(COPY.calendarLinkLabel)],
+      [
+        'the follows field',
+        () => screen.getByLabelText(new RegExp(`^${COPY.followsLinkLabel}`)),
+      ],
+      ['the calendar Copy', () => screen.getAllByRole('button', { name: COPY.copy })[0]],
+      ['the follows Copy', () => screen.getAllByRole('button', { name: COPY.copy })[1]],
+    ])(
+      'keeps focus on %s when a read brings a replaced address',
+      async (_case, focused) => {
+        withLink()
+        await renderReadCard()
+        const target = focused()
+        act(() => target.focus())
+        expect(target).toHaveFocus()
+
+        replacedElsewhere()
+        showPageAgain()
+        await waitFor(() =>
+          expect(fieldValues()).toEqual([NEW_FEED_URL, NEW_FOLLOWS_URL])
+        )
+        expect(target).toBeInTheDocument()
+        expect(target).toHaveFocus()
+      }
+    )
+
+    it('drops each "Copied" once its address is replaced', async () => {
+      withLink()
+      const user = setupUser()
+      await renderReadCard()
+      const [copyCalendar, copyFollows] = screen.getAllByRole('button', {
+        name: COPY.copy,
+      })
+      await user.click(copyCalendar)
+      await user.click(copyFollows)
+      expect(await screen.findByText(PANEL_COPY.copied)).toBeInTheDocument()
+      expect(await screen.findByText(COPY.followsCopied)).toBeInTheDocument()
+
+      replacedElsewhere()
+      showPageAgain()
+      await waitFor(() =>
+        expect(fieldValues()).toEqual([NEW_FEED_URL, NEW_FOLLOWS_URL])
+      )
+      expect(screen.queryByText(PANEL_COPY.copied)).toBeNull()
+      expect(screen.queryByText(COPY.followsCopied)).toBeNull()
+      expect(copyFollows).toHaveFocus()
+    })
+
+    it('drops a refused copy\'s line once its address is replaced', async () => {
+      withLink()
+      writeText.mockRejectedValue(new Error('denied'))
+      const user = setupUser()
+      await renderReadCard()
+      await user.click(screen.getAllByRole('button', { name: COPY.copy })[0])
+      expect(await screen.findByText(COPY.copyFailed)).toBeInTheDocument()
+
+      replacedElsewhere()
+      showPageAgain()
+      await waitFor(() =>
+        expect(fieldValues()).toEqual([NEW_FEED_URL, NEW_FOLLOWS_URL])
+      )
+      expect(screen.queryByText(COPY.copyFailed)).toBeNull()
+    })
   })
 
   describe('New link', () => {
@@ -738,9 +834,7 @@ describe('SettingsCalendarCard', () => {
       const user = setupUser()
       await renderReadCard()
       await user.click(screen.getByRole('button', { name: COPY.newLink }))
-      await user.click(
-        screen.getByRole('button', { name: COPY.confirmNewLinkAction })
-      )
+      await confirmOnceArmed(user, COPY.confirmNewLinkAction)
       await waitFor(() => expect(fieldValues()).toEqual([NEW_FEED_URL, NEW_FOLLOWS_URL]))
       expect(calls('/calendar/token', 'POST')).toHaveLength(1)
       expect(screen.getByRole('button', { name: COPY.newLink })).toHaveFocus()
@@ -758,9 +852,7 @@ describe('SettingsCalendarCard', () => {
       const user = setupUser()
       await renderReadCard()
       await user.click(screen.getByRole('button', { name: COPY.newLink }))
-      await user.click(
-        screen.getByRole('button', { name: COPY.confirmNewLinkAction })
-      )
+      await confirmOnceArmed(user, COPY.confirmNewLinkAction)
       await waitFor(() => expect(fieldValues()).toEqual([NEW_FEED_URL, NEW_FOLLOWS_URL]))
       expect(screen.queryByRole('group', { name: COPY.confirmNewLink })).toBeNull()
       expect(screen.queryByText(PANEL_COPY.createFailed)).toBeNull()
@@ -780,9 +872,7 @@ describe('SettingsCalendarCard', () => {
       try {
         await renderReadCard()
         await user.click(screen.getByRole('button', { name: COPY.newLink }))
-        await user.click(
-          screen.getByRole('button', { name: COPY.confirmNewLinkAction })
-        )
+        await confirmOnceArmed(user, COPY.confirmNewLinkAction)
         // The person moves on to another card while the request is out.
         outside.focus()
         // Another window replaced the link; the failed request's re-read
@@ -807,9 +897,7 @@ describe('SettingsCalendarCard', () => {
       const user = setupUser()
       await renderReadCard()
       await user.click(screen.getByRole('button', { name: COPY.newLink }))
-      await user.click(
-        screen.getByRole('button', { name: COPY.confirmNewLinkAction })
-      )
+      await confirmOnceArmed(user, COPY.confirmNewLinkAction)
       expect(await screen.findByRole('alert')).toHaveTextContent(
         PANEL_COPY.createFailed
       )
@@ -830,7 +918,7 @@ describe('SettingsCalendarCard', () => {
         name: COPY.confirmTurnOffAction,
       })
       expect(confirm).toHaveClass('bg-destructive')
-      await user.click(confirm)
+      await confirmOnceArmed(user, COPY.confirmTurnOffAction)
 
       expect(
         await screen.findByRole('button', { name: COPY.addToCalendar })
@@ -850,9 +938,7 @@ describe('SettingsCalendarCard', () => {
       const user = setupUser()
       await renderReadCard()
       await user.click(screen.getByRole('button', { name: COPY.turnOff }))
-      await user.click(
-        screen.getByRole('button', { name: COPY.confirmTurnOffAction })
-      )
+      await confirmOnceArmed(user, COPY.confirmTurnOffAction)
       expect(
         await screen.findByRole('button', { name: COPY.addToCalendar })
       ).toBeInTheDocument()
@@ -869,9 +955,7 @@ describe('SettingsCalendarCard', () => {
       const user = setupUser()
       await renderReadCard()
       await user.click(screen.getByRole('button', { name: COPY.turnOff }))
-      await user.click(
-        screen.getByRole('button', { name: COPY.confirmTurnOffAction })
-      )
+      await confirmOnceArmed(user, COPY.confirmTurnOffAction)
       expect(await screen.findByRole('alert')).toHaveTextContent(COPY.turnOffFailed)
       expect(fieldValues()).toEqual([FEED_URL, FOLLOWS_URL])
 
@@ -880,6 +964,90 @@ describe('SettingsCalendarCard', () => {
       expect(
         await screen.findByRole('button', { name: COPY.addToCalendar })
       ).toBeInTheDocument()
+    })
+  })
+
+  describe('the confirming button just after its question appears', () => {
+    // Fake time with fireEvent: the async wrapper userEvent goes through waits
+    // on a timer the fake clock never fires. A key on a native button reaches
+    // React as a click whose `detail` is 0; a tap's is 1.
+    const tap = (el: HTMLElement) => fireEvent.click(el, { detail: 1 })
+    const key = (el: HTMLElement) => fireEvent.click(el, { detail: 0 })
+
+    it.each([
+      ['Make a new link', COPY.newLink, COPY.confirmNewLink, COPY.confirmNewLinkAction, 'POST'],
+      ['Turn off', COPY.turnOff, COPY.confirmTurnOff, COPY.confirmTurnOffAction, 'DELETE'],
+    ])(
+      '%s ignores a tap or a key inside the wait, then acts',
+      async (_case, open, question, confirm, verb) => {
+        withLink()
+        await renderReadCard()
+        vi.useFakeTimers()
+
+        // A double tap: the first tap opens the question, the second lands
+        // where the confirming button now is.
+        tap(screen.getByRole('button', { name: open }))
+        const button = screen.getByRole('button', { name: confirm })
+        tap(button)
+        act(() => button.focus())
+        expect(button).toHaveFocus()
+        key(button)
+        await passTime(CONFIRM_ARMING_DELAY_MS - 1)
+        tap(button)
+        key(button)
+        await passTime(0)
+        expect(calls('/calendar/token', verb)).toHaveLength(0)
+        // Waiting changes nothing the person can see.
+        expect(button).toBeEnabled()
+        expect(button).not.toHaveAttribute('aria-busy')
+        expect(screen.getByRole('group', { name: question })).toBeInTheDocument()
+
+        await passTime(1)
+        key(button)
+        await passTime(50)
+        expect(calls('/calendar/token', verb)).toHaveLength(1)
+        expect(screen.queryByRole('group', { name: question })).toBeNull()
+      }
+    )
+
+    it('confirms on a tap once the wait has passed', async () => {
+      withLink()
+      await renderReadCard()
+      vi.useFakeTimers()
+      tap(screen.getByRole('button', { name: COPY.turnOff }))
+      await passTime(CONFIRM_ARMING_DELAY_MS)
+      tap(screen.getByRole('button', { name: COPY.confirmTurnOffAction }))
+      await passTime(50)
+      expect(calls('/calendar/token', 'DELETE')).toHaveLength(1)
+      expect(
+        screen.getByRole('button', { name: COPY.addToCalendar })
+      ).toBeInTheDocument()
+    })
+
+    it('lets Cancel act at once, and leaves no timer behind', async () => {
+      withLink()
+      await renderReadCard()
+      vi.useFakeTimers()
+      const timers = trackAppTimers()
+      tap(screen.getByRole('button', { name: COPY.newLink }))
+      expect(timers.pending(), timers.pendingCallSites()).toBe(1)
+
+      tap(screen.getByRole('button', { name: COPY.cancel }))
+      expect(screen.queryByRole('group', { name: COPY.confirmNewLink })).toBeNull()
+      expect(timers.pending(), timers.pendingCallSites()).toBe(0)
+      timers.restore()
+    })
+
+    it('leaves no timer behind when the card unmounts inside the wait', async () => {
+      withLink()
+      const { unmount } = await renderReadCard()
+      vi.useFakeTimers()
+      const timers = trackAppTimers()
+      tap(screen.getByRole('button', { name: COPY.turnOff }))
+      expect(timers.pending(), timers.pendingCallSites()).toBe(1)
+      unmount()
+      expect(timers.pending(), timers.pendingCallSites()).toBe(0)
+      timers.restore()
     })
   })
 
@@ -1014,5 +1182,25 @@ describe('SettingsCalendarCard', () => {
     expect(
       await screen.findByRole('button', { name: COPY.addToCalendar })
     ).toBeInTheDocument()
+  })
+
+  it('keeps focus in the card when the automatic retry of a failed read succeeds', async () => {
+    vi.useFakeTimers()
+    server.token = new Error('down')
+    renderCard()
+    await passTime(0)
+    expect(screen.getByRole('alert')).toHaveTextContent(PANEL_COPY.loadFailed)
+    const retry = screen.getByRole('button', { name: 'Try again.' })
+    act(() => retry.focus())
+
+    server.token = { has_token: false }
+    await passTime(RETRY_FAILED_READ_MS)
+    await passTime(50)
+    expect(calls('/calendar/token', 'GET')).toHaveLength(2)
+    expect(
+      screen.getByRole('button', { name: COPY.addToCalendar })
+    ).toBeInTheDocument()
+    expect(retry).not.toBeInTheDocument()
+    expect(document.getElementById('calendar')).toHaveFocus()
   })
 })

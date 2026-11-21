@@ -1,9 +1,10 @@
 'use client'
 
-import { useLayoutEffect, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import type React from 'react'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useDismissTimer } from '@/lib/hooks/common/useDismissTimer'
 import { cn } from '@/lib/utils'
 import type { CalendarSendControlProps } from './CalendarEmailStepsAction'
 import { holdFocusInSurface } from './CalendarPanelParts'
@@ -79,6 +80,23 @@ export function useHoldFocusOnLeave<T extends HTMLElement>() {
     }
   }, [])
   return ref
+}
+
+/**
+ * Whether a control that just appeared may act yet: false for `delayMs` after
+ * mount, then true. Read it in the control's handler, so the control looks,
+ * focuses and announces itself exactly as it would without the wait.
+ */
+export function useArmedAfterMount(delayMs: number): () => boolean {
+  const armed = useRef(false)
+  const { schedule } = useDismissTimer(() => {
+    armed.current = true
+  }, delayMs)
+  useEffect(() => {
+    armed.current = false
+    schedule()
+  }, [schedule])
+  return useCallback(() => armed.current, [])
 }
 
 /**

@@ -19,7 +19,11 @@ import {
 import { copyText } from './calendarPanelBrowser'
 import { PANEL_COPY } from './savedShowsCalendarCopy'
 import { SETTINGS_CALENDAR_COPY as COPY } from './settingsCalendarCopy'
-import { CalendarCardButton, useHoldFocusOnLeave } from './SettingsCalendarParts'
+import {
+  CalendarCardButton,
+  useArmedAfterMount,
+  useHoldFocusOnLeave,
+} from './SettingsCalendarParts'
 import {
   showCalendarStatus,
   statusOfNewLink,
@@ -122,14 +126,12 @@ export function SettingsCalendarLinks({
       {links ? (
         <>
           <LinkField
-            key={links.feedUrl}
             id={calendarFieldId}
             label={COPY.calendarLinkLabel}
             address={links.feedUrl}
             copiedLine={PANEL_COPY.copied}
           />
           <LinkField
-            key={links.followsFeedUrl}
             id={followsFieldId}
             label={
               <>
@@ -206,6 +208,10 @@ export function SettingsCalendarLinks({
  * right to left with left-aligned text, so a field too narrow for the whole
  * address shows its END, the part that tells the two apart, with an ellipsis
  * where the beginning is cut (a browser check covers what it draws).
+ *
+ * The field stays mounted when its address is replaced, so focus on it or on
+ * Copy stays put; a copy's note belongs to the address it was made for and is
+ * not shown for a new one.
  */
 function LinkField({
   id,
@@ -218,12 +224,16 @@ function LinkField({
   address: string
   copiedLine: string
 }) {
-  const [copied, setCopied] = useState<boolean | null>(null)
+  const [copyResult, setCopyResult] = useState<{
+    address: string
+    copied: boolean
+  } | null>(null)
+  const copied = copyResult?.address === address ? copyResult.copied : null
   const copy = () => {
-    setCopied(null)
+    setCopyResult(null)
     copyText(address).then(
-      () => setCopied(true),
-      () => setCopied(false)
+      () => setCopyResult({ address, copied: true }),
+      () => setCopyResult({ address, copied: false })
     )
   }
 
@@ -260,9 +270,19 @@ function LinkField({
 }
 
 /**
+ * How long a confirmation's destructive button ignores activation, by pointer
+ * or key, after the confirmation appears. Below `sm` the buttons stack full
+ * width, so the confirming button can sit where the control that opened the
+ * question was, and without the wait the second tap of a double tap would
+ * confirm.
+ */
+export const CONFIRM_ARMING_DELAY_MS = 400
+
+/**
  * Asks before a change that disconnects every calendar and feed reader, in
  * the card itself rather than a dialog. Focus moves to the question when it
- * opens, so a screen reader reads it before the buttons.
+ * opens, so a screen reader reads it before the buttons. The destructive
+ * button acts only once CONFIRM_ARMING_DELAY_MS has passed; Cancel always acts.
  */
 function InlineConfirmation({
   sentence,
@@ -280,6 +300,7 @@ function InlineConfirmation({
   failure: ReactNode
 }) {
   const sentenceId = useId()
+  const isArmed = useArmedAfterMount(CONFIRM_ARMING_DELAY_MS)
   // The question can close under focus when a refetch finds the address
   // changed (another window, or a write whose answer was lost).
   const leaveRef = useHoldFocusOnLeave<HTMLDivElement>()
@@ -306,7 +327,9 @@ function InlineConfirmation({
         <CalendarCardButton
           variant="destructive"
           working={working}
-          onClick={onConfirm}
+          onClick={() => {
+            if (isArmed()) onConfirm()
+          }}
         >
           {action}
         </CalendarCardButton>
