@@ -64,14 +64,16 @@ func (s *SameLocalDateTestSuite) artist(name string) uint {
 }
 
 type showSpec struct {
-	slug    string
-	at      time.Time
-	musicAt *time.Time
-	created time.Time
-	status  string
-	ticket  string
-	rooms   []uint
-	acts    []uint
+	slug      string
+	at        time.Time
+	musicAt   *time.Time
+	doorsAt   *time.Time
+	cancelled bool
+	created   time.Time
+	status    string
+	ticket    string
+	rooms     []uint
+	acts      []uint
 }
 
 // show inserts a show with a bill in position order, the first act headliner.
@@ -90,9 +92,10 @@ func (s *SameLocalDateTestSuite) show(sp showSpec) uint {
 	}
 	var id uint
 	s.Require().NoError(s.db.Raw(`
-		INSERT INTO shows (title, slug, event_date, music_at, state, status, source, ticket_url, created_at, updated_at)
-		VALUES (?, ?, ?, ?, 'CA', ?, 'user', ?, ?, ?) RETURNING id
-	`, sp.slug, sp.slug, sp.at, sp.musicAt, status, ticket, created, created).Row().Scan(&id))
+		INSERT INTO shows (title, slug, event_date, music_at, doors_at, is_cancelled, state, status, source, ticket_url,
+		                   created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, 'CA', ?, 'user', ?, ?, ?) RETURNING id
+	`, sp.slug, sp.slug, sp.at, sp.musicAt, sp.doorsAt, sp.cancelled, status, ticket, created, created).Row().Scan(&id))
 	for _, r := range sp.rooms {
 		s.Require().NoError(s.db.Exec(`INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)`, id, r).Error)
 	}
@@ -156,15 +159,18 @@ func (s *SameLocalDateTestSuite) TestAPairThatDiffersByClockTimeIsOneGroup() {
 func (s *SameLocalDateTestSuite) TestAPairAcrossMidnightUTCOnOneVenueLocalDayIsOneGroup() {
 	casbah := s.room("the-casbah", "The Casbah", zonePtr(losAngeles))
 	act := s.artist("The Beat Farmers")
-	// 4pm Pacific is 23:00 UTC on the 6th; 8pm Pacific is 04:00 UTC on the 7th.
-	s.show(showSpec{slug: "beat-farmers-evening", at: time.Date(2026, 12, 7, 4, 0, 0, 0, time.UTC),
-		rooms: []uint{casbah.ID}, acts: []uint{act}})
-	s.show(showSpec{slug: "beat-farmers-afternoon", at: time.Date(2026, 12, 7, 0, 0, 0, 0, time.UTC),
-		rooms: []uint{casbah.ID}, acts: []uint{act}})
+	// In December, 3pm Pacific is 23:00 UTC on the 6th and 8pm Pacific is 04:00
+	// UTC on the 7th: two UTC dates, one venue-local date.
+	afternoon := time.Date(2026, 12, 6, 23, 0, 0, 0, time.UTC)
+	evening := time.Date(2026, 12, 7, 4, 0, 0, 0, time.UTC)
+	s.Require().NotEqual(afternoon.Format("2006-01-02"), evening.Format("2006-01-02"))
+	s.show(showSpec{slug: "beat-farmers-evening", at: evening, rooms: []uint{casbah.ID}, acts: []uint{act}})
+	s.show(showSpec{slug: "beat-farmers-afternoon", at: afternoon, rooms: []uint{casbah.ID}, acts: []uint{act}})
 
 	groups := s.groups()
 	s.Require().Len(groups, 1)
 	s.Equal("2026-12-06", groups[0].LocalDate)
+	s.Equal("15:00 PST", groups[0].Copies[0].LocalTime)
 	s.Equal([]string{"beat-farmers-afternoon", "beat-farmers-evening"}, groupSlugs(groups[0]))
 }
 
@@ -242,11 +248,11 @@ func (s *SameLocalDateTestSuite) TestCountsSavesAndComments() {
 		created: time.Date(2026, 9, 13, 23, 54, 0, 0, time.UTC), rooms: []uint{casbah.ID}, acts: []uint{act}})
 	users := []uint{s.user("a@test.local"), s.user("b@test.local")}
 	bookmark := `INSERT INTO user_bookmarks (user_id, entity_type, entity_id, action) VALUES (?, 'show', ?, ?)`
-	s.Require().NoError(s.db.Exec(bookmark, users[0], newer, "save").Error)
-	s.Require().NoError(s.db.Exec(bookmark, users[1], newer, "save").Error)
-	s.Require().NoError(s.db.Exec(bookmark, users[0], older, "follow").Error)
+	s.Require().NoError(s.db.Exec(bookmark, users[0], older, "save").Error)
+	s.Require().NoError(s.db.Exec(bookmark, users[1], older, "save").Error)
+	s.Require().NoError(s.db.Exec(bookmark, users[0], newer, "follow").Error)
 	s.Require().NoError(s.db.Exec(`INSERT INTO comments (entity_type, entity_id, user_id, body, body_html)
-		VALUES ('show', ?, ?, 'see you', '<p>see you</p>')`, newer, users[1]).Error)
+		VALUES ('show', ?, ?, 'see you', '<p>see you</p>')`, older, users[1]).Error)
 
 	groups := s.groups()
 	s.Require().Len(groups, 1)
@@ -254,16 +260,81 @@ func (s *SameLocalDateTestSuite) TestCountsSavesAndComments() {
 	for _, c := range groups[0].Copies {
 		byID[c.ShowID] = c
 	}
-	s.Equal(int64(2), byID[newer].Saves)
-	s.Equal(int64(1), byID[newer].Comments)
-	s.Zero(byID[older].Saves, "a follow is not a save")
-	s.Zero(byID[older].Comments)
+	s.Equal(int64(2), byID[older].Saves)
+	s.Equal(int64(1), byID[older].Comments)
+	s.Zero(byID[newer].Saves, "a follow is not a save")
+	s.Zero(byID[newer].Comments)
 
+	// Saves and comments move with a merge, so they do not decide which copy is
+	// kept: the 8:30 copy states a time and the saved 8pm copy may not.
 	keep, rows := SuggestSameLocalDateKeep(groups[0])
-	s.Equal(newer, keep.ShowID, "the copy with saves and comments is kept over the older row")
+	s.Equal(newer, keep.ShowID)
 	s.Require().Len(rows, 1)
 	s.Equal(SameLocalDateMerge, rows[0].Action)
-	s.Contains(rows[0].Reason, "it has 2 saves and 1 comments")
+	s.Contains(rows[0].Reason, "states a time (20:30 PDT)")
+	s.Contains(rows[0].Reason, "this copy's 2 saves and 1 visible comments move to the kept copy")
+}
+
+// A listing with doors and no music time is stored at the date-only hour with
+// its doors time; that doors time is what it states, so a doors-3pm copy and a
+// 9pm copy are a matinee and an evening show.
+func (s *SameLocalDateTestSuite) TestADoorsOnlyCopyStatesItsDoorsTime() {
+	casbah := s.room("the-casbah", "The Casbah", zonePtr(losAngeles))
+	act := s.artist("Doors Only Act")
+	doors := time.Date(2026, 10, 9, 22, 0, 0, 0, time.UTC) // 3pm Pacific
+	music := time.Date(2026, 10, 10, 4, 0, 0, 0, time.UTC) // 9pm Pacific
+	s.show(showSpec{slug: "doors-only-matinee", at: time.Date(2026, 10, 10, 3, 0, 0, 0, time.UTC), doorsAt: &doors,
+		rooms: []uint{casbah.ID}, acts: []uint{act}})
+	s.show(showSpec{slug: "evening", at: music, musicAt: &music, rooms: []uint{casbah.ID}, acts: []uint{act}})
+
+	groups := s.groups()
+	s.Require().Len(groups, 1)
+	matinee := groups[0].Copies[0]
+	s.Equal("doors-only-matinee", matinee.Slug)
+	s.False(matinee.DateOnlyAnchor, "a stored doors time is a stated time")
+	s.Equal("15:00 PDT", matinee.DoorsTime)
+	s.Contains(matinee.Details, "doors time")
+	_, rows := SuggestSameLocalDateKeep(groups[0])
+	s.Require().Len(rows, 1)
+	s.Equal(SameLocalDateKeepBoth, rows[0].Action, rows[0].Reason)
+}
+
+func (s *SameLocalDateTestSuite) TestOnlyVisibleCommentsAreCounted() {
+	casbah := s.room("the-casbah", "The Casbah", zonePtr(losAngeles))
+	act := s.artist("Spam Target")
+	evening := time.Date(2026, 10, 12, 3, 0, 0, 0, time.UTC)
+	s.show(showSpec{slug: "spam-a", at: evening, rooms: []uint{casbah.ID}, acts: []uint{act}})
+	b := s.show(showSpec{slug: "spam-b", at: evening.Add(30 * time.Minute), rooms: []uint{casbah.ID}, acts: []uint{act}})
+	u := s.user("spammer@test.local")
+	s.Require().NoError(s.db.Exec(`INSERT INTO comments (entity_type, entity_id, user_id, body, body_html, visibility)
+		VALUES ('show', ?, ?, 'buy now', '<p>buy now</p>', 'hidden_by_mod')`, b, u).Error)
+
+	groups := s.groups()
+	s.Require().Len(groups, 1)
+	for _, c := range groups[0].Copies {
+		s.Zero(c.Comments, "a hidden comment is not counted on %s", c.Slug)
+	}
+}
+
+// A show listed at two rooms is in both rooms' groups, and its suggestion says
+// reattribute-shows will not merge it.
+func (s *SameLocalDateTestSuite) TestAShowAtTwoRoomsIsInBothRoomsGroups() {
+	casbah := s.room("the-casbah", "The Casbah", zonePtr(losAngeles))
+	soda := s.room("soda-bar", "Soda Bar", zonePtr(losAngeles))
+	act := s.artist("Two Room Act")
+	evening := time.Date(2026, 10, 12, 3, 0, 0, 0, time.UTC)
+	s.show(showSpec{slug: "both-rooms", at: evening, rooms: []uint{casbah.ID, soda.ID}, acts: []uint{act}})
+	s.show(showSpec{slug: "casbah-only", at: evening.Add(30 * time.Minute), rooms: []uint{casbah.ID}, acts: []uint{act}})
+	s.show(showSpec{slug: "soda-only", at: evening.Add(45 * time.Minute), rooms: []uint{soda.ID}, acts: []uint{act}})
+
+	groups := s.groups()
+	s.Require().Len(groups, 2)
+	for _, g := range groups {
+		s.Contains(groupSlugs(g), "both-rooms", "room %s", g.Room.Slug)
+		_, rows := SuggestSameLocalDateKeep(g)
+		s.Require().Len(rows, 1)
+		s.Contains(rows[0].Reason, "a copy lists more than one room")
+	}
 }
 
 // A listed pair merged with ReattributeShow, the tool the worklist feeds: the
@@ -316,8 +387,12 @@ func copyAt(id uint, local string, anchor bool, created time.Time) SameLocalDate
 	if err != nil {
 		panic(err)
 	}
-	return SameLocalDateCopy{ShowID: id, Slug: fmt.Sprintf("show-%d", id), EventDate: at,
+	c := SameLocalDateCopy{ShowID: id, Slug: fmt.Sprintf("show-%d", id), EventDate: at,
 		LocalTime: at.Format("15:04"), DateOnlyAnchor: anchor, CreatedAt: created, RoomCount: 1}
+	if !anchor {
+		c.StatedAt = at
+	}
+	return c
 }
 
 var (
@@ -350,8 +425,11 @@ func TestSuggestSameLocalDateKeep_AnAnchorIsNotAStatedTime(t *testing.T) {
 	if keep.ShowID != 1 || rows[0].Action != SameLocalDateMerge {
 		t.Fatalf("want merge into the stated copy, got keep=%d rows=%+v", keep.ShowID, rows)
 	}
-	if !strings.Contains(rows[0].Reason, "states a time (16:00)") {
-		t.Errorf("reason %q", rows[0].Reason)
+	for _, want := range []string{"states a time (16:00)",
+		"they are 4h apart, so if the 20:00 copy is a real start time these are two shows"} {
+		if !strings.Contains(rows[0].Reason, want) {
+			t.Errorf("reason %q lacks %q", rows[0].Reason, want)
+		}
 	}
 }
 
@@ -366,19 +444,32 @@ func TestSuggestSameLocalDateKeep_StatedTimesUnderThreeHoursApartMerge(t *testin
 	}
 }
 
-func TestSuggestSameLocalDateKeep_EngagementOutranksAStatedTimeAndSaysWhatIsLost(t *testing.T) {
+func TestSuggestSameLocalDateKeep_SavesAndCommentsDoNotDecide(t *testing.T) {
 	stated := copyAt(1, "2026-10-09 20:30", false, sep13)
-	stated.TicketURL = "https://tickets.example/maris"
-	anchored := copyAt(2, "2026-10-09 20:00", true, sep13)
+	anchored := copyAt(2, "2026-10-09 20:00", true, aug30)
+	anchored.TicketURL = "https://tickets.example/maris"
+	anchored.Saves = 4
 	anchored.Comments = 1
 	keep, rows := SuggestSameLocalDateKeep(SameLocalDateGroup{Copies: []SameLocalDateCopy{stated, anchored}})
-	if keep.ShowID != 2 {
-		t.Fatalf("want the commented copy kept, got %d", keep.ShowID)
+	if keep.ShowID != 1 {
+		t.Fatalf("want the copy stating a time kept, got %d", keep.ShowID)
 	}
-	for _, want := range []string{"0 saves and 1 comments", "time (20:30) is not carried", "ticket link is not carried"} {
+	for _, want := range []string{"it states a time (20:30)", "this copy's 4 saves and 1 visible comments move to the kept copy",
+		"this copy holds ticket link, which the kept copy lacks and the merge drops: copy it over by hand"} {
 		if !strings.Contains(rows[0].Reason, want) {
 			t.Errorf("reason %q lacks %q", rows[0].Reason, want)
 		}
+	}
+}
+
+func TestSuggestSameLocalDateKeep_MoreDroppedFieldsOutrankTheOlderRow(t *testing.T) {
+	older := copyAt(1, "2026-10-09 20:30", false, aug30)
+	fuller := copyAt(2, "2026-10-09 20:45", false, sep13)
+	fuller.TicketURL = "https://tickets.example/x"
+	fuller.Details = []string{"price"}
+	keep, rows := SuggestSameLocalDateKeep(SameLocalDateGroup{Copies: []SameLocalDateCopy{older, fuller}})
+	if keep.ShowID != 2 || !strings.Contains(rows[0].Reason, "holds more of the fields a merge drops (ticket link, price) than this copy (none)") {
+		t.Fatalf("got keep=%d rows=%+v", keep.ShowID, rows)
 	}
 }
 
@@ -393,20 +484,53 @@ func TestSuggestSameLocalDateKeep_ATieOnEverythingKeepsTheLowerID(t *testing.T) 
 	}
 }
 
-func TestSuggestSameLocalDateKeep_ThreeCopiesEachGetARow(t *testing.T) {
+func TestSuggestSameLocalDateKeep_MoreThanTwoCopiesGetNoSuggestion(t *testing.T) {
+	// The 19:30 and 19:45 copies are the duplicate pair here, and each is a
+	// matinee gap from the 15:00 one; only a person can sort that out.
 	g := SameLocalDateGroup{Copies: []SameLocalDateCopy{
 		copyAt(1, "2026-12-26 15:00", false, aug30),
-		copyAt(2, "2026-12-26 15:30", false, sep13),
-		copyAt(3, "2026-12-26 19:30", false, sep13),
+		copyAt(2, "2026-12-26 19:30", false, sep13),
+		copyAt(3, "2026-12-26 19:45", false, sep13),
 	}}
-	keep, rows := SuggestSameLocalDateKeep(g)
-	if keep.ShowID != 1 || len(rows) != 2 {
-		t.Fatalf("got keep=%d rows=%+v", keep.ShowID, rows)
+	_, rows := SuggestSameLocalDateKeep(g)
+	if len(rows) != 2 {
+		t.Fatalf("got rows=%+v", rows)
 	}
-	if rows[0].Copy.ShowID != 2 || rows[0].Action != SameLocalDateMerge {
-		t.Errorf("the 15:30 copy merges into the 15:00 one: %+v", rows[0])
+	for _, r := range rows {
+		if r.Action != SameLocalDateReview || !strings.Contains(r.Reason, "show-1, show-2, show-3") {
+			t.Errorf("want review naming every copy, got %+v", r)
+		}
 	}
-	if rows[1].Copy.ShowID != 3 || rows[1].Action != SameLocalDateKeepBoth {
-		t.Errorf("the 19:30 copy is a second show: %+v", rows[1])
+}
+
+func TestSuggestSameLocalDateKeep_ACancelledCopyIsLeftToAPerson(t *testing.T) {
+	live := copyAt(1, "2026-10-09 20:30", false, sep13)
+	cancelled := copyAt(2, "2026-10-09 20:00", true, aug30)
+	cancelled.IsCancelled = true
+	cancelled.Saves = 3
+	_, rows := SuggestSameLocalDateKeep(SameLocalDateGroup{Copies: []SameLocalDateCopy{live, cancelled}})
+	if rows[0].Action != SameLocalDateReview || !strings.Contains(rows[0].Reason, "cancelled") {
+		t.Fatalf("got %+v", rows[0])
+	}
+}
+
+func TestSuggestSameLocalDateKeep_NamesWhatTheMergeDropsAndAScrapedCopy(t *testing.T) {
+	kept := copyAt(1, "2026-10-09 20:30", false, aug30)
+	gone := copyAt(2, "2026-10-09 20:45", false, sep13)
+	gone.Source = "discovery"
+	gone.Details = []string{"price", "image"}
+	kept.Source = "user"
+	kept.Details = []string{"price", "door price", "description"}
+	keep, rows := SuggestSameLocalDateKeep(SameLocalDateGroup{Copies: []SameLocalDateCopy{kept, gone}})
+	if keep.ShowID != 1 {
+		t.Fatalf("want the copy holding more fields kept, got %d", keep.ShowID)
+	}
+	for _, want := range []string{"this copy holds image, which the kept copy lacks", "discovery scraper"} {
+		if !strings.Contains(rows[0].Reason, want) {
+			t.Errorf("reason %q lacks %q", rows[0].Reason, want)
+		}
+	}
+	if strings.Contains(rows[0].Reason, "holds image, price") || strings.Contains(rows[0].Reason, "holds price") {
+		t.Errorf("a field both copies fill is not lost: %q", rows[0].Reason)
 	}
 }

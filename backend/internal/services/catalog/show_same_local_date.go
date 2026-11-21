@@ -9,6 +9,7 @@ import (
 
 	"gorm.io/gorm"
 
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
@@ -27,6 +28,8 @@ import (
 //   - The headliner is the act showBillHeadlinerRank ranks first, the rule the
 //     slug writer and ReattributeShow use.
 //   - A show at two rooms is in both rooms' groups.
+//   - A merge is suggested only for a group of exactly two copies, neither
+//     cancelled unless both are; every other group is left to the reviewer.
 
 // sameLocalDateCandidateWindow bounds the coarse SQL pairing. Two instants on
 // one local day in one zone are less than 25 hours apart (a day the clocks go
@@ -54,25 +57,30 @@ type SameLocalDateCopy struct {
 	EventDate time.Time
 	// LocalTime is the show's clock in the room's zone, "15:04 MST".
 	LocalTime string
-	// DateOnlyAnchor is true when the show stores no music time and its clock
-	// reads exactly 20:00 venue-local, the time a show listed with a date and no
-	// time is written at. Such a clock may also be a real 8pm start; nothing in
-	// the row tells the two apart.
+	// DoorsTime is the stored doors time in the room's zone, "" when none.
+	DoorsTime string
+	// StatedAt is the time the row states: its music time, else its own clock
+	// when that is not the date-only hour, else its doors time. Zero when the
+	// row states none.
+	StatedAt time.Time
+	// DateOnlyAnchor is true when StatedAt is zero: the show stores no music or
+	// doors time and its clock reads exactly the date-only hour, the time a
+	// show listed with a date and no time is written at. Such a clock may also
+	// be a real start at that hour; nothing in the row tells the two apart.
 	DateOnlyAnchor bool
+	IsCancelled    bool
 	CreatedAt      time.Time
 	Source         string
 	DataSource     string
 	TicketURL      string
-	Saves          int64
-	Comments       int64
+	// Details names the optional columns the row fills (price, door price, age
+	// requirement, description, image, doors time), in that order.
+	Details  []string
+	Saves    int64
+	Comments int64
 	// RoomCount is how many rooms the show lists.
 	RoomCount int
 }
-
-// statesTime is the opposite of DateOnlyAnchor.
-func (c SameLocalDateCopy) statesTime() bool { return !c.DateOnlyAnchor }
-
-func (c SameLocalDateCopy) engaged() bool { return c.Saves > 0 || c.Comments > 0 }
 
 // SameLocalDateGroup is two or more approved shows at one room on one
 // venue-local date with one headliner, ordered by event_date then id.
@@ -85,30 +93,38 @@ type SameLocalDateGroup struct {
 }
 
 type sameLocalDateRow struct {
-	ShowID       uint
-	Slug         *string
-	EventDate    time.Time
-	MusicAt      *time.Time
-	CreatedAt    time.Time
-	Source       string
-	DataSource   *string
-	TicketURL    *string
-	RoomID       uint
-	RoomSlug     *string
-	RoomName     string
-	RoomCity     string
-	RoomState    string
-	RoomTimezone *string
-	ArtistID     uint
-	ArtistName   string
-	RoomCount    int
-	Saves        int64
-	Comments     int64
+	ShowID         uint
+	Slug           *string
+	EventDate      time.Time
+	MusicAt        *time.Time
+	DoorsAt        *time.Time
+	IsCancelled    bool
+	Price          *float64
+	DoorPrice      *float64
+	AgeRequirement *string
+	Description    *string
+	ImageURL       *string
+	CreatedAt      time.Time
+	Source         string
+	DataSource     *string
+	TicketURL      *string
+	RoomID         uint
+	RoomSlug       *string
+	RoomName       string
+	RoomCity       string
+	RoomState      string
+	RoomTimezone   *string
+	ArtistID       uint
+	ArtistName     string
+	RoomCount      int
+	Saves          int64
+	Comments       int64
 }
 
 // FindSameLocalDateGroups lists every group of approved shows that share a
 // room, a venue-local date and a headliner, latest date first. It reads inside
 // a READ ONLY transaction, so the server refuses any write it might attempt.
+// Comments are counted when visible.
 func FindSameLocalDateGroups(db *gorm.DB) ([]SameLocalDateGroup, error) {
 	var rows []sameLocalDateRow
 	err := db.Transaction(func(tx *gorm.DB) error {
@@ -135,8 +151,9 @@ func FindSameLocalDateGroups(db *gorm.DB) ([]SameLocalDateGroup, error) {
 					  AND b.event_date < a.event_date + interval '` + sameLocalDateCandidateWindow + `'
 				)
 			)
-			SELECT s.id AS show_id, s.slug, s.event_date, s.music_at, s.created_at,
-			       s.source, s.data_source, s.ticket_url,
+			SELECT s.id AS show_id, s.slug, s.event_date, s.music_at, s.doors_at, s.is_cancelled,
+			       s.price, s.door_price, s.age_requirement, s.description, s.image_url,
+			       s.created_at, s.source, s.data_source, s.ticket_url,
 			       v.id AS room_id, v.slug AS room_slug, v.name AS room_name, v.city AS room_city,
 			       v.state AS room_state, v.timezone AS room_timezone,
 			       c.artist_id, c.artist_name,
@@ -144,7 +161,7 @@ func FindSameLocalDateGroups(db *gorm.DB) ([]SameLocalDateGroup, error) {
 			       (SELECT COUNT(*) FROM user_bookmarks ub
 			         WHERE ub.entity_type = 'show' AND ub.entity_id = s.id AND ub.action = 'save') AS saves,
 			       (SELECT COUNT(*) FROM comments cm
-			         WHERE cm.entity_type = 'show' AND cm.entity_id = s.id) AS comments
+			         WHERE cm.entity_type = 'show' AND cm.entity_id = s.id AND cm.visibility = 'visible') AS comments
 			FROM candidates c
 			JOIN shows s ON s.id = c.show_id
 			JOIN venues v ON v.id = c.venue_id
@@ -165,7 +182,6 @@ func groupSameLocalDateRows(rows []sameLocalDateRow) []SameLocalDateGroup {
 	groups := map[key]*SameLocalDateGroup{}
 	var order []key
 	for _, r := range rows {
-		local := r.EventDate.In(utils.EventLocation(r.RoomTimezone, r.RoomState))
 		k := key{room: r.RoomID, artist: r.ArtistID, date: venueRowLocalDate(r.EventDate, r.RoomTimezone, r.RoomState)}
 		g, ok := groups[k]
 		if !ok {
@@ -177,21 +193,7 @@ func groupSameLocalDateRows(rows []sameLocalDateRow) []SameLocalDateGroup {
 			groups[k] = g
 			order = append(order, k)
 		}
-		g.Copies = append(g.Copies, SameLocalDateCopy{
-			ShowID:    r.ShowID,
-			Slug:      shared.DerefOrEmpty(r.Slug),
-			EventDate: r.EventDate,
-			LocalTime: local.Format("15:04 MST"),
-			DateOnlyAnchor: r.MusicAt == nil && local.Hour() == utils.DateOnlyEventHour &&
-				local.Minute() == 0 && local.Second() == 0,
-			CreatedAt:  r.CreatedAt,
-			Source:     r.Source,
-			DataSource: shared.DerefOrEmpty(r.DataSource),
-			TicketURL:  strings.TrimSpace(shared.DerefOrEmpty(r.TicketURL)),
-			Saves:      r.Saves,
-			Comments:   r.Comments,
-			RoomCount:  r.RoomCount,
-		})
+		g.Copies = append(g.Copies, copyFromRow(r))
 	}
 
 	var out []SameLocalDateGroup
@@ -213,6 +215,55 @@ func groupSameLocalDateRows(rows []sameLocalDateRow) []SameLocalDateGroup {
 	return out
 }
 
+func copyFromRow(r sameLocalDateRow) SameLocalDateCopy {
+	loc := utils.EventLocation(r.RoomTimezone, r.RoomState)
+	local := r.EventDate.In(loc)
+	c := SameLocalDateCopy{
+		ShowID:      r.ShowID,
+		Slug:        shared.DerefOrEmpty(r.Slug),
+		EventDate:   r.EventDate,
+		LocalTime:   local.Format("15:04 MST"),
+		IsCancelled: r.IsCancelled,
+		CreatedAt:   r.CreatedAt,
+		Source:      r.Source,
+		DataSource:  shared.DerefOrEmpty(r.DataSource),
+		TicketURL:   strings.TrimSpace(shared.DerefOrEmpty(r.TicketURL)),
+		Saves:       r.Saves,
+		Comments:    r.Comments,
+		RoomCount:   r.RoomCount,
+	}
+	if r.DoorsAt != nil {
+		c.DoorsTime = r.DoorsAt.In(loc).Format("15:04 MST")
+	}
+	atDateOnlyHour := local.Hour() == utils.DateOnlyEventHour && local.Minute() == 0 && local.Second() == 0
+	switch {
+	case r.MusicAt != nil:
+		c.StatedAt = *r.MusicAt
+	case !atDateOnlyHour:
+		c.StatedAt = r.EventDate
+	case r.DoorsAt != nil:
+		c.StatedAt = *r.DoorsAt
+	}
+	c.DateOnlyAnchor = c.StatedAt.IsZero()
+
+	for _, d := range []struct {
+		name   string
+		filled bool
+	}{
+		{"price", r.Price != nil},
+		{"door price", r.DoorPrice != nil},
+		{"age requirement", strings.TrimSpace(shared.DerefOrEmpty(r.AgeRequirement)) != ""},
+		{"description", strings.TrimSpace(shared.DerefOrEmpty(r.Description)) != ""},
+		{"image", strings.TrimSpace(shared.DerefOrEmpty(r.ImageURL)) != ""},
+		{"doors time", r.DoorsAt != nil},
+	} {
+		if d.filled {
+			c.Details = append(c.Details, d.name)
+		}
+	}
+	return c
+}
+
 // SameLocalDateAction is what a suggestion proposes for one copy.
 type SameLocalDateAction string
 
@@ -221,16 +272,30 @@ const (
 	SameLocalDateMerge SameLocalDateAction = "merge"
 	// SameLocalDateKeepBoth: the copy and the kept one look like two shows.
 	SameLocalDateKeepBoth SameLocalDateAction = "keep both"
+	// SameLocalDateReview: the rule makes no suggestion; a person compares the
+	// copies.
+	SameLocalDateReview SameLocalDateAction = "review"
 )
 
 // SameLocalDateRuleText states the suggestion rule, for every surface that
 // prints suggestions.
-const SameLocalDateRuleText = "Suggestions only, for a person to review. The copy to keep is the one with " +
-	"saves or comments, then the one with a stated time over the 20:00 date-only anchor, then the older row. " +
-	"Two copies that both state a time three or more hours apart look like a matinee and an evening show: keep both."
+var SameLocalDateRuleText = fmt.Sprintf("Suggestions only, for a person to review. A merge moves the merged-away "+
+	"copy's saves, comments and other references onto the kept copy, and loses that copy's own fields and its URL. "+
+	"So in a pair, the copy to keep is the one with a stated time over the %02d:00 date-only anchor, then the one "+
+	"holding more of the fields a merge drops (%s), then the older row. Two copies that both state a time %s or more "+
+	"apart look like a matinee and an evening show: keep both. A group of more than two copies, or a pair where one "+
+	"copy is cancelled, gets no suggestion.",
+	utils.DateOnlyEventHour, strings.Join(DroppedByMergeFields, ", "), formatGap(matineeGap))
+
+// DroppedByMergeFields are the merged-away copy's own fields a merge does not
+// carry onto the kept copy, as Fields names them.
+var DroppedByMergeFields = []string{
+	"ticket link", "price", "door price", "age requirement", "description", "image", "doors time",
+}
 
 // SameLocalDateSuggestion is the suggestion for one copy of a group other than
-// the one suggested to keep.
+// the one suggested to keep. For a review suggestion, Keep is the copy the
+// pair rule would rank first, shown for comparison only.
 type SameLocalDateSuggestion struct {
 	Copy   SameLocalDateCopy
 	Keep   SameLocalDateCopy
@@ -251,19 +316,29 @@ func SuggestSameLocalDateKeep(g SameLocalDateGroup) (SameLocalDateCopy, []SameLo
 		if c.ShowID == keep.ShowID {
 			continue
 		}
+		if len(g.Copies) > 2 {
+			slugs := make([]string, len(g.Copies))
+			for i, gc := range g.Copies {
+				slugs[i] = gc.Slug
+			}
+			out = append(out, SameLocalDateSuggestion{Copy: c, Keep: keep, Action: SameLocalDateReview,
+				Reason: fmt.Sprintf("this group holds %d copies (%s); compare them all by hand, since two of them "+
+					"may be separate shows that day", len(g.Copies), strings.Join(slugs, ", "))})
+			continue
+		}
 		out = append(out, suggestFor(keep, c))
 	}
 	return keep, out
 }
 
-// keepRanksAhead orders copies by the keep rule: saves or comments, then a
-// stated time, then the older row, then the lower id.
+// keepRanksAhead orders copies by the keep rule: a stated time, then more of
+// the fields a merge drops, then the older row, then the lower id.
 func keepRanksAhead(a, b SameLocalDateCopy) bool {
-	if a.engaged() != b.engaged() {
-		return a.engaged()
+	if a.DateOnlyAnchor != b.DateOnlyAnchor {
+		return !a.DateOnlyAnchor
 	}
-	if a.statesTime() != b.statesTime() {
-		return a.statesTime()
+	if na, nb := len(a.Fields()), len(b.Fields()); na != nb {
+		return na > nb
 	}
 	if !a.CreatedAt.Equal(b.CreatedAt) {
 		return a.CreatedAt.Before(b.CreatedAt)
@@ -273,42 +348,92 @@ func keepRanksAhead(a, b SameLocalDateCopy) bool {
 
 func suggestFor(keep, c SameLocalDateCopy) SameLocalDateSuggestion {
 	s := SameLocalDateSuggestion{Copy: c, Keep: keep}
-	gap := keep.EventDate.Sub(c.EventDate).Abs()
-	if keep.statesTime() && c.statesTime() && gap >= matineeGap {
-		s.Action = SameLocalDateKeepBoth
-		s.Reason = fmt.Sprintf("both state a time, %s and %s, %s apart: they look like a matinee and an evening show",
-			c.LocalTime, keep.LocalTime, formatGap(gap))
+	if keep.IsCancelled != c.IsCancelled {
+		s.Action = SameLocalDateReview
+		s.Reason = "one copy is cancelled and the other is not; a merge keeps the kept copy's status, so decide by hand"
 		return s
+	}
+	if !keep.DateOnlyAnchor && !c.DateOnlyAnchor {
+		if gap := keep.StatedAt.Sub(c.StatedAt).Abs(); gap >= matineeGap {
+			s.Action = SameLocalDateKeepBoth
+			s.Reason = fmt.Sprintf("both state a time, %s and %s, %s apart: they look like a matinee and an evening show",
+				c.LocalTime, keep.LocalTime, formatGap(gap))
+			return s
+		}
 	}
 
 	s.Action = SameLocalDateMerge
 	var why string
 	switch {
-	case keep.engaged() && !c.engaged():
-		why = fmt.Sprintf("it has %d saves and %d comments, and this copy has none", keep.Saves, keep.Comments)
-	case keep.statesTime() && !c.statesTime():
-		why = fmt.Sprintf("it states a time (%s), and this copy is at the 20:00 date-only anchor", keep.LocalTime)
+	case !keep.DateOnlyAnchor && c.DateOnlyAnchor:
+		why = fmt.Sprintf("it states a time (%s), and this copy may be at the %02d:00 date-only anchor",
+			keep.LocalTime, utils.DateOnlyEventHour)
+	case len(keep.Fields()) != len(c.Fields()):
+		why = fmt.Sprintf("it holds more of the fields a merge drops (%s) than this copy (%s)",
+			fieldList(keep.Fields()), fieldList(c.Fields()))
 	case !keep.CreatedAt.Equal(c.CreatedAt):
-		why = fmt.Sprintf("it is the older row (created %s)", keep.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"))
+		why = fmt.Sprintf("it is the older row (created %s), so its URL has existed longer",
+			keep.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"))
 	default:
 		why = "both rows were created at the same instant; it has the lower id"
 	}
 	parts := []string{fmt.Sprintf("keep %s: %s", keep.Slug, why)}
-	if keep.engaged() && c.engaged() {
-		parts = append(parts, "both copies have saves or comments; the merge moves this copy's onto the kept one")
+	if keep.DateOnlyAnchor != c.DateOnlyAnchor {
+		if gap := keep.EventDate.Sub(c.EventDate).Abs(); gap >= matineeGap {
+			parts = append(parts, fmt.Sprintf("they are %s apart, so if the %02d:00 copy is a real start time "+
+				"these are two shows", formatGap(gap), utils.DateOnlyEventHour))
+		}
 	}
-	if c.statesTime() && !keep.statesTime() {
-		parts = append(parts, fmt.Sprintf("this copy's time (%s) is not carried by the merge; the kept copy stays at %s",
-			c.LocalTime, keep.LocalTime))
+	if lost := notCarried(keep, c); len(lost) > 0 {
+		parts = append(parts, fmt.Sprintf("this copy holds %s, which the kept copy lacks and the merge drops: "+
+			"copy it over by hand before or after the merge", strings.Join(lost, ", ")))
 	}
-	if c.TicketURL != "" && keep.TicketURL == "" {
-		parts = append(parts, "this copy's ticket link is not carried by the merge")
+	if c.Saves > 0 || c.Comments > 0 {
+		parts = append(parts, fmt.Sprintf("this copy's %d saves and %d visible comments move to the kept copy",
+			c.Saves, c.Comments))
+	}
+	if c.Source == string(catalogm.ShowSourceDiscovery) && keep.Source != string(catalogm.ShowSourceDiscovery) {
+		parts = append(parts, "this copy came from the discovery scraper, which can create it again on its next "+
+			"run because the kept copy is at another time")
 	}
 	if c.RoomCount != 1 || keep.RoomCount != 1 {
 		parts = append(parts, "a copy lists more than one room, and reattribute-shows merges only shows with exactly one")
 	}
 	s.Reason = strings.Join(parts, "; ")
 	return s
+}
+
+// Fields names the fields a merge drops that this copy fills, in
+// DroppedByMergeFields order.
+func (c SameLocalDateCopy) Fields() []string {
+	var out []string
+	if c.TicketURL != "" {
+		out = append(out, "ticket link")
+	}
+	return append(out, c.Details...)
+}
+
+// notCarried names the fields the merged-away copy fills that the kept copy
+// leaves empty.
+func notCarried(keep, c SameLocalDateCopy) []string {
+	kept := map[string]bool{}
+	for _, f := range keep.Fields() {
+		kept[f] = true
+	}
+	var lost []string
+	for _, f := range c.Fields() {
+		if !kept[f] {
+			lost = append(lost, f)
+		}
+	}
+	return lost
+}
+
+func fieldList(fields []string) string {
+	if len(fields) == 0 {
+		return "none"
+	}
+	return strings.Join(fields, ", ")
 }
 
 // formatGap prints a gap as "4h30m" or "3h".

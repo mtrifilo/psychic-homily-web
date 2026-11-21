@@ -417,14 +417,15 @@ func TestParseWorklist_AcceptsTheSameLocalDateWorklistOnceRenamed(t *testing.T) 
 	require.Len(t, rows, 2)
 
 	assert.Equal(t, catalog.ShowReattribution{
-		ShowSlug:      "2026-12-06-the-beat-farmers-at-casbah",
+		ShowSlug:      "2026-12-06-the-beat-farmers-at-the-casbah",
 		RoomSlug:      "the-casbah",
-		MergeIntoSlug: "2026-12-06-the-beat-farmers-at-the-casbah",
+		MergeIntoSlug: "2026-12-06-the-beat-farmers-at-casbah",
 	}, rows[0].Row)
-	assert.Equal(t, catalog.ShowReattribution{ShowSlug: "2026-08-07-plus-minus-at-space-2", RoomSlug: "space"}, rows[1].Row,
-		"a keep-both row names no merge target, which is a no-op at the show's own room")
+	assert.Empty(t, rows[0].Refusal)
+	assert.Equal(t, catalog.ShowReattribution{ShowSlug: "2026-08-07-plus-minus-at-space-2"}, rows[1].Row)
+	assert.Equal(t, "no target room given", rows[1].Refusal,
+		"a keep-both row names no room and no merge target, so it is refused before the database")
 	for _, row := range rows {
-		assert.Empty(t, row.Refusal)
 		assert.NotEmpty(t, row.Note)
 	}
 }

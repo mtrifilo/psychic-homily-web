@@ -22,7 +22,7 @@ import (
 // prefixed suggestedPrefix. reattribute-shows refuses a header it does not
 // know, so the file cannot be run as written: a reviewer renames each
 // suggested column by dropping the prefix, which yields columns that tool
-// reads (merge_into_show_slug, and verdict, which it prints past).
+// knows (merge_into_show_slug, and verdict, an evidence column it reads past).
 const suggestedPrefix = "suggested_"
 
 var sameLocalDateCSVHeader = []string{
@@ -34,24 +34,25 @@ var sameLocalDateCSVHeader = []string{
 }
 
 // sameLocalDateCSVRows is one row per copy a group does not suggest keeping.
-// correct_room_slug is the room the copy is already in, so a row whose merge
-// column is left empty is a no-op in reattribute-shows ("already at the target
-// room"), and a row whose merge column is filled merges the copy into the one
-// it names.
+// Only a merge row fills correct_room_slug (the room the copy is already in)
+// and the merge column. Every other row leaves both empty, so reattribute-shows
+// refuses it ("no target room given") and it can write nothing, whatever has
+// happened to the show since the worklist was made; a reviewer who decides to
+// merge one fills both.
 func sameLocalDateCSVRows(groups []catalog.SameLocalDateGroup) [][]string {
 	var out [][]string
 	for _, g := range groups {
 		_, suggestions := catalog.SuggestSameLocalDateKeep(g)
 		for _, s := range suggestions {
-			mergeInto := ""
+			room, mergeInto := "", ""
 			if s.Action == catalog.SameLocalDateMerge {
-				mergeInto = s.Keep.Slug
+				room, mergeInto = g.Room.Slug, s.Keep.Slug
 			}
 			// Slug cells are only cleaned: reattribute-shows looks them up as
 			// written. The prose cells also pass through spreadsheetSafe.
 			out = append(out, []string{
 				clean(s.Copy.Slug),
-				clean(g.Room.Slug),
+				clean(room),
 				spreadsheetSafe(clean(sameLocalDateNote(g, s))),
 				clean(mergeInto),
 				spreadsheetSafe(clean(fmt.Sprintf("%s (suggested): %s", s.Action, s.Reason))),
@@ -68,15 +69,21 @@ func sameLocalDateNote(g catalog.SameLocalDateGroup, s catalog.SameLocalDateSugg
 	if s.Action == catalog.SameLocalDateMerge {
 		other = "Copy suggested to keep"
 	}
-	return fmt.Sprintf("%s at %s (%s, %s) on %s. This copy: %s. %s: %s.",
-		g.HeadlinerName, g.Room.Name, g.Room.City, g.Room.State, g.LocalDate,
+	return fmt.Sprintf("%s at %s (%s, %s) on %s, room %s. This copy: %s. %s: %s.",
+		g.HeadlinerName, g.Room.Name, g.Room.City, g.Room.State, g.LocalDate, g.Room.Slug,
 		copyEvidence(s.Copy), other, copyEvidence(s.Keep))
 }
 
 func copyEvidence(c catalog.SameLocalDateCopy) string {
 	clock := c.LocalTime
 	if c.DateOnlyAnchor {
-		clock += " (20:00 date-only anchor, no music time stored)"
+		clock += " (no music or doors time stored: may be the date-only anchor)"
+	}
+	if c.DoorsTime != "" {
+		clock += ", doors " + c.DoorsTime
+	}
+	if c.IsCancelled {
+		clock += ", CANCELLED"
 	}
 	source := c.Source
 	if c.DataSource != "" {
@@ -86,9 +93,14 @@ func copyEvidence(c catalog.SameLocalDateCopy) string {
 	if c.TicketURL != "" {
 		tickets = "tickets " + c.TicketURL
 	}
-	return fmt.Sprintf("%s at %s, %s, created %s, source %s, %s, %d saves, %d comments",
+	fields := "none"
+	if f := c.Fields(); len(f) > 0 {
+		fields = strings.Join(f, ", ")
+	}
+	return fmt.Sprintf("%s at %s, %s, created %s, source %s, %s, fields a merge drops: %s, "+
+		"%d saves and %d visible comments (a merge moves them to the kept copy), %d room(s)",
 		c.Slug, clock, c.EventDate.UTC().Format("2006-01-02T15:04:05Z"),
-		c.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"), source, tickets, c.Saves, c.Comments)
+		c.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"), source, tickets, fields, c.Saves, c.Comments, c.RoomCount)
 }
 
 // writeSameLocalDateCSV writes the worklist.
@@ -200,10 +212,15 @@ func mainSameLocalDate() {
 	if err := worklist.Close(); err != nil {
 		fail("close %s: %v", csvPath, err)
 	}
-	fmt.Printf("\nWrote %s. To merge: review every row and clear suggested_merge_into_show_slug on any "+
-		"row that should not merge; then rename suggested_merge_into_show_slug to merge_into_show_slug and "+
-		"suggested_verdict to verdict, and run reattribute-shows --dry-run with the same --env.\n", csvPath)
+	fmt.Printf("\nWrote %s. %s\n", csvPath, worklistInstructions)
 }
+
+// worklistInstructions tells the reviewer how to turn the worklist into one
+// reattribute-shows runs.
+var worklistInstructions = fmt.Sprintf("To merge: review every row. Clear correct_room_slug and %[1]smerge_into_show_slug "+
+	"on any merge row that should not merge; on a keep-both or review row you decide to merge, fill both. Then rename "+
+	"each %[1]s column by dropping the prefix (%[1]smerge_into_show_slug to merge_into_show_slug, %[1]sverdict to "+
+	"verdict) and run reattribute-shows --dry-run with the same --env.", suggestedPrefix)
 
 // validateSameLocalDateFlags checks the command line for the mode.
 func validateSameLocalDateFlags(confirm bool, envFile string) error {
