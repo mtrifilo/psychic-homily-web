@@ -111,3 +111,52 @@ test.describe('Former venue slugs', () => {
     expect(response.status()).toBe(404)
   })
 })
+
+/**
+ * An artist renamed through the admin edit gets a slug derived from its new
+ * name, and its old URL answers one permanent redirect to the new one.
+ */
+test.describe('Former artist slugs', () => {
+  const OLD_SLUG = 'e2e-former-slugs-artist-before'
+  const NEW_NAME = 'E2E Former Slugs Artist After'
+  const NEW_SLUG = 'e2e-former-slugs-artist-after'
+
+  function removeArtists(): void {
+    runE2ESql(
+      `DELETE FROM entity_former_slugs WHERE entity_type = 'artist' AND former_slug IN ('${OLD_SLUG}', '${NEW_SLUG}')`
+    )
+    runE2ESql(`DELETE FROM artists WHERE slug IN ('${OLD_SLUG}', '${NEW_SLUG}')`)
+  }
+
+  test.beforeEach(() => removeArtists())
+  test.afterAll(() => removeArtists())
+
+  test('an artist renamed through the admin edit redirects to its new URL', async ({
+    adminPage,
+    page,
+    request,
+  }) => {
+    const id = Number(
+      runE2ESql(
+        `WITH inserted AS (
+           INSERT INTO artists (name, slug, created_at, updated_at)
+           VALUES ('E2E Former Slugs Artist Before', '${OLD_SLUG}', NOW(), NOW())
+           RETURNING id
+         ) SELECT id FROM inserted`
+      )
+    )
+
+    const rename = await adminPage.request.patch(`/api/admin/artists/${id}`, {
+      data: { name: NEW_NAME },
+    })
+    expect(rename.status(), await rename.text()).toBe(200)
+
+    const redirect = await request.get(`/artists/${OLD_SLUG}?utm_source=e2e`, { maxRedirects: 0 })
+    expect(redirect.status()).toBe(308)
+    expect(locationOf(redirect)).toBe(`/artists/${NEW_SLUG}?utm_source=e2e`)
+
+    const response = await page.goto(`/artists/${OLD_SLUG}`)
+    expect(response?.status()).toBe(200)
+    expect(new URL(response!.url()).pathname).toBe(`/artists/${NEW_SLUG}`)
+  })
+})

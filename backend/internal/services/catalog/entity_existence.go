@@ -47,12 +47,8 @@ func (s *EntityExistenceService) Exists(entityType, idOrSlug string) (bool, erro
 
 	switch entityType {
 	case "shows":
-		return s.existsByIDOrSlug(
-			&catalogm.Show{},
-			idOrSlug,
-			showServedWhere,
-			catalogm.ShowStatusApproved,
-		)
+		served := formerSlugFamilies[entityTypeShow]
+		return s.existsByIDOrSlug(&catalogm.Show{}, idOrSlug, served.servedWhere, served.servedArg)
 	case "venues":
 		return s.existsByIDOrSlug(&catalogm.Venue{}, idOrSlug)
 	case "artists":

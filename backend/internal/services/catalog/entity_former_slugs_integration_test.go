@@ -2,6 +2,8 @@ package catalog
 
 import (
 	"fmt"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -404,6 +406,66 @@ func (s *EntityFormerSlugsSuite) TestMergeChainsStayOneHop() {
 	}
 }
 
+func (s *EntityFormerSlugsSuite) TestVenueMergeChainsStayOneHop() {
+	svc := NewVenueService(s.db)
+	a := s.createVenue(s.slug("room-a"))
+	b := s.createVenue(s.slug("room-b"))
+	c := s.createVenue(s.slug("room-c"))
+	_, err := svc.MergeVenues(b.ID, a.ID, 0)
+	s.Require().NoError(err)
+	_, err = svc.MergeVenues(c.ID, b.ID, 0)
+	s.Require().NoError(err)
+
+	for _, former := range []string{*a.Slug, *b.Slug} {
+		_, current := s.served("venues", former)
+		s.Equalf(*c.Slug, current, "%s resolves to the last survivor", former)
+	}
+}
+
+// The one product rename that changes a slug: UpdateArtist regenerates it
+// from the new name, and the old URL now redirects.
+func (s *EntityFormerSlugsSuite) TestUpdateArtistRenameRedirects() {
+	artist := s.createArtist(s.slug("before-rename"))
+	name := "Renamed " + s.slug("band")
+	updated, err := NewArtistService(s.db).UpdateArtist(artist.ID, &contracts.UpdateArtistRequest{Name: &name})
+	s.Require().NoError(err)
+	s.Require().NotEqual(*artist.Slug, updated.Slug)
+
+	_, current := s.served("artists", *artist.Slug)
+	s.Equal(updated.Slug, current)
+}
+
+// formerSlugFamilies, the table's CHECK and the triggers name the same three
+// families; one that drifted from the others would record slugs nothing reads,
+// or read slugs nothing records.
+func (s *EntityFormerSlugsSuite) TestFamiliesMatchTheSchema() {
+	var check string
+	s.Require().NoError(s.db.Raw(`
+		SELECT pg_get_constraintdef(oid) FROM pg_constraint
+		 WHERE conname = 'entity_former_slugs_entity_type_check'`).Scan(&check).Error)
+	s.Require().NotEmpty(check)
+	allowed := strings.Count(check, "'") / 2
+	s.Equalf(len(formerSlugFamilies), allowed, "the CHECK allows %d values, the code keeps %d families: %s",
+		allowed, len(formerSlugFamilies), check)
+
+	for entity, family := range formerSlugFamilies {
+		s.Containsf(check, "'"+string(entity)+"'", "the CHECK does not admit %s", entity)
+		for _, event := range []string{"insert", "update"} {
+			var def string
+			s.Require().NoError(s.db.Raw(`
+				SELECT pg_get_triggerdef(t.oid) FROM pg_trigger t
+				  JOIN pg_class c ON c.oid = t.tgrelid
+				 WHERE c.relname = ? AND t.tgname = ?`,
+				family.table, family.table+"_track_former_slug_on_"+event).Scan(&def).Error)
+			s.Containsf(def, "entity_former_slugs_track('"+string(entity)+"')",
+				"%s has no %s trigger recording %s former slugs", family.table, event, entity)
+		}
+		s.Equalf(entity, formerSlugEntityByPrefix[family.table],
+			"the probe prefix %s does not name %s", family.table, entity)
+	}
+	s.Len(formerSlugEntityByPrefix, len(formerSlugFamilies))
+}
+
 // ──────────────────────────────────────────────
 // Deletes with no successor
 // ──────────────────────────────────────────────
@@ -430,6 +492,81 @@ func (s *EntityFormerSlugsSuite) TestDeletedEntitiesLoseTheirFormerSlugs() {
 		s.False(live)
 		s.Emptyf(current, "%s %s answers 404", prefix, former)
 	}
+}
+
+// ──────────────────────────────────────────────
+// The migration's backfill
+// ──────────────────────────────────────────────
+
+// formerSlugBackfillStatements returns the migration's backfill statements:
+// every INSERT INTO entity_former_slugs that starts a line. The trigger
+// function's own INSERT is indented and is not one of them.
+func (s *EntityFormerSlugsSuite) formerSlugBackfillStatements() []string {
+	raw, err := os.ReadFile("../../../db/migrations/20261122202828_entity_former_slugs.up.sql")
+	s.Require().NoError(err)
+	const head = "\nINSERT INTO entity_former_slugs"
+	text := string(raw)
+	var stmts []string
+	for {
+		start := strings.Index(text, head)
+		if start < 0 {
+			break
+		}
+		text = text[start+1:]
+		end := strings.Index(text, ";")
+		s.Require().Positive(end)
+		stmts = append(stmts, text[:end])
+		text = text[end:]
+	}
+	s.Require().Len(stmts, 2, "the migration backfills the migration-merged pairs and the audited merges")
+	return stmts
+}
+
+// The backfill writes exactly the slugs a record kept: the two pairs migration
+// 20260727021004 merged, and every merged slug an audit row names, against a
+// survivor that still exists, never over a live slug, latest merge winning.
+func (s *EntityFormerSlugsSuite) TestMigrationBackfillWritesOnlyRecordedSlugs() {
+	seventh := s.createVenue("7th-street-entry-minneapolis-mn")
+	kept := s.createVenue(s.slug("audited-kept"))
+	later := s.createVenue(s.slug("audited-later"))
+	live := s.createVenue(s.slug("audited-live"))
+	band := s.createArtist(s.slug("audited-band"))
+	audit := func(action, entityType string, entityID uint, key, slug string, at time.Time) {
+		s.Require().NoError(s.db.Exec(
+			`INSERT INTO audit_logs (action, entity_type, entity_id, metadata, created_at)
+			 VALUES (?, ?, ?, jsonb_build_object(?::text, ?::text), ?)`,
+			action, entityType, entityID, key, slug, at).Error)
+	}
+	now := time.Now().UTC()
+	merged := s.slug("audited-merged-room")
+	audit("merge_venues", "venue", kept.ID, "merged_venue_slug", merged, now.Add(-2*time.Hour))
+	audit("merge_venues", "venue", later.ID, "merged_venue_slug", merged, now.Add(-time.Hour))
+	audit("merge_venues", "venue", kept.ID, "merged_venue_slug", *live.Slug, now)
+	audit("merge_venues", "venue", 2147483000, "merged_venue_slug", s.slug("gone-survivor"), now)
+	mergedBand := s.slug("audited-merged-band")
+	audit("merge_artists", "artist", band.ID, "merged_artist_slug", mergedBand, now)
+	audit("merge_artists", "artist", band.ID, "merged_artist_name", "name only", now)
+
+	for _, stmt := range s.formerSlugBackfillStatements() {
+		s.Require().NoError(s.db.Exec(stmt).Error)
+	}
+
+	var rows []struct {
+		EntityType string
+		FormerSlug string
+		EntityID   uint
+	}
+	s.Require().NoError(s.db.Raw(
+		"SELECT entity_type, former_slug, entity_id FROM entity_former_slugs ORDER BY entity_type, former_slug").Scan(&rows).Error)
+	// The audited live slug, the audit row whose survivor is gone, the audit
+	// row that names no slug, and the migration pair whose survivor does not
+	// exist (metro-baltimore-baltimore-md) write nothing.
+	s.Require().Len(rows, 3, "%+v", rows)
+	s.Equal([]any{"artist", mergedBand, band.ID}, []any{rows[0].EntityType, rows[0].FormerSlug, rows[0].EntityID})
+	s.Equal([]any{"venue", "7th-st-entry-minneapolis-mn", seventh.ID},
+		[]any{rows[1].EntityType, rows[1].FormerSlug, rows[1].EntityID}, "a migration pair whose survivor resolves")
+	s.Equal([]any{"venue", merged, later.ID},
+		[]any{rows[2].EntityType, rows[2].FormerSlug, rows[2].EntityID}, "the latest merge of a slug wins")
 }
 
 // A row whose entity is gone without the sweep (a bare delete) names nothing:

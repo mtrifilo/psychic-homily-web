@@ -703,7 +703,7 @@ func (s *ArtistMergeIntegrationSuite) TestMergeRepointsAuditLogs() {
 // at the losing artist.
 //
 // Honest about its reach: it only proves anything for the four tables seeded
-// below. The other thirteen assertions run against empty tables and pass
+// below. The other assertions run against empty tables and pass
 // vacuously, so this is NOT a substitute for the per-table cases above — it is a
 // cheap backstop that catches a whole table dropping out of the loop. What
 // actually keeps the inventory correct is TestArtistEntityRefsCoverSchema (the

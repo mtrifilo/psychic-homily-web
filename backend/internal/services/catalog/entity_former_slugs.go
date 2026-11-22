@@ -16,27 +16,25 @@ import (
 // row always names an entity id, never a slug, and the slug served for it is
 // the entity's live one: every former slug is one redirect from its page.
 
-// showServedWhere is the predicate a show must meet for its page to be served
-// to the public, on the shows table's own columns. The existence probe and
-// the former slug lookup both apply it, with ShowStatusApproved bound.
-const showServedWhere = "status = ?"
-
 // formerSlugFamily is one entity family entity_former_slugs records.
 type formerSlugFamily struct {
 	// table is the family's table. Interpolated into SQL, so it MUST stay a
 	// literal in formerSlugFamilies.
 	table string
-	// servedWhere, when set, is the predicate on table's columns the family's
-	// existence probe also applies, with servedArg bound to it, so a former
-	// slug resolves only to an entity whose page the probe serves.
+	// servedWhere, when set, is the predicate a row of table must meet for
+	// its page to be served to the public, with servedArg bound to it. The
+	// existence probe (Exists) and the former slug lookup both read it from
+	// here. It names its columns unqualified, so it may name only columns
+	// entity_former_slugs does not have (never created_at or entity_id).
 	servedWhere string
 	servedArg   any
 }
 
 // formerSlugFamilies is every entity type entity_former_slugs holds. The
-// table's CHECK constraint names the same three values.
+// table's CHECK constraint and its triggers name the same three values
+// (TestFamiliesMatchTheSchema).
 var formerSlugFamilies = map[polymorphicEntityType]formerSlugFamily{
-	entityTypeShow:   {table: "shows", servedWhere: showServedWhere, servedArg: catalogm.ShowStatusApproved},
+	entityTypeShow:   {table: "shows", servedWhere: "status = ?", servedArg: catalogm.ShowStatusApproved},
 	entityTypeVenue:  {table: "venues"},
 	entityTypeArtist: {table: "artists"},
 }
@@ -49,8 +47,9 @@ var formerSlugEntityByPrefix = map[string]polymorphicEntityType{
 	"artists": entityTypeArtist,
 }
 
-// upsertFormerSlugTail ends every write of an entity_former_slugs row: a slug
-// already recorded follows its latest owner.
+// upsertFormerSlugTail ends every write of an entity_former_slugs row from Go:
+// a slug already recorded follows its latest owner. The table's trigger
+// function carries the same clause in SQL.
 const upsertFormerSlugTail = `
 	ON CONFLICT (entity_type, former_slug)
 	DO UPDATE SET entity_id = EXCLUDED.entity_id, created_at = now()`
@@ -115,7 +114,9 @@ func (s *VenueService) VenueForFormerSlug(slug string) (venueID uint, currentSlu
 
 // recordMergedAwaySlug points the losing entity's slug at the winner. It runs
 // inside the merge's transaction, before the loser is deleted. A loser with no
-// slug records nothing.
+// slug records nothing. Every merge of these families calls it: MergeVenues,
+// MergeArtists and MergeDuplicateShow; the venue merge's set-based duplicate
+// show delete records through moveDuplicateShowSlugs instead.
 func recordMergedAwaySlug(tx *gorm.DB, entity polymorphicEntityType, winnerID, loserID uint) error {
 	family, ok := formerSlugFamilies[entity]
 	if !ok {
