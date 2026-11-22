@@ -515,11 +515,11 @@ func (h *VenueHandler) VenueYearArchiveExistsHandler(ctx context.Context, req *V
 		}
 		// Only a slug that matched no venue reads the former slugs, so a live
 		// slug or id costs the lookups it always has.
-		successorID, currentSlug, found, lookupErr := h.venueService.VenueForFormerSlug(req.VenueID)
+		successorID, currentSlug, lookupErr := h.venueService.VenueForFormerSlug(req.VenueID)
 		if lookupErr != nil {
 			return nil, huma.Error500InternalServerError("Failed to check venue year archive", lookupErr)
 		}
-		if !found {
+		if successorID == 0 {
 			// Restated rather than surfaced, so an unknown venue is
 			// byte-identical to an empty year. resolveVenueID's own "Venue not
 			// found" is the right answer for its other callers and the wrong

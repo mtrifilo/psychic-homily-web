@@ -540,10 +540,7 @@ func moveDuplicateShowSlugs(tx *gorm.DB) error {
 		  FROM venue_merge_dup d
 		  JOIN shows s ON s.id = d.loser_show
 		 WHERE s.slug IS NOT NULL
-		   AND s.slug <> ''
-		ON CONFLICT (entity_type, former_slug)
-		DO UPDATE SET entity_id = EXCLUDED.entity_id, created_at = now()
-	`, string(entityTypeShow)).Error; err != nil {
+		   AND s.slug <> ''`+upsertFormerSlugTail, string(entityTypeShow)).Error; err != nil {
 		return fmt.Errorf("failed to record duplicate shows' slugs: %w", err)
 	}
 	return nil

@@ -140,14 +140,21 @@ describe('proxy: former entity slugs', () => {
     })
   })
 
-  it('does not ask a family without former slugs for one', async () => {
-    mockProbe({ status: 200, current: 'new-slug' })
+  // The other generic families' probes send no header, so they render and are
+  // remembered exactly as before.
+  it.each(['releases', 'labels', 'festivals', 'tags'])(
+    'renders and remembers a /%s slug the probe names no slug for',
+    async family => {
+      const fetchMock = mockProbe({ status: 200 })
 
-    const response = await proxy(requestFor('/labels/old-slug'))
+      const first = await proxy(requestFor(`/${family}/live-slug`))
+      await proxy(requestFor(`/${family}/live-slug`))
 
-    expect(response.status).toBe(200)
-    expect(response.headers.get('location')).toBeNull()
-  })
+      expect(first.status).toBe(200)
+      expect(first.headers.get('location')).toBeNull()
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    }
+  )
 
   describe('sub-pages', () => {
     it('redirects a former venue slug year archive to the same year', async () => {

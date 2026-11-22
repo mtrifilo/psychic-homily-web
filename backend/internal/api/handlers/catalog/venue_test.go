@@ -718,9 +718,9 @@ func TestVenueYearArchiveExists_LiveSlugNeverReadsFormerSlugs(t *testing.T) {
 			return &contracts.VenueDetailResponse{ID: 10}, nil
 		},
 		HasPastShowsInYearFn: func(uint, int) (bool, error) { return true, nil },
-		VenueForFormerSlugFn: func(slug string) (uint, string, bool, error) {
+		VenueForFormerSlugFn: func(slug string) (uint, string, error) {
 			t.Errorf("a live slug must not read the former slugs, got %q", slug)
-			return 0, "", false, nil
+			return 0, "", nil
 		},
 	}
 	h := NewVenueHandler(mock, nil, nil, nil)
@@ -747,11 +747,11 @@ func TestVenueYearArchiveExists_FormerSlug(t *testing.T) {
 	t.Run("successor has the year", func(t *testing.T) {
 		mock := &testhelpers.MockVenueService{
 			GetVenueBySlugFn: unknown,
-			VenueForFormerSlugFn: func(slug string) (uint, string, bool, error) {
+			VenueForFormerSlugFn: func(slug string) (uint, string, error) {
 				if slug != "old-room" {
 					t.Errorf("former slug lookup got %q, want old-room", slug)
 				}
-				return 42, "new-room", true, nil
+				return 42, "new-room", nil
 			},
 			HasPastShowsInYearFn: func(venueID uint, year int) (bool, error) {
 				if venueID != 42 || year != 2019 {
@@ -772,7 +772,7 @@ func TestVenueYearArchiveExists_FormerSlug(t *testing.T) {
 	t.Run("successor lacks the year", func(t *testing.T) {
 		mock := &testhelpers.MockVenueService{
 			GetVenueBySlugFn:     unknown,
-			VenueForFormerSlugFn: func(string) (uint, string, bool, error) { return 42, "new-room", true, nil },
+			VenueForFormerSlugFn: func(string) (uint, string, error) { return 42, "new-room", nil },
 			HasPastShowsInYearFn: func(uint, int) (bool, error) { return false, nil },
 		}
 		_, err := NewVenueHandler(mock, nil, nil, nil).VenueYearArchiveExistsHandler(
@@ -788,8 +788,8 @@ func TestVenueYearArchiveExists_FormerSlug(t *testing.T) {
 	t.Run("lookup fails", func(t *testing.T) {
 		mock := &testhelpers.MockVenueService{
 			GetVenueBySlugFn: unknown,
-			VenueForFormerSlugFn: func(string) (uint, string, bool, error) {
-				return 0, "", false, fmt.Errorf("database down")
+			VenueForFormerSlugFn: func(string) (uint, string, error) {
+				return 0, "", fmt.Errorf("database down")
 			},
 		}
 		_, err := NewVenueHandler(mock, nil, nil, nil).VenueYearArchiveExistsHandler(

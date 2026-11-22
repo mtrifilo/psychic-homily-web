@@ -333,9 +333,8 @@ func (s *EntityFormerSlugsSuite) TestMergeVenuesPointsTheLoserAndItsDuplicateSho
 	s.True(live, "a moved show keeps its slug")
 	s.Zero(s.formerRow("show", movedSlug))
 
-	id, current, found, err := NewVenueService(s.db).VenueForFormerSlug(mergedSlug)
+	id, current, err := NewVenueService(s.db).VenueForFormerSlug(mergedSlug)
 	s.Require().NoError(err)
-	s.True(found)
 	s.Equal(kept.ID, id)
 	s.Equal(*kept.Slug, current)
 }

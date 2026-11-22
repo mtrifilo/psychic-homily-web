@@ -619,30 +619,18 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     return numericShowRedirect(request, slug)
   }
 
+  // A show, venue or artist probe answers a former slug (one the entity no
+  // longer answers at, after a slug change or a merge) with the entity's
+  // current slug; a live slug, and every other family, gets no header and is
+  // canonical as requested.
   return existenceCheck(request, buildCheckUrl(slug), {
     requireApiAuthoredNotFound: false,
-    ...(FORMER_SLUG_FAMILIES.has(entityType)
-      ? {
-          canonicalPath: formerSlugCanonicalPath(
-            request,
-            current => `/${entityType}/${current}`
-          ),
-        }
-      : {}),
+    canonicalPath: formerSlugCanonicalPath(
+      request,
+      current => `/${entityType}/${current}`
+    ),
   })
 }
-
-/**
- * The entity families whose existence probes answer a former slug (a slug the
- * entity no longer answers at, after a slug change or a merge) with 200 and the
- * entity's current slug in the `Canonical-Slug` header. A live slug's answer
- * carries no header.
- */
-const FORMER_SLUG_FAMILIES: ReadonlySet<string> = new Set([
-  'shows',
-  'venues',
-  'artists',
-])
 
 /**
  * The current slugs the proxy redirects a former slug to: next.config.ts's
@@ -655,7 +643,7 @@ const FORMER_SLUG_FAMILIES: ReadonlySet<string> = new Set([
 const CURRENT_ENTITY_SLUG = /^(?=[a-z0-9.-]{1,255}$)[0-9]*[a-z-][a-z0-9.-]*$/
 
 /**
- * `existenceCheck`'s `canonicalPath` for a former-slug family: the request's
+ * `existenceCheck`'s `canonicalPath` for an entity probe: the request's
  * own path when the probe names no slug (a live slug or id, which is
  * canonical and remembered for the full verdict window), `pathFor(current)`
  * when it names a slug in `CURRENT_ENTITY_SLUG`, and null for any other value.
