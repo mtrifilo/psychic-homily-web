@@ -1364,6 +1364,9 @@ type UpdateArtistRequest struct {
 	SoundCloud       *string `json:"soundcloud"`
 	Bandcamp         *string `json:"bandcamp"`
 	Website          *string `json:"website"`
+	// KeepSlug changes Name without regenerating the slug. It is set only by
+	// in-process callers and is never read from a request body.
+	KeepSlug bool `json:"-"`
 }
 
 // ArtistDetailResponse represents the artist data returned to clients

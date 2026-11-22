@@ -457,14 +457,16 @@ func (s *ArtistService) UpdateArtist(artistID uint, req *contracts.UpdateArtistR
 		}
 		updates["name"] = name
 
-		// Regenerate slug when name changes
-		baseSlug := utils.GenerateArtistSlug(name)
-		slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
-			var count int64
-			s.db.Model(&catalogm.Artist{}).Where("slug = ? AND id != ?", candidate, artistID).Count(&count)
-			return count > 0
-		})
-		updates["slug"] = slug
+		// Regenerate slug when name changes, unless the caller keeps it.
+		if !req.KeepSlug {
+			baseSlug := utils.GenerateArtistSlug(name)
+			slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
+				var count int64
+				s.db.Model(&catalogm.Artist{}).Where("slug = ? AND id != ?", candidate, artistID).Count(&count)
+				return count > 0
+			})
+			updates["slug"] = slug
+		}
 	}
 	if req.State != nil {
 		updates["state"] = utils.NilIfEmpty(*req.State)

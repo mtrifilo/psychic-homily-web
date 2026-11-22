@@ -51,6 +51,7 @@ func (s *TriageSuite) TearDownSuite() { s.testDB.Cleanup() }
 func (s *TriageSuite) SetupTest() {
 	for _, stmt := range []string{
 		"DELETE FROM audit_logs",
+		"DELETE FROM entity_former_slugs",
 		"DELETE FROM entity_edit_audit_logs",
 		"DELETE FROM revisions",
 		"DELETE FROM comments",
@@ -325,6 +326,42 @@ func (s *TriageSuite) TestRenameKeepsTheSlugAndEveryReference() {
 	s.Equal(int64(1), s.count(`SELECT COUNT(*) FROM revisions WHERE entity_type = 'artist' AND entity_id = ? AND user_id = ?
 		AND field_changes @> '[{"field": "name", "old_value": "Riot Act (Pearl Jam Tribute)", "new_value": "Riot Act"}]'`, a.ID, s.actor))
 	s.Equal(int64(1), s.count(`SELECT COUNT(*) FROM entity_edit_audit_logs WHERE entity_type = 'artist' AND entity_id = ? AND actor_id = ?`, a.ID, s.actor))
+}
+
+// A rename never writes the slug, so nothing reaches entity_former_slugs: no
+// interim slug derived from the new name is recorded, and another artist's
+// former slug equal to that derived slug keeps pointing at that artist.
+func (s *TriageSuite) TestRenameRecordsNoFormerSlug() {
+	other := s.artist("Riot Act")
+	s.Require().NoError(s.db.Exec(`UPDATE artists SET slug = 'riot-act-band' WHERE id = ?`, other.ID).Error)
+	a := s.artist("Riot Act (Pearl Jam Tribute)")
+	type row struct {
+		EntityType string
+		FormerSlug string
+		EntityID   uint
+	}
+	formerSlugs := func() []row {
+		var rows []row
+		s.Require().NoError(s.db.Raw(
+			`SELECT entity_type, former_slug, entity_id FROM entity_former_slugs ORDER BY former_slug`).Scan(&rows).Error)
+		return rows
+	}
+	s.Require().Equal([]row{{"artist", "riot-act", other.ID}}, formerSlugs())
+
+	out, summary := s.run(csvOf(*a.Slug+",rename,Riot Act Tribute"), true)
+
+	s.False(summary.Refused(), out)
+	s.Equal("riot-act-pearl-jam-tribute", *s.artistByID(a.ID).Slug, "the slug stays")
+	s.Equal([]row{{"artist", "riot-act", other.ID}}, formerSlugs(), "the rename records and removes nothing")
+
+	// The same with a new name whose derived slug IS the other artist's former
+	// slug: regenerating it would have taken that slug and removed its row.
+	b := s.artist("Riot Act Covers")
+	out, summary = s.run(csvOf(*b.Slug+",rename,Riot Act."), true)
+
+	s.False(summary.Refused(), out)
+	s.Equal("riot-act-covers", *s.artistByID(b.ID).Slug)
+	s.Equal([]row{{"artist", "riot-act", other.ID}}, formerSlugs(), "another artist's former slug is untouched")
 }
 
 func (s *TriageSuite) TestRenameOntoANameOrAliasAnotherArtistHasIsRefused() {

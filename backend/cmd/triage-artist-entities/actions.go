@@ -336,9 +336,9 @@ func (t *triage) references() ([]artistReference, error) {
 }
 
 // rename changes the artist's name through ArtistService.UpdateArtist, the
-// admin edit path, and keeps the slug exactly as it was: UpdateArtist derives a
-// new slug from the new name, and the tool writes the old one back in the same
-// transaction, so the artist's URL keeps answering. The change is recorded the
+// admin edit path, with KeepSlug set, so the slug is never written and the
+// artist's URL keeps answering: no other slug exists for it, even inside the
+// transaction, and no former slug is recorded. The change is recorded the
 // way the admin edit records it: a revision and an entity edit audit row, both
 // naming the actor.
 func (t *triage) rename(tx *gorm.DB, p *rowPlan, subject *catalogm.Artist) ([]string, error) {
@@ -367,12 +367,9 @@ func (t *triage) rename(tx *gorm.DB, p *rowPlan, subject *catalogm.Artist) ([]st
 	if err != nil {
 		return detail, fmt.Errorf("read artist: %w", err)
 	}
-	after, err := artists.UpdateArtist(subject.ID, &contracts.UpdateArtistRequest{Name: &name})
+	after, err := artists.UpdateArtist(subject.ID, &contracts.UpdateArtistRequest{Name: &name, KeepSlug: true})
 	if err != nil {
 		return detail, fmt.Errorf("rename: %w", err)
-	}
-	if err := tx.Model(&catalogm.Artist{}).Where("id = ?", subject.ID).Update("slug", subject.Slug).Error; err != nil {
-		return detail, fmt.Errorf("keep the slug: %w", err)
 	}
 	reread, err := lockArtist(tx, subject.ID)
 	if err != nil {
