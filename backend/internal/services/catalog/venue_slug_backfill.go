@@ -125,10 +125,9 @@ func venueSlugTarget(name, city, state, currentSlug string, slugTaken func(candi
 // half-rewritten.
 //
 // It is idempotent: a rewritten slug carries the location tail, so a second run
-// sees no corruption signature and reports zero changes. There is no
-// slug-redirect mechanism and the corrupted slugs have no legitimate external
-// references, so the old slugs simply 404 after the rewrite; internal links
-// regenerate from venue.slug.
+// sees no corruption signature and reports zero changes. The venues slug
+// trigger records each rewritten slug in entity_former_slugs, so an old URL
+// redirects to the new one; internal links regenerate from venue.slug.
 func BackfillVenueSlugs(database *gorm.DB, opts VenueSlugBackfillOptions) (*VenueSlugBackfillReport, error) {
 	var venues []catalogm.Venue
 	if err := database.Order("id").Find(&venues).Error; err != nil {

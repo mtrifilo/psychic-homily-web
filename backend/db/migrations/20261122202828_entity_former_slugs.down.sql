@@ -1,4 +1,5 @@
--- Dropping a trigger takes the same SHARE ROW EXCLUSIVE lock creating it did.
+-- Dropping a trigger takes a stronger lock on its table than creating it did,
+-- one that waits for readers as well as writers; lock_timeout bounds the wait.
 SET LOCAL lock_timeout = '5s';
 
 DROP TRIGGER IF EXISTS artists_track_former_slug_on_insert ON artists;
