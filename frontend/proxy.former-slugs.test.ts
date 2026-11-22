@@ -173,6 +173,18 @@ describe('proxy: former entity slugs', () => {
       )
     })
 
+    it.each([
+      ['digits alone', '12345'],
+      ['a path', 'a/b'],
+    ])('does not redirect a year archive to %s', async (_label, current) => {
+      mockProbe({ status: 200, current })
+
+      const response = await proxy(requestFor('/venues/old-room/shows/2024'))
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get('location')).toBeNull()
+    })
+
     it('renders a live venue slug year archive', async () => {
       mockProbe({ status: 200 })
 

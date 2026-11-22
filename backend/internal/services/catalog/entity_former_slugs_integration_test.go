@@ -341,6 +341,33 @@ func (s *EntityFormerSlugsSuite) TestMergeVenuesPointsTheLoserAndItsDuplicateSho
 	s.Equal(*kept.Slug, current)
 }
 
+// The same-place entry point records the merged room's slug too.
+func (s *EntityFormerSlugsSuite) TestMergeVenuesInSamePlaceRecordsTheLoser() {
+	kept := s.createVenue(s.slug("kept-room"))
+	merged := s.createVenue(s.slug("merged-room"))
+	_, err := NewVenueService(s.db).MergeVenuesInSamePlace(kept.ID, merged.ID, 0)
+	s.Require().NoError(err)
+
+	_, current := s.served("venues", *merged.Slug)
+	s.Equal(*kept.Slug, current)
+}
+
+// A former slug whose entity has no usable live slug names nothing, so its
+// URL answers 404 rather than a redirect to an address that cannot serve.
+func (s *EntityFormerSlugsSuite) TestAFormerSlugOfAnEntityWithoutALiveSlugNamesNothing() {
+	a, b := s.slug("a"), s.slug("b")
+	venue := s.createVenue(a)
+	s.setSlug("venues", venue.ID, b)
+	s.setSlug("venues", venue.ID, nil)
+	s.Require().Equal(venue.ID, s.formerRow("venue", a))
+	_, current := s.served("venues", a)
+	s.Empty(current, "a venue with no slug")
+
+	s.setSlug("venues", venue.ID, "12345")
+	_, current = s.served("venues", a)
+	s.Empty(current, "a live slug of digits alone reads as an id")
+}
+
 // A preview rolls back, and its former-slug writes with it.
 func (s *EntityFormerSlugsSuite) TestVenueMergePreviewRecordsNothing() {
 	kept := s.createVenue(s.slug("kept-room"))

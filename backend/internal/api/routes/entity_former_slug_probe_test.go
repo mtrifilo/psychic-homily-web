@@ -155,7 +155,19 @@ func TestFormerSlugProbesCostNothingOnALiveSlug(t *testing.T) {
 	if w.Code != http.StatusOK || w.Header().Get("Canonical-Slug") != venueNew {
 		t.Errorf("venue year former slug = %d Canonical-Slug %q, want 200 and %q", w.Code, w.Header().Get("Canonical-Slug"), venueNew)
 	}
+	// The former slug costs the live path's lookups plus the one former slug
+	// lookup: the venue read misses, so the year probe still runs once.
+	if len(formerStmts) != len(liveStmts)+1 || !readsFormerSlugs(formerStmts) {
+		t.Errorf("venue year former slug ran %d statements %q, want the live path's %d plus one former slug lookup",
+			len(formerStmts), formerStmts, len(liveStmts))
+	}
 	t.Logf("venue year former slug: %d statement(s)", len(formerStmts))
+	w, neverStmts := probeStatements(t, router, rec, "/venues/never-existed-venue/shows/2024/exists")
+	if w.Code != http.StatusNotFound || len(neverStmts) != 2 || !readsFormerSlugs(neverStmts) {
+		t.Errorf("venue year never-existed slug = %d after %d statements %q, want 404 after the venue read and the former slug lookup",
+			w.Code, len(neverStmts), neverStmts)
+	}
+	t.Logf("venue year never-existed slug: %d statement(s)", len(neverStmts))
 	w, _ = probeStatements(t, router, rec, "/venues/"+venueOld+"/shows/2019/exists")
 	if w.Code != http.StatusNotFound {
 		t.Errorf("venue year former slug, empty year = %d, want 404", w.Code)
