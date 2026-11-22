@@ -204,6 +204,9 @@ func (s *ShowDedupTestSuite) seedShowRefRow(table string, showID uint, f showRef
 		      VALUES ('show', ?, ?, 'nice bill', '<p>nice bill</p>')`, showID, f.user.ID)
 	case "entity_edit_audit_logs":
 		exec(`INSERT INTO entity_edit_audit_logs (entity_type, entity_id) VALUES ('show', ?)`, showID)
+	case "entity_former_slugs":
+		exec(`INSERT INTO entity_former_slugs (entity_type, former_slug, entity_id) VALUES ('show', ?, ?)`,
+			fmt.Sprintf("sweep-former-%d", time.Now().UnixNano()), showID)
 	case "entity_reports":
 		exec(`INSERT INTO entity_reports (entity_type, entity_id, reported_by, report_type)
 		      VALUES ('show', ?, ?, 'duplicate')`, showID, f.user.ID)
@@ -253,6 +256,10 @@ func (s *ShowDedupTestSuite) TestMergeDuplicateShow_MovesEveryInventoriedReferen
 	eventDate := time.Date(2026, 9, 1, 3, 0, 0, 0, time.UTC)
 	winner := s.seedShow("SW", eventDate, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), a.ID, v.ID, "AZ")
 	loser := s.seedShow("SL", eventDate, time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC), a.ID, v.ID, "AZ")
+	// A loser without a slug, so the merge records no slug of its own and the
+	// seeded entity_former_slugs row is the one that has to arrive on the winner.
+	// TestMergeDuplicateShowPointsTheLoserAtTheWinner covers the loser's own slug.
+	s.Require().NoError(s.db.Exec(`UPDATE shows SET slug = NULL WHERE id = ?`, loser).Error)
 
 	f := showRefFixtures{user: s.seedUser("sweep@test.com")}
 	row := s.db.Raw(`INSERT INTO tags (name, slug) VALUES ('sweep', ?) RETURNING id`,

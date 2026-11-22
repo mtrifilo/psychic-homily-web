@@ -103,6 +103,9 @@ func TestRecordedDeleteDispositionsAreTheOnesReviewed(t *testing.T) {
 		"image_enrich_queue",
 		"source_configs",
 		"notification_log",
+		// A former slug of an entity with no successor: its old URLs 404 with
+		// the entity.
+		"entity_former_slugs",
 	} {
 		if got := entityRefDeleteDispositions[table]; got != dropRefRows {
 			t.Errorf("%s is recorded as %s, but its rows only mean anything while the entity "+
@@ -113,8 +116,8 @@ func TestRecordedDeleteDispositionsAreTheOnesReviewed(t *testing.T) {
 
 	// The register has to stay exhaustive, or a table could be quietly moved out
 	// of both lists above and lose its second opinion.
-	if len(entityRefDeleteDispositions) != 17 {
-		t.Errorf("the inventory holds %d tables but this register was written for 17. "+
+	if len(entityRefDeleteDispositions) != 18 {
+		t.Errorf("the inventory holds %d tables but this register was written for 18. "+
 			"Add the new table to whichever list above matches the reason for its disposition.",
 			len(entityRefDeleteDispositions))
 	}

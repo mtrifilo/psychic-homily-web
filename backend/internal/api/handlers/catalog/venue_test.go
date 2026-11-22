@@ -710,3 +710,90 @@ func TestVenueYearArchiveExists_SlugLookupErrorIs500(t *testing.T) {
 	})
 	testhelpers.AssertHumaError(t, err, 500)
 }
+
+// A live slug answers with no header and never reads the former slugs.
+func TestVenueYearArchiveExists_LiveSlugNeverReadsFormerSlugs(t *testing.T) {
+	mock := &testhelpers.MockVenueService{
+		GetVenueBySlugFn: func(string) (*contracts.VenueDetailResponse, error) {
+			return &contracts.VenueDetailResponse{ID: 10}, nil
+		},
+		HasPastShowsInYearFn: func(uint, int) (bool, error) { return true, nil },
+		VenueForFormerSlugFn: func(slug string) (uint, string, bool, error) {
+			t.Errorf("a live slug must not read the former slugs, got %q", slug)
+			return 0, "", false, nil
+		},
+	}
+	h := NewVenueHandler(mock, nil, nil, nil)
+
+	resp, err := h.VenueYearArchiveExistsHandler(context.Background(), &VenueYearArchiveExistsRequest{
+		VenueID: "valley-bar", Year: 2019,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.CanonicalSlug != "" {
+		t.Errorf("CanonicalSlug = %q, want none on a live slug", resp.CanonicalSlug)
+	}
+}
+
+// A former slug answers as the venue it now stands for: that venue's year,
+// and its current slug in the header. A successor with no shows that year, a
+// slug that is no venue's former slug and a failed lookup answer as an unknown
+// venue, an unknown venue and a 500.
+func TestVenueYearArchiveExists_FormerSlug(t *testing.T) {
+	unknown := func(string) (*contracts.VenueDetailResponse, error) {
+		return nil, apperrors.ErrVenueNotFound(0)
+	}
+	t.Run("successor has the year", func(t *testing.T) {
+		mock := &testhelpers.MockVenueService{
+			GetVenueBySlugFn: unknown,
+			VenueForFormerSlugFn: func(slug string) (uint, string, bool, error) {
+				if slug != "old-room" {
+					t.Errorf("former slug lookup got %q, want old-room", slug)
+				}
+				return 42, "new-room", true, nil
+			},
+			HasPastShowsInYearFn: func(venueID uint, year int) (bool, error) {
+				if venueID != 42 || year != 2019 {
+					t.Errorf("expected venueID=42 year=2019, got %d/%d", venueID, year)
+				}
+				return true, nil
+			},
+		}
+		resp, err := NewVenueHandler(mock, nil, nil, nil).VenueYearArchiveExistsHandler(
+			context.Background(), &VenueYearArchiveExistsRequest{VenueID: "old-room", Year: 2019})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.CanonicalSlug != "new-room" {
+			t.Errorf("CanonicalSlug = %q, want new-room", resp.CanonicalSlug)
+		}
+	})
+	t.Run("successor lacks the year", func(t *testing.T) {
+		mock := &testhelpers.MockVenueService{
+			GetVenueBySlugFn:     unknown,
+			VenueForFormerSlugFn: func(string) (uint, string, bool, error) { return 42, "new-room", true, nil },
+			HasPastShowsInYearFn: func(uint, int) (bool, error) { return false, nil },
+		}
+		_, err := NewVenueHandler(mock, nil, nil, nil).VenueYearArchiveExistsHandler(
+			context.Background(), &VenueYearArchiveExistsRequest{VenueID: "old-room", Year: 1999})
+		testhelpers.AssertHumaErrorWithDetail(t, err, 404, venueYearArchiveAbsent)
+	})
+	t.Run("never existed", func(t *testing.T) {
+		mock := &testhelpers.MockVenueService{GetVenueBySlugFn: unknown}
+		_, err := NewVenueHandler(mock, nil, nil, nil).VenueYearArchiveExistsHandler(
+			context.Background(), &VenueYearArchiveExistsRequest{VenueID: "never-was", Year: 2019})
+		testhelpers.AssertHumaErrorWithDetail(t, err, 404, venueYearArchiveAbsent)
+	})
+	t.Run("lookup fails", func(t *testing.T) {
+		mock := &testhelpers.MockVenueService{
+			GetVenueBySlugFn: unknown,
+			VenueForFormerSlugFn: func(string) (uint, string, bool, error) {
+				return 0, "", false, fmt.Errorf("database down")
+			},
+		}
+		_, err := NewVenueHandler(mock, nil, nil, nil).VenueYearArchiveExistsHandler(
+			context.Background(), &VenueYearArchiveExistsRequest{VenueID: "old-room", Year: 2019})
+		testhelpers.AssertHumaError(t, err, 500)
+	})
+}

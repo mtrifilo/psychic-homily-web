@@ -268,6 +268,9 @@ func (s *VenueService) mergeVenues(canonicalID, mergeFromID uint, opts mergeOpti
 		if err := reassignVenueAlertRows(tx, canonicalID, mergeFromID, result); err != nil {
 			return err
 		}
+		if err := recordMergedAwaySlug(tx, entityTypeVenue, canonicalID, mergeFromID); err != nil {
+			return err
+		}
 
 		if err := tx.Delete(&catalogm.Venue{}, mergeFromID).Error; err != nil {
 			return fmt.Errorf("failed to delete merged venue: %w", err)
@@ -483,7 +486,10 @@ func deleteDuplicateShows(tx *gorm.DB) error {
 	// festival). This set-based delete is not one of them, so every
 	// entity_type='show' row for a losing show is stranded exactly as an artist
 	// delete used to strand its own — bookmarks, crate items, tags (and their
-	// share of tags.usage_count), comments, reports and history.
+	// share of tags.usage_count), comments, reports and history. The one
+	// exception is entity_former_slugs, which moveDuplicateShowSlugs re-points
+	// at each winner below, because a losing show's slug is recorded nowhere
+	// else once its row is gone.
 	//
 	// It is NOT the only remaining stranding delete in this package, and saying so
 	// is the point of writing this down. RadioService.DeleteShow and
@@ -501,12 +507,44 @@ func deleteDuplicateShows(tx *gorm.DB) error {
 	// this path routed through MergeDuplicateShow or given the same per-table
 	// provenance decisions, and it belongs in a ticket of its own rather than
 	// smuggled into a delete-path change.
+	if err := moveDuplicateShowSlugs(tx); err != nil {
+		return err
+	}
 	if err := tx.Exec(`
 		DELETE FROM shows s
 		USING venue_merge_dup d
 		WHERE s.id = d.loser_show
 	`).Error; err != nil {
 		return fmt.Errorf("failed to delete duplicate shows: %w", err)
+	}
+	return nil
+}
+
+// moveDuplicateShowSlugs points every losing show's slug, and the former slugs
+// it already had, at the show that survives it, as MergeDuplicateShow does for
+// a merge it runs. It must run before the losing shows are deleted, while
+// their slugs can still be read.
+func moveDuplicateShowSlugs(tx *gorm.DB) error {
+	if err := tx.Exec(`
+		UPDATE entity_former_slugs f
+		   SET entity_id = d.winner_show
+		  FROM venue_merge_dup d
+		 WHERE f.entity_type = ?
+		   AND f.entity_id = d.loser_show
+	`, string(entityTypeShow)).Error; err != nil {
+		return fmt.Errorf("failed to move duplicate shows' former slugs: %w", err)
+	}
+	if err := tx.Exec(`
+		INSERT INTO entity_former_slugs (entity_type, former_slug, entity_id)
+		SELECT ?, s.slug, d.winner_show
+		  FROM venue_merge_dup d
+		  JOIN shows s ON s.id = d.loser_show
+		 WHERE s.slug IS NOT NULL
+		   AND s.slug <> ''
+		ON CONFLICT (entity_type, former_slug)
+		DO UPDATE SET entity_id = EXCLUDED.entity_id, created_at = now()
+	`, string(entityTypeShow)).Error; err != nil {
+		return fmt.Errorf("failed to record duplicate shows' slugs: %w", err)
 	}
 	return nil
 }

@@ -191,6 +191,10 @@ var entityRefDeleteDispositions = map[string]refDeleteDisposition{
 	// The discriminator-keyed remainder ('artist_show_alert', 'venue_show_alert')
 	// is invisible to this entry and is handled by deleteAlertRowsNamingEntity.
 	"notification_log": dropRefRows,
+	// A former slug of an entity deleted with no successor. Dropped, its old
+	// URLs answer 404 like the entity's own; kept, the row is inert (the probe
+	// joins the live entity) but holds a slug nothing can be served at.
+	"entity_former_slugs": dropRefRows,
 
 	// ── Kept as tombstones: a record of something a person did, read on an axis
 	// the deleted entity does not gate. ──

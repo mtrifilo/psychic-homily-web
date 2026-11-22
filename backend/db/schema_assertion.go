@@ -133,6 +133,12 @@ var requiredSchemaColumns = []requiredColumn{
 	// Every New link counts toward the account's hourly cap here in the
 	// transaction that makes it, so absent DDL fails every New link.
 	{Table: "calendar_link_mint_counts", Column: "mint_count"},
+	// Every show, venue and artist merge writes the loser's slug here in its
+	// transaction, and a show, venue or artist existence probe whose slug
+	// misses reads it, so absent DDL fails every merge and answers every such
+	// miss with a 500.
+	{Table: "entity_former_slugs", Column: "former_slug"},
+	{Table: "entity_former_slugs", Column: "entity_id"},
 	// Typed entries: exactly the columns whose type a timestamp-named
 	// migration changed. golang-migrate skips a timestamp-named migration
 	// whose version is below the recorded pointer, which happens when branches

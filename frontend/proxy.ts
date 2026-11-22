@@ -621,7 +621,59 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 
   return existenceCheck(request, buildCheckUrl(slug), {
     requireApiAuthoredNotFound: false,
+    ...(FORMER_SLUG_FAMILIES.has(entityType)
+      ? {
+          canonicalPath: formerSlugCanonicalPath(
+            request,
+            current => `/${entityType}/${current}`
+          ),
+        }
+      : {}),
   })
+}
+
+/**
+ * The entity families whose existence probes answer a former slug (a slug the
+ * entity no longer answers at, after a slug change or a merge) with 200 and the
+ * entity's current slug in the `Canonical-Slug` header. A live slug's answer
+ * carries no header.
+ */
+const FORMER_SLUG_FAMILIES: ReadonlySet<string> = new Set([
+  'shows',
+  'venues',
+  'artists',
+])
+
+/**
+ * The current slugs the proxy redirects a former slug to: next.config.ts's
+ * `ENTITY_SLUG_SEGMENT` (lowercase letters, digits, `.` and `-`, with at least
+ * one letter or `-`, so the target can never be read as a numeric id), at most
+ * 255 characters. Each character stays as it is under `encodeURIComponent` and
+ * in a URL path, so the redirect arrives spelled as the slug, and that request
+ * is then a live slug itself. A header naming anything else is no answer.
+ */
+const CURRENT_ENTITY_SLUG = /^(?=[a-z0-9.-]{1,255}$)[0-9]*[a-z-][a-z0-9.-]*$/
+
+/**
+ * `existenceCheck`'s `canonicalPath` for a former-slug family: the request's
+ * own path when the probe names no slug (a live slug or id, which is
+ * canonical and remembered for the full verdict window), `pathFor(current)`
+ * when it names a slug in `CURRENT_ENTITY_SLUG`, and null for any other value.
+ *
+ * `pathFor` may rewrite only the slug segment, which is part of the probe URL,
+ * so a remembered verdict for a live slug can never wave a former slug
+ * through (see `sceneCheck` for the invariant).
+ */
+function formerSlugCanonicalPath(
+  request: NextRequest,
+  pathFor: (current: string) => string
+): (res: Response) => string | null {
+  return res => {
+    const current = res.headers.get(CANONICAL_SLUG_HEADER)
+    if (current === null) return request.nextUrl.pathname
+    if (!CURRENT_ENTITY_SLUG.test(current)) return null
+    return pathFor(current)
+  }
 }
 
 /**
@@ -774,9 +826,10 @@ function failedProbeResponse(
  * Probe a backend URL and turn the result into a pass-through or a real 404,
  * under `failedProbeResponse`'s policy. A network error fails open too.
  *
- * HEAD, and the STATUS is the whole answer, except that a scene probe also
- * names the scene's canonical slug in a response header (see `canonicalPath`
- * below and `sceneCheck`). A new caller that finds itself
+ * HEAD, and the STATUS is the whole answer, except that a scene probe, and a
+ * show, venue or artist probe for a former slug, also names the slug to serve
+ * in a response header (see `canonicalPath` below, `sceneCheck` and
+ * `formerSlugCanonicalPath`). A new caller that finds itself
  * wanting a body should get its endpoint an honest status instead: the backend
  * can answer the question in one indexed row, and a body this function parses
  * is a body every OTHER caller pays to receive.
@@ -855,7 +908,8 @@ async function existenceCheck(
 /**
  * The response header every scene probe names the scene's canonical slug in:
  * the slug its pages are served at, which a metro member city and any case
- * variant of the slug resolve to.
+ * variant of the slug resolve to. A show, venue or artist probe names the
+ * entity's current slug in it when the request named a former slug.
  */
 const CANONICAL_SLUG_HEADER = 'canonical-slug'
 
@@ -1051,7 +1105,15 @@ function venueArchiveYearCheck(
   return existenceCheck(
     request,
     `${API_BASE_URL}/venues/${encodeURIComponent(slug)}/shows/${year}/exists`,
-    { requireApiAuthoredNotFound: true }
+    {
+      requireApiAuthoredNotFound: true,
+      // A former venue slug redirects to the same year under the venue's
+      // current slug; the probe answers it only when that venue has the year.
+      canonicalPath: formerSlugCanonicalPath(
+        request,
+        current => `/venues/${current}/${VENUE_ARCHIVE_SEGMENT}/${year}`
+      ),
+    }
   )
 }
 

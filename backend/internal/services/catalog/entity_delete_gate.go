@@ -98,6 +98,9 @@ var engagementActorCols = map[string]string{
 	// A scraper registration, written by admin tooling and reachable only for
 	// venue and label by CHECK. No user column exists to consult.
 	"source_configs": systemWrittenRows,
+	// A former slug, written by the slug triggers and the merges. It records
+	// no person.
+	"entity_former_slugs": systemWrittenRows,
 }
 
 // systemWrittenRows marks a table whose rows record no person.

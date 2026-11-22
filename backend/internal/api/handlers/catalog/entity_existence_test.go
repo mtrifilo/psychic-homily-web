@@ -16,6 +16,18 @@ type mockEntityExistenceService struct {
 	err       error
 	args      *[]string
 	canonical string
+	// current and currentErr answer CurrentSlugForFormerSlug; formerArgs
+	// records each call's arguments.
+	current    string
+	currentErr error
+	formerArgs *[][]string
+}
+
+func (m mockEntityExistenceService) CurrentSlugForFormerSlug(entityType, idOrSlug string) (string, error) {
+	if m.formerArgs != nil {
+		*m.formerArgs = append(*m.formerArgs, []string{entityType, idOrSlug})
+	}
+	return m.current, m.currentErr
 }
 
 func (m mockEntityExistenceService) answer(args ...string) (bool, error) {
@@ -115,6 +127,65 @@ func TestEntityExistsHandler_ServedSceneSlug(t *testing.T) {
 	if resp.CanonicalSlug != "" {
 		t.Errorf("artist probe CanonicalSlug = %q, want none", resp.CanonicalSlug)
 	}
+}
+
+// A live slug answers as it always has, with no header, and the former slugs
+// are not read: the lookup runs only after a miss.
+func TestEntityExistsHandler_LiveSlugNeverReadsFormerSlugs(t *testing.T) {
+	var former [][]string
+	h := NewEntityExistenceHandler(mockEntityExistenceService{exists: true, current: "other", formerArgs: &former})
+
+	for _, entityType := range []string{"shows", "venues", "artists"} {
+		resp, err := h.EntityExistsHandler(context.Background(), &EntityExistsRequest{EntityType: entityType, EntityID: "live-slug"})
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %v", entityType, err)
+		}
+		if resp.CanonicalSlug != "" {
+			t.Errorf("%s: CanonicalSlug = %q, want none on a live slug", entityType, resp.CanonicalSlug)
+		}
+	}
+	if len(former) != 0 {
+		t.Errorf("former slugs read %v on live slugs, want no reads", former)
+	}
+}
+
+// A miss asks for the former slug, and the answer decides the probe: the
+// current slug in Canonical-Slug, a 404 when there is none, a 500 when the
+// lookup fails.
+func TestEntityExistsHandler_MissReadsFormerSlugs(t *testing.T) {
+	t.Run("former slug", func(t *testing.T) {
+		var former [][]string
+		h := NewEntityExistenceHandler(mockEntityExistenceService{exists: false, current: "new-slug", formerArgs: &former})
+		resp, err := h.EntityExistsHandler(context.Background(), &EntityExistsRequest{EntityType: "venues", EntityID: "old-slug"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.CanonicalSlug != "new-slug" {
+			t.Errorf("CanonicalSlug = %q, want new-slug", resp.CanonicalSlug)
+		}
+		if fmt.Sprint(former) != fmt.Sprint([][]string{{"venues", "old-slug"}}) {
+			t.Errorf("former slug lookups %v, want [[venues old-slug]]", former)
+		}
+	})
+	t.Run("never existed", func(t *testing.T) {
+		h := NewEntityExistenceHandler(mockEntityExistenceService{exists: false})
+		_, err := h.EntityExistsHandler(context.Background(), &EntityExistsRequest{EntityType: "artists", EntityID: "never-was"})
+		testhelpers.AssertHumaError(t, err, 404)
+	})
+	t.Run("lookup fails", func(t *testing.T) {
+		h := NewEntityExistenceHandler(mockEntityExistenceService{exists: false, currentErr: fmt.Errorf("database down")})
+		_, err := h.EntityExistsHandler(context.Background(), &EntityExistsRequest{EntityType: "shows", EntityID: "old-show"})
+		testhelpers.AssertHumaError(t, err, 500)
+	})
+	t.Run("live lookup fails", func(t *testing.T) {
+		var former [][]string
+		h := NewEntityExistenceHandler(mockEntityExistenceService{err: fmt.Errorf("database down"), current: "new-slug", formerArgs: &former})
+		_, err := h.EntityExistsHandler(context.Background(), &EntityExistsRequest{EntityType: "shows", EntityID: "old-show"})
+		testhelpers.AssertHumaError(t, err, 500)
+		if len(former) != 0 {
+			t.Errorf("former slugs read %v after a failed live lookup, want no reads", former)
+		}
+	})
 }
 
 func TestEntityExistsHandler_SceneMissing(t *testing.T) {
