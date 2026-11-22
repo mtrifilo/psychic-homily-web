@@ -524,27 +524,51 @@ func deleteDuplicateShows(tx *gorm.DB) error {
 // it already had, at the show that survives it, as MergeDuplicateShow does for
 // a merge it runs. It must run before the losing shows are deleted, while
 // their slugs can still be read.
+//
+// The survivor is the end of the loser's chain in venue_merge_dup, not its
+// mapped winner: a show attached to both rooms can be the winner of one loser
+// and itself a loser to another show, and both losers are deleted. A loser
+// whose chain ends in no surviving show records nothing.
 func moveDuplicateShowSlugs(tx *gorm.DB) error {
-	if err := tx.Exec(`
+	if err := tx.Exec(venueMergeSurvivorsCTE+`
 		UPDATE entity_former_slugs f
-		   SET entity_id = d.winner_show
-		  FROM venue_merge_dup d
+		   SET entity_id = v.survivor_show
+		  FROM survivor v
 		 WHERE f.entity_type = ?
-		   AND f.entity_id = d.loser_show
+		   AND f.entity_id = v.loser_show
 	`, string(entityTypeShow)).Error; err != nil {
 		return fmt.Errorf("failed to move duplicate shows' former slugs: %w", err)
 	}
-	if err := tx.Exec(`
+	if err := tx.Exec(venueMergeSurvivorsCTE+`
 		INSERT INTO entity_former_slugs (entity_type, former_slug, entity_id)
-		SELECT ?, s.slug, d.winner_show
-		  FROM venue_merge_dup d
-		  JOIN shows s ON s.id = d.loser_show
+		SELECT ?, s.slug, v.survivor_show
+		  FROM survivor v
+		  JOIN shows s ON s.id = v.loser_show
 		 WHERE s.slug IS NOT NULL
 		   AND s.slug <> ''`+upsertFormerSlugTail, string(entityTypeShow)).Error; err != nil {
 		return fmt.Errorf("failed to record duplicate shows' slugs: %w", err)
 	}
 	return nil
 }
+
+// venueMergeSurvivorsCTE names, as "survivor", each loser in venue_merge_dup
+// with the show its chain of winners ends at: the first winner that is not a
+// loser itself. The depth bound stops a cycle, whose losers get no survivor.
+const venueMergeSurvivorsCTE = `
+	WITH RECURSIVE chain (loser_show, survivor_show, depth) AS (
+		SELECT loser_show, winner_show, 1 FROM venue_merge_dup
+		UNION ALL
+		SELECT c.loser_show, d.winner_show, c.depth + 1
+		  FROM chain c
+		  JOIN venue_merge_dup d ON d.loser_show = c.survivor_show
+		 WHERE c.depth < 64
+	),
+	survivor AS (
+		SELECT DISTINCT ON (loser_show) loser_show, survivor_show
+		  FROM chain
+		 WHERE survivor_show NOT IN (SELECT loser_show FROM venue_merge_dup)
+		 ORDER BY loser_show, depth
+	)`
 
 // reassignShows re-points the surviving (non-duplicate) shows at the canonical
 // venue. The show_venues delete covers the case where one show was somehow

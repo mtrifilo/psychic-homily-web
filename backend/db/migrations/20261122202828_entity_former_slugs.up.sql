@@ -11,16 +11,12 @@
 -- drops the deleted entity's rows. A row whose entity is gone answers nothing,
 -- because the probe joins the live entity.
 --
--- The triggers keep two invariants for every writer, including raw SQL and
--- the owner-run tools:
---   * a slug that changes to a different non-empty value is recorded against
---     the entity;
---   * a slug a live row takes (by insert or by update, including an entity
---     taking back one of its own former slugs) is removed from the table, so
---     a former slug can never shadow or outlive a live claim.
---
--- Creating the triggers takes a SHARE ROW EXCLUSIVE lock on shows, venues and
--- artists, which waits for writers; lock_timeout bounds that wait.
+-- The triggers that keep it, one table per migration so that no transaction
+-- holds more than one of those tables' locks, are in 20261122202829 (venues),
+-- 20261122202830 (artists) and 20261122202831 (shows); the backfill is
+-- 20261122202832. This file creates only the new table and the trigger
+-- function, which lock nothing another session uses; lock_timeout bounds the
+-- wait for the locks they do take.
 SET LOCAL lock_timeout = '5s';
 
 CREATE TABLE entity_former_slugs (
@@ -38,6 +34,14 @@ CREATE TABLE entity_former_slugs (
 -- The merge re-point and the delete sweep find an entity's rows by id.
 CREATE INDEX entity_former_slugs_entity_idx ON entity_former_slugs (entity_type, entity_id);
 
+-- The function the per-table triggers run. They keep two invariants for every
+-- writer, including raw SQL and the owner-run tools:
+--   * a slug that changes to a different non-empty value is recorded against
+--     the entity;
+--   * a slug a live row takes (by insert or by update, including an entity
+--     taking back one of its own former slugs) is removed from the table, so
+--     a former slug can never shadow or outlive a live claim.
+--
 -- TG_ARGV[0] is the row's entity_type value.
 --
 -- The unique slug index means a row can take a slug in the same statement that
@@ -63,82 +67,3 @@ BEGIN
     RETURN NULL;
 END;
 $$;
-
-CREATE TRIGGER shows_track_former_slug_on_update
-AFTER UPDATE OF slug ON shows
-FOR EACH ROW
-WHEN (OLD.slug IS DISTINCT FROM NEW.slug AND NEW.slug IS NOT NULL AND NEW.slug <> '')
-EXECUTE FUNCTION entity_former_slugs_track('show');
-
-CREATE TRIGGER shows_track_former_slug_on_insert
-AFTER INSERT ON shows
-FOR EACH ROW
-WHEN (NEW.slug IS NOT NULL AND NEW.slug <> '')
-EXECUTE FUNCTION entity_former_slugs_track('show');
-
-CREATE TRIGGER venues_track_former_slug_on_update
-AFTER UPDATE OF slug ON venues
-FOR EACH ROW
-WHEN (OLD.slug IS DISTINCT FROM NEW.slug AND NEW.slug IS NOT NULL AND NEW.slug <> '')
-EXECUTE FUNCTION entity_former_slugs_track('venue');
-
-CREATE TRIGGER venues_track_former_slug_on_insert
-AFTER INSERT ON venues
-FOR EACH ROW
-WHEN (NEW.slug IS NOT NULL AND NEW.slug <> '')
-EXECUTE FUNCTION entity_former_slugs_track('venue');
-
-CREATE TRIGGER artists_track_former_slug_on_update
-AFTER UPDATE OF slug ON artists
-FOR EACH ROW
-WHEN (OLD.slug IS DISTINCT FROM NEW.slug AND NEW.slug IS NOT NULL AND NEW.slug <> '')
-EXECUTE FUNCTION entity_former_slugs_track('artist');
-
-CREATE TRIGGER artists_track_former_slug_on_insert
-AFTER INSERT ON artists
-FOR EACH ROW
-WHEN (NEW.slug IS NOT NULL AND NEW.slug <> '')
-EXECUTE FUNCTION entity_former_slugs_track('artist');
-
--- The two venue merges migration 20260727021004 performed name their merged
--- slugs exactly. Each row is written only where its survivor resolves by slug
--- and the merged slug is free, so a database where either side is absent (a
--- fresh one, a seed, an environment where that merge never ran) gets nothing.
-INSERT INTO entity_former_slugs (entity_type, former_slug, entity_id)
-SELECT 'venue', pair.former_slug, survivor.id
-FROM (VALUES
-    ('7th-st-entry-minneapolis-mn', '7th-street-entry-minneapolis-mn'),
-    ('metro-gallery-baltimore-md',  'metro-baltimore-baltimore-md')
-) AS pair(former_slug, survivor_slug)
-JOIN venues survivor ON survivor.slug = pair.survivor_slug
-WHERE NOT EXISTS (SELECT 1 FROM venues live WHERE live.slug = pair.former_slug)
-ON CONFLICT DO NOTHING;
-
--- A venue merge records the merged room's slug in its audit row
--- (merged_venue_slug), and the artist triage tool records the merged artist's
--- (merged_artist_slug). An audit row's entity_id follows later merges to the
--- current survivor. Each recorded slug is written against a survivor that
--- still exists, only while no live row holds it, and the latest merge of a
--- slug wins.
-INSERT INTO entity_former_slugs (entity_type, former_slug, entity_id)
-SELECT DISTINCT ON (recorded.entity_type, recorded.former_slug)
-       recorded.entity_type, recorded.former_slug, recorded.survivor_id
-FROM (
-    SELECT 'venue' AS entity_type, a.metadata->>'merged_venue_slug' AS former_slug,
-           a.entity_id AS survivor_id, a.created_at, a.id
-    FROM audit_logs a
-    JOIN venues survivor ON survivor.id = a.entity_id
-    WHERE a.action = 'merge_venues' AND a.entity_type = 'venue'
-    UNION ALL
-    SELECT 'artist', a.metadata->>'merged_artist_slug', a.entity_id, a.created_at, a.id
-    FROM audit_logs a
-    JOIN artists survivor ON survivor.id = a.entity_id
-    WHERE a.action = 'merge_artists' AND a.entity_type = 'artist'
-) recorded
-WHERE COALESCE(recorded.former_slug, '') <> ''
-  AND NOT (recorded.entity_type = 'venue'
-           AND EXISTS (SELECT 1 FROM venues live WHERE live.slug = recorded.former_slug))
-  AND NOT (recorded.entity_type = 'artist'
-           AND EXISTS (SELECT 1 FROM artists live WHERE live.slug = recorded.former_slug))
-ORDER BY recorded.entity_type, recorded.former_slug, recorded.created_at DESC, recorded.id DESC
-ON CONFLICT DO NOTHING;

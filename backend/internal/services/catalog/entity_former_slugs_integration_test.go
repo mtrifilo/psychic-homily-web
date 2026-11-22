@@ -341,6 +341,51 @@ func (s *EntityFormerSlugsSuite) TestMergeVenuesPointsTheLoserAndItsDuplicateSho
 	s.Equal(*kept.Slug, current)
 }
 
+// A show attached to both rooms can be the winner of a loser at the merged
+// room and itself a loser to a show at the kept room. The merge deletes both
+// losers, so each slug points at the show that survives the chain.
+//
+// The keys are written directly: the shape needs a show whose keys at its two
+// rooms name different acts, which rebuilding keys from a bill does not
+// produce, and the merge's duplicate map reads only the keys.
+func (s *EntityFormerSlugsSuite) TestVenueMergeResolvesADuplicateChainToItsSurvivor() {
+	kept := s.createVenue(s.slug("kept-room"))
+	merged := s.createVenue(s.slug("merged-room"))
+	first := s.createArtist(s.slug("band-a"))
+	second := s.createArtist(s.slug("band-c"))
+	date := time.Now().UTC().Add(144 * time.Hour).Truncate(time.Microsecond)
+	at := func(slug string, rooms ...*catalogm.Venue) *catalogm.Show {
+		show := &catalogm.Show{Title: "Show " + slug, Slug: &slug, EventDate: date, Status: catalogm.ShowStatusApproved}
+		s.Require().NoError(s.db.Create(show).Error)
+		for _, room := range rooms {
+			s.Require().NoError(s.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: room.ID}).Error)
+		}
+		return show
+	}
+	survivor := at(s.slug("survivor"), kept)
+	bothRooms := at(s.slug("both-rooms"), kept, merged)
+	loser := at(s.slug("loser"), merged)
+	key := func(show *catalogm.Show, artist *catalogm.Artist, room *catalogm.Venue) {
+		s.Require().NoError(s.db.Exec(
+			"INSERT INTO show_dedup_keys (show_id, artist_id, venue_id, event_date) VALUES (?, ?, ?, ?)",
+			show.ID, artist.ID, room.ID, date).Error)
+	}
+	key(bothRooms, first, kept)    // the loser's duplicate at the kept room
+	key(loser, first, merged)      // so loser -> bothRooms
+	key(bothRooms, second, merged) // bothRooms' duplicate is the survivor
+	key(survivor, second, kept)    // so bothRooms -> survivor
+
+	result, err := NewVenueService(s.db).MergeVenues(kept.ID, merged.ID, 0)
+	s.Require().NoError(err)
+	s.Require().EqualValues(2, result.DuplicateShows, "the merge deletes the same two shows as before")
+
+	for _, former := range []string{*loser.Slug, *bothRooms.Slug} {
+		live, current := s.served("shows", former)
+		s.False(live)
+		s.Equalf(*survivor.Slug, current, "show %s resolves to the surviving show", former)
+	}
+}
+
 // The same-place entry point records the merged room's slug too.
 func (s *EntityFormerSlugsSuite) TestMergeVenuesInSamePlaceRecordsTheLoser() {
 	kept := s.createVenue(s.slug("kept-room"))
@@ -462,6 +507,26 @@ func (s *EntityFormerSlugsSuite) TestUpdateArtistRenameRedirects() {
 	s.Equal(updated.Slug, current)
 }
 
+// KeepSlug renames without writing the slug, so nothing is recorded and a
+// former slug equal to the new name's derived slug keeps its owner.
+func (s *EntityFormerSlugsSuite) TestUpdateArtistKeepSlugRecordsNothing() {
+	owner := s.createArtist(s.slug("owner"))
+	taken := s.slug("kept-name")
+	s.Require().NoError(s.db.Exec(
+		"INSERT INTO entity_former_slugs (entity_type, former_slug, entity_id) VALUES ('artist', ?, ?)", taken, owner.ID).Error)
+	artist := s.createArtist(s.slug("renamed-in-place"))
+
+	updated, err := NewArtistService(s.db).UpdateArtist(artist.ID, &contracts.UpdateArtistRequest{Name: &taken, KeepSlug: true})
+	s.Require().NoError(err)
+	s.Equal(*artist.Slug, updated.Slug)
+	s.Equal(taken, updated.Name)
+
+	var n int64
+	s.Require().NoError(s.db.Raw("SELECT COUNT(*) FROM entity_former_slugs").Scan(&n).Error)
+	s.EqualValues(1, n, "no row recorded")
+	s.Equal(owner.ID, s.formerRow("artist", taken), "another artist's former slug keeps its owner")
+}
+
 // formerSlugFamilies, the table's CHECK and the triggers name the same three
 // families; one that drifted from the others would record slugs nothing reads,
 // or read slugs nothing records.
@@ -525,11 +590,10 @@ func (s *EntityFormerSlugsSuite) TestDeletedEntitiesLoseTheirFormerSlugs() {
 // The migration's backfill
 // ──────────────────────────────────────────────
 
-// formerSlugBackfillStatements returns the migration's backfill statements:
-// every INSERT INTO entity_former_slugs that starts a line. The trigger
-// function's own INSERT is indented and is not one of them.
+// formerSlugBackfillStatements returns the backfill migration's statements:
+// every INSERT INTO entity_former_slugs that starts a line.
 func (s *EntityFormerSlugsSuite) formerSlugBackfillStatements() []string {
-	raw, err := os.ReadFile("../../../db/migrations/20261122202828_entity_former_slugs.up.sql")
+	raw, err := os.ReadFile("../../../db/migrations/20261122202832_entity_former_slugs_backfill.up.sql")
 	s.Require().NoError(err)
 	const head = "\nINSERT INTO entity_former_slugs"
 	text := string(raw)
@@ -573,6 +637,8 @@ func (s *EntityFormerSlugsSuite) TestMigrationBackfillWritesOnlyRecordedSlugs() 
 	mergedBand := s.slug("audited-merged-band")
 	audit("merge_artists", "artist", band.ID, "merged_artist_slug", mergedBand, now)
 	audit("merge_artists", "artist", band.ID, "merged_artist_name", "name only", now)
+	audit("merge_artists", "artist", band.ID, "merged_artist_slug", "(none)", now)
+	audit("merge_venues", "venue", kept.ID, "merged_venue_slug", "two words", now)
 
 	for _, stmt := range s.formerSlugBackfillStatements() {
 		s.Require().NoError(s.db.Exec(stmt).Error)
@@ -586,8 +652,9 @@ func (s *EntityFormerSlugsSuite) TestMigrationBackfillWritesOnlyRecordedSlugs() 
 	s.Require().NoError(s.db.Raw(
 		"SELECT entity_type, former_slug, entity_id FROM entity_former_slugs ORDER BY entity_type, former_slug").Scan(&rows).Error)
 	// The audited live slug, the audit row whose survivor is gone, the audit
-	// row that names no slug, and the migration pair whose survivor does not
-	// exist (metro-baltimore-baltimore-md) write nothing.
+	// row that names no slug, the values that are not slug-shaped ("(none)",
+	// "two words"), and the migration pair whose survivor does not exist
+	// (metro-baltimore-baltimore-md) write nothing.
 	s.Require().Len(rows, 3, "%+v", rows)
 	s.Equal([]any{"artist", mergedBand, band.ID}, []any{rows[0].EntityType, rows[0].FormerSlug, rows[0].EntityID})
 	s.Equal([]any{"venue", "7th-st-entry-minneapolis-mn", seventh.ID},

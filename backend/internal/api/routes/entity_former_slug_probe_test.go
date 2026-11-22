@@ -130,8 +130,9 @@ func TestFormerSlugProbesCostNothingOnALiveSlug(t *testing.T) {
 		t.Logf("%s former slug: %d statement(s)", tc.prefix, len(stmts))
 
 		w, stmts = probeStatements(t, router, rec, "/entities/"+tc.prefix+"/never-existed-"+tc.prefix+"/exists")
-		if w.Code != http.StatusNotFound || len(stmts) != 2 {
-			t.Errorf("%s never-existed slug = %d after %d statements, want 404 after 2", tc.prefix, w.Code, len(stmts))
+		if w.Code != http.StatusNotFound || len(stmts) != 2 || readsFormerSlugs(stmts[:1]) || !readsFormerSlugs(stmts[1:]) {
+			t.Errorf("%s never-existed slug = %d after %d statements %q, want 404 after the live lookup and then the former slug lookup",
+				tc.prefix, w.Code, len(stmts), stmts)
 		}
 		t.Logf("%s never-existed slug: %d statement(s)", tc.prefix, len(stmts))
 	}
