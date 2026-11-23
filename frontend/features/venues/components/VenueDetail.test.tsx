@@ -391,7 +391,7 @@ describe('VenueDetail', () => {
       expect(screen.getByText('Shows for venue 1')).toBeInTheDocument()
     })
 
-    // The list learns whether the room's calendar is followed from the detail
+    // The list learns has_calendar_source from the detail
     // payload this component already holds, absent included.
     it.each([true, false, undefined])(
       'hands the shows list the detail has_calendar_source (%s)',

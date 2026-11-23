@@ -58,8 +58,8 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenueDetail_HasCalendarSou
 }
 
 // A failed lookup leaves the field nil (absent on the wire), never false: an
-// absent field renders the default empty line, while false would claim the
-// calendar is not followed.
+// absent field renders the default empty line, while false would print the
+// no-calendar-source sentence.
 func (suite *VenueServiceIntegrationTestSuite) TestVenueHasCalendarSource_NilWhenLookupFails() {
 	venue := suite.createSluggedVenue("Lookup Fails")
 	ctx, cancel := context.WithCancel(context.Background())
