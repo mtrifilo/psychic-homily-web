@@ -334,13 +334,13 @@ func (s *VenueService) GetVenueBySlug(slug string) (*contracts.VenueDetailRespon
 }
 
 // GetVenueDetail resolves a venue by numeric ID or slug and returns it WITH
-// its provenance stamp — the venue-detail read, and the only read that pays
-// for the stamp.
+// the fields only the venue-detail read pays for: the provenance stamp, the
+// scene link and has_calendar_source.
 //
 // Deliberately separate from GetVenue/GetVenueBySlug. Those are the cheap
 // identity lookups the rest of the backend leans on: snapshotting a row before
 // an admin edit, resolving a slug to an ID for an unrelated sub-resource.
-// None of them render provenance, so attaching the aggregations there would
+// None of them render these fields, so attaching their queries there would
 // make every one of them pay for a field it discards — and would hide that
 // cost the day the stamp gains a more expensive signal.
 func (s *VenueService) GetVenueDetail(idOrSlug string) (*contracts.VenueDetailResponse, error) {

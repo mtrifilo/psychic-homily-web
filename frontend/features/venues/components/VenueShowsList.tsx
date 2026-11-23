@@ -24,9 +24,9 @@ interface VenueShowsListProps {
   venueAddress?: string | null
   venueVerified?: boolean
   /**
-   * The venue detail's `has_calendar_source`. Only `false` changes the empty
-   * line; `undefined` (not determined) reads as today's line, never as a claim
-   * that the calendar is not followed.
+   * The venue detail's `has_calendar_source`. Only `false` switches the empty
+   * line to the no-calendar-source sentence; `true` and `undefined` (not
+   * determined) render "No upcoming shows yet.".
    */
   venueHasCalendarSource?: boolean
   /**

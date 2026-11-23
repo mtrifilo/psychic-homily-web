@@ -598,6 +598,24 @@ describe('VenuePage upcoming shows', () => {
 
     await expect(renderPage('missing')).rejects.toThrow(NOT_FOUND_SENTINEL)
   })
+
+  // The shows list learns has_calendar_source from this seeded detail, so the
+  // seed must carry the field exactly as the venue read returned it.
+  it.each([false, true])(
+    'seeds the venue detail with has_calendar_source %s as read',
+    async hasCalendarSource => {
+      stubVenueReads(() => okResponse(buildVenue({ has_calendar_source: hasCalendarSource })))
+
+      const detail = boundaryStatesOf(await renderPage())
+        .flatMap(state => state.queries)
+        .find(q => q.queryKey[0] === 'venues' && q.queryKey[1] === 'detail')
+
+      expect(detail?.state.data).toMatchObject({
+        id: VENUE_ID,
+        has_calendar_source: hasCalendarSource,
+      })
+    },
+  )
 })
 
 describe('VenuePage upcoming Save column', () => {

@@ -181,8 +181,9 @@ type GetVenueResponse struct {
 
 // GetVenueHandler handles GET /venues/{venue_id} - returns a single venue by ID or slug
 func (h *VenueHandler) GetVenueHandler(ctx context.Context, req *GetVenueRequest) (*GetVenueResponse, error) {
-	// GetVenueDetail owns the id-or-slug resolution AND the provenance stamp —
-	// the cheap GetVenue/GetVenueBySlug lookups deliberately carry no stamp.
+	// GetVenueDetail owns the id-or-slug resolution AND the detail-only fields
+	// (provenance, scene, has_calendar_source); the cheap GetVenue and
+	// GetVenueBySlug lookups deliberately carry none of them.
 	venue, err := h.venueService.GetVenueDetail(req.VenueID)
 	if err != nil {
 		var venueErr *apperrors.VenueError

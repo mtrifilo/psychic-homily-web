@@ -82,10 +82,10 @@ export interface Venue {
    */
   provenance?: VenueProvenance
   /**
-   * Whether a calendar source is registered for this room, so its calendar is
-   * followed. Present on the venue detail read only; absent means not
-   * determined (list payloads, write responses, a failed lookup), which is
-   * not the same as `false`.
+   * Whether a calendar source is registered for this room in the source
+   * registry. Not the viewer's follow state. Present on the venue detail read
+   * only; absent means not determined (list payloads, write responses, a
+   * failed lookup), which is not the same as `false`.
    */
   has_calendar_source?: boolean
 }

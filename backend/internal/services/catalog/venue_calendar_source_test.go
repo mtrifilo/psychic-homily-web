@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -54,6 +55,18 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenueDetail_HasCalendarSou
 			suite.Equal(tc.want, *got.HasCalendarSource, "%s via %s", tc.name, idOrSlug)
 		}
 	}
+}
+
+// A failed lookup leaves the field nil (absent on the wire), never false: an
+// absent field renders the default empty line, while false would claim the
+// calendar is not followed.
+func (suite *VenueServiceIntegrationTestSuite) TestVenueHasCalendarSource_NilWhenLookupFails() {
+	venue := suite.createSluggedVenue("Lookup Fails")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	failing := &VenueService{db: suite.db.WithContext(ctx)}
+
+	suite.Nil(failing.venueHasCalendarSource(venue.ID))
 }
 
 // The identity lookups and the list payload never compute the fact, so they
