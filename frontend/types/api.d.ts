@@ -16788,6 +16788,8 @@ export interface components {
             created_at: string;
             description?: string;
             geocode_precision?: string;
+            /** @description True when a calendar source is registered for this venue, so its calendar is followed. False when none is registered, so an empty upcoming list may be incomplete. Absent means NOT DETERMINED: present on the venue detail read only (absent on list payloads and write responses), and omitted if the lookup failed. */
+            has_calendar_source?: boolean;
             /** Format: int64 */
             id: number;
             image_url: string | null;
@@ -16995,6 +16997,8 @@ export interface components {
             description?: string;
             dominant_genre?: string;
             geocode_precision?: string;
+            /** @description True when a calendar source is registered for this venue, so its calendar is followed. False when none is registered, so an empty upcoming list may be incomplete. Absent means NOT DETERMINED: present on the venue detail read only (absent on list payloads and write responses), and omitted if the lookup failed. */
+            has_calendar_source?: boolean;
             /** @description True when the venue carries the canonical all-ages tag, meaning it hosts all-ages shows AT LEAST SOMETIMES. False means UNTAGGED, not 21+, and is not an age claim about the room. Absent means NOT DETERMINED: the field is only populated when include_rail=true, and is omitted if the tag lookup failed. This is not the venue's house-default age rule, which is age_policy. */
             hosts_all_ages?: boolean;
             /** Format: int64 */
