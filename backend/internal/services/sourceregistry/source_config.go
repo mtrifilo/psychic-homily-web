@@ -53,6 +53,22 @@ func (s *SourceConfigService) GetByEntity(entityType string, entityID uint) (*ad
 	return &cfg, nil
 }
 
+// IsRegistered reports whether a source is registered for the entity: a row
+// exists for it, whatever its URL or refresh state. One probe on the
+// (entity_type, entity_id) unique index. A package function rather than a
+// method so read paths in other services can ask with their own handle.
+func IsRegistered(database *gorm.DB, entityType string, entityID uint) (bool, error) {
+	var registered bool
+	err := database.Raw(
+		`SELECT EXISTS (SELECT 1 FROM source_configs WHERE entity_type = ? AND entity_id = ?)`,
+		entityType, entityID,
+	).Scan(&registered).Error
+	if err != nil {
+		return false, fmt.Errorf("failed to check source registration: %w", err)
+	}
+	return registered, nil
+}
+
 // CreateOrUpdate upserts a source config keyed by (entity_type, entity_id),
 // updating the source URL when the row already exists.
 func (s *SourceConfigService) CreateOrUpdate(cfg *adminm.SourceConfig) (*adminm.SourceConfig, error) {

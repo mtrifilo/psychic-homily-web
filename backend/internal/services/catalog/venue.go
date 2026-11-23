@@ -19,6 +19,7 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/shared"
+	"psychic-homily-backend/internal/services/sourceregistry"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -369,16 +370,10 @@ func (s *VenueService) GetVenueDetail(idOrSlug string) (*contracts.VenueDetailRe
 }
 
 // venueHasCalendarSource reports whether a calendar source is registered for
-// the venue: a source_configs row of entity type venue for its id, whatever
-// that row's URL or refresh state. One probe on the table's unique
-// (entity_type, entity_id) index. Nil when the probe fails, so the payload
-// omits the field instead of asserting either answer.
+// the venue, as the source registry defines registration. Nil when the probe
+// fails, so the payload omits the field instead of asserting either answer.
 func (s *VenueService) venueHasCalendarSource(venueID uint) *bool {
-	var registered bool
-	err := s.db.Raw(
-		`SELECT EXISTS (SELECT 1 FROM source_configs WHERE entity_type = ? AND entity_id = ?)`,
-		adminm.SourceEntityVenue, venueID,
-	).Scan(&registered).Error
+	registered, err := sourceregistry.IsRegistered(s.db, adminm.SourceEntityVenue, venueID)
 	if err != nil {
 		slog.Default().Error("venue calendar-source lookup failed; detail omits has_calendar_source",
 			"venue_id", venueID, "error", err)

@@ -394,27 +394,15 @@ describe('VenueShowsList — upcoming section', () => {
       expect(paragraph.textContent).toBe(text)
     }
 
-    it('says the calendar is not followed for an unfollowed room with nothing coming', () => {
+    // Unknown (undefined) is today's line, never a claim about the calendar.
+    it.each([
+      [false, UNFOLLOWED],
+      [true, FOLLOWED],
+      [undefined, FOLLOWED],
+    ])('with nothing coming and followed %s, reads %j', (venueHasCalendarSource, line) => {
       setUpcoming({ shows: [] })
-      renderList({ venueHasCalendarSource: false })
-      expectEmptyLine(UNFOLLOWED)
-      expect(screen.queryByText(FOLLOWED)).not.toBeInTheDocument()
-      expect(screen.queryByRole('link', { name: /calendar/i })).not.toBeInTheDocument()
-      expect(screen.queryByRole('button', { name: /calendar/i })).not.toBeInTheDocument()
-    })
-
-    it('keeps the existing line for a followed room with nothing coming', () => {
-      setUpcoming({ shows: [] })
-      renderList({ venueHasCalendarSource: true })
-      expectEmptyLine(FOLLOWED)
-      expect(screen.queryByText(UNFOLLOWED)).not.toBeInTheDocument()
-    })
-
-    it('keeps the existing line when whether the calendar is followed is unknown', () => {
-      setUpcoming({ shows: [] })
-      renderList({ venueHasCalendarSource: undefined })
-      expectEmptyLine(FOLLOWED)
-      expect(screen.queryByText(UNFOLLOWED)).not.toBeInTheDocument()
+      renderList({ venueHasCalendarSource })
+      expectEmptyLine(line)
     })
 
     it.each([true, false, undefined])(

@@ -98,6 +98,32 @@ func (s *SourceConfigIntegrationTestSuite) TestGetByEntity_NilWhenMissing() {
 	s.Nil(out)
 }
 
+// --- IsRegistered ---
+
+// A bare row (no URL, never refreshed) registers its entity, and only its
+// entity: the same id under the other type is a different entity.
+func (s *SourceConfigIntegrationTestSuite) TestIsRegistered_RowOfThatTypeAndID() {
+	s.Require().NoError(s.db.Create(&adminm.SourceConfig{
+		EntityType: adminm.SourceEntityVenue,
+		EntityID:   7,
+	}).Error)
+
+	cases := []struct {
+		entityType string
+		entityID   uint
+		want       bool
+	}{
+		{adminm.SourceEntityVenue, 7, true},
+		{adminm.SourceEntityLabel, 7, false},
+		{adminm.SourceEntityVenue, 8, false},
+	}
+	for _, tc := range cases {
+		got, err := IsRegistered(s.db, tc.entityType, tc.entityID)
+		s.Require().NoError(err)
+		s.Equal(tc.want, got, "%s %d", tc.entityType, tc.entityID)
+	}
+}
+
 // --- RecordRefresh ---
 
 func (s *SourceConfigIntegrationTestSuite) TestRecordRefresh_StampsAndResetsFailures() {

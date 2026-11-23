@@ -28,44 +28,31 @@ func (suite *VenueServiceIntegrationTestSuite) registerSource(entityType string,
 	}).Error)
 }
 
-// detailByIDAndSlug reads the venue detail through both of its entry points.
-func (suite *VenueServiceIntegrationTestSuite) detailByIDAndSlug(v *contracts.VenueDetailResponse) map[string]*contracts.VenueDetailResponse {
-	byID, err := suite.venueService.GetVenueDetail(fmt.Sprintf("%d", v.ID))
-	suite.Require().NoError(err)
-	bySlug, err := suite.venueService.GetVenueDetail(v.Slug)
-	suite.Require().NoError(err)
-	return map[string]*contracts.VenueDetailResponse{"by id": byID, "by slug": bySlug}
-}
-
-func (suite *VenueServiceIntegrationTestSuite) TestGetVenueDetail_HasCalendarSource_FalseWithoutRegistryRow() {
-	venue := suite.createSluggedVenue("Unfollowed Room")
-
-	for entry, got := range suite.detailByIDAndSlug(venue) {
-		suite.Require().NotNil(got.HasCalendarSource, entry)
-		suite.False(*got.HasCalendarSource, entry)
+// TestGetVenueDetail_HasCalendarSource reads the detail through both of its
+// entry points, id and slug, for a room with and without a registry row. A
+// bare row (no URL, never refreshed) registers the room; a label row sharing
+// the venue's id does not.
+func (suite *VenueServiceIntegrationTestSuite) TestGetVenueDetail_HasCalendarSource() {
+	cases := []struct {
+		name       string
+		registerAs string // entity type of the registry row; "" for none
+		want       bool
+	}{
+		{"no registry row", "", false},
+		{"venue registry row", adminm.SourceEntityVenue, true},
+		{"label row with the venue's id", adminm.SourceEntityLabel, false},
 	}
-}
-
-func (suite *VenueServiceIntegrationTestSuite) TestGetVenueDetail_HasCalendarSource_TrueWithRegistryRow() {
-	venue := suite.createSluggedVenue("Followed Room")
-	// No URL and never refreshed: the row alone is what registers the source.
-	suite.registerSource(adminm.SourceEntityVenue, venue.ID)
-
-	for entry, got := range suite.detailByIDAndSlug(venue) {
-		suite.Require().NotNil(got.HasCalendarSource, entry)
-		suite.True(*got.HasCalendarSource, entry)
-	}
-}
-
-// A label row whose entity_id happens to equal the venue's id is a different
-// entity and registers nothing for the venue.
-func (suite *VenueServiceIntegrationTestSuite) TestGetVenueDetail_HasCalendarSource_IgnoresOtherEntityTypes() {
-	venue := suite.createSluggedVenue("Label Id Twin")
-	suite.registerSource(adminm.SourceEntityLabel, venue.ID)
-
-	for entry, got := range suite.detailByIDAndSlug(venue) {
-		suite.Require().NotNil(got.HasCalendarSource, entry)
-		suite.False(*got.HasCalendarSource, entry)
+	for _, tc := range cases {
+		venue := suite.createSluggedVenue("Room " + tc.name)
+		if tc.registerAs != "" {
+			suite.registerSource(tc.registerAs, venue.ID)
+		}
+		for _, idOrSlug := range []string{fmt.Sprintf("%d", venue.ID), venue.Slug} {
+			got, err := suite.venueService.GetVenueDetail(idOrSlug)
+			suite.Require().NoError(err)
+			suite.Require().NotNil(got.HasCalendarSource, "%s via %s", tc.name, idOrSlug)
+			suite.Equal(tc.want, *got.HasCalendarSource, "%s via %s", tc.name, idOrSlug)
+		}
 	}
 }
 
