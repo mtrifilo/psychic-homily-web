@@ -1,0 +1,674 @@
+package catalog
+
+import (
+	"fmt"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/suite"
+	"gorm.io/gorm"
+
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/testutil"
+)
+
+// EntityFormerSlugsSuite exercises entity_former_slugs end to end against a
+// fully migrated database: the slug triggers, the merges that write it, the
+// inventory re-point and delete sweep that maintain it, and the probe reads.
+type EntityFormerSlugsSuite struct {
+	suite.Suite
+	testDB *testutil.TestDatabase
+	db     *gorm.DB
+	probe  *EntityExistenceService
+	seq    int
+}
+
+func TestEntityFormerSlugsIntegration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	suite.Run(t, new(EntityFormerSlugsSuite))
+}
+
+func (s *EntityFormerSlugsSuite) SetupSuite() {
+	s.testDB = testutil.SetupTestPostgres(s.T())
+	s.db = s.testDB.DB
+	s.probe = NewEntityExistenceService(s.db, NewSceneService(s.db))
+}
+
+func (s *EntityFormerSlugsSuite) TearDownSuite() {
+	s.testDB.Cleanup()
+}
+
+func (s *EntityFormerSlugsSuite) SetupTest() {
+	sqlDB, err := s.db.DB()
+	s.Require().NoError(err)
+	for _, stmt := range []string{
+		"DELETE FROM audit_logs",
+		"DELETE FROM entity_former_slugs",
+		"DELETE FROM show_artists",
+		"DELETE FROM show_venues",
+		"DELETE FROM shows",
+		"DELETE FROM artist_aliases",
+		"DELETE FROM artists",
+		"DELETE FROM venues",
+	} {
+		_, err := sqlDB.Exec(stmt)
+		s.Require().NoError(err, stmt)
+	}
+}
+
+// ──────────────────────────────────────────────
+// Fixtures
+// ──────────────────────────────────────────────
+
+// slug returns a slug unique to this run, so no fixture can collide with a row
+// another test left behind.
+func (s *EntityFormerSlugsSuite) slug(label string) string {
+	s.seq++
+	return fmt.Sprintf("%s-%d-%d", label, s.seq, time.Now().UnixNano())
+}
+
+func (s *EntityFormerSlugsSuite) createVenue(slug string) *catalogm.Venue {
+	v := &catalogm.Venue{Name: "Room " + s.slug("name"), Slug: &slug, City: "Phoenix", State: "AZ"}
+	s.Require().NoError(s.db.Create(v).Error)
+	return v
+}
+
+func (s *EntityFormerSlugsSuite) createArtist(slug string) *catalogm.Artist {
+	a := &catalogm.Artist{Name: "Band " + s.slug("name"), Slug: &slug}
+	s.Require().NoError(s.db.Create(a).Error)
+	return a
+}
+
+func (s *EntityFormerSlugsSuite) createShow(slug string) *catalogm.Show {
+	show := &catalogm.Show{
+		Title:     "Show " + slug,
+		Slug:      &slug,
+		EventDate: time.Now().UTC().Add(72 * time.Hour).Truncate(time.Microsecond),
+		Status:    catalogm.ShowStatusApproved,
+	}
+	s.Require().NoError(s.db.Create(show).Error)
+	return show
+}
+
+// createBilledShow is createShow at venue with artist billed, so the show has
+// the dedup keys a venue merge reads.
+func (s *EntityFormerSlugsSuite) createBilledShow(slug string, venue *catalogm.Venue, artist *catalogm.Artist, date time.Time) *catalogm.Show {
+	show := &catalogm.Show{Title: "Show " + slug, Slug: &slug, EventDate: date, Status: catalogm.ShowStatusApproved}
+	s.Require().NoError(s.db.Create(show).Error)
+	s.Require().NoError(s.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venue.ID}).Error)
+	d, vid := date, venue.ID
+	s.Require().NoError(s.db.Create(&catalogm.ShowArtist{
+		ShowID: show.ID, ArtistID: artist.ID, Position: 0, SetType: "performer", EventDate: &d, VenueID: &vid,
+	}).Error)
+	return show
+}
+
+// family is one entity family with a way to seed a row and change its slug,
+// so the trigger cases run against all three tables.
+type family struct {
+	prefix string
+	table  string
+	create func(slug string) uint
+}
+
+func (s *EntityFormerSlugsSuite) families() []family {
+	return []family{
+		{prefix: "shows", table: "shows", create: func(slug string) uint { return s.createShow(slug).ID }},
+		{prefix: "venues", table: "venues", create: func(slug string) uint { return s.createVenue(slug).ID }},
+		{prefix: "artists", table: "artists", create: func(slug string) uint { return s.createArtist(slug).ID }},
+	}
+}
+
+func (s *EntityFormerSlugsSuite) setSlug(table string, id uint, slug any) {
+	// #nosec G201 -- table is one of the three literals in families().
+	s.Require().NoError(s.db.Exec(fmt.Sprintf("UPDATE %s SET slug = ? WHERE id = ?", table), slug, id).Error)
+}
+
+// formerRow is the entity id a former slug names, or 0 when no row holds it.
+func (s *EntityFormerSlugsSuite) formerRow(entityType, slug string) uint {
+	var id uint
+	s.Require().NoError(s.db.Raw(
+		"SELECT entity_id FROM entity_former_slugs WHERE entity_type = ? AND former_slug = ?",
+		entityType, slug).Scan(&id).Error)
+	return id
+}
+
+// served is what the probe answers for a segment: whether the live lookup hits,
+// and the current slug a miss resolves to.
+func (s *EntityFormerSlugsSuite) served(prefix, segment string) (live bool, current string) {
+	live, err := s.probe.Exists(prefix, segment)
+	s.Require().NoError(err)
+	if live {
+		return true, ""
+	}
+	current, err = s.probe.CurrentSlugForFormerSlug(prefix, segment)
+	s.Require().NoError(err)
+	return false, current
+}
+
+var entityTypeOfPrefix = map[string]string{"shows": "show", "venues": "venue", "artists": "artist"}
+
+// ──────────────────────────────────────────────
+// Slug changes (the triggers)
+// ──────────────────────────────────────────────
+
+func (s *EntityFormerSlugsSuite) TestSlugChangeIsRecordedAndResolves() {
+	for _, f := range s.families() {
+		s.Run(f.prefix, func() {
+			oldSlug, newSlug := s.slug("old"), s.slug("new")
+			id := f.create(oldSlug)
+			s.setSlug(f.table, id, newSlug)
+
+			s.Equal(id, s.formerRow(entityTypeOfPrefix[f.prefix], oldSlug))
+			live, current := s.served(f.prefix, oldSlug)
+			s.False(live, "the old slug is no longer live")
+			s.Equal(newSlug, current)
+
+			live, _ = s.served(f.prefix, newSlug)
+			s.True(live, "the new slug is live")
+		})
+	}
+}
+
+func (s *EntityFormerSlugsSuite) TestRenameChainResolvesInOneHop() {
+	for _, f := range s.families() {
+		s.Run(f.prefix, func() {
+			a, b, c := s.slug("a"), s.slug("b"), s.slug("c")
+			id := f.create(a)
+			s.setSlug(f.table, id, b)
+			s.setSlug(f.table, id, c)
+
+			for _, former := range []string{a, b} {
+				_, current := s.served(f.prefix, former)
+				s.Equalf(c, current, "%s resolves to the live slug", former)
+			}
+		})
+	}
+}
+
+func (s *EntityFormerSlugsSuite) TestChangingBackRemovesTheRow() {
+	for _, f := range s.families() {
+		s.Run(f.prefix, func() {
+			a, b := s.slug("a"), s.slug("b")
+			id := f.create(a)
+			s.setSlug(f.table, id, b)
+			s.setSlug(f.table, id, a)
+
+			s.Zero(s.formerRow(entityTypeOfPrefix[f.prefix], a), "the live entity owns its slug again")
+			live, _ := s.served(f.prefix, a)
+			s.True(live)
+			_, current := s.served(f.prefix, b)
+			s.Equal(a, current, "the slug it left in between redirects back")
+		})
+	}
+}
+
+// Only a change to a different non-empty value is a URL change.
+func (s *EntityFormerSlugsSuite) TestOnlyAChangeToANonEmptySlugIsRecorded() {
+	for _, f := range s.families() {
+		s.Run(f.prefix, func() {
+			a := s.slug("a")
+			id := f.create(a)
+			s.setSlug(f.table, id, a)
+			s.Zero(s.formerRow(entityTypeOfPrefix[f.prefix], a), "an unchanged slug records nothing")
+			s.setSlug(f.table, id, nil)
+			s.Zero(s.formerRow(entityTypeOfPrefix[f.prefix], a), "a cleared slug records nothing")
+		})
+	}
+}
+
+// A live entity always wins a slug: taking one that is a former slug, by
+// insert or by update, removes the row, so the slug answers for the new
+// entity now and does not resurface when that entity goes.
+func (s *EntityFormerSlugsSuite) TestAFreedSlugTakenByANewEntityBelongsToIt() {
+	for _, f := range s.families() {
+		s.Run(f.prefix, func() {
+			entityType := entityTypeOfPrefix[f.prefix]
+			a, b := s.slug("a"), s.slug("b")
+			first := f.create(a)
+			s.setSlug(f.table, first, b)
+			s.Require().Equal(first, s.formerRow(entityType, a))
+
+			second := f.create(a)
+			s.Zero(s.formerRow(entityType, a), "an insert taking the slug removes the row")
+			live, _ := s.served(f.prefix, a)
+			s.True(live)
+
+			// The same through an update.
+			c, d := s.slug("c"), s.slug("d")
+			s.setSlug(f.table, first, c)
+			s.Require().Equal(first, s.formerRow(entityType, b))
+			s.setSlug(f.table, second, b)
+			s.Zero(s.formerRow(entityType, b), "an update taking the slug removes the row")
+			s.Equal(second, s.formerRow(entityType, a), "and records the slug it left")
+
+			s.setSlug(f.table, second, d)
+			_, current := s.served(f.prefix, b)
+			s.Equal(d, current, "the slug now follows its latest owner")
+		})
+	}
+}
+
+// The show trigger sits beside show_dedup_keys' own trigger on shows; one
+// statement that moves the date and the slug keeps both tables right.
+func (s *EntityFormerSlugsSuite) TestShowSlugTriggerCoexistsWithDedupKeys() {
+	venue := s.createVenue(s.slug("room"))
+	artist := s.createArtist(s.slug("band"))
+	date := time.Now().UTC().Add(96 * time.Hour).Truncate(time.Microsecond)
+	oldSlug, newSlug := s.slug("old-show"), s.slug("new-show")
+	show := s.createBilledShow(oldSlug, venue, artist, date)
+
+	moved := date.Add(24 * time.Hour)
+	s.Require().NoError(s.db.Exec("UPDATE shows SET event_date = ?, slug = ? WHERE id = ?", moved, newSlug, show.ID).Error)
+
+	var keyDate time.Time
+	s.Require().NoError(s.db.Raw("SELECT event_date FROM show_dedup_keys WHERE show_id = ?", show.ID).Scan(&keyDate).Error)
+	s.True(keyDate.Equal(moved), "dedup key date %v, want %v", keyDate, moved)
+	s.Equal(show.ID, s.formerRow("show", oldSlug))
+}
+
+// A former show slug resolves only to a show the probe serves, so a header can
+// never name a private show's slug.
+func (s *EntityFormerSlugsSuite) TestShowFormerSlugResolvesOnlyToAnApprovedShow() {
+	oldSlug, newSlug := s.slug("old"), s.slug("new")
+	show := s.createShow(oldSlug)
+	s.setSlug("shows", show.ID, newSlug)
+	s.Require().NoError(s.db.Model(&catalogm.Show{}).Where("id = ?", show.ID).Update("status", catalogm.ShowStatusPrivate).Error)
+
+	live, current := s.served("shows", oldSlug)
+	s.False(live)
+	s.Empty(current)
+}
+
+// An id segment is never a former slug, so it costs no lookup and names
+// nothing, and a family that keeps no former slugs answers without a query.
+func (s *EntityFormerSlugsSuite) TestIDSegmentsAndOtherFamiliesNameNothing() {
+	venue := s.createVenue(s.slug("room"))
+	current, err := s.probe.CurrentSlugForFormerSlug("venues", fmt.Sprintf("%d", venue.ID))
+	s.Require().NoError(err)
+	s.Empty(current)
+	current, err = s.probe.CurrentSlugForFormerSlug("labels", "anything")
+	s.Require().NoError(err)
+	s.Empty(current)
+}
+
+// ──────────────────────────────────────────────
+// Merges
+// ──────────────────────────────────────────────
+
+// A venue merge points the merged room's slug, and the slugs it had before, at
+// the room that survives; a show it deletes as a duplicate points at the show
+// that survives at the kept room; a show it moves keeps its slug.
+func (s *EntityFormerSlugsSuite) TestMergeVenuesPointsTheLoserAndItsDuplicateShowsAtTheWinners() {
+	kept := s.createVenue(s.slug("kept-room"))
+	mergedOld, mergedSlug := s.slug("merged-room-old"), s.slug("merged-room")
+	merged := s.createVenue(mergedOld)
+	s.setSlug("venues", merged.ID, mergedSlug)
+
+	artist := s.createArtist(s.slug("band"))
+	date := time.Now().UTC().Add(120 * time.Hour).Truncate(time.Microsecond)
+	survivor := s.createBilledShow(s.slug("survivor"), kept, artist, date)
+	dupOld, dupSlug := s.slug("dup-old"), s.slug("dup")
+	duplicate := s.createBilledShow(dupOld, merged, artist, date)
+	s.setSlug("shows", duplicate.ID, dupSlug)
+	movedSlug := s.slug("moved")
+	s.createBilledShow(movedSlug, merged, artist, date.Add(48*time.Hour))
+
+	result, err := NewVenueService(s.db).MergeVenues(kept.ID, merged.ID, 0)
+	s.Require().NoError(err)
+	s.Require().EqualValues(1, result.DuplicateShows)
+
+	for _, former := range []string{mergedSlug, mergedOld} {
+		_, current := s.served("venues", former)
+		s.Equalf(*kept.Slug, current, "venue %s resolves to the kept room", former)
+	}
+	for _, former := range []string{dupSlug, dupOld} {
+		_, current := s.served("shows", former)
+		s.Equalf(*survivor.Slug, current, "show %s resolves to the surviving show", former)
+	}
+	live, _ := s.served("shows", movedSlug)
+	s.True(live, "a moved show keeps its slug")
+	s.Zero(s.formerRow("show", movedSlug))
+
+	id, current, err := NewVenueService(s.db).VenueForFormerSlug(mergedSlug)
+	s.Require().NoError(err)
+	s.Equal(kept.ID, id)
+	s.Equal(*kept.Slug, current)
+}
+
+// A show attached to both rooms can be the winner of a loser at the merged
+// room and itself a loser to a show at the kept room. The merge deletes both
+// losers, so each slug points at the show that survives the chain.
+//
+// The keys are written directly: the shape needs a show whose keys at its two
+// rooms name different acts, which rebuilding keys from a bill does not
+// produce, and the merge's duplicate map reads only the keys.
+func (s *EntityFormerSlugsSuite) TestVenueMergeResolvesADuplicateChainToItsSurvivor() {
+	kept := s.createVenue(s.slug("kept-room"))
+	merged := s.createVenue(s.slug("merged-room"))
+	first := s.createArtist(s.slug("band-a"))
+	second := s.createArtist(s.slug("band-c"))
+	date := time.Now().UTC().Add(144 * time.Hour).Truncate(time.Microsecond)
+	at := func(slug string, rooms ...*catalogm.Venue) *catalogm.Show {
+		show := &catalogm.Show{Title: "Show " + slug, Slug: &slug, EventDate: date, Status: catalogm.ShowStatusApproved}
+		s.Require().NoError(s.db.Create(show).Error)
+		for _, room := range rooms {
+			s.Require().NoError(s.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: room.ID}).Error)
+		}
+		return show
+	}
+	survivor := at(s.slug("survivor"), kept)
+	bothRooms := at(s.slug("both-rooms"), kept, merged)
+	loser := at(s.slug("loser"), merged)
+	key := func(show *catalogm.Show, artist *catalogm.Artist, room *catalogm.Venue) {
+		s.Require().NoError(s.db.Exec(
+			"INSERT INTO show_dedup_keys (show_id, artist_id, venue_id, event_date) VALUES (?, ?, ?, ?)",
+			show.ID, artist.ID, room.ID, date).Error)
+	}
+	key(bothRooms, first, kept)    // the loser's duplicate at the kept room
+	key(loser, first, merged)      // so loser -> bothRooms
+	key(bothRooms, second, merged) // bothRooms' duplicate is the survivor
+	key(survivor, second, kept)    // so bothRooms -> survivor
+
+	result, err := NewVenueService(s.db).MergeVenues(kept.ID, merged.ID, 0)
+	s.Require().NoError(err)
+	s.Require().EqualValues(2, result.DuplicateShows, "the merge deletes the same two shows as before")
+
+	for _, former := range []string{*loser.Slug, *bothRooms.Slug} {
+		live, current := s.served("shows", former)
+		s.False(live)
+		s.Equalf(*survivor.Slug, current, "show %s resolves to the surviving show", former)
+	}
+}
+
+// The same-place entry point records the merged room's slug too.
+func (s *EntityFormerSlugsSuite) TestMergeVenuesInSamePlaceRecordsTheLoser() {
+	kept := s.createVenue(s.slug("kept-room"))
+	merged := s.createVenue(s.slug("merged-room"))
+	_, err := NewVenueService(s.db).MergeVenuesInSamePlace(kept.ID, merged.ID, 0)
+	s.Require().NoError(err)
+
+	_, current := s.served("venues", *merged.Slug)
+	s.Equal(*kept.Slug, current)
+}
+
+// A former slug whose entity has no usable live slug names nothing, so its
+// URL answers 404 rather than a redirect to an address that cannot serve.
+func (s *EntityFormerSlugsSuite) TestAFormerSlugOfAnEntityWithoutALiveSlugNamesNothing() {
+	a, b := s.slug("a"), s.slug("b")
+	venue := s.createVenue(a)
+	s.setSlug("venues", venue.ID, b)
+	s.setSlug("venues", venue.ID, nil)
+	s.Require().Equal(venue.ID, s.formerRow("venue", a))
+	_, current := s.served("venues", a)
+	s.Empty(current, "a venue with no slug")
+
+	s.setSlug("venues", venue.ID, "12345")
+	_, current = s.served("venues", a)
+	s.Empty(current, "a live slug of digits alone reads as an id")
+}
+
+// A preview rolls back, and its former-slug writes with it.
+func (s *EntityFormerSlugsSuite) TestVenueMergePreviewRecordsNothing() {
+	kept := s.createVenue(s.slug("kept-room"))
+	merged := s.createVenue(s.slug("merged-room"))
+	_, err := NewVenueService(s.db).PreviewMergeVenues(kept.ID, merged.ID)
+	s.Require().NoError(err)
+	s.Zero(s.formerRow("venue", *merged.Slug))
+}
+
+func (s *EntityFormerSlugsSuite) TestMergeArtistsPointsTheLoserAtTheWinner() {
+	kept := s.createArtist(s.slug("kept-band"))
+	mergedOld, mergedSlug := s.slug("merged-band-old"), s.slug("merged-band")
+	merged := s.createArtist(mergedOld)
+	s.setSlug("artists", merged.ID, mergedSlug)
+
+	_, err := NewArtistService(s.db).MergeArtists(kept.ID, merged.ID)
+	s.Require().NoError(err)
+
+	for _, former := range []string{mergedSlug, mergedOld} {
+		_, current := s.served("artists", former)
+		s.Equalf(*kept.Slug, current, "artist %s resolves to the kept artist", former)
+	}
+}
+
+func (s *EntityFormerSlugsSuite) TestMergeDuplicateShowPointsTheLoserAtTheWinner() {
+	winner := s.createShow(s.slug("winner"))
+	loserOld, loserSlug := s.slug("loser-old"), s.slug("loser")
+	loser := s.createShow(loserOld)
+	s.setSlug("shows", loser.ID, loserSlug)
+
+	s.Require().NoError(s.db.Transaction(func(tx *gorm.DB) error {
+		return MergeDuplicateShow(tx, winner.ID, loser.ID, &ShowDedupSummary{})
+	}))
+
+	for _, former := range []string{loserSlug, loserOld} {
+		_, current := s.served("shows", former)
+		s.Equalf(*winner.Slug, current, "show %s resolves to the winner", former)
+	}
+}
+
+// A into B, then B into C: both resolve to C in one hop, and so does every
+// slug after C is renamed.
+func (s *EntityFormerSlugsSuite) TestMergeChainsStayOneHop() {
+	svc := NewArtistService(s.db)
+	a := s.createArtist(s.slug("a"))
+	b := s.createArtist(s.slug("b"))
+	c := s.createArtist(s.slug("c"))
+	_, err := svc.MergeArtists(b.ID, a.ID)
+	s.Require().NoError(err)
+	_, err = svc.MergeArtists(c.ID, b.ID)
+	s.Require().NoError(err)
+
+	for _, former := range []string{*a.Slug, *b.Slug} {
+		_, current := s.served("artists", former)
+		s.Equalf(*c.Slug, current, "%s resolves to the last survivor", former)
+	}
+
+	renamed := s.slug("c-renamed")
+	s.setSlug("artists", c.ID, renamed)
+	for _, former := range []string{*a.Slug, *b.Slug, *c.Slug} {
+		_, current := s.served("artists", former)
+		s.Equalf(renamed, current, "%s resolves to the renamed survivor", former)
+	}
+}
+
+func (s *EntityFormerSlugsSuite) TestVenueMergeChainsStayOneHop() {
+	svc := NewVenueService(s.db)
+	a := s.createVenue(s.slug("room-a"))
+	b := s.createVenue(s.slug("room-b"))
+	c := s.createVenue(s.slug("room-c"))
+	_, err := svc.MergeVenues(b.ID, a.ID, 0)
+	s.Require().NoError(err)
+	_, err = svc.MergeVenues(c.ID, b.ID, 0)
+	s.Require().NoError(err)
+
+	for _, former := range []string{*a.Slug, *b.Slug} {
+		_, current := s.served("venues", former)
+		s.Equalf(*c.Slug, current, "%s resolves to the last survivor", former)
+	}
+}
+
+// The one product rename that changes a slug: UpdateArtist regenerates it
+// from the new name, and the old URL now redirects.
+func (s *EntityFormerSlugsSuite) TestUpdateArtistRenameRedirects() {
+	artist := s.createArtist(s.slug("before-rename"))
+	name := "Renamed " + s.slug("band")
+	updated, err := NewArtistService(s.db).UpdateArtist(artist.ID, &contracts.UpdateArtistRequest{Name: &name})
+	s.Require().NoError(err)
+	s.Require().NotEqual(*artist.Slug, updated.Slug)
+
+	_, current := s.served("artists", *artist.Slug)
+	s.Equal(updated.Slug, current)
+}
+
+// KeepSlug renames without writing the slug, so nothing is recorded and a
+// former slug equal to the new name's derived slug keeps its owner.
+func (s *EntityFormerSlugsSuite) TestUpdateArtistKeepSlugRecordsNothing() {
+	owner := s.createArtist(s.slug("owner"))
+	taken := s.slug("kept-name")
+	s.Require().NoError(s.db.Exec(
+		"INSERT INTO entity_former_slugs (entity_type, former_slug, entity_id) VALUES ('artist', ?, ?)", taken, owner.ID).Error)
+	artist := s.createArtist(s.slug("renamed-in-place"))
+
+	updated, err := NewArtistService(s.db).UpdateArtist(artist.ID, &contracts.UpdateArtistRequest{Name: &taken, KeepSlug: true})
+	s.Require().NoError(err)
+	s.Equal(*artist.Slug, updated.Slug)
+	s.Equal(taken, updated.Name)
+
+	var n int64
+	s.Require().NoError(s.db.Raw("SELECT COUNT(*) FROM entity_former_slugs").Scan(&n).Error)
+	s.EqualValues(1, n, "no row recorded")
+	s.Equal(owner.ID, s.formerRow("artist", taken), "another artist's former slug keeps its owner")
+}
+
+// formerSlugFamilies, the table's CHECK and the triggers name the same three
+// families; one that drifted from the others would record slugs nothing reads,
+// or read slugs nothing records.
+func (s *EntityFormerSlugsSuite) TestFamiliesMatchTheSchema() {
+	var check string
+	s.Require().NoError(s.db.Raw(`
+		SELECT pg_get_constraintdef(oid) FROM pg_constraint
+		 WHERE conname = 'entity_former_slugs_entity_type_check'`).Scan(&check).Error)
+	s.Require().NotEmpty(check)
+	allowed := strings.Count(check, "'") / 2
+	s.Equalf(len(formerSlugFamilies), allowed, "the CHECK allows %d values, the code keeps %d families: %s",
+		allowed, len(formerSlugFamilies), check)
+
+	for entity, family := range formerSlugFamilies {
+		s.Containsf(check, "'"+string(entity)+"'", "the CHECK does not admit %s", entity)
+		for _, event := range []string{"insert", "update"} {
+			var def string
+			s.Require().NoError(s.db.Raw(`
+				SELECT pg_get_triggerdef(t.oid) FROM pg_trigger t
+				  JOIN pg_class c ON c.oid = t.tgrelid
+				 WHERE c.relname = ? AND t.tgname = ?`,
+				family.table, family.table+"_track_former_slug_on_"+event).Scan(&def).Error)
+			s.Containsf(def, "entity_former_slugs_track('"+string(entity)+"')",
+				"%s has no %s trigger recording %s former slugs", family.table, event, entity)
+		}
+		s.Equalf(entity, formerSlugEntityByPrefix[family.table],
+			"the probe prefix %s does not name %s", family.table, entity)
+	}
+	s.Len(formerSlugEntityByPrefix, len(formerSlugFamilies))
+}
+
+// ──────────────────────────────────────────────
+// Deletes with no successor
+// ──────────────────────────────────────────────
+
+func (s *EntityFormerSlugsSuite) TestDeletedEntitiesLoseTheirFormerSlugs() {
+	venueOld := s.slug("venue-old")
+	venue := s.createVenue(venueOld)
+	s.setSlug("venues", venue.ID, s.slug("venue-new"))
+	s.Require().NoError(NewVenueService(s.db).DeleteVenue(venue.ID))
+
+	artistOld := s.slug("artist-old")
+	artist := s.createArtist(artistOld)
+	s.setSlug("artists", artist.ID, s.slug("artist-new"))
+	s.Require().NoError(NewArtistService(s.db).DeleteArtist(artist.ID, contracts.EntityDeleteActor{UserID: 1, IsAdmin: true}))
+
+	showOld := s.slug("show-old")
+	show := s.createShow(showOld)
+	s.setSlug("shows", show.ID, s.slug("show-new"))
+	s.Require().NoError(NewShowService(s.db).DeleteShow(show.ID))
+
+	for prefix, former := range map[string]string{"venues": venueOld, "artists": artistOld, "shows": showOld} {
+		s.Zerof(s.formerRow(entityTypeOfPrefix[prefix], former), "%s %s keeps no row", prefix, former)
+		live, current := s.served(prefix, former)
+		s.False(live)
+		s.Emptyf(current, "%s %s answers 404", prefix, former)
+	}
+}
+
+// ──────────────────────────────────────────────
+// The migration's backfill
+// ──────────────────────────────────────────────
+
+// formerSlugBackfillStatements returns the backfill migration's statements:
+// every INSERT INTO entity_former_slugs that starts a line.
+func (s *EntityFormerSlugsSuite) formerSlugBackfillStatements() []string {
+	raw, err := os.ReadFile("../../../db/migrations/20261122202832_entity_former_slugs_backfill.up.sql")
+	s.Require().NoError(err)
+	const head = "\nINSERT INTO entity_former_slugs"
+	text := string(raw)
+	var stmts []string
+	for {
+		start := strings.Index(text, head)
+		if start < 0 {
+			break
+		}
+		text = text[start+1:]
+		end := strings.Index(text, ";")
+		s.Require().Positive(end)
+		stmts = append(stmts, text[:end])
+		text = text[end:]
+	}
+	s.Require().Len(stmts, 2, "the migration backfills the migration-merged pairs and the audited merges")
+	return stmts
+}
+
+// The backfill writes exactly the slugs a record kept: the two pairs migration
+// 20260727021004 merged, and every merged slug an audit row names, against a
+// survivor that still exists, never over a live slug, latest merge winning.
+func (s *EntityFormerSlugsSuite) TestMigrationBackfillWritesOnlyRecordedSlugs() {
+	seventh := s.createVenue("7th-street-entry-minneapolis-mn")
+	kept := s.createVenue(s.slug("audited-kept"))
+	later := s.createVenue(s.slug("audited-later"))
+	live := s.createVenue(s.slug("audited-live"))
+	band := s.createArtist(s.slug("audited-band"))
+	audit := func(action, entityType string, entityID uint, key, slug string, at time.Time) {
+		s.Require().NoError(s.db.Exec(
+			`INSERT INTO audit_logs (action, entity_type, entity_id, metadata, created_at)
+			 VALUES (?, ?, ?, jsonb_build_object(?::text, ?::text), ?)`,
+			action, entityType, entityID, key, slug, at).Error)
+	}
+	now := time.Now().UTC()
+	merged := s.slug("audited-merged-room")
+	audit("merge_venues", "venue", kept.ID, "merged_venue_slug", merged, now.Add(-2*time.Hour))
+	audit("merge_venues", "venue", later.ID, "merged_venue_slug", merged, now.Add(-time.Hour))
+	audit("merge_venues", "venue", kept.ID, "merged_venue_slug", *live.Slug, now)
+	audit("merge_venues", "venue", 2147483000, "merged_venue_slug", s.slug("gone-survivor"), now)
+	mergedBand := s.slug("audited-merged-band")
+	audit("merge_artists", "artist", band.ID, "merged_artist_slug", mergedBand, now)
+	audit("merge_artists", "artist", band.ID, "merged_artist_name", "name only", now)
+	audit("merge_artists", "artist", band.ID, "merged_artist_slug", "(none)", now)
+	audit("merge_venues", "venue", kept.ID, "merged_venue_slug", "two words", now)
+
+	for _, stmt := range s.formerSlugBackfillStatements() {
+		s.Require().NoError(s.db.Exec(stmt).Error)
+	}
+
+	var rows []struct {
+		EntityType string
+		FormerSlug string
+		EntityID   uint
+	}
+	s.Require().NoError(s.db.Raw(
+		"SELECT entity_type, former_slug, entity_id FROM entity_former_slugs ORDER BY entity_type, former_slug").Scan(&rows).Error)
+	// The audited live slug, the audit row whose survivor is gone, the audit
+	// row that names no slug, the values that are not slug-shaped ("(none)",
+	// "two words"), and the migration pair whose survivor does not exist
+	// (metro-baltimore-baltimore-md) write nothing.
+	s.Require().Len(rows, 3, "%+v", rows)
+	s.Equal([]any{"artist", mergedBand, band.ID}, []any{rows[0].EntityType, rows[0].FormerSlug, rows[0].EntityID})
+	s.Equal([]any{"venue", "7th-st-entry-minneapolis-mn", seventh.ID},
+		[]any{rows[1].EntityType, rows[1].FormerSlug, rows[1].EntityID}, "a migration pair whose survivor resolves")
+	s.Equal([]any{"venue", merged, later.ID},
+		[]any{rows[2].EntityType, rows[2].FormerSlug, rows[2].EntityID}, "the latest merge of a slug wins")
+}
+
+// A row whose entity is gone without the sweep (a bare delete) names nothing:
+// the lookup joins the live entity.
+func (s *EntityFormerSlugsSuite) TestAFormerSlugOfAMissingEntityNamesNothing() {
+	former := s.slug("orphan")
+	s.Require().NoError(s.db.Exec(
+		"INSERT INTO entity_former_slugs (entity_type, former_slug, entity_id) VALUES ('venue', ?, 2147483000)", former).Error)
+	_, current := s.served("venues", former)
+	s.Empty(current)
+}

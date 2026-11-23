@@ -191,6 +191,9 @@ func (s *ArtistDeleteRefsSuite) seedArtistRefRow(table string, artistID uint, f 
 		      VALUES ('artist', ?, ?, 'great band', '<p>great band</p>')`, artistID, f.user.ID)
 	case "entity_edit_audit_logs":
 		exec(`INSERT INTO entity_edit_audit_logs (entity_type, entity_id) VALUES ('artist', ?)`, artistID)
+	case "entity_former_slugs":
+		exec(`INSERT INTO entity_former_slugs (entity_type, former_slug, entity_id) VALUES ('artist', ?, ?)`,
+			fmt.Sprintf("sweep-former-%d", time.Now().UnixNano()), artistID)
 	case "entity_reports":
 		exec(`INSERT INTO entity_reports (entity_type, entity_id, reported_by, report_type)
 		      VALUES ('artist', ?, ?, 'duplicate')`, artistID, f.user.ID)

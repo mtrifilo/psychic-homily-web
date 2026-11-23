@@ -437,13 +437,17 @@ type VenueYearArchiveExistsRequest struct {
 }
 
 // VenueYearArchiveExistsResponse carries no body on purpose: the STATUS is the
-// whole answer, which is what lets the caller use HEAD.
-type VenueYearArchiveExistsResponse struct{}
+// whole answer, which is what lets the caller use HEAD. The one header names
+// the venue's current slug when the request named a former one.
+type VenueYearArchiveExistsResponse struct {
+	CanonicalSlug string `header:"Canonical-Slug" doc:"Present only when the requested slug is a former slug of a venue whose archive has that year, naming the venue's current slug; absent when the requested slug or id is live."`
+}
 
 // VenueYearArchiveExistsHandler handles HEAD
 // /venues/{venue_id}/shows/{year}/exists — 200 when the venue has at least one
 // approved PAST show in that venue-local year, 404 when the venue is unknown or
-// the year is empty.
+// the year is empty. A former slug of a venue answers as the venue it now
+// stands for does, with that venue's current slug in Canonical-Slug.
 //
 // 200 rather than the 204 a body-less output would normally get: huma v2.34.1
 // special-cases HEAD and pins DefaultStatus to 200 before the body-less rule
@@ -470,8 +474,9 @@ type VenueYearArchiveExistsResponse struct{}
 // they were unified: 121 bytes against 147.
 //
 // They are NOT indistinguishable by TIMING, and this file should not pretend
-// otherwise: an unknown slug returns after one GetVenueBySlug, while a known
-// venue pays that plus a probe whose cost scales with its history (see below).
+// otherwise: an unknown slug returns after one GetVenueBySlug and one former
+// slug lookup, while a known venue pays the first plus a probe whose cost scales
+// with its history (see below).
 // That oracle is wide open and this change widens it. It is tolerable only
 // because nothing secret rides on the distinction — venue existence is already
 // public through GET /venues/{slug} — which is also the reason the byte-level
@@ -502,15 +507,26 @@ type VenueYearArchiveExistsResponse struct{}
 // key the proxy's traffic can be told apart by, not this flag.
 func (h *VenueHandler) VenueYearArchiveExistsHandler(ctx context.Context, req *VenueYearArchiveExistsRequest) (*VenueYearArchiveExistsResponse, error) {
 	venueID, err := h.resolveVenueID(req.VenueID)
+	canonicalSlug := ""
 	if err != nil {
-		// Restated rather than surfaced, so an unknown venue is byte-identical to
-		// an empty year. resolveVenueID's own "Venue not found" is the right
-		// answer for its other callers and the wrong one here.
 		var statusErr huma.StatusError
-		if errors.As(err, &statusErr) && statusErr.GetStatus() == http.StatusNotFound {
+		if !errors.As(err, &statusErr) || statusErr.GetStatus() != http.StatusNotFound {
+			return nil, err
+		}
+		// Only a slug that matched no venue reads the former slugs, so a live
+		// slug or id costs the lookups it always has.
+		successorID, currentSlug, lookupErr := h.venueService.VenueForFormerSlug(req.VenueID)
+		if lookupErr != nil {
+			return nil, huma.Error500InternalServerError("Failed to check venue year archive", lookupErr)
+		}
+		if successorID == 0 {
+			// Restated rather than surfaced, so an unknown venue is
+			// byte-identical to an empty year. resolveVenueID's own "Venue not
+			// found" is the right answer for its other callers and the wrong
+			// one here.
 			return nil, huma.Error404NotFound(venueYearArchiveAbsent)
 		}
-		return nil, err
+		venueID, canonicalSlug = successorID, currentSlug
 	}
 
 	exists, err := h.venueService.HasPastShowsInYear(venueID, req.Year)
@@ -521,7 +537,7 @@ func (h *VenueHandler) VenueYearArchiveExistsHandler(ctx context.Context, req *V
 		return nil, huma.Error404NotFound(venueYearArchiveAbsent)
 	}
 
-	return &VenueYearArchiveExistsResponse{}, nil
+	return &VenueYearArchiveExistsResponse{CanonicalSlug: canonicalSlug}, nil
 }
 
 // venueYearArchiveAbsent is the ONE detail both 404 branches carry. Declared

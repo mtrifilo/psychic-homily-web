@@ -47,12 +47,8 @@ func (s *EntityExistenceService) Exists(entityType, idOrSlug string) (bool, erro
 
 	switch entityType {
 	case "shows":
-		return s.existsByIDOrSlug(
-			&catalogm.Show{},
-			idOrSlug,
-			"status = ?",
-			catalogm.ShowStatusApproved,
-		)
+		served := formerSlugFamilies[entityTypeShow]
+		return s.existsByIDOrSlug(&catalogm.Show{}, idOrSlug, served.servedWhere, served.servedArg)
 	case "venues":
 		return s.existsByIDOrSlug(&catalogm.Venue{}, idOrSlug)
 	case "artists":
@@ -71,6 +67,24 @@ func (s *EntityExistenceService) Exists(entityType, idOrSlug string) (bool, erro
 	default:
 		return false, nil
 	}
+}
+
+// CurrentSlugForFormerSlug answers the probe for a URL segment Exists missed:
+// the live slug of the show, venue or artist that segment is a former slug of,
+// served under the same rule Exists applies, or "" when it names none. It
+// returns "" without a query for every other entity type and for a segment
+// that reads as an id. Call it only after Exists has answered false, so a live
+// slug is never looked up here.
+func (s *EntityExistenceService) CurrentSlugForFormerSlug(entityType, idOrSlug string) (string, error) {
+	if s.db == nil {
+		return "", fmt.Errorf("database not initialized")
+	}
+	entity, ok := formerSlugEntityByPrefix[entityType]
+	if !ok {
+		return "", nil
+	}
+	_, current, err := lookupFormerSlug(s.db, entity, idOrSlug)
+	return current, err
 }
 
 func (s *EntityExistenceService) existsByIDOrSlug(model any, idOrSlug string, extraWhere ...any) (bool, error) {
@@ -99,10 +113,21 @@ func idOrSlugCondition(table, idOrSlug string) (string, any) {
 	if table != "" {
 		prefix = table + "."
 	}
-	if id, err := strconv.ParseUint(idOrSlug, 10, 32); err == nil {
-		return prefix + "id = ?", uint(id)
+	if id, isID := parseEntityIDSegment(idOrSlug); isID {
+		return prefix + "id = ?", id
 	}
 	return prefix + "slug = ?", idOrSlug
+}
+
+// parseEntityIDSegment reads a URL segment as a numeric entity id: isID is
+// true when it parses as a 32-bit unsigned integer, the segments every probe
+// and detail handler resolve by id rather than by slug.
+func parseEntityIDSegment(segment string) (id uint, isID bool) {
+	parsed, err := strconv.ParseUint(segment, 10, 32)
+	if err != nil {
+		return 0, false
+	}
+	return uint(parsed), true
 }
 
 // firstIDExists reports whether query reaches at least one row, reading

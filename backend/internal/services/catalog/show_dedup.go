@@ -698,6 +698,12 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 			map[string]int64{"venue_show_alert_batch": batchDropped})
 	}
 
+	// The loser's own slug, which no table holds once its row is deleted. Its
+	// earlier slugs moved with the inventory above.
+	if err := recordMergedAwaySlug(tx, entityTypeShow, winnerID, loserID); err != nil {
+		return err
+	}
+
 	// Delete the loser show. Nothing should be left to CASCADE: every foreign key
 	// to shows.id is named in showFKColumns, and every one of them was re-pointed
 	// above.

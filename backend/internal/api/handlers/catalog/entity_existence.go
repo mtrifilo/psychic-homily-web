@@ -8,6 +8,7 @@ import (
 
 type entityExistenceService interface {
 	Exists(entityType, idOrSlug string) (bool, error)
+	CurrentSlugForFormerSlug(entityType, idOrSlug string) (string, error)
 	ServedSceneSlug(slug string) (string, bool, error)
 	RadioStationExists(stationIDOrSlug string) (bool, error)
 	RadioShowExists(stationIDOrSlug, showIDOrSlug string) (bool, error)
@@ -29,9 +30,9 @@ type EntityExistsRequest struct {
 }
 
 // EntityExistsResponse is the generic probe's whole answer: the status, and
-// for a scene the slug its page is served at.
+// for a scene or a former slug the slug the page is served at.
 type EntityExistsResponse struct {
-	CanonicalSlug string `header:"Canonical-Slug" doc:"Scenes only: the slug the scene's page is served at, which a member city or a case variant of the requested slug resolves to. Absent for every other entity type, and for a scene whose canonical slug cannot be named."`
+	CanonicalSlug string `header:"Canonical-Slug" doc:"Scenes: the slug the scene's page is served at, which a member city or a case variant of the requested slug resolves to; absent for a scene whose canonical slug cannot be named. Shows, venues and artists: present only when the requested slug is a former slug, naming the entity's current slug; absent when the requested slug or id is live. Absent for every other entity type."`
 }
 
 // FamilyExistsResponse is a family probe's whole answer: the status alone.
@@ -45,10 +46,20 @@ func (h *EntityExistenceHandler) EntityExistsHandler(ctx context.Context, req *E
 		}
 		return &EntityExistsResponse{CanonicalSlug: canonical}, nil
 	}
-	if err := existenceError(h.entityExistenceService.Exists(req.EntityType, req.EntityID)); err != nil {
+	exists, err := h.entityExistenceService.Exists(req.EntityType, req.EntityID)
+	if err != nil {
+		return nil, existenceError(false, err)
+	}
+	if exists {
+		return &EntityExistsResponse{}, nil
+	}
+	// Only a miss reads the former slugs, so a live slug costs the one lookup
+	// it always has.
+	current, err := h.entityExistenceService.CurrentSlugForFormerSlug(req.EntityType, req.EntityID)
+	if err := existenceError(current != "", err); err != nil {
 		return nil, err
 	}
-	return &EntityExistsResponse{}, nil
+	return &EntityExistsResponse{CanonicalSlug: current}, nil
 }
 
 // existenceError turns a probe's verdict into the probe's error: none when the

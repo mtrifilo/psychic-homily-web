@@ -1364,6 +1364,9 @@ type UpdateArtistRequest struct {
 	SoundCloud       *string `json:"soundcloud"`
 	Bandcamp         *string `json:"bandcamp"`
 	Website          *string `json:"website"`
+	// KeepSlug changes Name without regenerating the slug. It is set only by
+	// in-process callers and is never read from a request body.
+	KeepSlug bool `json:"-"`
 }
 
 // ArtistDetailResponse represents the artist data returned to clients
@@ -2937,6 +2940,11 @@ type VenueServiceInterface interface {
 	// aggregating the venue's whole history. Past-only, because a year archive
 	// is.
 	HasPastShowsInYear(venueID uint, year int) (bool, error)
+	// VenueForFormerSlug resolves a slug a venue no longer answers at (a slug
+	// change, or a venue merged away) to the venue that stands for it now: its
+	// id and live slug, the id 0 when the slug is no venue's former slug.
+	// Callers read it only after the live slug lookup has missed.
+	VenueForFormerSlug(slug string) (venueID uint, currentSlug string, err error)
 	// GetVenueCities counts the same browse set GetVenuesWithShowCounts lists,
 	// under the same non-place filters, so a city count cannot dead-end at an
 	// empty list. The place half of the filter set is ignored: the response IS

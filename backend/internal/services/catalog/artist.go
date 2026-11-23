@@ -457,14 +457,16 @@ func (s *ArtistService) UpdateArtist(artistID uint, req *contracts.UpdateArtistR
 		}
 		updates["name"] = name
 
-		// Regenerate slug when name changes
-		baseSlug := utils.GenerateArtistSlug(name)
-		slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
-			var count int64
-			s.db.Model(&catalogm.Artist{}).Where("slug = ? AND id != ?", candidate, artistID).Count(&count)
-			return count > 0
-		})
-		updates["slug"] = slug
+		// Regenerate slug when name changes, unless the caller keeps it.
+		if !req.KeepSlug {
+			baseSlug := utils.GenerateArtistSlug(name)
+			slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
+				var count int64
+				s.db.Model(&catalogm.Artist{}).Where("slug = ? AND id != ?", candidate, artistID).Count(&count)
+				return count > 0
+			})
+			updates["slug"] = slug
+		}
 	}
 	if req.State != nil {
 		updates["state"] = utils.NilIfEmpty(*req.State)
@@ -1963,7 +1965,13 @@ func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.
 			result.AliasCreated = true
 		}
 
-		// 14. Delete the merged artist
+		// 14. The merged artist's own slug, which no table holds once its row is
+		// deleted. Its earlier slugs moved with step 9.
+		if err := recordMergedAwaySlug(tx, entityTypeArtist, canonicalID, mergeFromID); err != nil {
+			return err
+		}
+
+		// 15. Delete the merged artist
 		if err := tx.Delete(&mergeFrom).Error; err != nil {
 			return fmt.Errorf("failed to delete merged artist: %w", err)
 		}

@@ -12,10 +12,9 @@
 //	go run ./cmd/backfill-venue-slugs --confirm       # apply changes
 //	go run ./cmd/backfill-venue-slugs --env .env.stage # target a specific env
 //
-// Dry-run prints exactly what a live run would change and writes nothing. There
-// is no slug-redirect mechanism in the system and the corrupted slugs have no
-// legitimate external references, so old slugs simply 404 after the rewrite;
-// internal links regenerate from venue.slug.
+// Dry-run prints exactly what a live run would change and writes nothing. The
+// venues slug trigger records each rewritten slug in entity_former_slugs, so an
+// old URL redirects to the new one; internal links regenerate from venue.slug.
 package main
 
 import (

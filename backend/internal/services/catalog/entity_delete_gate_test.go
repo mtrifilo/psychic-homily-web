@@ -125,6 +125,8 @@ func TestRecordedEngagementActorsAreTheOnesReviewed(t *testing.T) {
 		// the flow the non-admin path exists to serve.
 		"image_enrich_queue": systemWrittenRows,
 		"source_configs":     systemWrittenRows,
+		// Written by the slug triggers and the merges, never by a person.
+		"entity_former_slugs": systemWrittenRows,
 	}
 
 	for table, want := range reviewed {

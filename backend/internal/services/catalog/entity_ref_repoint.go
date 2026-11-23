@@ -94,6 +94,10 @@ var polymorphicEntityRefs = []entityRef{
 
 	// No unique key on the entity reference: re-point in place.
 	{table: "audit_logs", idCol: "entity_id"},
+	// Unique on (entity_type, former_slug), which a re-point never changes.
+	// Moving a merged loser's rows to the winner is what keeps every former
+	// slug one hop from the live page.
+	{table: "entity_former_slugs", idCol: "entity_id"},
 	{table: "comments", idCol: "entity_id"},
 	{table: "entity_reports", idCol: "entity_id"},
 	{table: "requests", idCol: "requested_entity_id"},
