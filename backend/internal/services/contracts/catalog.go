@@ -950,6 +950,9 @@ type VenueDetailResponse struct {
 	// Scene is this venue's scene page. Filled by GetVenueDetail only; see
 	// SceneLinkResponse for when it is present.
 	Scene *SceneLinkResponse `json:"scene,omitempty" doc:"The scene page this entity links to. Present only when that page serves (a US place whose scene clears the verified-venue floor); absent on list payloads."`
+	// HasCalendarSource is filled by GetVenueDetail only; every other producer
+	// of this type leaves it nil, so it is absent rather than false there.
+	HasCalendarSource *bool `json:"has_calendar_source,omitempty" doc:"True when a calendar source is registered for this venue in the source registry (not the viewer's follow state). False when none is registered, so an empty upcoming list may be incomplete. Absent means NOT DETERMINED: present on the venue detail read only (absent on list payloads and write responses), and omitted if the lookup failed."`
 }
 
 // Venue provenance source keys. The set is deliberately small and each member

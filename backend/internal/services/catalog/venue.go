@@ -14,10 +14,12 @@ import (
 
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
+	adminm "psychic-homily-backend/internal/models/admin"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/shared"
+	"psychic-homily-backend/internal/services/sourceregistry"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -332,13 +334,13 @@ func (s *VenueService) GetVenueBySlug(slug string) (*contracts.VenueDetailRespon
 }
 
 // GetVenueDetail resolves a venue by numeric ID or slug and returns it WITH
-// its provenance stamp — the venue-detail read, and the only read that pays
-// for the stamp.
+// the fields only the venue-detail read pays for: the provenance stamp, the
+// scene link and has_calendar_source.
 //
 // Deliberately separate from GetVenue/GetVenueBySlug. Those are the cheap
 // identity lookups the rest of the backend leans on: snapshotting a row before
 // an admin edit, resolving a slug to an ID for an unrelated sub-resource.
-// None of them render provenance, so attaching the aggregations there would
+// None of them render these fields, so attaching their queries there would
 // make every one of them pay for a field it discards — and would hide that
 // cost the day the stamp gains a more expensive signal.
 func (s *VenueService) GetVenueDetail(idOrSlug string) (*contracts.VenueDetailResponse, error) {
@@ -363,7 +365,21 @@ func (s *VenueService) GetVenueDetail(idOrSlug string) (*contracts.VenueDetailRe
 	resp := s.buildVenueResponse(&venue)
 	resp.Provenance = s.venueProvenanceFor(&venue)
 	resp.Scene = venueSceneLink(s.db, s.geocoder, "venue", venue.ID, &venue)
+	resp.HasCalendarSource = s.venueHasCalendarSource(venue.ID)
 	return resp, nil
+}
+
+// venueHasCalendarSource reports whether a calendar source is registered for
+// the venue, as the source registry defines registration. Nil when the probe
+// fails, so the payload omits the field instead of asserting either answer.
+func (s *VenueService) venueHasCalendarSource(venueID uint) *bool {
+	registered, err := sourceregistry.IsRegistered(s.db, adminm.SourceEntityVenue, venueID)
+	if err != nil {
+		slog.Default().Error("venue calendar-source lookup failed; detail omits has_calendar_source",
+			"venue_id", venueID, "error", err)
+		return nil
+	}
+	return &registered
 }
 
 // GetVenues retrieves venues with optional filtering

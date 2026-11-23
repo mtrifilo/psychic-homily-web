@@ -24,6 +24,12 @@ interface VenueShowsListProps {
   venueAddress?: string | null
   venueVerified?: boolean
   /**
+   * The venue detail's `has_calendar_source`. Only `false` switches the empty
+   * line to the no-calendar-source sentence; `true` and `undefined` (not
+   * determined) render "No upcoming shows yet.".
+   */
+  venueHasCalendarSource?: boolean
+  /**
    * The past-show year histogram the ROUTE already fetched, so the archive's
    * year strip is in the served HTML instead of appearing after the first
    * client fetch (PSY-1756). Passed straight through to `VenuePastShows`.
@@ -58,6 +64,7 @@ export function VenueShowsList({
   venueTimezone,
   venueAddress,
   venueVerified,
+  venueHasCalendarSource,
   initialPastYears,
   className,
   onShowAdded,
@@ -117,7 +124,11 @@ export function VenueShowsList({
           // duplicated the header's Follow control, which now subscribes on
           // its own (PSY-1893 / PSY-1905).
           <p className="py-2 text-sm text-muted-foreground">
-            <NoSnippet>No upcoming shows yet.</NoSnippet>
+            <NoSnippet>
+              {venueHasCalendarSource === false
+                ? "We don't follow this room's calendar, so upcoming shows may be missing."
+                : 'No upcoming shows yet.'}
+            </NoSnippet>
           </p>
         ) : (
           <>

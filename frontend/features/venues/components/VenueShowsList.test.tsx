@@ -374,6 +374,63 @@ describe('VenueShowsList — upcoming section', () => {
     ).not.toBeInTheDocument()
   })
 
+  describe('empty line by has_calendar_source', () => {
+    const NO_CALENDAR_SOURCE_LINE =
+      "We don't follow this room's calendar, so upcoming shows may be missing."
+    const DEFAULT_EMPTY_LINE = 'No upcoming shows yet.'
+
+    /**
+     * Asserts the empty state is exactly `text`, inside the nosnippet span,
+     * inside the one paragraph with the empty state's classes and nothing
+     * else in it.
+     */
+    function expectEmptyLine(text: string) {
+      const span = screen.getByText(text)
+      expect(span.matches('span[data-nosnippet]')).toBe(true)
+      expect(span.childElementCount).toBe(0)
+      const paragraph = span.parentElement!
+      expect(paragraph.tagName).toBe('P')
+      expect(paragraph.className).toBe('py-2 text-sm text-muted-foreground')
+      expect(paragraph.childElementCount).toBe(1)
+      expect(paragraph.textContent).toBe(text)
+    }
+
+    // Only false switches the line; undefined (not determined) renders the
+    // default line, never the no-calendar-source line.
+    it.each([
+      [false, NO_CALENDAR_SOURCE_LINE],
+      [true, DEFAULT_EMPTY_LINE],
+      [undefined, DEFAULT_EMPTY_LINE],
+    ])('with nothing coming and has_calendar_source %s, reads %j', (venueHasCalendarSource, line) => {
+      setUpcoming({ shows: [] })
+      renderList({ venueHasCalendarSource })
+      expectEmptyLine(line)
+    })
+
+    it.each([true, false, undefined])(
+      'renders the rows and neither line when shows are coming (has_calendar_source %s)',
+      venueHasCalendarSource => {
+        setUpcoming({ shows: [makeShow()] })
+        renderList({ venueHasCalendarSource })
+        expect(screen.getByRole('table', { name: 'Upcoming shows' })).toBeInTheDocument()
+        expect(screen.queryByText(NO_CALENDAR_SOURCE_LINE)).not.toBeInTheDocument()
+        expect(screen.queryByText(DEFAULT_EMPTY_LINE)).not.toBeInTheDocument()
+      }
+    )
+
+    it('keeps the loader and the error unchanged when has_calendar_source is false', () => {
+      const { unmount } = renderList({ venueHasCalendarSource: false })
+      expect(document.querySelector('.animate-spin')).toBeInTheDocument()
+      expect(screen.queryByText(NO_CALENDAR_SOURCE_LINE)).not.toBeInTheDocument()
+      unmount()
+
+      setUpcoming(null, { error: new Error('boom') })
+      renderList({ venueHasCalendarSource: false })
+      expect(screen.getByText(/Failed to load shows/i)).toBeInTheDocument()
+      expect(screen.queryByText(NO_CALENDAR_SOURCE_LINE)).not.toBeInTheDocument()
+    })
+  })
+
   it('renders upcoming shows as a table with the total beside the heading', () => {
     setUpcoming({ shows: [makeShow()], total: 83 })
     renderList()

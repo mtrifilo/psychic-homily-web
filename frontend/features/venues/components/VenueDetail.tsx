@@ -372,6 +372,7 @@ export function VenueDetail({ venueId, initialPastYears }: VenueDetailProps) {
               venueTimezone={venue.timezone}
               venueAddress={venue.address}
               venueVerified={venue.verified}
+              venueHasCalendarSource={venue.has_calendar_source}
               initialPastYears={initialPastYears}
               onShowAdded={handleShowAdded}
             />
