@@ -57,6 +57,7 @@ func (suite *VenueServiceIntegrationTestSuite) TearDownTest() {
 	// fail the users delete below and leak identities across tests.
 	_, _ = sqlDB.Exec("DELETE FROM venue_confirmations")
 	_, _ = sqlDB.Exec("DELETE FROM pending_entity_edits")
+	_, _ = sqlDB.Exec("DELETE FROM source_configs")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
 	_, _ = sqlDB.Exec("DELETE FROM users")
 }

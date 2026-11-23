@@ -172,8 +172,19 @@ vi.mock('./VenueLocationCard', () => ({
 }))
 
 vi.mock('./VenueShowsList', () => ({
-  VenueShowsList: ({ venueId }: { venueId: number }) => (
-    <div data-testid="venue-shows-list">Shows for venue {venueId}</div>
+  VenueShowsList: ({
+    venueId,
+    venueHasCalendarSource,
+  }: {
+    venueId: number
+    venueHasCalendarSource?: boolean
+  }) => (
+    <div
+      data-testid="venue-shows-list"
+      data-has-calendar-source={String(venueHasCalendarSource)}
+    >
+      Shows for venue {venueId}
+    </div>
   ),
 }))
 
@@ -379,6 +390,24 @@ describe('VenueDetail', () => {
       render(<VenueDetail venueId="the-rebel-lounge" />)
       expect(screen.getByText('Shows for venue 1')).toBeInTheDocument()
     })
+
+    // The list learns whether the room's calendar is followed from the detail
+    // payload this component already holds, absent included.
+    it.each([true, false, undefined])(
+      'hands the shows list the detail has_calendar_source (%s)',
+      hasCalendarSource => {
+        mockUseVenue.mockReturnValue({
+          data: makeVenue({ has_calendar_source: hasCalendarSource }),
+          isLoading: false,
+          error: null,
+        })
+        render(<VenueDetail venueId="1" />)
+        expect(screen.getByTestId('venue-shows-list')).toHaveAttribute(
+          'data-has-calendar-source',
+          String(hasCalendarSource)
+        )
+      }
+    )
 
     it('renders venue shows list under the #venue-shows anchor', () => {
       const { container } = render(<VenueDetail venueId="1" />)

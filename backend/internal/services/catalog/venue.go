@@ -14,6 +14,7 @@ import (
 
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
+	adminm "psychic-homily-backend/internal/models/admin"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/geo"
@@ -363,7 +364,27 @@ func (s *VenueService) GetVenueDetail(idOrSlug string) (*contracts.VenueDetailRe
 	resp := s.buildVenueResponse(&venue)
 	resp.Provenance = s.venueProvenanceFor(&venue)
 	resp.Scene = venueSceneLink(s.db, s.geocoder, "venue", venue.ID, &venue)
+	resp.HasCalendarSource = s.venueHasCalendarSource(venue.ID)
 	return resp, nil
+}
+
+// venueHasCalendarSource reports whether a calendar source is registered for
+// the venue: a source_configs row of entity type venue for its id, whatever
+// that row's URL or refresh state. One probe on the table's unique
+// (entity_type, entity_id) index. Nil when the probe fails, so the payload
+// omits the field instead of asserting either answer.
+func (s *VenueService) venueHasCalendarSource(venueID uint) *bool {
+	var registered bool
+	err := s.db.Raw(
+		`SELECT EXISTS (SELECT 1 FROM source_configs WHERE entity_type = ? AND entity_id = ?)`,
+		adminm.SourceEntityVenue, venueID,
+	).Scan(&registered).Error
+	if err != nil {
+		slog.Default().Error("venue calendar-source lookup failed; detail omits has_calendar_source",
+			"venue_id", venueID, "error", err)
+		return nil
+	}
+	return &registered
 }
 
 // GetVenues retrieves venues with optional filtering

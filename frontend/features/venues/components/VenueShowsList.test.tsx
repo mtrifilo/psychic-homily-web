@@ -374,6 +374,73 @@ describe('VenueShowsList — upcoming section', () => {
     ).not.toBeInTheDocument()
   })
 
+  describe('empty line by whether the room calendar is followed', () => {
+    const UNFOLLOWED =
+      "We don't follow this room's calendar, so upcoming shows may be missing."
+    const FOLLOWED = 'No upcoming shows yet.'
+
+    /**
+     * Asserts the empty state is exactly `text`, inside the nosnippet span,
+     * inside the one paragraph with today's classes and nothing else in it.
+     */
+    function expectEmptyLine(text: string) {
+      const span = screen.getByText(text)
+      expect(span.matches('span[data-nosnippet]')).toBe(true)
+      expect(span.childElementCount).toBe(0)
+      const paragraph = span.parentElement!
+      expect(paragraph.tagName).toBe('P')
+      expect(paragraph.className).toBe('py-2 text-sm text-muted-foreground')
+      expect(paragraph.childElementCount).toBe(1)
+      expect(paragraph.textContent).toBe(text)
+    }
+
+    it('says the calendar is not followed for an unfollowed room with nothing coming', () => {
+      setUpcoming({ shows: [] })
+      renderList({ venueHasCalendarSource: false })
+      expectEmptyLine(UNFOLLOWED)
+      expect(screen.queryByText(FOLLOWED)).not.toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: /calendar/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /calendar/i })).not.toBeInTheDocument()
+    })
+
+    it('keeps the existing line for a followed room with nothing coming', () => {
+      setUpcoming({ shows: [] })
+      renderList({ venueHasCalendarSource: true })
+      expectEmptyLine(FOLLOWED)
+      expect(screen.queryByText(UNFOLLOWED)).not.toBeInTheDocument()
+    })
+
+    it('keeps the existing line when whether the calendar is followed is unknown', () => {
+      setUpcoming({ shows: [] })
+      renderList({ venueHasCalendarSource: undefined })
+      expectEmptyLine(FOLLOWED)
+      expect(screen.queryByText(UNFOLLOWED)).not.toBeInTheDocument()
+    })
+
+    it.each([true, false, undefined])(
+      'renders the rows and neither line when shows are coming (followed: %s)',
+      venueHasCalendarSource => {
+        setUpcoming({ shows: [makeShow()] })
+        renderList({ venueHasCalendarSource })
+        expect(screen.getByRole('table', { name: 'Upcoming shows' })).toBeInTheDocument()
+        expect(screen.queryByText(UNFOLLOWED)).not.toBeInTheDocument()
+        expect(screen.queryByText(FOLLOWED)).not.toBeInTheDocument()
+      }
+    )
+
+    it('keeps the loader and the error unchanged for an unfollowed room', () => {
+      const { unmount } = renderList({ venueHasCalendarSource: false })
+      expect(document.querySelector('.animate-spin')).toBeInTheDocument()
+      expect(screen.queryByText(UNFOLLOWED)).not.toBeInTheDocument()
+      unmount()
+
+      setUpcoming(null, { error: new Error('boom') })
+      renderList({ venueHasCalendarSource: false })
+      expect(screen.getByText(/Failed to load shows/i)).toBeInTheDocument()
+      expect(screen.queryByText(UNFOLLOWED)).not.toBeInTheDocument()
+    })
+  })
+
   it('renders upcoming shows as a table with the total beside the heading', () => {
     setUpcoming({ shows: [makeShow()], total: 83 })
     renderList()
